@@ -1,0 +1,33 @@
+:root {
+  color-scheme: light;
+
+  /* ── Design-Tokens ─────────────────────────────────────────────────────────
+     Zentrale Werte für Farben/Abstände/Radien. Inline-Styles referenzieren sie
+     als var(--name). Fundament für konsistentes Theming (z. B. späterer Dark Mode).
+     Die Hex-Werte entsprechen 1:1 den bisherigen Literalen (keine optische Änderung). */
+
+  /* Flächen / Hintergründe */
+  --bg: #f1f5f9;            /* Seitenhintergrund */
+
+  /* Akzent (Primärfarbe: Buttons, Links, aktive Zustände) */
+  --accent: #0f766e;
+
+  /* Text (von kräftig zu dezent) */
+  --text-strong: #1e293b;
+  --text: #334155;
+  --text-muted-strong: #475569;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;   /* auch: deaktivierte Buttons */
+
+  /* Rahmen */
+  --border: #cbd5e1;
+  --border-subtle: #e2e8f0;
+
+  /* Radien (zur künftigen Nutzung) */
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 12px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); }
+input { font: inherit; }

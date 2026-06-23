@@ -1,0 +1,32 @@
+# ── Betriebssystem / Editor ──────────────────────────────────────────────────
+.DS_Store
+.claude/
+
+# ── Node / Build (VeloCheckWeb) ──────────────────────────────────────────────
+node_modules/
+dist/
+*.local
+.env
+.env.*
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+
+# ── Generierte Auswertungs-Outputs (regenerierbar via tools/verify_06.py) ─────
+06_verifikation.json
+06_verifikation.md
+06_visualisierung.html
+
+# ── Methodik-Dokus: nicht für Funktion/Build nötig, lokal halten ─────────────
+docs/
+
+# ── Grosse / Dritt-Rohdaten: lokal halten, NICHT versionieren ────────────────
+# (Bezugsquellen sind im README dokumentiert; die App nutzt nur die gebündelten
+#  Snapshots unter VeloCheckWeb/public/.)
+Fahrplan/
+Grundlagen/
+Notizen/
+FixMyCity_Daten/
+Geoinformation Stadt Bern/
+OBS_Daten.json

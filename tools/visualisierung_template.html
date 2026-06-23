@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VeloroutenCheck — Empirie der Führungsformwahl (visualisiert &amp; verifiziert)</title>
+<style>
+  :root{
+    --bg:#f1f5f9; --card:#ffffff; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0;
+    --misch:#9ca3af; --rad:#eab308; --radb:#f59e0b; --seiten:#60a5fa; --gesch:#4d7c0f;
+    --accent:#0f766e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+  .wrap{max-width:920px;margin:0 auto;padding:24px 16px 80px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:20px;margin:36px 0 6px;border-bottom:2px solid var(--line);padding-bottom:4px}
+  h3{font-size:15px;margin:20px 0 6px;color:#334155}
+  p{margin:8px 0}
+  .sub{color:var(--muted);font-size:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+        padding:16px 18px;margin:14px 0}
+  .method{background:#ecfeff;border:1px solid #a5f3fc;border-radius:10px;padding:12px 14px;
+          font-size:13.5px;color:#0e7490;margin:12px 0}
+  .method b{color:#155e75}
+  .read{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;
+        font-size:13.5px;color:#92400e;margin:10px 0}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}
+  th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+  th{background:#f8fafc;color:#475569;font-size:12px}
+  code{background:#f1f5f9;border:1px solid var(--line);border-radius:4px;padding:1px 5px;
+       font-size:12.5px;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .switcher{position:sticky;top:0;z-index:5;background:var(--bg);
+            padding:10px 0;border-bottom:1px solid var(--line);margin-bottom:8px}
+  .switcher .lab{font-size:12px;font-weight:700;color:#475569;margin-right:8px;
+                 text-transform:uppercase;letter-spacing:.05em}
+  .btn{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:999px;
+       padding:6px 12px;font-size:13px;cursor:pointer;margin:2px}
+  .btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .chart{width:100%;height:auto;display:block}
+  .legend{display:flex;flex-wrap:wrap;gap:10px 16px;font-size:12.5px;color:#334155;margin:6px 0 2px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr}}
+  .foot{color:#94a3b8;font-size:12px;margin-top:30px}
+  .pill{display:inline-block;background:#f1f5f9;border:1px solid var(--line);border-radius:999px;
+        padding:1px 8px;font-size:12px;color:#475569;margin-left:6px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>VeloroutenCheck — Empirie der Führungsformwahl</h1>
+  <p class="sub">Subjektive Velo-Sicherheit (feel-safe %) aus der radwege-check-/FixMyCity-Befragung,
+     visualisiert und unabhängig nachgerechnet. Datenquelle <code>SurveyResults_200414.json</code>
+     (alle Einzelantworten) ⋈ <code>scenes_*.csv</code> (Szenen-Merkmale).</p>
+
+  <div class="method" id="meta"></div>
+
+  <!-- Typen-Umschalter -->
+  <div class="switcher">
+    <span class="lab">Velofahrenden-Typ</span>
+    <span id="dimbtns"></span>
+  </div>
+  <p class="sub" id="dimhint"></p>
+
+  <!-- 1. Methodik -->
+  <h2>1 · Wie die Zahlen entstehen (Methodik)</h2>
+  <div class="card">
+    <p><b>feel-safe %</b> entsteht aus einer <b>4-stufigen Auswahl</b> — keine Eingabe von 0–100,
+      sondern genau eine von vier Klassen: <code>0</code> unsicher · <code>1</code> eher unsicher ·
+      <code>2</code> (eher) sicher · <code>3</code> (sehr) sicher. Die vier Klassen-Anteile einer
+      Szene summieren sich auf 100 %; <b>feel-safe % = Anteil der oberen zwei Klassen</b>
+      (<code>2</code> + <code>3</code>, «(eher) sicher»). Einzige Grenze ist die Skalenmitte
+      (rating ≥ 2) — es wird nichts in 0–100-Klassen eingeteilt. <i>Beispiel:</i> Antworten
+      0 / 30 / 50 / 20 → feel-safe = 50 + 20 = 70.</p>
+    <p class="sub">Belegt: die Rohantworten enthalten nur 0–3; feel-safe % ist identisch mit dem
+      offiziellen <code>voteScore</code> (= <code>vote2Save + vote3VerySave</code>). Skala/Format:
+      <code>Spezifikation-Ausgabeformat-des-Strassenchecks.pdf</code>, <code>04_Radwege-Check_Daten.md</code>.
+      Nicht verwendet: <code>voteMeans</code> (Mittelwert auf 0–3).</p>
+    <p><b>Mittelung &amp; N.</b> Jede einzelne Bewertung zählt gleich viel; ein Wert ist also der
+      Durchschnitt über alle passenden Bewertungen. <b>N</b> (in Klammern/Tooltip) ist die Zahl der
+      Bewertungen — je grösser N, desto verlässlicher. Bei kleinen N (&lt; ~300) ist Vorsicht geboten.</p>
+    <p><b>Subgruppen statt Regression.</b> Wir vergleichen jeweils <i>eine</i> Eigenschaft und halten
+      den Rest möglichst konstant (Subgruppen-Vergleich). Eine additive Regression (R² = 0,74)
+      mittelt Wechselwirkungen weg — ihre Einzel-Koeffizienten (z. B. Tempo, Tram) sind dann
+      irreführend. Deshalb hier robuste Subgruppen.</p>
+    <p><b>Tram</b> wird standardmässig ausgeschlossen (eigener Effekt, ungleich verteilt; separat
+      unten). <b>Kreuzvalidierung:</b> der aus den Einzelantworten je Szene berechnete feel-safe
+      stimmt mit dem offiziellen <code>voteScore</code> überein (siehe Kasten oben) → Join und Metrik
+      sind korrekt.</p>
+    <p class="sub"><b>Vorbehalte:</b> Berliner Szenen (DE-Kontext), nur <i>subjektive</i> Sicherheit
+      (nicht Unfallsicherheit), Szenen sind konkrete Konfigurationen (keine 1:1-CH-Führungsformen).</p>
+  </div>
+
+  <!-- 2. Glossar -->
+  <h2>2 · Variablen-Glossar</h2>
+  <p class="sub">Welche Variable in der Auswertung welches Element ist (Quelle: <code>scenes_*.csv</code>
+     bzw. JSON-Profil; rechts die englische Entsprechung der aggregierten radwege-CSV).</p>
+  <div class="card" style="overflow-x:auto"><div id="glossary"></div></div>
+
+  <!-- 3. Kontextmatrix -->
+  <h2>3 · Kontextmatrix — Führungsform × Tempo/Verkehr <span class="pill" id="p1">je Typ umschaltbar</span></h2>
+  <p>feel-safe % je Führungsform in vier Verkehrskontexten. <b>Innerhalb</b> eines Kontexts (gleiche
+     Farbgruppe nebeneinander lesen): mehr Separation → deutlich höherer Wert. Bei Typ-Auswahl wird
+     eine Führungsform fokussiert und über die Kontexte je Typ verglichen.</p>
+  <div class="card">
+    <div id="c1forms" style="display:none;margin-bottom:6px"></div>
+    <div class="legend" id="lg1"></div>
+    <svg id="c1" class="chart" viewBox="0 0 920 360" role="img"></svg>
+    <div class="read"><b>Lesart:</b> Mischverkehr fällt mit Tempo/Verkehr stark ab
+      (T30/wenig → T50/viel+SV), separierte Formen bleiben hoch und robust. Genau das stützt die
+      Masterplan-Logik (mehr Separation bei höherem DTV/Tempo). Aber: Mischverkehr bleibt selbst im
+      «günstigen» Fall klar am tiefsten — gefühlte Sicherheit ist strenger als die blosse Eignung.</div>
+  </div>
+
+  <!-- 4. Anlagentyp-Leiter (typ-responsiv) -->
+  <h2>4 · Anlagentyp-Leiter <span class="pill" id="p4">je Typ umschaltbar</span></h2>
+  <p>Die «Leiter» der Führungsformen, von wenig zu viel Separation. Mit dem Umschalter oben werden die
+     Velofahrenden-Typen nebeneinander gezeigt.</p>
+  <div class="card">
+    <div class="legend" id="lg4"></div>
+    <svg id="c4" class="chart" viewBox="0 0 920 380" role="img"></svg>
+    <div class="read" id="r4"></div>
+  </div>
+
+  <!-- 5. Hebel-Ranking -->
+  <h2>5 · Wirkungsstärke der Hebel <span class="pill">Gesamt-Überblick</span></h2>
+  <p>Wie stark einzelne Massnahmen den feel-safe % verändern (Δ Punkte, Velo gesamt, aus den
+     verifizierten breiten Mitteln).</p>
+  <div class="card">
+    <svg id="c5" class="chart" viewBox="0 0 920 300" role="img"></svg>
+    <div class="read"><b>Rangordnung:</b> Separation/Anlagentyp ≫ Breite ≫ Parken ≫ Tempo ≫
+      Verkehrsmenge. Tempo und Menge wirken vor allem <i>ohne</i> bauliche Trennung.</div>
+  </div>
+
+  <!-- 6. RVA-Breite (typ-responsiv) -->
+  <h2>6 · RVA-Breite 2,0 vs 3,5 m <span class="pill" id="p6">je Typ umschaltbar</span></h2>
+  <p>Effekt der Streifenbreite auf der Fahrbahn (ungeschützt, unterbrochene Markierung).</p>
+  <div class="card">
+    <div class="legend" id="lg6"></div>
+    <svg id="c6" class="chart" viewBox="0 0 920 340" role="img"></svg>
+    <div class="read"><b>Lesart:</b> Die Verbreiterung von 2,0 auf 3,5 m bringt durchgehend rund
+      +20 Punkte — über alle Kontexte und Typen hinweg.</div>
+  </div>
+
+  <!-- 7. Breite × Parken (Interaktion) -->
+  <h2>7 · Wechselwirkung Breite × Parken <span class="pill" id="p7">je Typ umschaltbar</span></h2>
+  <p>Zwei Linien: mit und ohne längs geparkte Autos neben dem Streifen. <b>Nicht-parallele</b> Linien
+     = Wechselwirkung.</p>
+  <div class="card">
+    <div class="legend" id="lg7"></div>
+    <svg id="c7" class="chart" viewBox="0 0 920 320" role="img"></svg>
+    <div class="read"><b>Wie man eine Wechselwirkung liest:</b> Wären die Linien parallel, wirkten
+      Breite und Parken unabhängig. Hier ist die «mit Parken»-Linie bei 2,0 m viel tiefer und steigt
+      bei 3,5 m steil an: <b>Parken schadet vor allem bei schmalem Streifen</b>, und <b>Breite hilft
+      vor allem, wenn Parken vorhanden ist</b>. Ohne Parken ist schon 2,0 m ordentlich.</div>
+  </div>
+
+  <!-- 8. Typen-Vergleich -->
+  <h2>8 · Unterschiede zwischen den Velofahrenden-Typen</h2>
+  <p>Wo sehen die Gruppen die Lage anders? (Anlagentyp-Leiter, feste Aufschlüsselung.)</p>
+  <div class="card">
+    <h3 style="margin-top:0">nach Geschlecht</h3>
+    <div class="legend" id="lg8a"></div>
+    <svg id="c8a" class="chart" viewBox="0 0 920 340" role="img"></svg>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">nach Nutzungshäufigkeit Fahrrad</h3>
+    <div class="legend" id="lg8c"></div>
+    <svg id="c8c" class="chart" viewBox="0 0 920 340" role="img"></svg>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">nach Alter</h3>
+    <div class="legend" id="lg8b"></div>
+    <svg id="c8b" class="chart" viewBox="0 0 920 360" role="img"></svg>
+  </div>
+  <div class="read" id="r8"></div>
+
+  <!-- 9. Tram + Fazit -->
+  <h2>9 · Tram-Effekt &amp; Fazit</h2>
+  <div class="card">
+    <div id="tram"></div>
+    <p><b>Fazit für VeloroutenCheck.</b> Eignung (Masterplan: DTV × Tempo) und subjektive Sicherheit
+      (radwege-Werte) sind zwei verschiedene Dinge → zwei getrennte Noten. Die Führungsformnote
+      (siehe <code>fuehrungsform.ts</code>) stützt sich auf die hier verifizierten feel-safe-Werte:
+      Separation am stärksten gewichten, Breite und Parken als Wechselwirkung, Tempo/Menge nur ohne
+      bauliche Trennung.</p>
+  </div>
+
+  <p class="foot">Reproduzierbar via <code>tools/verify_06.py</code> · Quelle: © FixMyCity,
+     radwege-check.de (ODbL) · Frühprototyp, ersetzt keine fachliche Beurteilung.</p>
+
+</div>
+
+<script>
+const DATA = __DATA__;
+
+// ── Palette ───────────────────────────────────────────────────────────────
+const FORMC = {
+  'Mischverkehr':'#9ca3af','Radstreifen ungeschützt':'#eab308',
+  'Radstreifen breit 3.5m':'#f59e0b','geschützt':'#4d7c0f','Seitenraum':'#60a5fa',
+  'Radstreifen 2m':'#eab308','Radstreifen 3.5m':'#f59e0b',
+  'geschützt 2m':'#65a30d','geschützt 3.5m':'#3f6212',
+};
+const TYPEC = ['#2563eb','#dc2626','#16a34a','#9333ea','#ea580c','#0891b2','#ca8a04','#64748b'];
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+const val = a => (a && a[0] != null) ? a[0] : null;
+const cnt = a => (a && a[1] != null) ? a[1] : 0;
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+// dimensions present in an all_splits object (besides Gesamt)
+const DIMS = [
+  {key:'Gesamt', label:'Gesamt (Velo)'},
+  {key:'userGroup', label:'Velo-Typ (geübt)'},
+  {key:'freqBike', label:'Nutzungshäufigkeit'},
+  {key:'bicycleUse', label:'Streckenlänge'},
+  {key:'ageGroup', label:'Alter'},
+  {key:'gender', label:'Geschlecht'},
+];
+let DIM = 'Gesamt';
+
+// Build series for a list of all_splits aligned to xLabels, for current dim.
+function series(splitsList, dim){
+  if(dim==='Gesamt') return [{name:'Gesamt', values: splitsList.map(s=>s && s.Gesamt)}];
+  const ref = splitsList.find(s=>s && s[dim]);
+  if(!ref) return [{name:'Gesamt', values: splitsList.map(s=>s && s.Gesamt)}];
+  const cats = Object.keys(ref[dim]);
+  return cats.map(c=>({name:c, values: splitsList.map(s=> (s && s[dim]) ? s[dim][c] : null)}));
+}
+function colorFor(name, i){ return FORMC[name] || TYPEC[i % TYPEC.length]; }
+
+// ── Grouped bar chart ───────────────────────────────────────────────────────
+function groupedBars(svgId, xLabels, ser, opt){
+  opt = opt || {};
+  const svg = document.getElementById(svgId);
+  const vb = svg.getAttribute('viewBox').split(' ').map(Number);
+  const W = vb[2], H = vb[3];
+  const mL=44, mR=12, mT=14, mB=opt.tall?70:46;
+  const plotW = W-mL-mR, plotH = H-mT-mB;
+  const yMax = 100;
+  const ng = xLabels.length, ns = ser.length;
+  const gw = plotW/ng, bw = Math.min(46, (gw*0.8)/ns);
+  let s = '';
+  // y grid
+  for(let y=0;y<=100;y+=20){
+    const yy = mT+plotH*(1-y/yMax);
+    s += `<line x1="${mL}" y1="${yy}" x2="${W-mR}" y2="${yy}" stroke="#eef2f6"/>`;
+    s += `<text x="${mL-6}" y="${yy+3}" text-anchor="end" font-size="10" fill="#94a3b8">${y}</text>`;
+  }
+  xLabels.forEach((xl,gi)=>{
+    const gx = mL + gw*gi + gw/2;
+    const total = bw*ns;
+    ser.forEach((se,si)=>{
+      const v = val(se.values[gi]); const n = cnt(se.values[gi]);
+      const x = gx - total/2 + si*bw;
+      let col = colorFor(se.name, si);
+      if(ns===1 && opt.barColors) col = opt.barColors[gi] || col;
+      if(v==null){ return; }
+      const bh = plotH*(v/yMax);
+      const y = mT+plotH-bh;
+      s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-3).toFixed(1)}" height="${bh.toFixed(1)}" fill="${col}" rx="2">`;
+      s += `<title>${esc(se.name)} · ${esc(xl)}: ${v}%  (N=${n})</title></rect>`;
+      if(ns<=2 || bw>=20){
+        s += `<text x="${(x+(bw-3)/2).toFixed(1)}" y="${(y-3).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#475569">${v}</text>`;
+      }
+    });
+    // x label (wrap-ish)
+    const parts = String(xl).split(' ');
+    s += `<text x="${gx.toFixed(1)}" y="${mT+plotH+14}" text-anchor="middle" font-size="10.5" fill="#334155">${esc(parts[0])}</text>`;
+    if(parts[1]) s += `<text x="${gx.toFixed(1)}" y="${mT+plotH+26}" text-anchor="middle" font-size="10.5" fill="#334155">${esc(parts.slice(1).join(' '))}</text>`;
+  });
+  svg.innerHTML = s;
+}
+
+// ── Horizontal bars (lever ranking) ─────────────────────────────────────────
+function hbars(svgId, rows){
+  const svg = document.getElementById(svgId);
+  const vb = svg.getAttribute('viewBox').split(' ').map(Number);
+  const W=vb[2], H=vb[3], mL=210, mR=40, mT=8, mB=8;
+  const plotW=W-mL-mR, plotH=H-mT-mB;
+  const max = Math.max(...rows.map(r=>Math.abs(r.value)));
+  const bh = plotH/rows.length;
+  let s='';
+  const zero = mL; // bars grow right (all positive magnitudes shown)
+  rows.forEach((r,i)=>{
+    const y = mT + i*bh + bh*0.15;
+    const h = bh*0.7;
+    const w = plotW*(Math.abs(r.value)/max);
+    s += `<rect x="${zero}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${r.color||'#0f766e'}" rx="2"><title>${esc(r.label)}: ${r.value>0?'+':''}${r.value}</title></rect>`;
+    s += `<text x="${mL-8}" y="${(y+h/2+3).toFixed(1)}" text-anchor="end" font-size="11.5" fill="#334155">${esc(r.label)}</text>`;
+    s += `<text x="${(zero+w+5).toFixed(1)}" y="${(y+h/2+3).toFixed(1)}" font-size="11" fill="#475569">${r.value>0?'+':''}${r.value}</text>`;
+  });
+  svg.innerHTML = s;
+}
+
+// ── Line chart (interaction) ─────────────────────────────────────────────────
+function lines(svgId, xLabels, ser){
+  const svg = document.getElementById(svgId);
+  const vb = svg.getAttribute('viewBox').split(' ').map(Number);
+  const W=vb[2],H=vb[3],mL=44,mR=90,mT=14,mB=40;
+  const plotW=W-mL-mR, plotH=H-mT-mB, yMax=100;
+  const xs = xLabels.map((_,i)=> mL + (xLabels.length===1?plotW/2: plotW*i/(xLabels.length-1)));
+  let s='';
+  for(let y=0;y<=100;y+=20){
+    const yy=mT+plotH*(1-y/yMax);
+    s+=`<line x1="${mL}" y1="${yy}" x2="${W-mR}" y2="${yy}" stroke="#eef2f6"/>`;
+    s+=`<text x="${mL-6}" y="${yy+3}" text-anchor="end" font-size="10" fill="#94a3b8">${y}</text>`;
+  }
+  xLabels.forEach((xl,i)=>{ s+=`<text x="${xs[i]}" y="${mT+plotH+18}" text-anchor="middle" font-size="11" fill="#334155">${esc(xl)}</text>`; });
+  ser.forEach((se,si)=>{
+    const col=colorFor(se.name,si);
+    let d='';
+    se.values.forEach((vv,i)=>{
+      const v=val(vv); if(v==null) return;
+      const x=xs[i], y=mT+plotH*(1-v/yMax);
+      d += (d?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';
+      s+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${col}"><title>${esc(se.name)} · ${esc(xLabels[i])}: ${v}% (N=${cnt(vv)})</title></circle>`;
+      s+=`<text x="${x.toFixed(1)}" y="${(y-8).toFixed(1)}" text-anchor="middle" font-size="10" fill="#475569">${v}</text>`;
+    });
+    s = `<path d="${d}" fill="none" stroke="${col}" stroke-width="2.5"/>` + s;
+    const last=se.values.length-1, lv=val(se.values[last]);
+    if(lv!=null && ser.length<=4) s+=`<text x="${W-mR+6}" y="${(mT+plotH*(1-lv/yMax)+3).toFixed(1)}" font-size="11" fill="${col}">${esc(se.name)}</text>`;
+  });
+  svg.innerHTML=s;
+}
+
+// ── Legends ──────────────────────────────────────────────────────────────────
+function legend(elId, items){
+  document.getElementById(elId).innerHTML = items.map((it,i)=>
+    `<span><span class="sw" style="background:${it.color||colorFor(it.name,i)}"></span>${esc(it.name)}</span>`).join('');
+}
+
+// ── Render everything ────────────────────────────────────────────────────────
+function fmtN(n){ return n.toLocaleString('de-CH'); }
+
+function renderMeta(){
+  const m = DATA.meta;
+  document.getElementById('meta').innerHTML =
+    `<b>Datenbasis:</b> ${fmtN(m.n_ratings)} Velo-Bewertungen (tram-bereinigt ${fmtN(m.n_nontram)}), `+
+    `Join 100 % (0 nicht zuordenbar). <b>Kreuzvalidierung</b> gegen offiziellen <code>voteScore</code>: `+
+    `${DATA.sections.kreuzvalidierung.matched} Szenen, mittlere Abweichung `+
+    `${DATA.sections.kreuzvalidierung.mean_abs_diff} Punkte (Median `+
+    `${DATA.sections.kreuzvalidierung.median_abs_diff}).`;
+}
+
+function renderGlossary(){
+  const rows = [
+    ['FS-Geschwindigkeit','zulässige Höchstgeschwindigkeit (30/50)','vehicleLaneMaxspeed'],
+    ['FS-Aufkommen','Kfz-Verkehrsaufkommen (wenig / viel+SV)','vehicleTrafficVolume'],
+    ['FS-Art','Fahrbahnnutzung (Kfz/Bus/Tram/…) → Tram-Filter','vehicleLaneUsage'],
+    ['RVA-Breite','Breite der Radverkehrsanlage (0 = Mischverkehr; 2,0 / 3,5 m)','bicycleLaneWidthNumber'],
+    ['RVA-Lage / Links_RVA','Lage: Fahrbahn / Seitenraum','leftOfBicycleLane'],
+    ['Tr_li-baulTrennung','bauliche Trennung (Poller/Kasten) → «geschützt»','bufferHasPhysicalProtection'],
+    ['Tr_li-Markierung','Markierung links (unterbrochen = Breitstrich)','bufferLeftMarking'],
+    ['Parken','längs geparkte Autos neben dem Streifen','parking'],
+    ['rating (0–3)','Bewertung; feel-safe = Anteil rating ≥ 2','vote2Save + vote3VerySave / voteScore'],
+    ['userGroup','Velo-Typ: bicycle = habituell, potentialBicycle = potenziell','—'],
+    ['transportRatings.bicycle','Nutzungshäufigkeit Fahrrad (0 Nie … 5 (fast) täglich)','—'],
+    ['bicycleUse','übliche Streckenlänge/-dauer (0=10min … 3=>30min)','—'],
+    ['ageGroup','Altersgruppe 0–7 ('+DATA.meta.agegroup[0]+' … '+DATA.meta.agegroup[7]+')','—'],
+    ['gender','Geschlecht (m/w/d)','—'],
+  ];
+  let h='<table><thead><tr><th>Variable (Quelle)</th><th>Bedeutung in der Auswertung</th>'+
+        '<th>radwege-Entsprechung</th></tr></thead><tbody>';
+  rows.forEach(r=> h+=`<tr><td><code>${esc(r[0])}</code></td><td>${esc(r[1])}</td><td><code>${esc(r[2])}</code></td></tr>`);
+  h+='</tbody></table>';
+  document.getElementById('glossary').innerHTML=h;
+}
+
+// §3 Kontextmatrix — Gesamt: Form×Kontext; Typ: eine Form, Kontexte × Typ-Kategorien
+const C1FORMS = ['Mischverkehr','Radstreifen ungeschützt','Radstreifen breit 3.5m','geschützt'];
+let C1FORM = 'Radstreifen ungeschützt';
+function renderC1(){
+  const km = DATA.sections.kontextmatrix;
+  const ctx = ['T30/wenig','T30/viel+SV','T50/wenig','T50/viel+SV'];
+  const fb = document.getElementById('c1forms');
+  if(DIM==='Gesamt'){
+    fb.style.display='none';
+    const ser = C1FORMS.map(f=>({name:f, values: ctx.map(c=> (km[f]&&km[f][c])? km[f][c].Gesamt : null)}));
+    legend('lg1', C1FORMS.map(f=>({name:f,color:FORMC[f]})));
+    groupedBars('c1', ctx, ser, {});
+  } else {
+    fb.style.display='block';
+    fb.innerHTML = '<span class="lab">Führungsform</span>' + C1FORMS.map(f=>
+      `<button class="btn${f===C1FORM?' active':''}" data-f="${esc(f)}">${esc(f)}</button>`).join('');
+    fb.querySelectorAll('button').forEach(b=> b.onclick=()=>{ C1FORM=b.dataset.f; renderC1(); });
+    const ser = series(ctx.map(c=> (km[C1FORM]&&km[C1FORM][c]) ? km[C1FORM][c] : null), DIM);
+    legend('lg1', ser.map((s,i)=>({name:s.name,color:colorFor(s.name,i)})));
+    groupedBars('c1', ctx, ser, {tall:true});
+  }
+}
+
+// §4 ladder (dim-responsive)
+function renderC4(){
+  const lad = DATA.sections.anlagentyp_leiter;
+  const types = Object.keys(lad);
+  const ser = series(types.map(t=>lad[t]), DIM);
+  if(DIM==='Gesamt'){
+    legend('lg4', []);  // Balken sind per x-Achse benannt und je Führungsform gefärbt
+    groupedBars('c4', types, ser, {tall:true, barColors: types.map(t=>FORMC[t]||'#2563eb')});
+  } else {
+    legend('lg4', ser.map((s,i)=>({name:s.name,color:colorFor(s.name,i)})));
+    groupedBars('c4', types, ser, {tall:true});
+  }
+  // takeaway text
+  const g = n => (lad[n] && lad[n].Gesamt[0]);
+  document.getElementById('r4').innerHTML =
+    `<b>Lesart:</b> Mischverkehr ${g('Mischverkehr')} ≪ Radstreifen 2 m ${g('Radstreifen 2m')} `+
+    `&lt; 3,5 m ${g('Radstreifen 3.5m')} ≈ Seitenraum ${g('Seitenraum')} ≪ geschützt `+
+    `${g('geschützt 2m')}/${g('geschützt 3.5m')}. Auf der Fahrbahn hebt bauliche Trennung (Poller) `+
+    `den Wert stark; im Seitenraum wirkt sie kaum (Velo ist ohnehin abgesetzt).`;
+}
+
+// §5 levers
+function renderC5(){
+  const lad = DATA.sections.anlagentyp_leiter;
+  const g = n => lad[n].Gesamt[0];
+  const bp = DATA.sections.breite_parken;
+  const rows = [
+    {label:'Separation: Misch → geschützt 3,5m', value: +(g('geschützt 3.5m')-g('Mischverkehr')).toFixed(1), color:'#4d7c0f'},
+    {label:'bauliche Trennung (Fahrbahn, 2m)', value: +(g('geschützt 2m')-g('Radstreifen 2m')).toFixed(1), color:'#65a30d'},
+    {label:'Breite 2,0 → 3,5 m (mit Parken)', value: +(val(bp['mit Parken']['3.5m'].Gesamt)-val(bp['mit Parken']['2.0m'].Gesamt)).toFixed(1), color:'#eab308'},
+    {label:'Breite 2,0 → 3,5 m (ohne Parken)', value: +(val(bp['ohne Parken']['3.5m'].Gesamt)-val(bp['ohne Parken']['2.0m'].Gesamt)).toFixed(1), color:'#f59e0b'},
+    {label:'Parken neben Streifen (2,0 m)', value: +(val(bp['mit Parken']['2.0m'].Gesamt)-val(bp['ohne Parken']['2.0m'].Gesamt)).toFixed(1), color:'#dc2626'},
+    {label:'Tempo 30 → 50 (Mischverkehr)', value: DATA.sections.tempo_effekt['Mischverkehr'].delta, color:'#0891b2'},
+    {label:'Tempo 30 → 50 (geschützt)', value: DATA.sections.tempo_effekt['geschützt'].delta, color:'#0891b2'},
+  ];
+  hbars('c5', rows);
+}
+
+// §6 width (dim-responsive) — ALLE context
+function renderC6(){
+  const b = DATA.sections.rva_breite['ALLE'];
+  let xLabels, ser;
+  if(DIM==='Gesamt'){
+    xLabels=['feel-safe %'];
+    ser=[{name:'2,0 m', values:[b['2.0m'].Gesamt]},{name:'3,5 m', values:[b['3.5m'].Gesamt]}];
+  } else {
+    const cats = Object.keys(b['2.0m'][DIM]);
+    xLabels = cats;
+    ser=[{name:'2,0 m', values:cats.map(c=>b['2.0m'][DIM][c])},
+         {name:'3,5 m', values:cats.map(c=>b['3.5m'][DIM][c])}];
+  }
+  legend('lg6',[{name:'2,0 m',color:'#eab308'},{name:'3,5 m',color:'#f59e0b'}]);
+  // fixed colors for the two width series
+  ser[0].color='#eab308'; ser[1].color='#f59e0b';
+  groupedBarsFixed('c6', xLabels, ser);
+}
+// variant where series carry explicit .color
+function groupedBarsFixed(svgId,xLabels,ser){
+  const old = FORMC['2,0 m']; // none; just reuse groupedBars with colorFor honoring names
+  // temporarily inject colors via FORMC
+  FORMC['2,0 m']='#eab308'; FORMC['3,5 m']='#f59e0b';
+  groupedBars(svgId,xLabels,ser,{tall:xLabels.length>3});
+}
+
+// §7 interaction — Gesamt: mit/ohne Parken; Typ: «mit Parken» je Kategorie (Steigung = Breiteneffekt)
+function renderC7(){
+  const bp = DATA.sections.breite_parken;
+  const x=['2,0 m','3,5 m'];
+  const note = document.getElementById('p7');
+  if(DIM==='Gesamt'){
+    note.textContent='je Typ umschaltbar';
+    const ser=[
+      {name:'mit Parken', color:'#dc2626', values:[bp['mit Parken']['2.0m'].Gesamt, bp['mit Parken']['3.5m'].Gesamt]},
+      {name:'ohne Parken', color:'#16a34a', values:[bp['ohne Parken']['2.0m'].Gesamt, bp['ohne Parken']['3.5m'].Gesamt]},
+    ];
+    legend('lg7', ser.map(s=>({name:s.name,color:s.color})));
+    lines('c7', x, ser);
+  } else {
+    note.textContent='mit Parken, je Typ';
+    const cats=Object.keys(bp['mit Parken']['2.0m'][DIM]);
+    const ser=cats.map(c=>({name:c, values:[bp['mit Parken']['2.0m'][DIM][c], bp['mit Parken']['3.5m'][DIM][c]]}));
+    legend('lg7', ser.map((s,i)=>({name:s.name,color:colorFor(s.name,i)})));
+    lines('c7', x, ser);
+  }
+}
+
+// §8 type comparison (fixed: gender + age) on ladder
+function renderC8(){
+  const lad = DATA.sections.anlagentyp_leiter;
+  const types = Object.keys(lad);
+  const sa = series(types.map(t=>lad[t]),'gender');
+  legend('lg8a', sa.map((s,i)=>({name:s.name,color:colorFor(s.name,i)})));
+  groupedBars('c8a', types, sa, {tall:true});
+  const sc = series(types.map(t=>lad[t]),'freqBike');
+  legend('lg8c', sc.map((s,i)=>({name:s.name,color:colorFor(s.name,i)})));
+  groupedBars('c8c', types, sc, {tall:true});
+  const sb = series(types.map(t=>lad[t]),'ageGroup');
+  legend('lg8b', sb.map((s,i)=>({name:s.name,color:colorFor(s.name,i)})));
+  groupedBars('c8b', types, sb, {tall:true});
+  // takeaway
+  const ms = lad['Mischverkehr'].gender, se = lad['Seitenraum'].gender;
+  const r2 = lad['Radstreifen 2m'].ageGroup;
+  const ageKeys = Object.keys(r2);
+  const fM = lad['Mischverkehr'].freqBike, fG = lad['geschützt 3.5m'].freqBike;
+  document.getElementById('r8').innerHTML =
+    `<b>Befunde:</b> Frauen fühlen sich im Mischverkehr deutlich unsicherer als Männer `+
+    `(${val(ms['w'])} vs ${val(ms['m'])}), im Seitenraum dagegen sicherer `+
+    `(${val(se['w'])} vs ${val(se['m'])}). Mit dem Alter steigt das Sicherheitsgefühl klar — `+
+    `Radstreifen 2 m: ${val(r2[ageKeys[1]])} (${esc(ageKeys[1])}) → ${val(r2[ageKeys[ageKeys.length-1]])} `+
+    `(${esc(ageKeys[ageKeys.length-1])}). <b>Nutzungshäufigkeit:</b> Gelegenheitsfahrende («selten») `+
+    `bewerten den Mischverkehr milder (${val(fM['selten (≤ monatl.)'])} vs `+
+    `${val(fM['(fast) täglich'])} bei Vielfahrenden), Vielfahrende honorieren Separation stärker `+
+    `(geschützt 3,5 m ${val(fG['(fast) täglich'])} vs ${val(fG['selten (≤ monatl.)'])}). `+
+    `Die Rangordnung der Führungsformen ist aber bei allen Typen gleich.`;
+}
+
+function renderTram(){
+  const t = DATA.sections.tram_effekt;
+  let h='<table><thead><tr><th>Kontext</th><th>mit Tram</th><th>ohne Tram</th><th>Δ</th></tr></thead><tbody>';
+  Object.keys(t).forEach(k=>{
+    h+=`<tr><td>${esc(k)}</td><td>${val(t[k]['mit Tram'])}%</td><td>${val(t[k]['ohne Tram'])}%</td><td>${t[k].delta}</td></tr>`;
+  });
+  h+='</tbody></table><p class="sub">Tram senkt den feel-safe vor allem im Mischverkehr; bei eigener '+
+     'Radverkehrsanlage kaum. Deshalb Tram im Standard ausgeschlossen.</p>';
+  document.getElementById('tram').innerHTML=h;
+}
+
+// dim-responsive charts
+function renderDimCharts(){ renderC1(); renderC4(); renderC6(); renderC7(); }
+
+function buildSwitcher(){
+  const el=document.getElementById('dimbtns');
+  el.innerHTML = DIMS.map(d=>`<button class="btn${d.key===DIM?' active':''}" data-k="${d.key}">${esc(d.label)}</button>`).join('');
+  el.querySelectorAll('button').forEach(b=> b.onclick=()=>{
+    DIM=b.dataset.k;
+    el.querySelectorAll('button').forEach(x=>x.classList.toggle('active', x.dataset.k===DIM));
+    const lab = DIMS.find(d=>d.key===DIM).label;
+    document.getElementById('dimhint').textContent =
+      DIM==='Gesamt' ? 'Alle Velofahrenden zusammen. Wähle einen Typ, um die Gruppen in allen «je Typ umschaltbar»-Diagrammen zu vergleichen.'
+                     : 'Aufgeschlüsselt nach: '+lab+' — wirkt auf Kontextmatrix, Anlagentyp-Leiter, RVA-Breite und Breite×Parken. (§5 bleibt Gesamt-Überblick, §8 fester Vergleich.)';
+    renderDimCharts();
+  });
+}
+
+// init
+renderMeta(); renderGlossary(); renderC1(); renderC5(); renderC7(); renderC8(); renderTram();
+buildSwitcher(); document.querySelector('#dimbtns button').click();
+</script>
+</body>
+</html>
