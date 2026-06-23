@@ -7,6 +7,12 @@ VeloroutenCheck bewertet die Qualität von Veloinfrastruktur und vergibt dafür 
 
 Bewertet wird eine **Strecke**, die aus einem oder mehreren **Abschnitten** besteht. Jeder Abschnitt erhält eine eigene Note; die Strecke erhält die Note ihres schlechtesten Abschnitts.
 
+**Web-VeloroutenCheck** https://pnfzygrzgf-svg.github.io/VeloroutenCheck/
+
+> **Beta** — Resultate mit Vorsicht verwenden und durch eine Fachperson prüfen lassen.
+
+Vibecoding. Don't trust, verify!
+
 ## Repo-Struktur
 
 | Ordner | Inhalt |
