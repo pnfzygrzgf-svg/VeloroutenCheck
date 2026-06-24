@@ -53,7 +53,7 @@ export function fuehrungsart(dtv: number, v: number): Fuehrungsart {
 export type IstFuehrungsform =
   | 'Mischverkehr'
   | 'Radstreifen'
-  | 'Radweg strassenbegleitend'
+  | 'Radweg strassenbegleitend / Geschützter Radstreifen'
   | 'Radweg abgesetzt'
   | 'Umweltspur'
   | 'Velostrasse'
@@ -171,7 +171,7 @@ interface IstMeta {
 const IST: Record<IstFuehrungsform, IstMeta> = {
   'Mischverkehr':              { q: 'Q6', rank: 0, feelClass: 'Mischverkehr' },
   'Radstreifen':               { q: 'Q1', rank: 1, feelClass: 'Radstreifen', optimal: 2.5, minimal: 1.8 },
-  'Radweg strassenbegleitend': { q: 'Q2', rank: 2, feelClass: 'Radweg', optimal: 2.5, minimal: 1.8 },
+  'Radweg strassenbegleitend / Geschützter Radstreifen': { q: 'Q2', rank: 2, feelClass: 'Radweg', optimal: 2.5, minimal: 1.8 },
   'Radweg abgesetzt':          { q: 'Q3', rank: 2, feelClass: 'Radweg', optimal: 2.5, minimal: 1.5 },
   // Umweltspur (Q4, Bus+Velo): DTV/Tempo nicht massgebend, sondern Bus-Takt (siehe unten).
   // Breite Optimal 4,50 (Velohauptroute) / Minimal 3,75 (Veloroute). rank/feelClass ungenutzt.

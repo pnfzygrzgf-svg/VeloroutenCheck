@@ -3,8 +3,7 @@
 **Frage:** Wie stark senken Tramschienen in der Fahrbahn das subjektive Sicherheitsempfinden
 (feel-safe), wenn das Velo im **Mischverkehr** fährt? Daraus wird ein Noten-Malus abgeleitet.
 
-Dieses Dokument zeigt den **Rechenweg** so, dass er nachvollzogen (und auf Fehler geprüft)
-werden kann. Alle Zahlen sind mit `tools/verify_06.py` reproduzierbar — sie erscheinen dort in
+Dieses Dokument zeigt den **Rechenweg** so, dass er nachvollzogen (und auf Fehler geprüft) werden kann. Alle Zahlen sind mit `tools/verify_06.py` reproduzierbar — sie erscheinen dort in
 `06_verifikation.md` (Abschnitt „§2 Tram in der Fahrbahn") und in `06_visualisierung.html`
 (Abschnitt 9).
 

@@ -35,7 +35,7 @@ export interface Stop { lat: number; lon: number; name: string; bpuic?: string }
 export const ISTCOLOR: Record<string, string> = {
   'Mischverkehr': '#9ca3af',
   'Radstreifen': '#eab308',
-  'Radweg strassenbegleitend': '#4d7c0f',
+  'Radweg strassenbegleitend / Geschützter Radstreifen': '#4d7c0f',
   'Radweg abgesetzt': '#16a34a',
   'Umweltspur': '#0891b2',
   'Velostrasse': '#2563eb',

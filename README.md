@@ -164,7 +164,7 @@ Zuordnung der Ist-Formen zu den Befragungsdaten:
 
 - **Mischverkehr** → keine Radverkehrsanlage.
 - **Radstreifen** → markierter Streifen auf der Fahrbahn (über alle Breiten gemittelt; 3,5 m liegt deutlich höher als 2,0 m, siehe [Offene Punkte](#offene-punkte)).
-- **Radweg** → baulich getrennt, angesetzt auf dem robusten Poller-/Trennungs-Niveau (≈ 91, kaum tempoabhängig). *Hinweis:* abgesetzte Seitenraum-Radwege werden empirisch tiefer bewertet (≈ 77, Seitenraum-Konflikte) — relevant für eine spätere Verfeinerung.
+- **Radweg** → baulich getrennt, angesetzt auf dem robusten Poller-/Trennungs-Niveau (≈ 91, kaum tempoabhängig). Dieser Wert gilt für **alle baulich getrennten Formen**: den *strassenbegleitenden Radweg / geschützten Radstreifen* (Q2, in Bern als Poller-Lösung gebaut) **und** den *abgesetzten Radweg* (Q3). *Hinweis:* In Berliner Daten liegen abgesetzte Seitenraum-Radwege tiefer (≈ 77, Konflikte mit Geschäften/Gastronomie im Seitenraum); dieser Abschlag wird **bewusst nicht** übernommen, da Berns abgesetzte Radwege deutlich weniger durch Seitenraum-Nutzungen geprägt sind. Q2 und Q3 unterscheiden sich daher nur in der Breitenvorgabe, nicht im feel-safe-Wert.
 
 #### Warum 14,4 Punkte pro Notenstufe?
 
@@ -224,8 +224,8 @@ Nach der Führungsform-Note wird die **Breite** der Anlage gegen die Masterplan-
 ```
 Ist-Form (Querschnittstyp)        Optimal   Minimal
 Radstreifen                  Q1     2.50      1.80
-Radweg strassenbegleitend    Q2     2.50      1.80
-Radweg abgesetzt             Q3     2.50      1.50
+Radweg strassenbegl. / Gesch. Radstreifen  Q2  2.50   1.80
+Radweg abgesetzt                           Q3  2.50   1.50
 Umweltspur (Bus+Velo)        Q4     4.50      3.75   (DTV/Tempo n.r.; siehe Bus-Takt)
 Velostrasse                  Q9     Band 4.50–6.50 m (Min u. Max, beide Routentypen; nur Tempo 30)
 Fussweg Velo gestattet       Q12    3.50      3.50   (DTV/Tempo n.r.; Mischfläche, max. Note 4)
@@ -435,7 +435,8 @@ Die Pflicht-Attributionen werden in der App angezeigt: die Karten-Attribution (O
 - **Parken × Breite verfeinern:** der Breiten-Effekt ist mit Parken deutlich stärker (≈ 1,16 statt ≈ 0,5 Noten/m) — den Breiten-Abzug parken-abhängig machen statt fixem Parken-Abzug (Daten 06, §4).
 - **«Velo rechts vom Parken»** als eigene, bessere Parken-Lage aufnehmen (empirisch ≈ 92, aber nur 6 Szenen → erst mit besserer Datenlage).
 - **Velostrasse «zu breit»:** der Abzug über der Maximalbreite (6,50 m) ist normativ gesetzt (gleicher Satz wie «zu schmal») — bei Bedarf eigener Satz/Schwelle.
-- **«Radweg abgesetzt» verfeinern:** empirisch tiefer (Seitenraum ≈ 77) als baulich getrennt/Poller (≈ 91) — derzeit zählt nur die strengere Minimalbreite (Q3 1,50 m), kein eigener feel-safe-Wert.
+- **«Radweg abgesetzt» (Q3):** In Berliner Daten tiefer (Seitenraum ≈ 77) als Poller-Niveau (≈ 91). Dieser Abschlag wird **bewusst nicht** angewandt (Berns Seitenraum ist weniger durch Geschäfte/Gastronomie geprägt als Berlins); Q3 trägt denselben feel-safe-Wert wie Q2 und unterscheidet sich nur in der Minimalbreite (1,50 m). Bei künftigen Berner Auswertungen überprüfen.
+- **Einfärbung des Belags:** empirisch ein eigener, positiver Effekt (farbig vs. grau ≈ +7 feel-safe-Punkte; im Paper signifikant, Tab. 2) — bisher **nicht** im Modell. Könnte als eigener, datengestützter Faktor aufgenommen werden (analog zum Tram-Malus). Siehe [docs/08](docs/08_Studie_Subjektive_Sicherheit_2022.md).
 
 ---
 

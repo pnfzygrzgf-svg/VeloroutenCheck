@@ -17,7 +17,7 @@ const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
 }
 
 const IST_OPTIONS: IstFuehrungsform[] = [
-  'Mischverkehr', 'Radstreifen', 'Radweg strassenbegleitend', 'Radweg abgesetzt',
+  'Mischverkehr', 'Radstreifen', 'Radweg strassenbegleitend / Geschützter Radstreifen', 'Radweg abgesetzt',
   'Umweltspur', 'Velostrasse', 'Fussweg Velo gestattet',
 ]
 const ROUTE_OPTIONS: Routentyp[] = ['Velohauptroute', 'Veloroute']
@@ -148,7 +148,7 @@ function istFromTags(t: Record<string, string>, highway: string): IstFuehrungsfo
   if (highway === 'cycleway') return 'Radweg abgesetzt'
   if ((highway === 'footway' || highway === 'path') &&
       ['yes', 'designated', 'permissive'].includes(t.bicycle)) return 'Fussweg Velo gestattet'
-  if (has('track')) return 'Radweg strassenbegleitend'
+  if (has('track')) return 'Radweg strassenbegleitend / Geschützter Radstreifen'
   if (has('share_busway')) return 'Umweltspur'
   if (has('lane')) return 'Radstreifen'
   return 'Mischverkehr'
