@@ -2,7 +2,7 @@
 .DS_Store
 .claude/
 
-# ── Node / Build (VeloCheckWeb) ──────────────────────────────────────────────
+# ── Node / Build (VeloroutenCheckWeb) ────────────────────────────────────────
 node_modules/
 dist/
 *.local
@@ -14,16 +14,17 @@ __pycache__/
 *.pyc
 
 # ── Generierte Auswertungs-Outputs (regenerierbar via tools/verify_06.py) ─────
+# 06_verifikation.md wird als nachvollziehbarer Ergebnis-Snapshot versioniert;
+# .json (Rohdump) und .html (generierte Ansicht) bleiben aussen vor.
 06_verifikation.json
-06_verifikation.md
 06_visualisierung.html
 
-# ── Methodik-Dokus: nicht für Funktion/Build nötig, lokal halten ─────────────
-docs/
+# ── Interne Arbeitsnotiz (kein Methodik-Inhalt) ──────────────────────────────
+docs/ux-verbesserungen-plan.md
 
 # ── Grosse / Dritt-Rohdaten: lokal halten, NICHT versionieren ────────────────
 # (Bezugsquellen sind im README dokumentiert; die App nutzt nur die gebündelten
-#  Snapshots unter VeloCheckWeb/public/.)
+#  Snapshots unter VeloroutenCheckWeb/public/.)
 Fahrplan/
 Grundlagen/
 Notizen/

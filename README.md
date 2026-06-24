@@ -292,6 +292,21 @@ Differenz                          −14,5 feel-safe-Punkte
 
 Zum Vergleich: liegt das Velo **rechts vom Parken** (Parken schirmt vom Verkehr ab), steigt der Wert auf ≈ 92 %; diese günstige Lage ist im Datensatz aber nur schwach belegt (6 Szenen) und derzeit nicht als eigene Option umgesetzt. Parameter `PARKEN_RECHTS_ABZUG`, tunbar.
 
+#### Tram in der Fahrbahn
+
+Liegen **Tramschienen in der Fahrbahn**, sinkt das Sicherheitsempfinden unabhängig von einer Haltestelle (Sturzrisiko, Spurrillen). Das Feld „Tram in der Fahrbahn" ist daher **von der Haltestelle entkoppelt** und wird automatisch aus dem Geoportal (`oevTram`) gesetzt. Der Malus greift **nur bei Mischverkehr** (wo das Velo die Fahrbahn mit den Gleisen teilt); bei eigener Radverkehrsanlage ist der Effekt empirisch ~0.
+
+**Herleitung** (verifizierte radwege-Werte, Mischverkehr, mit vs. ohne Tram):
+
+```
+                    feel-safe ohne Tram   feel-safe mit Tram   Δ        Malus (Δ/14,4)
+Tempo 30                  26,3 %               14,4 %         11,9     ≈ 0,8
+Tempo 50                  17,7 %                9,7 %          8,0     ≈ 0,55
+(N je Zelle ≈ 900–2'900)
+```
+
+→ **tempo-abhängiger Abzug −0,8 (Tempo ≤ 30) / −0,55 (Tempo > 30)**, nur Mischverkehr. Konstante `TRAM_MALUS`, tunbar. Vollständiger Rechenweg und Reproduktion: `tools/verify_06.py` (§2) bzw. `docs/07_Tram_in_der_Fahrbahn.md`.
+
 ### 4. Sonderfälle (Umweltspur, Velostrasse, Fussweg)
 
 #### Umweltspur (Q4, Bus+Velo)

@@ -90,7 +90,7 @@ const HALT_COLOR: Record<Haltestellenloesung, { bg: string; fg: string }> = {
 // Fehlt ein Eintrag, ist das Feld leer (keine erfundenen Werte).
 type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan'
 // Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
-type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot'
+type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram'
 
 interface Section {
   id: number
@@ -104,6 +104,7 @@ interface Section {
   oevAngebot: OevAngebot
   haltestellentyp: Haltestellentyp
   haltestelleBreite: number    // NaN = leer
+  tram: boolean                // Tram (Schienen) in der Fahrbahn — entkoppelt von der Haltestelle
   label?: string               // Herkunft/Beschriftung (z. B. aus OSM geladen)
   quelle: Partial<Record<QuelleFeld, Quelle>>   // gesetzt je Feld, sobald ein Wert vorliegt
   candIds?: number[]           // OSM-Way-IDs der Segmente dieses Abschnitts (für die Karten-Zuordnung)
@@ -118,6 +119,7 @@ function defaultSection(): Section {
     id: nextId++, dtv: NaN, speed: NaN, ist: '', breite: NaN,
     routentyp: '', parkenRechts: 'egal', oevTakt: 10,
     oevAngebot: 'keine', haltestellentyp: 'keine', haltestelleBreite: NaN,
+    tram: false,
     quelle: {},
   }
 }
@@ -223,6 +225,8 @@ function candToSection(c: Cand): Section {
     const auto = oevAngebotAuto(s.oev)
     // Tram = Geoportal; Bus-Band stammt aus dem Fahrplan (opentransportdata).
     if (auto) { s.oevAngebot = auto; s.quelle.oevAngebot = auto === 'tram' ? 'amtlich' : 'fahrplan' }
+    // Tram in der Fahrbahn — entkoppelt von der Haltestelle (Geoportal kennt die Antwort).
+    s.tram = !!c.bern.oevTram; s.quelle.tram = 'amtlich'
   }
   s.label = `${c.name} · ${Math.round(c.len)} m · OSM way ${c.id}`
   s.candIds = [c.id]
@@ -292,6 +296,7 @@ function mergeSegs(ordered: Seg[]): Section[] {
       }
       const auto = oevAngebotAuto(rep.sec.oev)
       if (auto) { rep.sec.oevAngebot = auto; rep.sec.quelle.oevAngebot = auto === 'tram' ? 'amtlich' : 'fahrplan' }
+      rep.sec.tram = rep.sec.oev.oevTram; rep.sec.quelle.tram = 'amtlich'
     }
     return rep.sec
   })
@@ -575,6 +580,16 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
           <NumberField label="öV-Takt (Bus)" unit="Min" value={section.oevTakt} step={0.5}
                        onChange={v => onChange({ oevTakt: v })} />
         )}
+        {/* Tram in der Fahrbahn — entkoppelt von der Haltestelle; wirkt nur bei Mischverkehr. */}
+        <label style={fieldStyle}>
+          <FieldLabel label="Tram in der Fahrbahn" chip={<QuelleChip q={q.tram} />} />
+          <select value={section.tram ? 'ja' : 'nein'}
+                  onChange={e => onChange({ tram: e.target.value === 'ja' })}
+                  style={selectStyle}>
+            <option value="nein">Nein</option>
+            <option value="ja">Ja (Schienen in der Fahrbahn)</option>
+          </select>
+        </label>
       </div>
 
       {/* Eingaben — Gruppe 2: ÖV-Haltestelle im Abschnitt (für die Soll-Haltestellenlösung) */}
@@ -699,6 +714,12 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
                   {bewertung.parkenAbzug.toFixed(1)} Note
                 </div>
               )}
+              {bewertung.tramAbzug > 0 && (
+                <div style={{ marginTop: 6, opacity: 0.9 }}>
+                  <strong>Tram in der Fahrbahn:</strong> Abzug{' '}
+                  {bewertung.tramAbzug.toFixed(2)} Note (Schienen im Mischverkehr)
+                </div>
+              )}
               {bewertung.sollHaltestelle && (
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
                   <strong>Haltestelle:</strong> Soll {bewertung.sollHaltestelle}
@@ -791,7 +812,7 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
   const head = [
     'Abschnitt', 'Strecke/Herkunft', 'DTV [Fz/Tag]', 'DTV-Quelle', 'Tempo [km/h]', 'Tempo-Quelle',
     'Ist-Führungsform', 'Ist-Quelle', 'Breite [m]', 'Breite-Quelle', 'Routentyp', 'Routentyp-Quelle',
-    'Parkierung rechts', 'ÖV-Angebot', 'Haltestellentyp', 'Soll-Führungsform', 'Note', 'Erfüllungsgrad',
+    'Parkierung rechts', 'Tram in Fahrbahn', 'ÖV-Angebot', 'Haltestellentyp', 'Soll-Führungsform', 'Note', 'Erfüllungsgrad',
     'OBS Median [m]', 'OBS n', 'OBS <1,5m [%]', 'OBS Befahrungen',
   ]
   const rows = sections.map((s, i) => {
@@ -805,7 +826,7 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
       s.ist || '', s.quelle.ist ? QUELLE_LABEL[s.quelle.ist] : '',
       numDE(s.breite, 2), s.quelle.breite ? QUELLE_LABEL[s.quelle.breite] : '',
       s.routentyp || '', s.quelle.routentyp ? QUELLE_LABEL[s.quelle.routentyp] : '',
-      s.parkenRechts, s.oevAngebot, s.haltestellentyp,
+      s.parkenRechts, s.tram ? 'ja' : 'nein', s.oevAngebot, s.haltestellentyp,
       r ? r.soll : '', r ? numDE(r.note, 1) : 'unvollständig', r ? erfuellungsgrad(r.note) : '',
       obs && obs.count > 0 ? numDE(obs.median, 2) : '',
       obs ? String(obs.count) : '', Number.isFinite(obsPct) ? String(obsPct) : '',
@@ -813,7 +834,7 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
     ]
   })
   // Schlusszeile: Strecken-Note (schlechtester Abschnitt).
-  const foot = ['Strecke', 'schlechtester Abschnitt', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+  const foot = ['Strecke', 'schlechtester Abschnitt', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
     streckeNote != null ? numDE(streckeNote, 1) : 'unvollständig',
     streckeNote != null ? erfuellungsgrad(streckeNote) : '', '', '', '', '']
   return [head, ...rows, foot].map(row => row.map(csvCell).join(';')).join('\r\n')
@@ -934,7 +955,7 @@ export default function App() {
   }
 
   // Manuelle Änderung eines getrackten Feldes setzt dessen Herkunft auf „manuell".
-  const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot']
+  const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram']
   const update = (id: number, patch: Partial<Section>) =>
     setSections(prev => prev.map(s => {
       if (s.id !== id) return s
@@ -958,7 +979,7 @@ export default function App() {
     const routentyp = s.routentyp || 'Velohauptroute'
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
     return fuehrungsformNote(s.dtv, s.speed, s.ist as IstFuehrungsform, breite, routentyp,
-      s.parkenRechts, s.oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite)
+      s.parkenRechts, s.oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram)
   })
   const offen = results.filter(r => r == null).length
   const alleVollstaendig = offen === 0 && results.length > 0

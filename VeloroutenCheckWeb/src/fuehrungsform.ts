@@ -197,6 +197,13 @@ const NOTE_PRO_METER = 0.9
 // (Der Effekt ist empirisch breitenabhängig — schmal stärker — hier vereinfacht als fixer Abzug.)
 const PARKEN_RECHTS_ABZUG = 1.0
 
+// Tram in der Fahrbahn (Schienen) — Malus NUR bei Mischverkehr, tempo-abhängig. Empirisch aus den
+// radwege-Daten: Mischverkehr mit vs. ohne Tram, feel-safe-Verlust ÷ 14,4 Pkt/Notenstufe.
+// Tempo 30: (26,3−14,4)/14,4 ≈ 0,83 → 0,8 · Tempo 50: (17,7−9,7)/14,4 ≈ 0,56 → 0,55.
+// Bei eigener Radverkehrsanlage (Radstreifen) empirisch ~0 → dort kein Malus.
+// Herleitung/Reproduktion: tools/verify_06.py (§2) bzw. docs/07_Tram_in_der_Fahrbahn.md. Tunbar.
+const TRAM_MALUS: Record<'ruhig' | 'schnell', number> = { ruhig: 0.8, schnell: 0.55 }
+
 // Umweltspur (Bus+Velo): zulässig nur bei tiefer–mittlerer Busfrequenz, d. h. Takt ≥ 7,5 Min.
 // Dichterer Takt (< 7,5 Min, hohe Busfrequenz) → Note 1. Bei zulässigem Takt ist die Umweltspur als
 // Velo-Führung höchstens «genügend» → Basisnote 4 (davon noch Breiten-Abzug). DTV/Tempo sind hier
@@ -277,6 +284,8 @@ export interface NotenErgebnis {
   // Parkierung rechts (Dooring) — bei Fahrbahn-Führungsformen, siehe PARKEN_RELEVANT:
   parkenRechts: ParkenRechts
   parkenAbzug: number    // Notenabzug aus Parkierung rechts (0 wenn nein/egal/nicht relevant)
+  tramInFahrbahn: boolean // Tram (Schienen) in der Fahrbahn im Abschnitt
+  tramAbzug: number      // Notenabzug aus Tram in der Fahrbahn (nur Mischverkehr, tempo-abhängig)
   // Haltestelle (ÖV):
   oevAngebot: OevAngebot
   haltestellentyp: Haltestellentyp
@@ -305,7 +314,7 @@ export function fuehrungsformNote(
   breite?: number, routentyp: Routentyp = 'Velohauptroute',
   parkenRechts: ParkenRechts = 'egal', oevTakt?: number,
   oevAngebot: OevAngebot = 'keine', haltestellentyp: Haltestellentyp = 'keine',
-  haltestelleBreite?: number,
+  haltestelleBreite?: number, tramInFahrbahn = false,
 ): NotenErgebnis {
   const soll = fuehrungsart(dtv, v)
   const meta = IST[ist]
@@ -328,6 +337,9 @@ export function fuehrungsformNote(
 
   // ── Parkierung rechts (Dooring), nur Radstreifen.
   const parkenAbzug = (PARKEN_RELEVANT.includes(ist) && parkenRechts === 'ja') ? PARKEN_RECHTS_ABZUG : 0
+
+  // ── Tram in der Fahrbahn (Schienen): Malus nur bei Mischverkehr, tempo-abhängig (siehe TRAM_MALUS).
+  const tramAbzug = (tramInFahrbahn && ist === 'Mischverkehr') ? TRAM_MALUS[tempoKey(v)] : 0
 
   // ── Haltestelle: Soll-Lösung aus Route × ÖV; Abzug nur, wenn Separate Velofläche gefordert ist,
   // der vorhandene Typ aber aus der Mischverkehr-Familie stammt (Über-Erfüllung/Übergang = ok).
@@ -367,13 +379,13 @@ export function fuehrungsformNote(
     opts: { hinweis?: string; maxNote?: number; forceNote?: number } = {},
   ): NotenErgebnis => {
     const maxNote = opts.maxNote ?? 6
-    const roh = basisnote - breitenabzug - parkenAbzug - haltestelleAbzug - hsBreitenabzug
+    const roh = basisnote - breitenabzug - parkenAbzug - tramAbzug - haltestelleAbzug - hsBreitenabzug
     const note = opts.forceNote != null ? opts.forceNote
       : roundToHalf(Math.min(maxNote, Math.max(1, roh)))
     return {
       soll, ist, q: meta.q, basisnote, erfuellt, defizit, note,
       routentyp, sollbreite, maxbreite, breite, breitenDefizit, breitenabzug,
-      breiteErfuellt, breitenStatus, parkenRechts, parkenAbzug,
+      breiteErfuellt, breitenStatus, parkenRechts, parkenAbzug, tramInFahrbahn, tramAbzug,
       oevAngebot, haltestellentyp, sollHaltestelle, kompatibleHaltestellen,
       haltestelleStatus, haltestelleAbzug,
       haltestelleBreite, hsBreitenSoll, hsBreitenabzug, hsBreiteStatus,

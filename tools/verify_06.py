@@ -322,16 +322,31 @@ def main():
     }
     out['sections']['breite_parken'] = sec4
 
-    # ── §2 Tram-Effekt (Vergleich mit/ohne Tram, Mischverkehr & mit RVA) ─────
-    def tram_pair(cond):
-        with_t = share(sel(recs, tram=True, **cond))
-        without = share(sel(recs, tram=False, **cond))
-        d = (None if with_t[0] is None or without[0] is None
-             else round(with_t[0] - without[0], 1))
-        return {'mit Tram': with_t, 'ohne Tram': without, 'delta': d}
+    # ── §2 Tram-Effekt: Schienen in der Fahrbahn, mit vs. ohne Tram ──────────
+    # Hier NICHT tram-bereinigt (recs statt nontram) — der Vergleich IST ja der Effekt.
+    # Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Tramschienen (positiv = schlechter).
+    # Malus (Notenstufen) = Δ / SCORE_PRO_NOTE, analog zu Breite/Parken; SCORE_PRO_NOTE = 14,4
+    # spiegelt die Konstante in src/fuehrungsform.ts (feel-safe-Punkte pro Notenstufe).
+    SCORE_PRO_NOTE = 14.4
+
+    def tram_cell(cond):
+        mit = share(sel(recs, tram=True, **cond))
+        ohne = share(sel(recs, tram=False, **cond))
+        delta = (None if mit[0] is None or ohne[0] is None
+                 else round(ohne[0] - mit[0], 1))
+        malus = None if delta is None else round(delta / SCORE_PRO_NOTE, 2)
+        return {'mit': mit, 'ohne': ohne, 'delta': delta, 'malus': malus}
+
+    def tram_form(ff):
+        return {'Gesamt':   tram_cell(dict(fuehrungsform=ff)),
+                'Tempo 30': tram_cell(dict(fuehrungsform=ff, speed='30')),
+                'Tempo 50': tram_cell(dict(fuehrungsform=ff, speed='50'))}
+
     out['sections']['tram_effekt'] = {
-        'Mischverkehr': tram_pair(dict(fuehrungsform='Mischverkehr')),
-        'Radstreifen': tram_pair(dict(fuehrungsform='Radstreifen')),
+        'hinweis': 'Δ = feel-safe(ohne) − feel-safe(mit); Malus = Δ / %.1f Notenstufen' % SCORE_PRO_NOTE,
+        'angewandt': {'Tempo<=30': 0.8, 'Tempo>30': 0.55, 'gilt_fuer': 'nur Mischverkehr'},
+        'Mischverkehr': tram_form('Mischverkehr'),
+        'Radstreifen': tram_form('Radstreifen'),   # Referenz: bei eigener RVA kaum Effekt
     }
 
     # ── Kreuzvalidierung: JSON-feel-safe je Konfiguration vs radwege voteScore ─
@@ -499,13 +514,25 @@ def write_md(out):
         A(f'{fall:<18}{str(v2):>8}{n2:>8}{str(v3):>8}{n3:>8}{dd:>10}')
     A('```\n')
 
-    # §2 Tram
-    A('## §2 Tram-Effekt (mit − ohne Tram)\n')
-    A('```')
-    A(f'{"Kontext":<16}{"mit Tram":>10}{"ohne Tram":>11}{"Δ":>7}')
-    for k, d in out['sections']['tram_effekt'].items():
-        A(f'{k:<16}{str(d["mit Tram"][0]):>10}{str(d["ohne Tram"][0]):>11}{str(d["delta"]):>7}')
-    A('```\n')
+    # §2 Tram in der Fahrbahn
+    te = out['sections']['tram_effekt']
+    A('## §2 Tram in der Fahrbahn — feel-safe % (N) mit vs. ohne Tram\n')
+    A('Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Schienen in der Fahrbahn. '
+      'Malus [Notenstufen] = Δ / 14,4 (feel-safe-Punkte pro Note, wie in `fuehrungsform.ts`).\n')
+    for form in ('Mischverkehr', 'Radstreifen'):
+        A(f'**{form}**' + ('  _(Referenz: eigene RVA → kaum Effekt)_' if form == 'Radstreifen' else ''))
+        A('```')
+        A(f'{"Kontext":<12}{"mit (N)":>14}{"ohne (N)":>14}{"Δ":>7}{"Malus":>7}')
+        for ctx in ('Gesamt', 'Tempo 30', 'Tempo 50'):
+            c = te[form][ctx]
+            mv, mn = c['mit']; ov, on = c['ohne']
+            A(f'{ctx:<12}{f"{mv} ({mn})":>14}{f"{ov} ({on})":>14}'
+              f'{str(c["delta"]):>7}{str(c["malus"]):>7}')
+        A('```')
+    A(f'\n**Im Tool verdrahtet** (nur Mischverkehr): −{te["angewandt"]["Tempo<=30"]} bei Tempo ≤ 30, '
+      f'−{te["angewandt"]["Tempo>30"]} bei Tempo > 30 — gerundete Tempo-Werte aus obiger Tabelle. '
+      'Der „Gesamt"-Malus ist durch die Tempo-Mischung leicht überzeichnet; massgebend sind die '
+      'tempo-kontrollierten Zeilen.\n')
 
     open(p('06_verifikation.md'), 'w').write('\n'.join(L))
 

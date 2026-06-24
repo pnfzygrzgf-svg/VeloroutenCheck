@@ -513,12 +513,23 @@ function renderC8(){
 
 function renderTram(){
   const t = DATA.sections.tram_effekt;
-  let h='<table><thead><tr><th>Kontext</th><th>mit Tram</th><th>ohne Tram</th><th>Δ</th></tr></thead><tbody>';
-  Object.keys(t).forEach(k=>{
-    h+=`<tr><td>${esc(k)}</td><td>${val(t[k]['mit Tram'])}%</td><td>${val(t[k]['ohne Tram'])}%</td><td>${t[k].delta}</td></tr>`;
+  const cell = c => `${val(c.mit)}% (${fmtN(c.mit[1])})`;
+  const cellO = c => `${val(c.ohne)}% (${fmtN(c.ohne[1])})`;
+  let h='';
+  ['Mischverkehr','Radstreifen'].forEach(form=>{
+    h+=`<p><b>${esc(form)}</b>${form==='Radstreifen'?' <span class="sub">(Referenz: eigene RVA → kaum Effekt)</span>':''}</p>`;
+    h+='<table><thead><tr><th>Kontext</th><th>mit Tram</th><th>ohne Tram</th><th>Δ feel-safe</th><th>Malus (Δ/14,4)</th></tr></thead><tbody>';
+    ['Gesamt','Tempo 30','Tempo 50'].forEach(ctx=>{
+      const c=t[form][ctx];
+      h+=`<tr><td>${ctx}</td><td>${cell(c)}</td><td>${cellO(c)}</td><td>${c.delta}</td><td>${c.malus}</td></tr>`;
+    });
+    h+='</tbody></table>';
   });
-  h+='</tbody></table><p class="sub">Tram senkt den feel-safe vor allem im Mischverkehr; bei eigener '+
-     'Radverkehrsanlage kaum. Deshalb Tram im Standard ausgeschlossen.</p>';
+  const a=t.angewandt;
+  h+=`<p class="sub">Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Schienen in der Fahrbahn. `+
+     `<b>Im Tool verdrahtet (nur Mischverkehr):</b> −${a['Tempo<=30']} bei Tempo ≤ 30, −${a['Tempo>30']} bei Tempo > 30 `+
+     `(gerundete Tempo-Werte). Der «Gesamt»-Malus ist durch die Tempo-Mischung leicht überzeichnet; massgebend sind die tempo-kontrollierten Zeilen. `+
+     `Bei eigener Radverkehrsanlage kaum Effekt — deshalb ist Tram in den übrigen Auswertungen ausgeschlossen.</p>`;
   document.getElementById('tram').innerHTML=h;
 }
 
