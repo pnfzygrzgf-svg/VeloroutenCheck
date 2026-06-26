@@ -164,7 +164,7 @@ Zuordnung der Ist-Formen zu den Befragungsdaten:
 
 - **Mischverkehr** → keine Radverkehrsanlage.
 - **Radstreifen** → markierter Streifen auf der Fahrbahn (über alle Breiten gemittelt; 3,5 m liegt deutlich höher als 2,0 m, siehe [Offene Punkte](#offene-punkte)).
-- **Radweg** → baulich getrennt, angesetzt auf dem robusten Poller-/Trennungs-Niveau (≈ 91, kaum tempoabhängig). Dieser Wert gilt für **alle baulich getrennten Formen**: den *strassenbegleitenden Radweg / geschützten Radstreifen* (Q2, in Bern als Poller-Lösung gebaut) **und** den *abgesetzten Radweg* (Q3). *Hinweis:* In Berliner Daten liegen abgesetzte Seitenraum-Radwege tiefer (≈ 77, Konflikte mit Geschäften/Gastronomie im Seitenraum); dieser Abschlag wird **bewusst nicht** übernommen, da Berns abgesetzte Radwege deutlich weniger durch Seitenraum-Nutzungen geprägt sind. Q2 und Q3 unterscheiden sich daher nur in der Breitenvorgabe, nicht im feel-safe-Wert.
+- **Radweg** → baulich getrennt, angesetzt auf dem robusten Poller-/Trennungs-Niveau (≈ 91, kaum tempoabhängig). Dieser Wert gilt für **alle baulich getrennten Formen**: den *strassenbegleitenden Radweg / geschützten Radstreifen* (beide werden gleich behandelt) **und** den *abgesetzten Radweg* (Q3). *Hinweis:* In Berliner Daten liegen abgesetzte Seitenraum-Radwege tiefer (≈ 77, Konflikte mit Geschäften/Gastronomie im Seitenraum); dieser Abschlag wird **bewusst nicht** übernommen, da Berns abgesetzte Radwege deutlich weniger durch Seitenraum-Nutzungen geprägt sind. Q2 und Q3 unterscheiden sich daher nur in der Breitenvorgabe, nicht im feel-safe-Wert.
 
 #### Warum 14,4 Punkte pro Notenstufe?
 

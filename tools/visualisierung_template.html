@@ -197,7 +197,21 @@
 </div>
 
 <script>
-const DATA = __DATA__;
+// __DATA__ wird von tools/verify_06.py durch die echten JSON-Daten ersetzt (→ 06_visualisierung.html).
+// Wird die VORLAGE direkt geöffnet, ist der Platzhalter nicht ersetzt → klaren Hinweis zeigen
+// statt leerer Seite. (typeof ist auch bei undeklarierter Variable sicher.)
+const DATA = (typeof __DATA__ !== 'undefined') ? __DATA__ : null;
+if (!DATA) {
+  document.body.innerHTML =
+    '<div style="max-width:760px;margin:60px auto;font-family:system-ui,-apple-system,sans-serif;'
+    + 'padding:24px;border:1px solid #fecaca;background:#fef2f2;border-radius:12px;color:#991b1b">'
+    + '<h2 style="margin-top:0">Vorlage ohne Daten</h2>'
+    + '<p>Dies ist die <b>Vorlage</b> (<code>visualisierung_template.html</code>) — sie enthält keine Daten.</p>'
+    + '<p>Im Projekt-Root ausführen:</p>'
+    + '<pre style="background:#fff;border:1px solid #fecaca;padding:10px;border-radius:8px">python3 tools/verify_06.py</pre>'
+    + '<p>…und die erzeugte, eigenständige Datei <b><code>06_visualisierung.html</code></b> öffnen.</p></div>';
+  throw new Error('Vorlage ohne Daten geöffnet — bitte 06_visualisierung.html verwenden.');
+}
 
 // ── Palette ───────────────────────────────────────────────────────────────
 const FORMC = {
