@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   fuehrungsart, fuehrungsformNote, haltestellenLoesung, HALTESTELLE_MIT_BREITE, PARKEN_RELEVANT,
   erfuellungsgrad,
@@ -849,6 +849,75 @@ function downloadCsv(csv: string) {
   URL.revokeObjectURL(url)
 }
 
+// ── Einstiegsseite ───────────────────────────────────────────────────────────
+function Landing({ onStart }: { onStart: () => void }) {
+  return (
+    <main style={{ maxWidth: 680, margin: '0 auto', padding: '24px 16px 56px',
+                   fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text)' }}>
+      <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="VeloroutenCheck — zum Rechner"
+           title="Zum Rechner" onClick={onStart}
+           style={{ width: 225, maxWidth: '60%', display: 'block', margin: '8px auto 6px', cursor: 'pointer' }} />
+      <div style={{ textAlign: 'center', marginBottom: 22 }}>
+        <button onClick={onStart}
+                style={{ border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer',
+                         borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 600 }}>
+          Zum Rechner →
+        </button>
+      </div>
+      <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 14px' }}>
+        VeloroutenCheck bewertet die Qualität der Veloinfrastruktur gemäss dem{' '}
+        <a href="https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur"
+           target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+          Masterplan Veloinfrastruktur der Stadt Bern
+        </a>. Eine Bewertung bezieht sich jeweils auf eine Velostrecke, die aus einem oder mehreren
+        Abschnitten bestehen kann.
+      </p>
+      <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
+        Entspricht die vorhandene Führungsform nicht dem vorgesehenen Soll-Zustand, wird
+        berücksichtigt, wie stark sich dies auf das subjektive Sicherheitsgefühl auswirkt. Grundlage
+        dafür sind Erkenntnisse aus der{' '}
+        <a href="https://radwege-check.de/auswertung/"
+           target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+          radwege-check-/FixMyCity-Befragung
+        </a>.
+      </p>
+
+      {/* Querverweis auf KnotenCheck */}
+      <a href="https://pnfzygrzgf-svg.github.io/KnotenCheck/" target="_blank" rel="noopener noreferrer"
+         style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 22, textDecoration: 'none',
+                  background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 10,
+                  padding: '12px 16px', color: 'var(--text)' }}>
+        <img src={import.meta.env.BASE_URL + 'knotencheck.png'} alt="" width={56} height={56}
+             style={{ flexShrink: 0, borderRadius: 8 }} />
+        <span>
+          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>KnotenCheck</span><br />
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            Werkzeug zur Leistungsbeurteilung von Knoten innerorts.
+          </span>
+        </span>
+      </a>
+
+      {/* Datenspeicherung (nur auf der Einstiegsseite) — kompakt */}
+      <div style={{ marginTop: 22, padding: '10px 14px', borderRadius: 10,
+                    background: '#f8fafc', border: '1px solid var(--border-subtle)',
+                    fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, textAlign: 'left' }}>
+        <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Datenspeicherung</div>
+        <div>Alle Berechnungen laufen vollständig im Browser. Eingaben und Ergebnisse werden nie an einen
+          Server übermittelt — es gibt keinen Server, der sie entgegennimmt.</div>
+        <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>
+          <li>Eingaben existieren nur im Arbeitsspeicher des Browsers und gehen beim Schliessen des Tabs verloren.</li>
+          <li>CSV-Export: „Als CSV exportieren" lädt die Bewertung als CSV-Datei auf den
+            lokalen Rechner — kein Upload, kein Cloud-Speicher. Ein Datei-Import ist derzeit nicht vorgesehen.</li>
+          <li>Nutzungsstatistik: Seitenaufrufe werden mit GoatCounter gezählt — datenschutzfreundlich: keine
+            Cookies, keine Speicherung der IP-Adresse, keine personenbezogenen Daten. Übermittelt wird nur ein
+            anonymer Seitenaufruf (mit groben Angaben wie Browser und Herkunftsland), nicht deine Eingaben oder
+            Ergebnisse. GitHub Pages loggt zudem serverseitig Zugriffe (IP, User-Agent), wie jeder Webserver.</li>
+        </ul>
+      </div>
+    </main>
+  )
+}
+
 export default function App() {
   const [sections, setSections] = useState<Section[]>([defaultSection()])
   const [street, setStreet] = useState('')
@@ -862,6 +931,26 @@ export default function App() {
   const [hoverSec, setHoverSec] = useState<number | null>(null)   // gehoverter Abschnitt (für Karten-Highlight)
   const [modus, setModus] = useState<'note' | 'erfuellung'>('note')  // Anzeige: Schulnote oder Erfüllungsgrad
   const [hintDismissed, setHintDismissed] = useState(false)  // Karten-Einstiegshinweis: erst wegklicken, dann auswählen
+  // Einstiegsseite ↔ Rechner; Deep-Link über #rechner.
+  const [view, setView] = useState<'home' | 'rechner'>(() =>
+    typeof location !== 'undefined' && location.hash === '#rechner' ? 'rechner' : 'home')
+  // GoatCounter: Rechner-Aufruf als eigenen Pfad zählen (zusätzlich zum auto-gezählten Seitenaufruf).
+  const zaehleRechner = () => (window as unknown as {
+    goatcounter?: { count?: (o: { path: string; title?: string; event?: boolean }) => void }
+  }).goatcounter?.count?.({ path: '/rechner', title: 'Rechner', event: false })
+  const go = (v: 'home' | 'rechner') => {
+    setView(v)
+    if (typeof location !== 'undefined') location.hash = v === 'rechner' ? 'rechner' : ''
+    if (v === 'rechner') zaehleRechner()
+  }
+  // Vor/Zurück-Navigation (Hash) berücksichtigen.
+  useEffect(() => {
+    const onHash = () => setView(location.hash === '#rechner' ? 'rechner' : 'home')
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+  // Direkt-Aufruf via #rechner einmalig zählen (best effort; count.js lädt asynchron).
+  useEffect(() => { if (view === 'rechner') zaehleRechner() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
   const mapRef = useRef<import('leaflet').Map | null>(null)
   const selCount = cands.filter(c => c.selected).length
 
@@ -1011,20 +1100,38 @@ export default function App() {
     : undefined
 
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', padding: '28px 16px 64px',
-                  fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 4px' }}>
-        <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="" width={44} height={44}
-             style={{ flexShrink: 0 }} />
-        <h1 style={{ fontSize: 24, margin: 0 }}>VeloroutenCheck</h1>
-      </div>
-      <p style={{ margin: '0 0 20px', color: 'var(--text-muted)', fontSize: 14 }}>
-        Bewertung einer Velo-Strecke aus einem oder mehreren Abschnitten anhand der Vorgaben des{' '}
-        <a href="https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur"
-           target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-          Masterplans Veloinfrastruktur Stadt Bern
-        </a>
-      </p>
+    <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)' }}>
+      {/* Header (grün); Titel/Logo führen zur Einstiegsseite */}
+      <header className="vrc-header">
+        <div className="vrc-header-inner">
+          <span className="vrc-header-title" onClick={() => go('home')}
+                style={{ cursor: view !== 'home' ? 'pointer' : 'default' }}>VeloroutenCheck</span>
+          {view === 'rechner' && (
+            <button className="vrc-home-btn" onClick={() => go('home')}>← Startseite</button>
+          )}
+          <nav className="vrc-header-nav">
+            <a href="https://github.com/pnfzygrzgf-svg/VeloroutenCheck"
+               target="_blank" rel="noopener noreferrer">
+              <span className="nav-long">Quellcode: </span>GitHub
+            </a>
+            <span style={{ opacity: 0.5 }}>·</span>
+            <a href="https://creativecommons.org/licenses/by-nc/4.0/deed.de"
+               target="_blank" rel="noopener noreferrer">
+              <span className="nav-long">Lizenz: </span>CC BY-NC 4.0
+            </a>
+          </nav>
+        </div>
+      </header>
+
+      {view === 'home' && <Landing onStart={() => go('rechner')} />}
+
+      {view === 'rechner' && (
+      <div style={{ maxWidth: 820, margin: '0 auto', padding: '20px 16px 64px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+          <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="" width={40} height={40}
+               style={{ flexShrink: 0, cursor: 'pointer' }} onClick={() => go('home')} title="Zur Einstiegsseite" />
+          <h1 style={{ fontSize: 22, margin: 0 }}>VeloroutenCheck</h1>
+        </div>
 
       {/* Anzeige-Umschalter: Schulnote (1–6) ↔ vierstufiger Erfüllungsgrad. Rein darstellend. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
@@ -1354,6 +1461,8 @@ export default function App() {
           Quellcode auf GitHub
         </a>
       </footer>
+      </div>
+      )}
     </div>
   )
 }

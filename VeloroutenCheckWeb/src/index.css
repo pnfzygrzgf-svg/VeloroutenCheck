@@ -41,6 +41,19 @@ input { font: inherit; }
    im aufgeklappten Menü aber voll sichtbar). */
 select { max-width: 100%; }
 
+/* ── Einstiegsseiten-/App-Header (grün, via Akzent-Token) ─────────────────────── */
+.vrc-header { background: var(--accent); color: #fff; }
+.vrc-header-inner { max-width: 980px; margin: 0 auto; padding: 10px 16px;
+  display: flex; align-items: center; gap: 14px; }
+.vrc-header-title { font-weight: 800; font-size: 18px; letter-spacing: 0.01em; }
+.vrc-header-nav { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.vrc-header-nav a { color: #fff; text-decoration: none; opacity: 0.95; }
+.vrc-header-nav a:hover { text-decoration: underline; }
+.vrc-home-btn { background: #ffffff22; color: #fff; border: none; border-radius: 8px;
+  padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.vrc-home-btn:hover { background: #ffffff33; }
+@media (max-width: 480px) { .vrc-header-nav .nav-long { display: none; } }
+
 /* Touch-Geräte: grössere Tippziele (≥ 44 px). Inline setzt keine min-height → greift sauber. */
 @media (pointer: coarse) {
   button, select, input, summary { min-height: 44px; }
