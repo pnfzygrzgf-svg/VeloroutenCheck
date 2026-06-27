@@ -19,8 +19,9 @@ __pycache__/
 06_verifikation.json
 06_visualisierung.html
 
-# ── Interne Arbeitsnotiz (kein Methodik-Inhalt) ──────────────────────────────
+# ── Interne Arbeitsnotizen (kein Methodik-Inhalt) ────────────────────────────
 docs/ux-verbesserungen-plan.md
+docs/mobile-optimierung-plan.md
 
 # ── Grosse / Dritt-Rohdaten: lokal halten, NICHT versionieren ────────────────
 # (Bezugsquellen sind im README dokumentiert; die App nutzt nur die gebündelten

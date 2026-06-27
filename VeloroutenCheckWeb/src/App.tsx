@@ -861,6 +861,7 @@ export default function App() {
   const [stops, setStops] = useState<Stop[]>([])                  // ÖV-Haltestellen für Karten-Marker
   const [hoverSec, setHoverSec] = useState<number | null>(null)   // gehoverter Abschnitt (für Karten-Highlight)
   const [modus, setModus] = useState<'note' | 'erfuellung'>('note')  // Anzeige: Schulnote oder Erfüllungsgrad
+  const [hintDismissed, setHintDismissed] = useState(false)  // Karten-Einstiegshinweis: erst wegklicken, dann auswählen
   const mapRef = useRef<import('leaflet').Map | null>(null)
   const selCount = cands.filter(c => c.selected).length
 
@@ -1114,20 +1115,29 @@ export default function App() {
             <VeloMap cands={cands} onToggle={toggleCand} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops} />
-            {/* Empty-State: macht die Karten-Interaktion sichtbar, solange nichts geladen ist.
-                pointer-events:none → Klicks gehen durch auf die Karte. */}
-            {cands.length === 0 && !osmBusy && (
-              <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
-                            zIndex: 500, pointerEvents: 'none', maxWidth: 360, width: 'calc(100% - 24px)',
-                            background: 'rgba(15,23,42,0.88)', color: '#fff', borderRadius: 10,
-                            padding: '12px 16px', boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
-                            fontSize: 13, lineHeight: 1.45, textAlign: 'center' }}>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-                  👆 Auf eine Strasse in der Karte klicken, um zu starten
-                </div>
-                <div style={{ opacity: 0.9 }}>
-                  Jeder Klick fügt das nächstgelegene Segment hinzu. Alternativ oben einen
-                  Strassennamen laden.
+            {/* Empty-State als Dismiss-Schicht über der Karte: Die ERSTE Interaktion (Klick/Touch/
+                Zoom) schliesst nur den Hinweis — sie wählt noch kein Segment aus und zoomt nicht.
+                Die Schicht fängt das Ereignis ab (pointerEvents auto); erst danach ist die Karte frei. */}
+            {cands.length === 0 && !osmBusy && !hintDismissed && (
+              <div onPointerDown={() => setHintDismissed(true)}
+                   onWheel={() => setHintDismissed(true)}
+                   style={{ position: 'absolute', inset: 0, zIndex: 500, cursor: 'pointer',
+                            display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+                <div style={{ marginTop: 12, maxWidth: 360, width: 'calc(100% - 24px)',
+                              pointerEvents: 'none',
+                              background: 'rgba(15,23,42,0.88)', color: '#fff', borderRadius: 10,
+                              padding: '12px 16px', boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+                              fontSize: 13, lineHeight: 1.45, textAlign: 'center' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+                    So baust du eine Strecke auf
+                  </div>
+                  <div style={{ opacity: 0.9 }}>
+                    Auf eine Strasse tippen = nächstgelegenes Segment hinzufügen · Linie antippen =
+                    ab-/zuwählen · oder oben einen Strassennamen laden.
+                  </div>
+                  <div style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
+                    Tippen schliesst diesen Hinweis.
+                  </div>
                 </div>
               </div>
             )}

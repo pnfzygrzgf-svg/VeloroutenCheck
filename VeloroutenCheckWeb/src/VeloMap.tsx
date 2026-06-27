@@ -91,12 +91,16 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
     for (const c of cands) {
       const pts = c.geom.map(p => [p.lat, p.lon] as [number, number])
       if (pts.length < 2) continue
+      // Sichtbare Linie = nur Anzeige; Klicks laufen über die breite Trefflinie darunter.
       const line = L.polyline(pts, {
         color: c.selected ? (ISTCOLOR[c.ist] || '#0f766e') : '#cbd5e1',
         weight: c.selected ? 6 : 3,
         opacity: c.selected ? 0.9 : 0.6,
+        interactive: false,
       })
-      line.on('click', () => { suppress.current = true; onToggle(c.id) })
+      // Unsichtbare, breite Trefflinie → leichteres An-/Abwählen per Finger (und Maus).
+      const hit = L.polyline(pts, { color: '#000', weight: 16, opacity: 0 })
+      hit.on('click', () => { suppress.current = true; onToggle(c.id) })
       const bernParts = c.bern && [
         c.bern.speed != null ? `Tempo ${c.bern.speed}` : null,
         c.bern.dtv != null ? `DTV ≈ ${c.bern.dtv}` : null,
@@ -107,12 +111,13 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
         : (c.obs && c.obs.usage > 0
             ? `<br>OpenBikeSensor: befahren (n ${c.obs.usage}), keine Überholmessung`
             : '')
-      line.bindTooltip(
+      hit.bindTooltip(
         `${c.name} · ${Math.round(c.len)} m · ${c.ist}${c.selected ? '' : ' (abgewählt)'}` +
         (bernParts && bernParts.length ? `<br>Geoinformation Stadt Bern: ${bernParts.join(' · ')}` : '') +
         obsPart,
         { sticky: true })
-      line.addTo(lg)
+      hit.addTo(lg)         // unten (Trefffläche)
+      line.addTo(lg)        // sichtbare Linie darüber
       lineRef.current.set(c.id, line)
       pts.forEach(p => bounds.extend(p))
     }
@@ -164,6 +169,6 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
 
   return (
     <div ref={elRef}
-         style={{ height: 380, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-subtle)' }} />
+         style={{ height: 'min(380px, 60vh)', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-subtle)' }} />
   )
 }

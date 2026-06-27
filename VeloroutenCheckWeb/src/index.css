@@ -29,5 +29,26 @@
   --r-lg: 12px;
 }
 * { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }        /* keine automatische Schriftvergrösserung auf iOS */
 body { margin: 0; background: var(--bg); }
 input { font: inherit; }
+
+/* ── Mobile-/Touch-Optimierung (additiv; Desktop bleibt unverändert) ──────────
+   Greift nur über Media-Queries; nutzt keine !important, daher überschreiben die
+   Inline-Styles weiterhin alles, was sie explizit setzen (Inline setzt keine min-height). */
+
+/* Selects nie über den Container hinaus (lange Optionstexte werden abgeschnitten,
+   im aufgeklappten Menü aber voll sichtbar). */
+select { max-width: 100%; }
+
+/* Touch-Geräte: grössere Tippziele (≥ 44 px). Inline setzt keine min-height → greift sauber. */
+@media (pointer: coarse) {
+  button, select, input, summary { min-height: 44px; }
+}
+
+/* Sehr schmale Screens: etwas mehr Lesbarkeit/Luft. */
+@media (max-width: 480px) {
+  body { font-size: 16px; line-height: 1.5; }
+  /* Leaflet-Bedienelemente etwas grösser/fingerfreundlicher */
+  .leaflet-touch .leaflet-bar a { width: 36px; height: 36px; line-height: 36px; }
+}
