@@ -408,7 +408,7 @@ Für **Bus** wird zusätzlich der **Takt aus dem Fahrplan** bestimmt: Das Skript
 
 ### OpenBikeSensor (gemessene Überholabstände)
 
-Wo vorhanden, werden je Abschnitt **gemessene Überholabstände** angezeigt (Median, Anteil unter 1,5 m gesetzlichem Mindestabstand, Anzahl Messungen, Befahrungen). Quelle ist ein Export aus dem [OpenBikeSensor-Portal](https://portal.openbikesensor.org/), als gebündelter Snapshot abgelegt (`VeloroutenCheckWeb/public/obs_bern.json`, ganz Bern) und client-seitig nachgeschlagen — kein Live-Bezug. Aktualisierung: Datei durch einen neuen Portal-Export ersetzen.
+Wo vorhanden, werden je Abschnitt **gemessene Überholabstände** angezeigt (Median, Anteil unter 1,5 m gesetzlichem Mindestabstand, Anzahl Messungen, Befahrungen). Quelle ist ein Export aus dem [OpenBikeSensor-Portal](https://portal.openbikesensor.org/), als gebündelter Snapshot **pro Stadt** abgelegt (`VeloroutenCheckWeb/public/obs_bern.json`, `obs_zurich.json`) und client-seitig nachgeschlagen — kein Live-Bezug. Welche Datei geladen wird, bestimmt die Stadt-Auswahl (Städte ohne Snapshot, z. B. Basel, zeigen keine OBS-Werte). Aktualisierung: Datei durch einen neuen Portal-Export ersetzen.
 
 **Zuordnung über Geometrie statt `way_id`.** OBS nutzt einen eigenen OSM-Schnappschuss und teilt lange Strassen in feinere Mess-Abschnitte; ausserdem werden OSM-Ways laufend geteilt/neu nummeriert. Ein reiner `way_id`-Join verfehlt darum Teilstücke (Beispiel: von 12 OBS-`way_id`s der Schosshaldenstrasse existiert eine nicht mehr im aktuellen OSM). Deshalb wird jedes OBS-Teilstück per **Überlappung** ([`VeloroutenCheckWeb/src/geo.ts`](VeloroutenCheckWeb/src/geo.ts)) genau dem am besten passenden OSM-Segment zugeordnet und alle Teilstücke eines Segments werden zusammengeführt (Median/Mittel aus dem kombinierten Messwert-Array, Anzahlen summiert) — schnappschuss-unabhängig und pro Segment.
 
@@ -416,14 +416,108 @@ Wo vorhanden, werden je Abschnitt **gemessene Überholabstände** angezeigt (Med
 
 Die Überholabstände sind **reine Zusatzinformation** und fliessen **nicht** in die Führungsform-Note ein.
 
+### Weitere Städte (Zürich, Basel, Luzern, St. Gallen)
+
+Über die **Stadt-Auswahl** im Lade-Bereich lassen sich neben Bern auch **Zürich**, **Basel**, **Luzern** und **St. Gallen** wählen. Die Bewertungslogik (Führungsform-Wahl aus DTV×Tempo, feel-safe) basiert auch dann weiterhin auf dem Berner Masterplan. Pro Stadt unterscheiden sich die **Datenquellen** für die Anreicherung — und die **Breiten-Sollwerte**: Zürich, Basel und Luzern nutzen je eigene Standardmasse (St. Gallen und alle nicht abgedeckten Fälle → Bern-Fallback). Beim Wechsel der Stadt fliessen also andere Breiten-Vorgaben in die Note ein; die **Herkunft der Vorgabe** steht im Rechner bei jedem Abschnitt («Vorgabe … (Quelle: …)»). Jede Stadt ist ein eigener Adapter ([`zurich.ts`](VeloroutenCheckWeb/src/zurich.ts), [`basel.ts`](VeloroutenCheckWeb/src/basel.ts), [`luzern.ts`](VeloroutenCheckWeb/src/luzern.ts), [`stgallen.ts`](VeloroutenCheckWeb/src/stgallen.ts)), der die Schnittstellen von `bern.ts` spiegelt; gemeinsame Helfer (geometrisches Matching, ÖV aus OSM) liegen in [`cityShared.ts`](VeloroutenCheckWeb/src/cityShared.ts).
+
+#### Zürich
+
+| Feld | Quelle Zürich | Hinweis |
+|---|---|---|
+| Geometrie, Name, Tempo, Ist-Führungsform | **OSM** | stadtneutral, identisch zu Bern |
+| Breite | **OSM** (selten) | nur bei `cycleway:*:width`-Tag → de facto **meist manuell** |
+| **Routentyp** | **Velonetzplanung** (WFS `view_velonetz`, live) | Zuordnung geometrisch; Mapping siehe unten |
+| Tram in der Fahrbahn, Haltestelle im Abschnitt | **OSM** (`railway=tram`, `public_transport`) | Herkunft daher *OSM* |
+| **DTV MIV** | — *(manuell)* | keine offene flächendeckende Quelle; nur ~100 DAV-Zählstellen (Punktmessungen) → späterer Baustein |
+| **Bus-Takt** (ÖV-Angebot-Band) | — *(manuell)* | OSM kennt keinen Takt, OSM→GTFS-Join offen → späterer Baustein |
+
+**Routentyp-Mapping Zürich → Masterplan.** Der Zürcher Velonetzplan kennt drei Netzkategorien (Velostandards Stadt Zürich, S. 7); sie werden auf die beiden Masterplan-Routentypen übersetzt, weil der Routentyp im Modell nur die massgebliche Breiten-Untergrenze (Optimal/Minimal) und die Haltestellen-Soll-Lösung steuert:
+
+| Zürich `kategorie` | → Routentyp |
+|---|---|
+| `Vorzugsroute` | Velohauptroute |
+| `Hauptnetz` | Veloroute |
+| `Basisnetz` | *(kein Routentyp — manuell)* |
+
+**Stadtspezifische Breiten-Sollwerte (Zürich).** Für Zürich gelten die **Standardmasse der Velostandards Stadt Zürich** (Tab. 1, S. 16) statt der Berner Regelbreiten — Velovorzugsroute → Velohauptroute (Optimal), Hauptnetz → Veloroute (Minimal):
+
+| Führungsform | Velohauptroute | Veloroute |
+|---|---|---|
+| Radstreifen · Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 2,20 m |
+| Umweltspur | 4,80 m | 4,50 m |
+
+Wo Zürich keine eigene Vorgabe hat (Velostrasse-Band 4,50–6,50 m, Fussweg Velo gestattet, Mischverkehr), gelten weiterhin die **Berner Werte** (Fallback je Feld). Implementiert als `BREITEN_ZUERICH` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts), übergeben über den `breiten`-Eintrag der Stadt-Registry. Die Führungsform-Wahl (DTV×Tempo) und die feel-safe-Logik bleiben unverändert Bern.
+
+
+
+#### Basel
+
+Routentyp live aus dem **Teilrichtplan Velo** (WFS `wfs.geo.bs.ch`, Bestandsnetz mit den Flags `tv_pendlerroute`/`tv_basisroute`). Zusätzlich setzt der **Velostadtplan** (data.bs.ch, `gml_id=Velostrasse`, 87 Segmente) die **Ist-Führungsform = Velostrasse**, analog Berns Velostrassen-Layer. Tempo/übrige Ist aus OSM; Breite aus OSM nur bei seltenem `cycleway:*:width`-Tag (de facto meist manuell); Tram/Haltestelle aus OSM; DTV und Bus-Takt manuell. Die „Eignung" des Velostadtplans („gut befahrbares Velonetz") ist eine Komfortbewertung und wird **nicht** als Routentyp übernommen.
+
+| Basel-Kategorie | → Routentyp |
+|---|---|
+| Velovorzugsrouten | Velohauptroute — *aber nicht als offene Geodaten verfügbar → manuell* |
+| Basis-/Pendlerrouten (`tv_basisroute=ja` oder `tv_pendlerroute=ja`) | Veloroute |
+| übriges Strassennetz | *(kein Routentyp — manuell)* |
+
+Gemäss Velokonzept Basel-Stadt sind Basis- und Pendlerrouten **nicht** hierarchisiert (verschiedene Nutzergruppen, gleiche Stufe) → beide werden zur **Veloroute**. Die qualitativ höherwertigen **Velovorzugsrouten** (= Velohauptroute) sind weder im WFS/WMS noch auf data.bs.ch als Geodaten publiziert und können daher nicht automatisch gesetzt werden.
+
+**Breiten-Sollwerte (Basel).** Standards Fuss- und Veloverkehrsinfrastruktur Basel-Stadt (2024), Tab. 4 — Standardmass (→ Velohauptroute) / reduziertes Standardmass (→ Veloroute); Velostrasse-Band und Fussweg → Bern-Fallback (`BREITEN_BASEL` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)):
+
+| Führungsform | Velohauptroute | Veloroute |
+|---|---|---|
+| Radstreifen | 2,50 m | 1,80 m |
+| Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 2,20 m |
+| Umweltspur | 4,50 m | 3,00 m |
+
+#### St. Gallen
+
+Routentyp live aus dem **Veloplan** (daten.stadt.sg.ch, Opendatasoft; per `in_bbox` nur der Kartenbereich). Das Feld `art_text` mischt Routenklasse und Zusatzattribute; nur die Routenklasse zählt. Tempo/Ist aus OSM; Breite aus OSM nur bei seltenem `cycleway:*:width`-Tag (de facto meist manuell); ÖV aus OSM — **St. Gallen hat kein Tram**, nur Bus/Trolleybus → praktisch nur „Haltestelle vorhanden"; DTV/Bus-Takt manuell.
+
+| `art_text` (Veloplan) | → Routentyp |
+|---|---|
+| `Hauptroute …` (asphaltiert / Naturbelag / Direkt / Sicher) | Velohauptroute |
+| `Sekundäre Route …` | Veloroute |
+| Einbahn · Steigung · Waldegg-Trail · „velo schieben" | *(kein Routentyp — manuell)* |
+
+Das Grundnetz ist nahezu flächendeckend `Sekundäre Route` (→ Veloroute), mit einem kleinen `Hauptroute`-Netz (→ Velohauptroute).
+
+**Breiten-Sollwerte (St. Gallen):** kein eigenes Standard-Dokument gefunden → es gelten durchgehend die **Berner** Regelbreiten (Bern-Fallback).
+
+#### Luzern
+
+Routentyp live aus dem städtischen **Velonetz** (ArcGIS REST `map.stadtluzern.ch`, Layer 7, Feld `VELO_ROUTENTYP`). Tempo und Ist-Führungsform aus OSM; Breite aus OSM nur bei seltenem `cycleway:*:width`-Tag (de facto meist manuell); ÖV aus OSM — **Luzern hat kein Tram**, nur Bus → praktisch nur „Haltestelle vorhanden"; DTV/Bus-Takt manuell.
+
+Das OGD-Feld `VELO_ROUTENTYP` (Stadt Luzern) hat drei Werte; sie werden auf die zwei Masterplan-Routentypen übersetzt (analog Zürich: oben → Velohaupt, Mitte → Velo, unten → manuell):
+
+| `VELO_ROUTENTYP` | → Routentyp |
+|---|---|
+| `Velohauptroute` | Velohauptroute |
+| `Hauptroute` | Veloroute |
+| `Nebenroute` | *(kein Routentyp — manuell)* |
+| `keine Velonetz-Route`, `unbekannt` | *(kein Routentyp — manuell)* |
+
+**Breiten-Sollwerte (Luzern).** Standards Veloverkehr **Stadt** Luzern (Q-Blätter, S. 30–57) — Optimalfall (→ Velohauptroute) / Minimalfall (→ Veloroute); Grundsatz: auf Velohauptrouten gilt der Optimalfall, auf übrigen Velorouten ist mindestens der Minimalfall zu gewährleisten (`BREITEN_LUZERN` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)):
+
+| Führungsform | Velohauptroute | Veloroute |
+|---|---|---|
+| Radstreifen · Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 1,80 m |
+| Umweltspur | 4,50 m | 3,00 m |
+| Velostrasse | 4,50 m | 4,50 m |
+| Fussweg Velo gestattet | 3,50 m | 3,50 m |
+
 ### Datenlizenzen und Quellenangaben
 
 | Quelle | Verwendung | Bezug | Lizenz / Quellenangabe |
 |---|---|---|---|
 | **OpenStreetMap** | Geometrie, Name, teils Tempo/Breite/Ist-Führungsform | [Overpass API](https://overpass-api.de/) (live) | **ODbL** — „© OpenStreetMap-Mitwirkende", Attribution Pflicht |
 | **Stadt Bern Geoportal** (Flächendeckende Verkehrsdaten, Signalisierte Höchstgeschwindigkeit, Veloroutennetz Masterplan, Velostrassen, Haltestellen, OeV_Linien) | DTV, Tempo, Routentyp, Velostrasse, ÖV (Tram/Haltestellen) | [opendata.swiss](https://opendata.swiss/) / `map.bern.ch` (ArcGIS REST, live) | **„Freie Nutzung. Quellenangabe ist Pflicht."** — Quellenangabe: „Geodaten Stadt Bern" |
+| **Stadt Zürich Velonetzplanung** | Routentyp (Zürich) | OGD Stadt Zürich, WFS `ogd.stadt-zuerich.ch` (`view_velonetz`, live) | **Open Government Data** — Quellenangabe: „Stadt Zürich" |
+| **Teilrichtplan Velo + Velostadtplan Basel-Stadt** | Routentyp + Velostrasse (Basel) | OGD Kanton Basel-Stadt, WFS `wfs.geo.bs.ch` + data.bs.ch (live) | **Open Government Data** — Quellenangabe: „Geodaten Kanton Basel-Stadt" |
+| **Velonetz Stadt Luzern** | Routentyp (Luzern) | OGD Stadt Luzern, ArcGIS REST `map.stadtluzern.ch` (live) | **Open Government Data** — Quellenangabe: „Geodaten Stadt Luzern" |
+| **Veloplan Stadt St. Gallen** | Routentyp (St. Gallen) | OGD Stadt St. Gallen, daten.stadt.sg.ch (Opendatasoft, live) | **Open Government Data** — Quellenangabe: „Geodaten Stadt St. Gallen" |
 | **GTFS Fahrplan** | Bus-Takt (Abendspitze) → ÖV-Angebot-Band | [opentransportdata.swiss](https://opentransportdata.swiss/), Snapshot `VeloroutenCheckWeb/public/oev_takt_bern.json` | Open data — opentransportdata.swiss |
-| **OpenBikeSensor** | Gemessene Überholabstände (Info, nicht in der Note) | Portal-Export, Snapshot `VeloroutenCheckWeb/public/obs_bern.json` | „© OpenBikeSensor-Mitwirkende" |
+| **OpenBikeSensor** | Gemessene Überholabstände (Info, nicht in der Note) | Portal-Export, Snapshots `VeloroutenCheckWeb/public/obs_bern.json`, `obs_zurich.json` | „© OpenBikeSensor-Mitwirkende" |
 | **CyclOSM** | Kartenhintergrund | Tile-Server (live) | © OpenStreetMap-Mitwirkende · Stil: CyclOSM |
 
 Die Pflicht-Attributionen werden in der App angezeigt: die Karten-Attribution (OSM/CyclOSM) unten rechts auf der Karte, die Herkunft der übrigen Werte über die Feld-Chips und die Status-/Lade-Meldung.
@@ -437,6 +531,8 @@ Die Pflicht-Attributionen werden in der App angezeigt: die Karten-Attribution (O
 - **Velostrasse «zu breit»:** der Abzug über der Maximalbreite (6,50 m) ist normativ gesetzt (gleicher Satz wie «zu schmal») — bei Bedarf eigener Satz/Schwelle.
 - **«Radweg abgesetzt» (Q3):** In Berliner Daten tiefer (Seitenraum ≈ 77) als Poller-Niveau (≈ 91). Dieser Abschlag wird **bewusst nicht** angewandt (Berns Seitenraum ist weniger durch Geschäfte/Gastronomie geprägt als Berlins); Q3 trägt denselben feel-safe-Wert wie Q2 und unterscheidet sich nur in der Minimalbreite (1,50 m). Bei künftigen Berner Auswertungen überprüfen.
 - **Einfärbung des Belags:** empirisch ein eigener, positiver Effekt (farbig vs. grau ≈ +7 feel-safe-Punkte; im Paper signifikant, Tab. 2) — bisher **nicht** im Modell. Könnte als eigener, datengestützter Faktor aufgenommen werden (analog zum Tram-Malus). Siehe [docs/08](docs/08_Studie_Subjektive_Sicherheit_2022.md).
+- **Mindestmasse (Untergrenzen) im ganzen Rechner:** Heute gibt es nur eine Soll-Regelbreite je Führungsform/Routentyp; eine Unterschreitung wirkt linear über den Breiten-Abzug. Velostandards-Dokumente definieren zusätzlich **absolute Minimalmasse, die nicht unterschritten werden dürfen**. Deren Unterschreitung müsste die Note härter kappen (eigene Schwelle/Deckelung) statt nur linear abzuziehen. Stadtübergreifend zu konzipieren.
+- Velostrassen sind Mischverkehr, was zur feelClass: 'Mischverkehr' passt. Im Code ist die Basisnote bei Tempo 30 aber aktuell 6 (Form akzeptiert), nicht die Mischverkehr-Bewertung. Soll das so bleiben? Die Note ändert sich aktuelle wenn die breiten nicht eingehalten werden oder wenn es parkierung gibt.
 
 ---
 
@@ -456,7 +552,12 @@ Stack: React 18, Vite 5, TypeScript (strict).
 | [`VeloroutenCheckWeb/src/fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts) | Bewertungslogik: Soll-Wahl, Führungsform-Note, Breiten-/Parkier-/Haltestellen-Abzug |
 | [`VeloroutenCheckWeb/src/App.tsx`](VeloroutenCheckWeb/src/App.tsx) | UI, Eingaben, Import-Wege, Herkunft/Chips, CSV-Export, Entscheidungstabellen |
 | [`VeloroutenCheckWeb/src/VeloMap.tsx`](VeloroutenCheckWeb/src/VeloMap.tsx) | Leaflet-Karte: Segmente, Nummern, Haltestellen-Marker, Highlight |
-| [`VeloroutenCheckWeb/src/bern.ts`](VeloroutenCheckWeb/src/bern.ts) | Geoportal-Layer (DTV-Formel, Matching, ÖV) |
+| [`VeloroutenCheckWeb/src/bern.ts`](VeloroutenCheckWeb/src/bern.ts) | Bern: Geoportal-Layer (DTV-Formel, Matching, ÖV) |
+| [`VeloroutenCheckWeb/src/zurich.ts`](VeloroutenCheckWeb/src/zurich.ts) | Zürich: Velonetzplanung-WFS (Routentyp) + ÖV aus OSM |
+| [`VeloroutenCheckWeb/src/basel.ts`](VeloroutenCheckWeb/src/basel.ts) | Basel: Teilrichtplan-Velo-WFS (Routentyp) + Velostrasse + ÖV aus OSM |
+| [`VeloroutenCheckWeb/src/luzern.ts`](VeloroutenCheckWeb/src/luzern.ts) | Luzern: Velonetz-ArcGIS (Routentyp) + ÖV aus OSM |
+| [`VeloroutenCheckWeb/src/stgallen.ts`](VeloroutenCheckWeb/src/stgallen.ts) | St. Gallen: Veloplan-Opendatasoft (Routentyp) + ÖV aus OSM |
+| [`VeloroutenCheckWeb/src/cityShared.ts`](VeloroutenCheckWeb/src/cityShared.ts) | Geteilte Stadt-Helfer: Geo-Matching + ÖV-Erkennung aus OSM |
 | [`VeloroutenCheckWeb/src/obs.ts`](VeloroutenCheckWeb/src/obs.ts) | OpenBikeSensor-Überholabstände |
 | [`VeloroutenCheckWeb/src/geo.ts`](VeloroutenCheckWeb/src/geo.ts) | Geometrie-Helfer (Überlappungs-Matching) |
 | [`tools/oev_takt.py`](tools/oev_takt.py) | GTFS → `VeloroutenCheckWeb/public/oev_takt_bern.json` (Bus-Takt, offline) |

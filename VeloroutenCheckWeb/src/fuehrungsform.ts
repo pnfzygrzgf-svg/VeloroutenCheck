@@ -185,6 +185,42 @@ const IST: Record<IstFuehrungsform, IstMeta> = {
   'Fussweg Velo gestattet':    { q: 'Q12', rank: 0, feelClass: 'Mischverkehr', optimal: 3.5, minimal: 3.5 },
 }
 
+// ── Stadtspezifische Breiten-Sollwerte (optionaler Override je Führungsform) ──────
+// Die Führungsform-WAHL (DTV×Tempo) und die feel-safe-Logik bleiben für alle Städte
+// Bern-basiert; nur die massgeblichen Regel-BREITEN können stadtspezifisch sein.
+// Override pro Feld: fehlt ein Wert, gilt der Berner Wert aus IST (Fallback).
+export interface BreitenSoll { optimal?: number; minimal?: number; maximal?: number }
+
+// Stadt Zürich — Standardmass aus den Velostandards Stadt Zürich, Tab. 1 (S. 16):
+//   optimal = Velovorzugsroute (→ Velohauptroute), minimal = Hauptnetz (→ Veloroute).
+// Wo Zürich keine eigene Vorgabe hat (Velostrasse-Band, Fussweg, Mischverkehr) → Berner Werte.
+export const BREITEN_ZUERICH: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
+  'Radstreifen':                                         { optimal: 2.5, minimal: 2.2 },
+  'Radweg strassenbegleitend / Geschützter Radstreifen': { optimal: 2.5, minimal: 2.2 },
+  'Radweg abgesetzt':                                    { optimal: 2.5, minimal: 2.2 },
+  'Umweltspur':                                          { optimal: 4.8, minimal: 4.5 },
+}
+
+// Stadt Basel — Standards Fuss- und Veloverkehrsinfrastruktur Kanton Basel-Stadt (2024), Tab. 4
+// (S. 20): optimal = Standardmass, minimal = reduziertes Standardmass. Velostrasse/Fussweg → Bern.
+export const BREITEN_BASEL: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
+  'Radstreifen':                                         { optimal: 2.5, minimal: 1.8 },
+  'Radweg strassenbegleitend / Geschützter Radstreifen': { optimal: 2.5, minimal: 2.2 },
+  'Radweg abgesetzt':                                    { optimal: 2.5, minimal: 2.2 },
+  'Umweltspur':                                          { optimal: 4.5, minimal: 3.0 },
+}
+
+// Stadt Luzern — Standards Veloverkehr Stadt Luzern (Q-Blätter, S. 30–57):
+// optimal = Optimalfall (Velohauptrouten), minimal = Minimalfall (übrige Velorouten).
+export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
+  'Radstreifen':                                         { optimal: 2.5, minimal: 1.8 },  // Q1a
+  'Radweg strassenbegleitend / Geschützter Radstreifen': { optimal: 2.5, minimal: 1.8 },  // Q2a/Q2b
+  'Radweg abgesetzt':                                    { optimal: 2.5, minimal: 1.8 },  // Q3
+  'Umweltspur':                                          { optimal: 4.5, minimal: 3.0 },  // Q4
+  'Velostrasse':                                         { optimal: 4.5, minimal: 4.5 },  // Q10
+  'Fussweg Velo gestattet':                              { optimal: 3.5, minimal: 3.5 },  // S. 57
+}
+
 // Notenstufen-Abzug pro fehlendem Meter Breite (Variante A, linear). Hergeleitet aus dem
 // empirischen Breiten-Gradienten: Radstreifen 2,0 → 3,5 m ≈ +20 feel-safe-Punkte über 1,5 m
 // = 13,3 Pkt/m; geteilt durch 14,4 Pkt/Notenstufe ≈ 0,9. Tunbarer Parameter.
@@ -315,6 +351,7 @@ export function fuehrungsformNote(
   parkenRechts: ParkenRechts = 'egal', oevTakt?: number,
   oevAngebot: OevAngebot = 'keine', haltestellentyp: Haltestellentyp = 'keine',
   haltestelleBreite?: number, tramInFahrbahn = false,
+  breitenSoll?: BreitenSoll,   // stadtspezifischer Breiten-Override (Fallback je Feld: Bern/IST)
 ): NotenErgebnis {
   const soll = fuehrungsart(dtv, v)
   const meta = IST[ist]
@@ -322,8 +359,11 @@ export function fuehrungsformNote(
   // ── Breite: Untergrenze je Routentyp (+ optionale Obergrenze, nur Velostrasse-Band). Abzug
   // (Variante A, linear) = Abweichung ausserhalb des Bereichs × NOTE_PRO_METER. «Zu schmal» stützt
   // sich auf den feel-safe-Gradienten; «zu breit» (nur Velostrasse) ist normativ, gleicher Satz.
-  const sollbreite = routentyp === 'Velohauptroute' ? meta.optimal : meta.minimal
-  const maxbreite = meta.maximal
+  // Breiten-Sollwerte: stadtspezifischer Override je Feld, sonst Berner Wert (IST).
+  const optimal = breitenSoll?.optimal ?? meta.optimal
+  const minimal = breitenSoll?.minimal ?? meta.minimal
+  const sollbreite = routentyp === 'Velohauptroute' ? optimal : minimal
+  const maxbreite = breitenSoll?.maximal ?? meta.maximal
   let breitenDefizit = 0
   let breitenStatus: NotenErgebnis['breitenStatus'] = 'keine'
   if (breite != null && breite > 0 && (sollbreite != null || maxbreite != null)) {

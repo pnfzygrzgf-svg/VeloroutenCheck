@@ -1,13 +1,67 @@
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import {
   fuehrungsart, fuehrungsformNote, haltestellenLoesung, HALTESTELLE_MIT_BREITE, PARKEN_RELEVANT,
-  erfuellungsgrad,
+  erfuellungsgrad, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   type Fuehrungsart, type IstFuehrungsform, type Routentyp, type ParkenRechts,
-  type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis,
+  type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
 } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, type Cand, type SectionMarker, type Stop } from './VeloMap'
-import { enrichCands, loadOev, type OevInfo } from './bern'
+import * as bern from './bern'
+import * as zurich from './zurich'
+import * as basel from './basel'
+import * as luzern from './luzern'
+import * as stgallen from './stgallen'
+import { type OevInfo } from './bern'
 import { enrichObs, mergeObs, type ObsStats } from './obs'
+
+// ── Städte-Registry: pro Stadt die Datenquellen + Beschriftungen bündeln ───────
+// bern.ts bleibt unverändert; zurich/basel/luzern/stgallen.ts spiegeln dieselben Schnittstellen.
+type CityId = 'bern' | 'zurich' | 'basel' | 'luzern' | 'stgallen'
+type LoadOevResult = { byId: Map<number, OevInfo & { oevQuelle?: 'amtlich' | 'osm' }>; stops: Stop[] }
+interface CityCfg {
+  label: string                                   // Anzeigename (Meldungen, UI)
+  osmArea: string                                 // OSM-Gebietsname für die Strassen-Abfrage
+  center: [number, number]                        // Anfangs-Kartenmitte
+  attribution: string                             // Quellenangabe der amtlichen Anreicherung (Chip/Karte)
+  enrichCands: (cands: Cand[]) => Promise<Cand[]>
+  loadOev: (cands: Cand[]) => Promise<LoadOevResult>
+  obsFile?: string                                // OpenBikeSensor-Snapshot (public/), falls vorhanden
+  breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>  // stadtspezifische Breiten-Sollwerte (sonst Bern)
+  breitenQuelle?: string                          // Quellenangabe der stadtspez. Breiten (sonst „Masterplan Bern")
+}
+const CITIES: Record<CityId, CityCfg> = {
+  bern: {
+    label: 'Bern', osmArea: 'Bern', center: [46.948, 7.447],
+    attribution: 'Geoinformation Stadt Bern',
+    enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json',
+  },
+  zurich: {
+    label: 'Zürich', osmArea: 'Zürich', center: [47.374, 8.541],
+    attribution: 'Geodaten Stadt Zürich',
+    enrichCands: zurich.enrichCands, loadOev: zurich.loadOev, obsFile: 'obs_zurich.json',
+    breiten: BREITEN_ZUERICH, breitenQuelle: 'Velostandards Zürich',   // Rest → Bern-Fallback
+  },
+  basel: {
+    label: 'Basel', osmArea: 'Basel', center: [47.557, 7.589],
+    attribution: 'Geodaten Kanton Basel-Stadt',
+    enrichCands: basel.enrichCands, loadOev: basel.loadOev,   // kein OBS-Snapshot
+    breiten: BREITEN_BASEL, breitenQuelle: 'Standards Basel-Stadt',
+  },
+  luzern: {
+    label: 'Luzern', osmArea: 'Luzern', center: [47.050, 8.307],
+    attribution: 'Geodaten Stadt Luzern',
+    enrichCands: luzern.enrichCands, loadOev: luzern.loadOev,   // kein Tram, kein OBS-Snapshot
+    breiten: BREITEN_LUZERN, breitenQuelle: 'Standards Stadt Luzern',
+  },
+  stgallen: {
+    label: 'St. Gallen', osmArea: 'St. Gallen', center: [47.424, 9.377],
+    attribution: 'Geodaten Stadt St. Gallen',
+    enrichCands: stgallen.enrichCands, loadOev: stgallen.loadOev,   // kein Tram, kein OBS-Snapshot
+  },
+}
+
+// Quellenangabe der amtlichen Anreicherung für den Herkunfts-Chip (stadtabhängig).
+const AttribContext = createContext('Geoinformation Stadt Bern')
 
 const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
   'Mischverkehr':             { bg: '#9ca3af', fg: '#ffffff' },
@@ -223,10 +277,13 @@ function candToSection(c: Cand): Section {
     s.oev = { oevHalt: !!c.bern.oevHalt, oevHaltName: c.bern.oevHaltName,
               oevTram: !!c.bern.oevTram, oevBus: !!c.bern.oevBus, busPerH: c.bern.busPerH }
     const auto = oevAngebotAuto(s.oev)
-    // Tram = Geoportal; Bus-Band stammt aus dem Fahrplan (opentransportdata).
-    if (auto) { s.oevAngebot = auto; s.quelle.oevAngebot = auto === 'tram' ? 'amtlich' : 'fahrplan' }
-    // Tram in der Fahrbahn — entkoppelt von der Haltestelle (Geoportal kennt die Antwort).
-    s.tram = !!c.bern.oevTram; s.quelle.tram = 'amtlich'
+    // Herkunft der ÖV-Erkennung: Bern = amtlich (Geoportal), Zürich = OSM.
+    // Bern setzt kein oevQuelle → Standard 'amtlich' (verhaltensidentisch wie bisher).
+    const oevQ: Quelle = c.bern.oevQuelle ?? 'amtlich'
+    // Tram = oevQ; Bus-Band stammt (nur bei Bern) aus dem Fahrplan (opentransportdata).
+    if (auto) { s.oevAngebot = auto; s.quelle.oevAngebot = auto === 'tram' ? oevQ : 'fahrplan' }
+    // Tram in der Fahrbahn — entkoppelt von der Haltestelle.
+    s.tram = !!c.bern.oevTram; s.quelle.tram = oevQ
   }
   s.label = `${c.name} · ${Math.round(c.len)} m · OSM way ${c.id}`
   s.candIds = [c.id]
@@ -366,14 +423,15 @@ async function overpassCands(query: string): Promise<Cand[]> {
   return ways.map(wayToCand).filter((c): c is Cand => c !== null)
 }
 
-// Weg 1: Kandidaten nach Strassenname (Gemeinde Bern).
+// Weg 1: Kandidaten nach Strassenname (in der gewählten Gemeinde).
 // Case-insensitiver, exakter Namensabgleich (Overpass-Flag „,i"), damit z. B.
 // „jungfraustrasse" oder „JUNGFRAUSTRASSE" ebenso gefunden werden wie „Jungfraustrasse".
-function loadStreetCandidates(street: string): Promise<Cand[]> {
+function loadStreetCandidates(street: string, area: string): Promise<Cand[]> {
   const esc = street.replace(/[\\.[\]{}()*+?^$|]/g, '\\$&')  // Regex-Sonderzeichen maskieren
+  const areaEsc = area.replace(/[\\.[\]{}()*+?^$|]/g, '\\$&')
   return overpassCands(
     `[out:json][timeout:60];` +
-    `area["name"="Bern"]["admin_level"="8"]["boundary"="administrative"]->.a;` +
+    `area["name"="${areaEsc}"]["admin_level"="8"]["boundary"="administrative"]->.a;` +
     `way["name"~"^${esc}$",i]["highway"](area.a);out tags geom;`)
 }
 
@@ -409,8 +467,9 @@ async function loadNearestCandidate(lat: number, lon: number): Promise<Cand | nu
 // Herkunfts-Chip am Feld: blau „amtlich" (Geodaten Stadt Bern), grau „OSM";
 // bei „manuell"/leer kein Chip. Für leere Pflichtfelder ein rötlicher „Eingabe nötig"-Chip.
 function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
+  const amtlichTitle = useContext(AttribContext)   // stadtabhängige Quellenangabe (Bern/Zürich)
   const map: Record<string, { t: string; bg: string; fg: string; title?: string }> = {
-    amtlich: { t: 'Geoportal', bg: '#dbeafe', fg: '#1e40af', title: 'Geoinformation Stadt Bern' },
+    amtlich: { t: 'Geoportal', bg: '#dbeafe', fg: '#1e40af', title: amtlichTitle },
     osm: { t: 'OSM', bg: 'var(--border-subtle)', fg: 'var(--text-muted-strong)', title: 'OpenStreetMap' },
     fahrplan: { t: 'opentransportdata', bg: '#dcfce7', fg: '#166534', title: 'Fahrplan (opentransportdata.swiss / GTFS)' },
     fehlt: { t: 'Eingabe nötig', bg: '#fee2e2', fg: '#b91c1c' },
@@ -477,7 +536,7 @@ const groupLabelStyle: React.CSSProperties = {
 }
 
 // ── Karte für einen Abschnitt: Eingaben + Einzelbewertung ────────────────────
-function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRemove, canRemove, onHover }: {
+function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRemove, canRemove, onHover, breitenQuelle }: {
   index: number
   section: Section
   bewertung: NotenErgebnis | null
@@ -487,6 +546,7 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
   onRemove: () => void
   canRemove: boolean
   onHover?: (hovering: boolean) => void
+  breitenQuelle: string                 // Herkunft der Breiten-Vorgabe (stadtspez. Standard oder Masterplan Bern)
 }) {
   const { ist } = section
   const q = section.quelle
@@ -694,6 +754,7 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
                   {bewertung.maxbreite != null
                     ? `${bewertung.sollbreite.toFixed(2)}–${bewertung.maxbreite.toFixed(2)} m`
                     : `${bezugLabel} ${bewertung.sollbreite.toFixed(2)} m`}
+                  {` (Quelle: ${breitenQuelle})`}
                   {!section.routentyp && ' · Routentyp wählen'}
                 </div>
               ) : (
@@ -702,6 +763,7 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
                   {bewertung.maxbreite != null
                     ? `${bewertung.sollbreite.toFixed(2)}–${bewertung.maxbreite.toFixed(2)} m`
                     : `${bezugLabel} ${bewertung.sollbreite.toFixed(2)} m`}
+                  {` (Quelle: ${breitenQuelle})`}
                   {' · '}
                   {bewertung.breiteErfuellt
                     ? '✓ erfüllt'
@@ -926,8 +988,22 @@ export default function App() {
   const [osmKind, setOsmKind] = useState<'info' | 'ok' | 'error'>('info')  // Meldungstyp für Styling
   // Statusmeldung mit Typ setzen (info = neutral/Laden, ok = Erfolg, error = Fehler).
   const setMsg = (text: string, kind: 'info' | 'ok' | 'error' = 'info') => { setOsmMsg(text); setOsmKind(kind) }
+  const [city, setCity] = useState<CityId>('bern')               // gewählte Stadt → Datenquellen/Beschriftung
+  const cityCfg = CITIES[city]
   const [cands, setCands] = useState<Cand[]>([])
   const [stops, setStops] = useState<Stop[]>([])                  // ÖV-Haltestellen für Karten-Marker
+  // Stadtwechsel: geladene Segmente/Haltestellen verwerfen (sie tragen die Anreicherung der alten Stadt).
+  const wechsleStadt = (c: CityId) => {
+    if (c === city) return
+    setCity(c); setCands([]); setStops([]); setStreet(''); setMsg('')
+  }
+  // Herkunft der massgeblichen Breiten-Vorgabe eines Abschnitts: stadtspezifischer Standard,
+  // wenn die Stadt für diese Führungsform/diesen Routentyp einen Wert liefert — sonst Masterplan Bern.
+  const breitenQuelleFuer = (s: Section): string => {
+    const ov = cityCfg.breiten?.[s.ist as IstFuehrungsform]
+    const feld = (s.routentyp || 'Velohauptroute') === 'Veloroute' ? 'minimal' : 'optimal'
+    return ov && ov[feld] != null && cityCfg.breitenQuelle ? cityCfg.breitenQuelle : 'Masterplan Bern'
+  }
   const [hoverSec, setHoverSec] = useState<number | null>(null)   // gehoverter Abschnitt (für Karten-Highlight)
   const [modus, setModus] = useState<'note' | 'erfuellung'>('note')  // Anzeige: Schulnote oder Erfüllungsgrad
   const [hintDismissed, setHintDismissed] = useState(false)  // Karten-Einstiegshinweis: erst wegklicken, dann auswählen
@@ -954,14 +1030,16 @@ export default function App() {
   const mapRef = useRef<import('leaflet').Map | null>(null)
   const selCount = cands.filter(c => c.selected).length
 
-  // Kandidaten mit OpenBikeSensor-Überholabständen anreichern (gebündelter Snapshot, siehe obs.ts).
+  // Kandidaten mit OpenBikeSensor-Überholabständen anreichern (gebündelter Snapshot je Stadt, siehe obs.ts).
   const withObs = async (cs: Cand[]): Promise<Cand[]> => {
-    const obs = await enrichObs(cs).catch(() => new Map())
+    if (!cityCfg.obsFile) return cs   // Stadt ohne OBS-Snapshot → überspringen
+    const obs = await enrichObs(cs, cityCfg.obsFile).catch(() => new Map())
     return obs.size === 0 ? cs : cs.map(c => (obs.has(c.id) ? { ...c, obs: obs.get(c.id) } : c))
   }
-  // Kandidaten mit ÖV anreichern (Haltestelle/Modus, siehe bern.ts) + Haltestellen-Punkte für die Karte.
+  // Kandidaten mit ÖV anreichern (Haltestelle/Modus) + Haltestellen-Punkte für die Karte.
+  // Quelle je nach Stadt: Bern = Geoportal (bern.ts), Zürich = OSM (zurich.ts).
   const withOev = async (cs: Cand[]): Promise<{ cands: Cand[]; stops: Stop[] }> => {
-    const { byId, stops } = await loadOev(cs)
+    const { byId, stops } = await cityCfg.loadOev(cs)
       .catch(() => ({ byId: new Map<number, OevInfo>(), stops: [] as Stop[] }))
     const cands = byId.size === 0 ? cs
       : cs.map(c => (byId.has(c.id) ? { ...c, bern: { ...c.bern, ...byId.get(c.id) } } : c))
@@ -974,22 +1052,23 @@ export default function App() {
   }
 
   // Weg 1: Strasse laden → Kandidaten auf die Karte (alle zunächst gewählt).
-  // Anschliessend mit amtlichen Geodaten Stadt Bern anreichern (Tempo, DTV, Routentyp,
-  // Velostrasse — siehe bern.ts); ein Fehler dabei darf den OSM-Import nicht verhindern.
+  // Anschliessend mit den amtlichen/öffentlichen Daten der gewählten Stadt anreichern
+  // (Bern: Tempo/DTV/Routentyp/Velostrasse; Zürich: Routentyp); ein Fehler dabei darf den
+  // OSM-Import nicht verhindern.
   const ladeStrasse = async () => {
     const name = street.trim()
     if (!name) return
     setOsmBusy(true); setMsg('Lade Segmente aus OpenStreetMap …')
     try {
-      const c = await loadStreetCandidates(name)
-      const { cands: enriched, stops: st } = await withOev(await withObs(await enrichCands(c).catch(() => c)))
+      const c = await loadStreetCandidates(name, cityCfg.osmArea)
+      const { cands: enriched, stops: st } = await withOev(await withObs(await cityCfg.enrichCands(c).catch(() => c)))
       setCands(enriched); setStops(st)
-      const bernHit = enriched.some(x => x.bern)
+      const amtlichHit = enriched.some(x => x.bern)
       setMsg(c.length
         ? `${c.length} Segmente geladen (© OpenStreetMap, ODbL)` +
-          (bernHit ? ' · Tempo/DTV/Routentyp: Geodaten Stadt Bern, freie Nutzung.' : '.') +
+          (amtlichHit ? ` · Anreicherung: ${cityCfg.attribution}.` : '.') +
           ' Auf der Karte ab-/zuwählen, dann übernehmen.'
-        : `Keine Velo-relevanten Segmente für „${name}" (Stadt Bern) gefunden.`,
+        : `Keine Velo-relevanten Segmente für „${name}" (Stadt ${cityCfg.label}) gefunden.`,
         c.length ? 'ok' : 'info')
     } catch (e) { setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
     finally { setOsmBusy(false) }
@@ -1003,7 +1082,7 @@ export default function App() {
     setOsmBusy(true); setMsg('Lade Segmente im Kartenausschnitt …')
     try {
       const roh = await loadBboxCandidates(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
-      const { cands: neu, stops: st } = await withOev(await withObs(await enrichCands(roh).catch(() => roh)))
+      const { cands: neu, stops: st } = await withOev(await withObs(await cityCfg.enrichCands(roh).catch(() => roh)))
       setCands(prev => {
         const ids = new Set(prev.map(c => c.id))
         return [...prev, ...neu.filter(c => !ids.has(c.id))]
@@ -1018,7 +1097,7 @@ export default function App() {
     setCands(prev => prev.map(c => (c.id === id ? { ...c, selected: !c.selected } : c)))
 
   // Weg 3: Klick auf die Karte → nächstes Segment laden, anreichern und hinzufügen.
-  // Wie beim Strassen-/Ausschnitt-Laden mit Geodaten Stadt Bern + OpenBikeSensor anreichern
+  // Wie beim Strassen-/Ausschnitt-Laden mit den Stadt-Daten + OpenBikeSensor anreichern
   // (Klick ist der Hauptweg zum Strecken-Aufbau, daher müssen DTV/Tempo/Routentyp/OBS auch hier kommen).
   const klickHinzufuegen = async (lat: number, lon: number) => {
     if (osmBusy) return                         // läuft schon eine Anfrage → Klick ignorieren (Rate-Limit schonen)
@@ -1026,7 +1105,7 @@ export default function App() {
     try {
       const roh = await loadNearestCandidate(lat, lon)
       if (!roh) { setMsg('An dieser Stelle kein velorelevantes Segment gefunden.', 'info'); return }
-      const { cands: [c], stops: st } = await withOev(await withObs(await enrichCands([roh]).catch(() => [roh])))
+      const { cands: [c], stops: st } = await withOev(await withObs(await cityCfg.enrichCands([roh]).catch(() => [roh])))
       const exists = cands.some(p => p.id === c.id)
       setCands(prev => (prev.some(p => p.id === c.id) ? prev : [...prev, c]))
       setStops(prev => mergeStops(prev, st))
@@ -1069,7 +1148,8 @@ export default function App() {
     const routentyp = s.routentyp || 'Velohauptroute'
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
     return fuehrungsformNote(s.dtv, s.speed, s.ist as IstFuehrungsform, breite, routentyp,
-      s.parkenRechts, s.oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram)
+      s.parkenRechts, s.oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram,
+      cityCfg.breiten?.[s.ist as IstFuehrungsform])   // stadtspezifische Breiten-Sollwerte (Zürich)
   })
   const offen = results.filter(r => r == null).length
   const alleVollstaendig = offen === 0 && results.length > 0
@@ -1100,6 +1180,7 @@ export default function App() {
     : undefined
 
   return (
+    <AttribContext.Provider value={cityCfg.attribution}>
     <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)' }}>
       {/* Header (grün); Titel/Logo führen zur Einstiegsseite */}
       <header className="vrc-header">
@@ -1183,9 +1264,19 @@ export default function App() {
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end',
                     background: '#fff', padding: 14, borderRadius: 12, border: '1px solid var(--border-subtle)',
                     marginBottom: 18 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 130 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Stadt</span>
+          <select value={city} onChange={e => wechsleStadt(e.target.value as CityId)}
+                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 16,
+                           background: '#fff' }}>
+            {(Object.keys(CITIES) as CityId[]).map(k => (
+              <option key={k} value={k}>{CITIES[k].label}</option>
+            ))}
+          </select>
+        </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 200 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-            Strasse aus OpenStreetMap laden (Stadt Bern)
+            Strasse aus OpenStreetMap laden (Stadt {cityCfg.label})
           </span>
           <input value={street} onChange={e => setStreet(e.target.value)}
                  onKeyDown={e => { if (e.key === 'Enter') ladeStrasse() }}
@@ -1221,7 +1312,8 @@ export default function App() {
           <div style={{ position: 'relative' }}>
             <VeloMap cands={cands} onToggle={toggleCand} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
-                     markers={markers} highlightIds={highlightIds} stops={stops} />
+                     markers={markers} highlightIds={highlightIds} stops={stops}
+                     attribution={cityCfg.attribution} center={cityCfg.center} />
             {/* Empty-State als Dismiss-Schicht über der Karte: Die ERSTE Interaktion (Klick/Touch/
                 Zoom) schliesst nur den Hinweis — sie wählt noch kein Segment aus und zoomt nicht.
                 Die Schicht fängt das Ereignis ab (pointerEvents auto); erst danach ist die Karte frei. */}
@@ -1342,6 +1434,7 @@ export default function App() {
             onRemove={() => remove(s.id)}
             canRemove={sections.length > 1}
             onHover={h => setHoverSec(h ? s.id : null)}
+            breitenQuelle={breitenQuelleFuer(s)}
           />
         </div>
       ))}
@@ -1464,6 +1557,7 @@ export default function App() {
       </div>
       )}
     </div>
+    </AttribContext.Provider>
   )
 }
 

@@ -52,11 +52,13 @@ interface RawFeature {
   }
 }
 
-// Einmaliges Laden + Parsen der OBS-Teilstücke (Geometrie als [{lat,lon}]).
-let cache: Promise<ObsFeat[]> | null = null
-function loadObs(): Promise<ObsFeat[]> {
+// Einmaliges Laden + Parsen der OBS-Teilstücke (Geometrie als [{lat,lon}]) je Snapshot-Datei.
+// Pro Stadt eine eigene Datei (obs_bern.json, obs_zurich.json …) → Cache pro Dateiname.
+const caches = new Map<string, Promise<ObsFeat[]>>()
+function loadObs(file: string): Promise<ObsFeat[]> {
+  let cache = caches.get(file)
   if (!cache) {
-    cache = fetch(import.meta.env.BASE_URL + 'obs_bern.json')
+    cache = fetch(import.meta.env.BASE_URL + file)
       .then(r => { if (!r.ok) throw new Error('OBS HTTP ' + r.status); return r.json() })
       .then((data: { features?: RawFeature[] }) => (data.features ?? []).map(f => {
         const p = f.properties
@@ -72,6 +74,7 @@ function loadObs(): Promise<ObsFeat[]> {
         }
       }).filter(f => f.line.length >= 2))
       .catch(() => [])     // Snapshot fehlt → leer, kein Abbruch
+    caches.set(file, cache)
   }
   return cache
 }
@@ -79,8 +82,8 @@ function loadObs(): Promise<ObsFeat[]> {
 // Kandidaten → Map cand.id → ObsStats. Jedes OBS-Teilstück wird per Überlappung dem
 // am besten passenden OSM-Segment zugeordnet (genau einem → kein Doppelzählen) und die
 // Teilstücke je Segment zusammengeführt. Befahrungen ohne Überholung zählen zu `usage`.
-export async function enrichObs(cands: Cand[]): Promise<Map<number, ObsStats>> {
-  const feats = await loadObs()
+export async function enrichObs(cands: Cand[], file = 'obs_bern.json'): Promise<Map<number, ObsStats>> {
+  const feats = await loadObs(file)
   if (cands.length === 0 || feats.length === 0) return new Map()
   // Bbox-Vorfilter (Performance).
   const lats = cands.flatMap(c => c.geom.map(p => p.lat))

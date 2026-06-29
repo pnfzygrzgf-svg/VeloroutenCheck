@@ -24,6 +24,7 @@ export interface Cand {
     oevTram?: boolean                     // Tram-Linie verläuft entlang (OeV_Linien)
     oevBus?: boolean                      // Bus/Trolleybus verläuft entlang
     busPerH?: number                      // Bus-Fahrten/h Abendspitze (GTFS, stärkste Richtung)
+    oevQuelle?: 'amtlich' | 'osm'         // Herkunft der ÖV-Erkennung (Bern: amtlich/Geoportal; Zürich: OSM)
   }
   obs?: ObsStats                          // OpenBikeSensor-Überholabstände (Zusatzinfo, siehe obs.ts)
 }
@@ -45,7 +46,8 @@ export const ISTCOLOR: Record<string, string> = {
 // Nummern-Marker eines Abschnitts auf der Karte (num = Abschnitts-Nummer).
 export interface SectionMarker { num: number; lat: number; lon: number }
 
-export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlightIds, stops }: {
+export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlightIds, stops,
+                          attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447] }: {
   cands: Cand[]
   onToggle: (id: number) => void
   onMapClick?: (lat: number, lon: number) => void
@@ -53,6 +55,8 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
   markers?: SectionMarker[]               // nummerierte Abschnitts-Marker
   highlightIds?: Set<number>              // Cand-IDs des gehoverten Abschnitts → hervorheben
   stops?: Stop[]                          // ÖV-Haltestellen im geladenen Bereich (Marker)
+  attribution?: string                    // Quellenangabe der amtlichen Anreicherung (stadtabhängig)
+  center?: [number, number]               // Anfangs-Kartenmitte (stadtabhängig)
 }) {
   const elRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -66,7 +70,7 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
   // Karte einmalig initialisieren (CyclOSM-Hintergrund).
   useEffect(() => {
     if (!elRef.current || mapRef.current) return
-    const map = L.map(elRef.current).setView([46.948, 7.447], 13)  // Bern
+    const map = L.map(elRef.current).setView(center, 13)  // Anfangs-Mitte je Stadt
     L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap-Mitwirkende · Stil: CyclOSM',
@@ -79,7 +83,15 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
     })
     mapRef.current = map
     onReady?.(map)
-  }, [onReady])
+  }, [onReady, center])
+
+  // Stadtwechsel: Karte auf das neue Zentrum springen (greift, solange keine Segmente
+  // geladen sind — beim Laden passt fitBounds ohnehin neu ein).
+  useEffect(() => {
+    const map = mapRef.current
+    if (map && cands.length === 0) map.setView(center, 13)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [center])
 
   // Linien + Nummern-Marker (neu) zeichnen, wenn sich Kandidaten/Auswahl/Marker ändern.
   useEffect(() => {
@@ -113,7 +125,7 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
             : '')
       hit.bindTooltip(
         `${c.name} · ${Math.round(c.len)} m · ${c.ist}${c.selected ? '' : ' (abgewählt)'}` +
-        (bernParts && bernParts.length ? `<br>Geoinformation Stadt Bern: ${bernParts.join(' · ')}` : '') +
+        (bernParts && bernParts.length ? `<br>${attribution}: ${bernParts.join(' · ')}` : '') +
         obsPart,
         { sticky: true })
       hit.addTo(lg)         // unten (Trefffläche)
@@ -152,7 +164,7 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
       map.fitBounds(bounds, { padding: [24, 24] })
       lastFit.current = sig
     }
-  }, [cands, onToggle, markers, stops])
+  }, [cands, onToggle, markers, stops, attribution])
 
   // Highlight des gehoverten Abschnitts: betroffene Linien dicker + nach vorn, ohne Neuzeichnen.
   // Nur gewählte Segmente anfassen (abgewählte behalten ihren dünnen, grauen Stil).
