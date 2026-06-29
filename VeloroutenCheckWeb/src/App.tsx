@@ -1,22 +1,23 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import {
-  fuehrungsart, fuehrungsformNote, haltestellenLoesung, HALTESTELLE_MIT_BREITE, PARKEN_RELEVANT,
+  fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
   erfuellungsgrad, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   type Fuehrungsart, type IstFuehrungsform, type Routentyp, type ParkenRechts,
   type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
+  type Stadt, type Strassentyp,
 } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, type Cand, type SectionMarker, type Stop } from './VeloMap'
 import * as bern from './bern'
 import * as zurich from './zurich'
 import * as basel from './basel'
 import * as luzern from './luzern'
-import * as stgallen from './stgallen'
+// import * as stgallen from './stgallen'   // St. Gallen vorerst nicht weiterverfolgt (siehe CITIES)
 import { type OevInfo } from './bern'
 import { enrichObs, mergeObs, type ObsStats } from './obs'
 
 // ── Städte-Registry: pro Stadt die Datenquellen + Beschriftungen bündeln ───────
 // bern.ts bleibt unverändert; zurich/basel/luzern/stgallen.ts spiegeln dieselben Schnittstellen.
-type CityId = 'bern' | 'zurich' | 'basel' | 'luzern' | 'stgallen'
+type CityId = Stadt   // 'bern' | 'zurich' | 'basel' | 'luzern' (St. Gallen vorerst nicht weiterverfolgt)
 type LoadOevResult = { byId: Map<number, OevInfo & { oevQuelle?: 'amtlich' | 'osm' }>; stops: Stop[] }
 interface CityCfg {
   label: string                                   // Anzeigename (Meldungen, UI)
@@ -28,46 +29,66 @@ interface CityCfg {
   obsFile?: string                                // OpenBikeSensor-Snapshot (public/), falls vorhanden
   breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>  // stadtspezifische Breiten-Sollwerte (sonst Bern)
   breitenQuelle?: string                          // Quellenangabe der stadtspez. Breiten (sonst „Masterplan Bern")
+  standardDoc: { titel: string; url: string }     // massgebendes Grundlagendokument (Rechnerseite)
 }
 const CITIES: Record<CityId, CityCfg> = {
   bern: {
     label: 'Bern', osmArea: 'Bern', center: [46.948, 7.447],
     attribution: 'Geoinformation Stadt Bern',
     enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json',
+    standardDoc: {
+      titel: 'Standards Masterplans Veloinfrastruktur Stadt Bern',
+      url: 'https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur',
+    },
   },
   zurich: {
     label: 'Zürich', osmArea: 'Zürich', center: [47.374, 8.541],
     attribution: 'Geodaten Stadt Zürich',
     enrichCands: zurich.enrichCands, loadOev: zurich.loadOev, obsFile: 'obs_zurich.json',
     breiten: BREITEN_ZUERICH, breitenQuelle: 'Velostandards Zürich',   // Rest → Bern-Fallback
+    standardDoc: {
+      titel: 'Velostandards Stadt Zürich',
+      url: 'https://www.stadt-zuerich.ch/content/dam/web/de/aktuell/publikationen/2024/velostandards-stadt-zuerich/velostandards-stadt-zuerich.pdf',
+    },
   },
   basel: {
     label: 'Basel', osmArea: 'Basel', center: [47.557, 7.589],
     attribution: 'Geodaten Kanton Basel-Stadt',
     enrichCands: basel.enrichCands, loadOev: basel.loadOev,   // kein OBS-Snapshot
     breiten: BREITEN_BASEL, breitenQuelle: 'Standards Basel-Stadt',
+    standardDoc: {
+      titel: 'Standards Fuss- und Velo-Verkehrsinfrastruktur',
+      url: 'https://media.bs.ch/original_file/72373a2c610e23b19ae61cd148ad22f35b3d1fe2/2024-09-27-standards-fvv-is-bs.pdf',
+    },
   },
   luzern: {
     label: 'Luzern', osmArea: 'Luzern', center: [47.050, 8.307],
     attribution: 'Geodaten Stadt Luzern',
     enrichCands: luzern.enrichCands, loadOev: luzern.loadOev,   // kein Tram, kein OBS-Snapshot
     breiten: BREITEN_LUZERN, breitenQuelle: 'Standards Stadt Luzern',
+    standardDoc: {
+      titel: 'Standards Veloverkehr Stadt Luzern',
+      url: 'https://www.stadtluzern.ch/_docn/2965064/Standards_Veloverkehr.pdf',
+    },
   },
-  stgallen: {
-    label: 'St. Gallen', osmArea: 'St. Gallen', center: [47.424, 9.377],
-    attribution: 'Geodaten Stadt St. Gallen',
-    enrichCands: stgallen.enrichCands, loadOev: stgallen.loadOev,   // kein Tram, kein OBS-Snapshot
-  },
+  // St. Gallen vorerst nicht weiterverfolgt → nicht auswählbar. Adapter (stgallen.ts) bleibt
+  // erhalten; zum Reaktivieren den Eintrag (und den Import oben) wieder einkommentieren.
+  // stgallen: {
+  //   label: 'St. Gallen', osmArea: 'St. Gallen', center: [47.424, 9.377],
+  //   attribution: 'Geodaten Stadt St. Gallen',
+  //   enrichCands: stgallen.enrichCands, loadOev: stgallen.loadOev,   // kein Tram, kein OBS-Snapshot
+  // },
 }
 
 // Quellenangabe der amtlichen Anreicherung für den Herkunfts-Chip (stadtabhängig).
 const AttribContext = createContext('Geoinformation Stadt Bern')
 
 const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
-  'Mischverkehr':             { bg: '#9ca3af', fg: '#ffffff' },
-  'Radstreifen':              { bg: '#eab308', fg: '#3b2f00' },
-  'Radstreifen oder Radweg':  { bg: '#84a44b', fg: '#ffffff' },
-  'Radweg':                   { bg: '#4d7c0f', fg: '#ffffff' },
+  'Mischverkehr':                  { bg: '#9ca3af', fg: '#ffffff' },
+  'Mischverkehr oder Radstreifen': { bg: '#c2b04a', fg: '#3b2f00' },
+  'Radstreifen':                   { bg: '#eab308', fg: '#3b2f00' },
+  'Radstreifen oder Radweg':       { bg: '#84a44b', fg: '#ffffff' },
+  'Radweg':                        { bg: '#4d7c0f', fg: '#ffffff' },
 }
 
 const IST_OPTIONS: IstFuehrungsform[] = [
@@ -87,16 +108,31 @@ const OEV_OPTIONS: { value: OevAngebot; label: string }[] = [
   { value: 'bus_unter5', label: 'Bus < 5 Min' },
   { value: 'tram', label: 'Tram' },
 ]
-const HALTESTELLEN_OPTIONS: { value: Haltestellentyp; label: string }[] = [
-  { value: 'keine', label: '— noch offen —' },
-  { value: 'Haltestelle mit Veloumfahrung', label: 'HS1 Haltestelle mit Veloumfahrung' },
-  { value: 'Kaphaltestelle mit Veloüberfahrt', label: 'HS2 Kaphaltestelle mit Veloüberfahrt' },
-  { value: 'Kaphaltestelle', label: 'HS3 Kaphaltestelle (Ausnahme)' },
-  { value: 'Haltestelle mit rückwärtigem Radweg', label: 'HS4 Haltestelle mit rückw. Radweg' },
-  { value: 'Inselhaltestelle', label: 'HS5 Inselhaltestelle' },
-  { value: 'Fahrbahnhaltestelle Bus', label: 'HS6 Fahrbahnhaltestelle Bus' },
-  { value: 'Busbucht', label: 'HS7 Busbucht' },
-]
+// Haltestellentyp-Auswahl je Stadt (Labels mit Stadt-Code). Die verfügbaren Typen liefert
+// haltestellenTypen(stadt); '— noch offen —' (keine) wird vorangestellt.
+const HALTESTELLEN_LABEL: Partial<Record<Haltestellentyp, string>> = {
+  'Haltestelle mit Veloumfahrung': 'Haltestelle mit Veloumfahrung',
+  'Kaphaltestelle mit Veloüberfahrt': 'Kaphaltestelle mit Veloüberfahrt',
+  'Kaphaltestelle': 'Kaphaltestelle (Ausnahme)',
+  'Haltestelle mit rückwärtigem Radweg': 'Haltestelle mit rückw. Radweg',
+  'Inselhaltestelle': 'Inselhaltestelle',
+  'Fahrbahnhaltestelle Bus': 'Fahrbahnhaltestelle Bus',
+  'Busbucht': 'Busbucht',
+  'Fahrbahnhaltestelle mit Veloumfahrung': 'Fahrbahnhaltestelle mit Veloumfahrung',
+  'Fahrbahnhaltestelle mit Veloüberfahrt': 'Fahrbahnhaltestelle mit Veloüberfahrt',
+  'Fahrbahnhaltestelle mit Veloführung auf Fahrbahn': 'Fahrbahnhaltestelle, Veloführung auf Fahrbahn',
+  'Kap': 'Kap',
+  'Velobypass': 'Velobypass',
+  'Velo-Zeitinsel': 'Velo-Zeitinsel',
+  'Fahrbahnhaltestelle': 'Fahrbahnhaltestelle',
+  'Fahrbahnhaltestelle in der Umweltspur': 'Fahrbahnhaltestelle in der Umweltspur',
+}
+function haltestellenOptions(city: CityId): { value: Haltestellentyp; label: string }[] {
+  return [
+    { value: 'keine' as Haltestellentyp, label: '— noch offen —' },
+    ...haltestellenTypen(city).map(t => ({ value: t, label: HALTESTELLEN_LABEL[t] ?? t })),
+  ]
+}
 
 // Voraussetzungen für die Mischfläche Fuss/Velo (Q12) — reine Hinweis-Checkliste (kein Noteneinfluss)
 const FUSSWEG_VORAUSSETZUNGEN = [
@@ -144,7 +180,7 @@ const HALT_COLOR: Record<Haltestellenloesung, { bg: string; fg: string }> = {
 // Fehlt ein Eintrag, ist das Feld leer (keine erfundenen Werte).
 type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan'
 // Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
-type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram'
+type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram' | 'strassentyp'
 
 interface Section {
   id: number
@@ -153,6 +189,7 @@ interface Section {
   ist: IstFuehrungsform | ''   // '' = noch nicht gewählt
   breite: number               // NaN = leer
   routentyp: Routentyp | ''    // '' = noch nicht gewählt
+  strassentyp: Strassentyp | ''  // '' = noch nicht gewählt (nur Basel relevant)
   parkenRechts: ParkenRechts
   oevTakt: number
   oevAngebot: OevAngebot
@@ -171,7 +208,7 @@ let nextId = 1
 function defaultSection(): Section {
   return {
     id: nextId++, dtv: NaN, speed: NaN, ist: '', breite: NaN,
-    routentyp: '', parkenRechts: 'egal', oevTakt: 10,
+    routentyp: '', strassentyp: '', parkenRechts: 'egal', oevTakt: 10,
     oevAngebot: 'keine', haltestellentyp: 'keine', haltestelleBreite: NaN,
     tram: false,
     quelle: {},
@@ -271,6 +308,8 @@ function candToSection(c: Cand): Section {
   if (c.breite != null) { s.breite = c.breite; s.quelle.breite = 'osm' }
   // Routentyp: nur amtlich
   if (c.bern?.routentyp) { s.routentyp = c.bern.routentyp; s.quelle.routentyp = 'amtlich' }
+  // Strassentyp: nur amtlich (Basel, Dataset 100250)
+  if (c.bern?.strassentyp) { s.strassentyp = c.bern.strassentyp; s.quelle.strassentyp = 'amtlich' }
   // ÖV (Geoportal + Fahrplan): Haltestelle/Modus übernehmen; Tram → ÖV-Angebot „tram",
   // Bus → Frequenzband aus dem Takt (GTFS). Haltestellentyp bleibt manuell.
   if (c.bern && (c.bern.oevHalt || c.bern.oevTram || c.bern.oevBus)) {
@@ -536,7 +575,7 @@ const groupLabelStyle: React.CSSProperties = {
 }
 
 // ── Karte für einen Abschnitt: Eingaben + Einzelbewertung ────────────────────
-function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRemove, canRemove, onHover, breitenQuelle }: {
+function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRemove, canRemove, onHover, breitenQuelle, city }: {
   index: number
   section: Section
   bewertung: NotenErgebnis | null
@@ -547,6 +586,7 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
   canRemove: boolean
   onHover?: (hovering: boolean) => void
   breitenQuelle: string                 // Herkunft der Breiten-Vorgabe (stadtspez. Standard oder Masterplan Bern)
+  city: CityId                          // Stadt → bestimmt Sichtbarkeit des Strassentyp-Felds (Basel)
 }) {
   const { ist } = section
   const q = section.quelle
@@ -622,6 +662,19 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
             {ROUTE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
         </label>
+        {/* Strassentyp — nur Basel: dort ist die Soll-Wahl strassentyp- statt DTV-basiert. */}
+        {city === 'basel' && (
+          <label style={fieldStyle}>
+            <FieldLabel label="Strassentyp" chip={<QuelleChip q={q.strassentyp} fehlt={section.strassentyp === ''} />} />
+            <select value={section.strassentyp}
+                    onChange={e => onChange({ strassentyp: e.target.value as Strassentyp })}
+                    style={selectStyle}>
+              <option value="">— wählen —</option>
+              <option value="verkehrsorientiert">verkehrsorientierte Strasse</option>
+              <option value="siedlungsorientiert">siedlungsorientierte Strasse</option>
+            </select>
+          </label>
+        )}
         {/* Parkierung rechts (Dooring) bei Fahrbahn-Führungsformen (siehe PARKEN_RELEVANT) */}
         {PARKEN_RELEVANT.includes(ist as IstFuehrungsform) && (
           <label style={fieldStyle}>
@@ -672,12 +725,12 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
             <select value={section.haltestellentyp}
                     onChange={e => onChange({ haltestellentyp: e.target.value as Haltestellentyp })}
                     style={selectStyle}>
-              {HALTESTELLEN_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {haltestellenOptions(city).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
         )}
-        {/* Breite der Veloführung an der Haltestelle — nur bei Typen mit Breitenkriterium */}
-        {section.oevAngebot !== 'keine' && HALTESTELLE_MIT_BREITE.includes(section.haltestellentyp) && (
+        {/* Breite der Veloführung an der Haltestelle — nur bei Typen mit Breitenkriterium (stadtabhängig) */}
+        {section.oevAngebot !== 'keine' && haltestellenMitBreite(city).includes(section.haltestellentyp) && (
           <NumberField label="Breite Veloführung Haltestelle" unit="m" value={section.haltestelleBreite}
                        step={0.1} onChange={v => onChange({ haltestelleBreite: v })} />
         )}
@@ -874,6 +927,7 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
   const head = [
     'Abschnitt', 'Strecke/Herkunft', 'DTV [Fz/Tag]', 'DTV-Quelle', 'Tempo [km/h]', 'Tempo-Quelle',
     'Ist-Führungsform', 'Ist-Quelle', 'Breite [m]', 'Breite-Quelle', 'Routentyp', 'Routentyp-Quelle',
+    'Strassentyp', 'Strassentyp-Quelle',
     'Parkierung rechts', 'Tram in Fahrbahn', 'ÖV-Angebot', 'Haltestellentyp', 'Soll-Führungsform', 'Note', 'Erfüllungsgrad',
     'OBS Median [m]', 'OBS n', 'OBS <1,5m [%]', 'OBS Befahrungen',
   ]
@@ -888,6 +942,7 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
       s.ist || '', s.quelle.ist ? QUELLE_LABEL[s.quelle.ist] : '',
       numDE(s.breite, 2), s.quelle.breite ? QUELLE_LABEL[s.quelle.breite] : '',
       s.routentyp || '', s.quelle.routentyp ? QUELLE_LABEL[s.quelle.routentyp] : '',
+      s.strassentyp || '', s.quelle.strassentyp ? QUELLE_LABEL[s.quelle.strassentyp] : '',
       s.parkenRechts, s.tram ? 'ja' : 'nein', s.oevAngebot, s.haltestellentyp,
       r ? r.soll : '', r ? numDE(r.note, 1) : 'unvollständig', r ? erfuellungsgrad(r.note) : '',
       obs && obs.count > 0 ? numDE(obs.median, 2) : '',
@@ -927,11 +982,9 @@ function Landing({ onStart }: { onStart: () => void }) {
         </button>
       </div>
       <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 14px' }}>
-        VeloroutenCheck bewertet die Qualität der Veloinfrastruktur gemäss dem{' '}
-        <a href="https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur"
-           target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-          Masterplan Veloinfrastruktur der Stadt Bern
-        </a>. Eine Bewertung bezieht sich jeweils auf eine Velostrecke, die aus einem oder mehreren
+        VeloroutenCheck bewertet die Qualität der Veloinfrastruktur anhand der Vorgaben der
+        jeweiligen Stadt (z.&nbsp;B. in Bern anhand des Masterplans Veloinfrastruktur). Die
+        Bewertung bezieht sich jeweils auf eine Velostrecke, die aus einem oder mehreren
         Abschnitten bestehen kann.
       </p>
       <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
@@ -1124,7 +1177,7 @@ export default function App() {
   }
 
   // Manuelle Änderung eines getrackten Feldes setzt dessen Herkunft auf „manuell".
-  const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram']
+  const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram', 'strassentyp']
   const update = (id: number, patch: Partial<Section>) =>
     setSections(prev => prev.map(s => {
       if (s.id !== id) return s
@@ -1139,7 +1192,9 @@ export default function App() {
   // Breiten-Vorgabe) – die Breite. Sonst keine Bewertung (statt auf erfundenen Werten zu rechnen).
   const sectionComplete = (s: Section) =>
     Number.isFinite(s.dtv) && Number.isFinite(s.speed) && s.ist !== '' &&
-    (s.ist === 'Mischverkehr' || Number.isFinite(s.breite))
+    (s.ist === 'Mischverkehr' || Number.isFinite(s.breite)) &&
+    // Basel: Soll-Wahl ist strassentyp-basiert → Strassentyp nötig.
+    (city !== 'basel' || s.strassentyp !== '')
   // Einzelbewertungen je Abschnitt (null = unvollständig); Strecke = schlechtester Abschnitt.
   const results = sections.map(s => {
     if (!sectionComplete(s)) return null
@@ -1149,7 +1204,9 @@ export default function App() {
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
     return fuehrungsformNote(s.dtv, s.speed, s.ist as IstFuehrungsform, breite, routentyp,
       s.parkenRechts, s.oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram,
-      cityCfg.breiten?.[s.ist as IstFuehrungsform])   // stadtspezifische Breiten-Sollwerte (Zürich)
+      cityCfg.breiten?.[s.ist as IstFuehrungsform],   // stadtspezifische Breiten-Sollwerte
+      city,                                            // Stadt → Soll-Tabelle + Haltestellen-Logik
+      s.strassentyp || undefined)                      // Strassentyp (nur Basel)
   })
   const offen = results.filter(r => r == null).length
   const alleVollstaendig = offen === 0 && results.length > 0
@@ -1273,6 +1330,13 @@ export default function App() {
               <option key={k} value={k}>{CITIES[k].label}</option>
             ))}
           </select>
+          <span style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>
+            Grundlage:{' '}
+            <a href={cityCfg.standardDoc.url} target="_blank" rel="noopener noreferrer"
+               style={{ color: 'var(--accent)' }}>
+              {cityCfg.standardDoc.titel}
+            </a>
+          </span>
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 200 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
@@ -1435,6 +1499,7 @@ export default function App() {
             canRemove={sections.length > 1}
             onHover={h => setHoverSec(h ? s.id : null)}
             breitenQuelle={breitenQuelleFuer(s)}
+            city={city}
           />
         </div>
       ))}
@@ -1463,6 +1528,10 @@ export default function App() {
         </summary>
         <div style={{ marginTop: 12 }}>
       <h2 style={{ fontSize: 16, margin: '8px 0 10px' }}>Entscheidungstabelle (Soll-Führungsform)</h2>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
+        Gilt für <strong>Bern</strong> (Masterplan). Zürich, Basel und Luzern verwenden eigene
+        Soll-Tabellen; die Note des Abschnitts berücksichtigt sie bereits.
+      </p>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
           <thead>
@@ -1490,6 +1559,10 @@ export default function App() {
 
       {/* Entscheidungstabelle Haltestellen (Soll-Veloverkehrslösung) */}
       <h2 style={{ fontSize: 16, margin: '28px 0 10px' }}>Entscheidungstabelle (Soll-Haltestellenlösung)</h2>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
+        Gilt für <strong>Bern</strong>. Luzern verwendet ein abweichendes Schema (kein Tram);
+        Zürich kriterienbasiert (kein automatischer Abzug); Basel über Typ und Breite.
+      </p>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
           <thead>

@@ -1,0 +1,350 @@
+# VeloroutenCheck — Regelwerk (konsolidierte Datenquelle)
+
+> **Automatisch generiert** aus `docs/regelwerk.json` durch `tools/generiere_dokumentation.py`. Nicht von Hand bearbeiten — stattdessen die JSON ändern und das Skript erneut ausführen.
+
+Stand: 2026-06-29
+
+Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fuehrungsform.ts, Stadt-Adapter) bleibt unverändert die massgebliche Implementierung. Diese Datei fasst die Grundlagen-CSVs und die im Code hinterlegten Anker/Parameter an einem Ort zusammen.
+
+**Quellen:**
+
+- Masterplan Veloinfrastruktur Stadt Bern (Okt. 2025) — Bericht & Standards (Q-Blätter)
+- Velostandards Stadt Zürich (Tab. 1, S. 16/17; S. 7 Netzkategorien)
+- Standards Fuss- und Veloverkehrsinfrastruktur Kanton Basel-Stadt (2024), Tab. 4 S. 20
+- Standards Veloverkehr Stadt Luzern (Q-Blätter S. 30–57)
+- Arbeitshilfe Haltestellen mit Veloinfrastruktur
+- radwege-check.de / FixMyCity (subjektive Sicherheit, feel-safe %)
+- Grundlagen/*.csv (DTV_KMH_Fuehrungsform, Fueherungsform_Breiten_Staedte, Routentypologie_Staedte, Haltestelle_Typen_Breiten_*, Haltestellen_Typen_Bezeichnung_Staedte, Haltestellen_veloverkehrsloesung)
+- VeloroutenCheckWeb/src/fuehrungsform.ts (Parameter, feel-safe-Anker)
+
+## Stadtübergreifende Parameter
+
+| Parameter | Wert | Einheit | Herleitung |
+|---|---|---|---|
+| feelSafeProNote | 14.4 | feel-safe-Punkte pro Notenstufe | Spanne Mischverkehr→Radweg bei hohem Tempo (90−18 = 72) geteilt durch 5 Notenstufen (6→1). |
+| noteProMeter | 0.9 | Notenstufen Abzug pro fehlendem Meter Breite | Radstreifen 2,0→3,5 m ≈ +20 feel-safe-Punkte über 1,5 m = 13,3 Pkt/m; ÷ 14,4 ≈ 0,9. |
+| parkenRechtsAbzug | 1.0 | Notenstufen | Radstreifen kein Parken 75,9 % vs. Parken rechts 61,4 % = 14,5 Pkt; ÷ 14,4 ≈ 1,0. |
+| haltestelleAbzug | 1.0 | Notenstufen | Normativ: Soll verlangt Separate Velofläche, Ist-Typ aber Mischverkehr-Familie. |
+| umweltspurMinTakt | 7.5 | Minuten | Bus-Takt darunter (hohe Frequenz) → Note 1. Normativ gesetzt. |
+| umweltspurBasis | 4 | Note (Maximum bei zulässigem Takt) | Umweltspur als Velo-Führung höchstens «genügend». Normativ. |
+| fusswegBasis | 4 | Note (Maximum) | Fussweg Velo gestattet (Mischfläche) höchstens «genügend». Normativ. |
+| tramMalus (ruhig) | 0.8 | Notenstufen (nur Mischverkehr) | Mischverkehr mit vs. ohne Tram: T30 (26,3−14,4)/14,4 ≈ 0,8; T50 (17,7−9,7)/14,4 ≈ 0,55. |
+| tramMalus (schnell) | 0.55 |  |  |
+| parkenRelevant | Mischverkehr, Radstreifen, Velostrasse, Umweltspur | Führungsformen | Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken). |
+
+## Feel-safe-Anker
+
+*Hinweis:* radwege-check / FixMyCity, Velo-Perspektive, tram-bereinigt. Unabhängig aus Einzelantworten verifiziert (tools/verify_06.py). ruhig = V ≤ 30, schnell = V > 30.
+
+| Führungsform | ruhig (V ≤ 30) | schnell (V > 30) | verifiziert |
+|---|---|---|---|
+| Mischverkehr | 26 | 18 | T30 26.3 / T50 17.7 |
+| Radstreifen | 74 | 69 | T30 74.0 / T50 68.8 (alle Breiten) |
+| Radweg | 92 | 90 | baulich getrennt, Poller-Niveau: T30 91.7 / T50 90.1 |
+
+## Velostrassen (Q9) — Sonderfall
+
+*Quelle:* Grundlagen/Velostrassen_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Velostrasse'], Sonderfall-Logik)
+
+**Regeln für alle Städte:**
+
+- Nur bei Tempo 30 zulässig; bei v > 30 → Note 1.
+- Velostrasse zählt als Mischverkehr (feel-safe-Klasse Mischverkehr).
+- Parkierung rechts (Dooring) relevant: ja
+
+| Stadt | Breite min | Breite max | Bei Parkierung | Routentyp | Max DTV | Hinweis |
+|---|---|---|---|---|---|---|
+| Bern | 4,50 | 6,50 | – | Velohauptroute | – | Breitenrange 4,50–6,50 m. |
+| Basel | 4,50 | – | 7,00 | Velovorzugsroute | 2'500 | Breite 4,50 m; bei Parkierung 7,00 m; bis max. 2'500 DTV. |
+| Zürich | – | – | – | – | – | Im relevanten Dokument steht nichts dazu. |
+| Luzern | 4,50 | 4,50 | – | – | – | Breite 4,50 m. |
+
+## Umweltspuren (Q4) — Sonderfall
+
+*Quelle:* Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_*)
+
+**Regeln für alle Städte:**
+
+- DTV/Tempo nicht massgebend, sondern der Bus-Takt. Takt < 7,5 Min (hohe Busfrequenz) → Note 1. Takt ≥ 7,5 Min → Basisnote 4 («genügend»), davon Breiten-Abzug.
+- feel-safe-Klasse: Mischverkehr.
+- Parkierung rechts (Dooring) relevant: ja
+
+| Stadt | Breite optimal | Breite minimal | Takt-Schwelle [Min] | Hinweis |
+|---|---|---|---|---|
+| Bern | 4,50 | 3,75 | 7,5 |  |
+| Luzern | 4,50 | 3,75 | 7,5 | Breiten und Takt-Schwelle aus Bern übernommen (kein eigener Luzerner Wert). |
+| Zürich | 4,80 | 4,50 | 7,5 | ≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt-Schwelle aus Bern übernommen. |
+| Basel | 4,50 | 3,00 | 7,5 | Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Takt-Schwelle aus Bern übernommen. |
+
+## Haltestellen-Typ-Bezeichnungen (stadtübergreifend)
+
+*Hinweis:* Stadtübergreifende Zuordnung der Haltestellen-Bezeichnungen (Quelle: Haltestellen_Typen_Bezeichnung_Staedte.csv).
+
+| Stadt | Haltestelle mit Veloumfahrung | Kaphaltestelle mit Veloüberfahrt | Kaphaltestelle | Haltestelle mit rückwärtigem Radweg | Inselhaltestelle (Umfahrung für MIV und Velo) | Fahrbahnhaltestelle Bus | Busbucht |
+|---|---|---|---|---|---|---|---|
+| Bern | B HS 1 | B HS 2 | B HS 3 | B HS 4 | B HS 5 | B HS 6 | B HS 7 |
+| Luzern | L HS 1 | – | – | L HS 2 | – | L HS 3 und L HS 4 | L HS 5 |
+| Zürich | Z HS1 | Z HS2 | Z HS3 | – | – | – | – |
+| Basel | BS HS 2 | BS HS 3 | BS HS  1 | BS HS 2 | BS HS 4 | – | – |
+
+## Bern
+
+**Routentypen:** Velohauptroute, Veloroute
+
+**Routentyp-Mapping → Masterplan:**
+
+| Stadt-Kategorie | → Masterplan-Typ |
+|---|---|
+| Velohauptroute | Velohauptroute |
+| Veloroute | Veloroute |
+
+### Soll-Führungsform (DTV × Tempo)
+
+*Quelle:* DTV_KMH_Fuehrungsform.csv (Bern); Masterplan Bericht S. 11
+
+*Hinweis:* DTV-Untergrenze inklusive, Obergrenze exklusive. v in km/h. Implementiert in fuehrungsart() (fuehrungsform.ts).
+
+| DTV MIV \ km/h | ≤ 30 | 31–40 | 41–50 | 51–80 |
+|---|---|---|---|---|
+| < 2'000 | Mischverkehr | Radstreifen | Radstreifen | Radweg |
+| 2'000–5'000 | Radstreifen | Radstreifen | Radweg | Radweg |
+| 5'000–10'000 | Radstreifen oder Radweg | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
+| ≥ 10'000 | Radweg | Radweg | Radweg | Radweg |
+
+### Breiten-Sollwerte
+
+*Quelle:* Fueherungsform_Breiten_Staedte.csv (Bern); Masterplan Standards Q-Blätter ab S. 12
+
+*Hinweis:* optimal = Velohauptroute, minimal = Veloroute, minimum = absolute Untergrenze (nicht für die Note).
+
+| Führungsform / Querschnitt | Optimal | Minimal | Minimum | Maximal |
+|---|---|---|---|---|
+| Q1 Radstreifen | 2,50 | 1,80 | 1,50 | – |
+| Q2a Radweg strassenbegl. A | 2,50 | 1,80 | 1,80 | – |
+| Q2b Radweg strassenbegl. B | 2,50 | 1,80 | 1,80 | – |
+| Q3 Radweg abgesetzt | 2,50 | 1,50 | 1,50 | – |
+| Q4 Umweltspur (Bus+Velo) | 4,50 | 3,75 | 3,00 | – |
+| Q5 Kernfahrbahn | 2,50 | 1,80 | 1,50 | – |
+| Q6 Mischverkehr Hauptachse | – | – | – | – |
+| Q7 Einbahn Velogegenverkehr | 2,00 | 1,80 | 1,50 | – |
+| Q8 Quartierstrasse T30/T20 | – | – | – | – |
+| Q9 Velostrasse | 4,50 | 4,50 | – | 6,50 |
+| Q10 Zweirichtungsradweg | 4,50 | 3,20 | 3,20 | – |
+| Q11 Komb. Fuss-/Radweg | 3,50 | 3,50 | 3,50 | – |
+| Q12 Fussweg Velo gestattet | 3,50 | 3,50 | 3,50 | – |
+
+### Haltestellen
+
+*Quelle:* Haltestelle_Typen_Breiten_Bern.csv; Haltestellen_veloverkehrsloesung.csv
+
+| Code | Typ | Einsatzfamilie | Optimal | Minimal | Minimum |
+|---|---|---|---|---|---|
+| HS1 | Haltestelle mit Veloumfahrung | Separate | 1,80 | 1,60 | 1,60 |
+| HS2 | Kaphaltestelle mit Veloüberfahrt | Separate | 1,80 | 1,50 | 1,50 |
+| HS3 | Kaphaltestelle | Mischverkehr | – | – | – |
+| HS4 | Haltestelle mit rückwärtigem Radweg | Separate | 2,50 | 1,80 | 1,60 |
+| HS5 | Inselhaltestelle | Separate | 2,50 | 1,50 | 1,50 |
+| HS6 | Fahrbahnhaltestelle Bus | Mischverkehr | – | – | – |
+| HS7 | Busbucht | Mischverkehr | – | – | – |
+
+**Soll-Veloverkehrslösung (Takt × Route)**
+
+| ÖV-Angebot | Veloroute | Velohauptroute |
+|---|---|---|
+| Tram | Separate Velofläche | Separate Velofläche |
+| Bus < 5 Min | Übergang | Separate Velofläche |
+| Bus 5–15 Min | Mischverkehr | Übergang |
+| Bus ≥ 15 Min | Mischverkehr | Mischverkehr |
+
+## Zürich
+
+**Routentypen:** Velovorzugsroute, Hauptroute
+
+**Routentyp-Mapping → Masterplan:**
+
+| Stadt-Kategorie | → Masterplan-Typ |
+|---|---|
+| Velovorzugsroute | Velohauptroute |
+| Hauptroute | Veloroute |
+| Basisnetz | *(kein Routentyp — manuell)* |
+
+### Soll-Führungsform (DTV × Tempo)
+
+*Quelle:* DTV_KMH_Fuehrungsform.csv (Zürich)
+
+*Hinweis:* Je Routentyp eigene Matrix. DTV-Bänder wie in der CSV.
+
+**Velovorzugsroute**
+
+| DTV MIV \ km/h | ≤ 30 | 31–40 | 41–50 | 51–80 |
+|---|---|---|---|---|
+| < 2'500 | Mischverkehr | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
+| 5'000–7'500 | Radstreifen oder Radweg | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
+| ≥ 7'500 | Radstreifen oder Radweg | Radweg | Radweg | Radweg |
+
+**Hauptroute**
+
+| DTV MIV \ km/h | ≤ 30 | 31–40 | 41–50 | 51–80 |
+|---|---|---|---|---|
+| < 2'500 | Mischverkehr | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
+| 5'000–7'500 | Mischverkehr | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
+| ≥ 7'500 | Radstreifen oder Radweg | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
+
+### Breiten-Sollwerte
+
+*Quelle:* Fueherungsform_Breiten_Staedte.csv (Zürich); Velostandards Stadt Zürich Tab. 1 S. 16/17
+
+*Hinweis:* optimal = Velovorzugsroute, minimal = Hauptroute, minimum = Minimalmass. Wo leer → Bern-Fallback (im Code).
+
+| Führungsform / Querschnitt | Optimal | Minimal | Minimum | Maximal |
+|---|---|---|---|---|
+| Q1 Radstreifen | 2,50 | 2,20 | 1,80 | – |
+| Q2a Radweg strassenbegl. A | 2,50 | 2,20 | 1,80 | – |
+| Q2b Radweg strassenbegl. B | 2,50 | 2,20 | 1,80 | – |
+| Q3 Radweg abgesetzt | 2,50 | 2,20 | 1,80 | – |
+| Q4 Umweltspur (Bus+Velo) | 4,80 | 4,50 | – | – |
+| Q10 Zweirichtungsradweg | 4,80 | 3,50 | 3,00 | – |
+
+### Haltestellen
+
+*Quelle:* Haltestelle_Typen_Breiten_Zuerich.csv (Velostandards S. 80, anderes Prinzip als Bern)
+
+| Code | Typ | Einsatzfamilie | Optimal | Minimal | Minimum |
+|---|---|---|---|---|---|
+| Z HS1 | Fahrbahnhaltestelle mit Veloumfahrung | – | 1,80 | 1,50 | 1,50 |
+| Z HS2 | Fahrbahnhaltestelle mit Veloüberfahrt | – | 1,80 | 1,50 | 1,50 |
+| Z HS3 | Fahrbahnhaltestelle mit Veloführung auf Fahrbahn | – | – | – | – |
+
+**Soll-Veloverkehrslösung:** Massgebliche Kriterien: städtebauliches Umfeld, Platzangebot, Bedeutung Fuss-/Veloverkehr, ÖV-Frequenzen. Kein Takt×Route-Schema wie Bern (Velostandards S. 80).
+
+## Basel
+
+**Routentypen:** Vorzugsroute, Pendler-/Basisrouten
+
+**Routentyp-Mapping → Masterplan:**
+
+| Stadt-Kategorie | → Masterplan-Typ |
+|---|---|
+| Vorzugsroute | Velohauptroute |
+| Pendler-/Basisrouten | Veloroute |
+
+### Soll-Führungsform (DTV × Tempo)
+
+*Quelle:* DTV_KMH_Fuehrungsform.csv (Basel). Strasseneinteilung: data.bs.ch/explore/assets/100250. DWV als DTV verwenden.
+
+*Hinweis:* Kein DTV-Bänder-System, sondern Strassentyp × Tempo. Velostrasse als Mischverkehr-Ausgestaltung mit DWV-Deckel.
+
+**Vorzugsroute**
+
+| Strassentyp | Tempo | Führungsform |
+|---|---|---|
+| nicht verkehrsorientierte Strasse | 0–30 km/h | Mischverkehr (Ausgestaltung als Velostrasse, max. DWV 2500) |
+| verkehrsorientierte Strasse | 0–30 km/h | Radstreifen oder Radweg |
+| verkehrsorientierte Strasse | 31–50 km/h | Radstreifen oder Radweg |
+
+**Pendler-/Basisrouten**
+
+| Strassentyp | Tempo | Führungsform |
+|---|---|---|
+| nicht verkehrsorientierte Strasse | 0–30 km/h | Mischverkehr (max. DWV 5000) |
+| verkehrsorientierte Strasse | 0–30 km/h | Radstreifen |
+| verkehrsorientierte Strasse | 31–50 km/h | Radstreifen |
+
+### Breiten-Sollwerte
+
+*Quelle:* Fueherungsform_Breiten_Staedte.csv (Basel); Standards FVV Basel-Stadt (2024) Tab. 4 S. 20
+
+*Hinweis:* optimal = Vorzugsroute (Standardmass), minimal = Pendler-/Basisrouten (reduziert), minimum = Minimalmass. Wo leer → Bern-Fallback (im Code).
+
+| Führungsform / Querschnitt | Optimal | Minimal | Minimum | Maximal |
+|---|---|---|---|---|
+| Q1 Radstreifen | 2,50 | 1,80 | 1,60 | – |
+| Q2a Radweg strassenbegl. A | 2,50 | 2,20 | – | – |
+| Q2b Radweg strassenbegl. B | 2,50 | 2,20 | – | – |
+| Q3 Radweg abgesetzt | 2,50 | 2,20 | – | – |
+| Q4 Umweltspur (Bus+Velo) | 4,50 | 3,00 | – | – |
+| Q5 Kernfahrbahn | 1,80 | 1,80 | 1,80 | – |
+| Q9 Velostrasse | 4,50 | 4,50 | – | – |
+| Q10 Zweirichtungsradweg | 4,00 | 3,40 | 2,80 | – |
+
+### Haltestellen
+
+*Quelle:* Haltestelle_Typen_Breiten_Basel.csv (Arbeitshilfe Haltestellen mit Veloinfrastruktur)
+
+| Code | Typ | Einsatzfamilie | Optimal | Minimal | Minimum |
+|---|---|---|---|---|---|
+| BS HS 1 | Kap | – | – | – | – |
+| BS HS 2 | Velobypass | – | 1,60 | 1,20 | 1,20 |
+| BS HS 3 | Velo-Zeitinsel | – | 2,05 | 1,65 | 1,65 |
+| BS HS 4 | Inselhaltestelle | – | 1,80 | 1,60 | 1,60 |
+
+## Luzern
+
+**Routentypen:** Velohauptroute, Veloroute
+
+**Routentyp-Mapping → Masterplan:**
+
+| Stadt-Kategorie | → Masterplan-Typ |
+|---|---|
+| Velohauptroute | Velohauptroute |
+| Hauptroute | Veloroute |
+| Nebenroute | *(kein Routentyp — manuell)* |
+| keine Velonetz-Route | *(kein Routentyp — manuell)* |
+| unbekannt | *(kein Routentyp — manuell)* |
+
+### Soll-Führungsform (DTV × Tempo)
+
+*Quelle:* DTV_KMH_Fuehrungsform.csv (Luzern)
+
+*Hinweis:* Feinere DTV-Stufen als Bern. DTV-Obergrenze exklusive.
+
+| DTV MIV \ km/h | ≤ 30 | 31–40 | 41–50 | 51–80 |
+|---|---|---|---|---|
+| < 2'000 | Mischverkehr | Mischverkehr | Mischverkehr | – |
+| 2'000–5'000 | Mischverkehr | Radstreifen | Radstreifen | Radweg |
+| 5'000–10'000 | Mischverkehr oder Radstreifen | Radstreifen | Radstreifen | Radweg |
+| 10'000–15'000 | Mischverkehr oder Radstreifen | Radstreifen | Radstreifen oder Radweg | Radweg |
+| ≥ 15'000 | – | Radweg | Radweg | Radweg |
+
+### Breiten-Sollwerte
+
+*Quelle:* Fueherungsform_Breiten_Staedte.csv (Luzern); Standards Veloverkehr Stadt Luzern Q-Blätter S. 30–57
+
+*Hinweis:* optimal = Optimalfall (Velohauptroute), minimal = Minimalfall (Veloroute), minimum = absolute Untergrenze.
+
+| Führungsform / Querschnitt | Optimal | Minimal | Minimum | Maximal |
+|---|---|---|---|---|
+| Q1 Radstreifen | 2,50 | 1,80 | – | – |
+| Q2a Radweg strassenbegl. A | 2,50 | 1,80 | – | – |
+| Q2b Radweg strassenbegl. B | 2,50 | 1,80 | – | – |
+| Q3 Radweg abgesetzt | 2,50 | 1,80 | 1,60 | – |
+| Q4 Umweltspur (Bus+Velo) | 4,50 | 3,75 | – | – |
+| Q5 Kernfahrbahn | 1,80 | 1,50 | – | – |
+| Q7 Einbahn Velogegenverkehr | 2,50 | 1,80 | 1,50 | – |
+| Q9 Velostrasse | 4,50 | 4,50 | – | – |
+| Q10 Zweirichtungsradweg | 4,50 | 3,20 | 3,20 | – |
+| Q11 Komb. Fuss-/Radweg | 3,50 | 3,50 | 3,50 | – |
+| Q12 Fussweg Velo gestattet | 3,50 | 3,50 | 3,50 | – |
+
+### Haltestellen
+
+*Quelle:* Haltestelle_Typen_Breiten_Luzern.csv; Haltestellen_veloverkehrsloesung.csv
+
+| Code | Typ | Einsatzfamilie | Optimal | Minimal | Minimum |
+|---|---|---|---|---|---|
+| L HS 1 | Haltestelle mit Veloumfahrung | Separate | 1,80 | 1,50 | 1,50 |
+| L HS 2 | Haltestelle mit rückwärtigem Radweg | Separate | 2,50 | 1,60 | 1,60 |
+| L HS 3 | Fahrbahnhaltestelle | Mischverkehr | – | – | – |
+| L HS 4 | Fahrbahnhaltestelle in der Umweltspur | Mischverkehr | – | – | – |
+| L HS 5 | Busbucht | Mischverkehr | – | – | – |
+
+**Soll-Veloverkehrslösung (Takt × Route)**
+
+| ÖV-Angebot | Veloroute | Velohauptroute |
+|---|---|---|
+| Bus < 5 Min | Mischverkehr oder separate Velofläche | separate Velofläche |
+| Bus 5–15 Min | Mischverkehr | Mischverkehr oder separate Velofläche |
+| Bus ≥ 15 Min | Mischverkehr | Mischverkehr |
+
+*Hinweis:* Separate Velofläche = Veloumfahrung, Haltestelle mit rückwärtigem Radweg. Mischverkehr = Fahrbahnhaltestelle, Fahrbahnhaltestelle in der Umweltspur, Busbucht.
+

@@ -17,23 +17,90 @@
 
 export type Fuehrungsart =
   | 'Mischverkehr'
+  | 'Mischverkehr oder Radstreifen'   // Übergang (nur Radstreifen+ erfüllt bei genügend Breite die Note 6)
   | 'Radstreifen'
   | 'Radstreifen oder Radweg'
   | 'Radweg'
 
-// ── 1) SOLL: Wahl der Führungsart (Masterplan Bern, Entscheidungstabelle) ─────
+// Stadt (bestimmt die Soll-Tabelle und die Haltestellen-Logik). Default: Bern.
+export type Stadt = 'bern' | 'zurich' | 'basel' | 'luzern'
+// Strassentyp (nur Basel: Soll-Tabelle ist strassentyp-basiert, nicht DTV-basiert).
+export type Strassentyp = 'verkehrsorientiert' | 'siedlungsorientiert'
+
+// ── 1) SOLL: Wahl der Führungsart (stadtabhängige Entscheidungstabelle) ───────
 //
+// Bern (Masterplan, Default/Fallback):
 //   DTV MIV \ km/h     ≤30          31–40        41–50              51–80
 //   < 2'000            Mischverkehr Radstreifen  Radstreifen        Radweg
 //   2'000–5'000        Radstreifen  Radstreifen  Radweg             Radweg
 //   5'000–10'000       Radstr./Radweg (Übergang) …                  Radweg
 //   > 10'000           Radweg       Radweg       Radweg             Radweg
 //
-export function fuehrungsart(dtv: number, v: number): Fuehrungsart {
+function fuehrungsartBern(dtv: number, v: number): Fuehrungsart {
   if (v > 50 || dtv >= 10000) return 'Radweg'
   if (dtv >= 5000)            return 'Radstreifen oder Radweg'
   if (dtv >= 2000)            return v <= 40 ? 'Radstreifen' : 'Radweg'
   return v <= 30 ? 'Mischverkehr' : 'Radstreifen'
+}
+
+// Zürich (Velostandards): je Routentyp eine eigene Matrix. DTV-Bänder <2500 / 5000–7500 / >7500.
+// Velovorzugsroute → Velohauptroute, Hauptroute → Veloroute.
+function fuehrungsartZuerich(dtv: number, v: number, route: Routentyp): Fuehrungsart {
+  if (v > 50) return 'Radweg'
+  if (route === 'Velohauptroute') {        // Velovorzugsroute
+    if (dtv >= 7500) return v <= 30 ? 'Radstreifen oder Radweg' : 'Radweg'
+    if (dtv >= 5000) return v <= 50 ? 'Radstreifen oder Radweg' : 'Radweg'
+    return v <= 30 ? 'Mischverkehr' : 'Radstreifen oder Radweg'   // <2500
+  }
+  // Hauptroute
+  if (dtv >= 7500) return 'Radstreifen oder Radweg'
+  if (dtv >= 5000) return v <= 30 ? 'Mischverkehr' : 'Radstreifen oder Radweg'
+  return v <= 30 ? 'Mischverkehr' : 'Radstreifen oder Radweg'     // <2500
+}
+
+// Luzern: feinere DTV-Stufen (<2000 / <5000 / <10000 / <15000 / >15000), inkl. «Mischverkehr oder
+// Radstreifen». >15'000 / ≤30 → Radweg (gesetzt; CSV-Zelle leer).
+function fuehrungsartLuzern(dtv: number, v: number): Fuehrungsart {
+  if (dtv >= 15000) return 'Radweg'
+  if (dtv >= 10000) {
+    if (v <= 30) return 'Mischverkehr oder Radstreifen'
+    if (v <= 40) return 'Radstreifen'
+    if (v <= 50) return 'Radstreifen oder Radweg'
+    return 'Radweg'
+  }
+  if (dtv >= 5000) {
+    if (v <= 30) return 'Mischverkehr oder Radstreifen'
+    if (v <= 50) return 'Radstreifen'
+    return 'Radweg'
+  }
+  if (dtv >= 2000) {
+    if (v <= 30) return 'Mischverkehr'
+    if (v <= 50) return 'Radstreifen'
+    return 'Radweg'
+  }
+  return v <= 50 ? 'Mischverkehr' : 'Radweg'   // <2000
+}
+
+// Basel: nicht DTV-, sondern strassentyp-basiert (× Routentyp). Vorzugsroute → Velohauptroute,
+// Pendler-/Basisrouten → Veloroute. «Nicht verkehrsorientiert» = siedlungsorientierte Strasse.
+// (Tempo 30 und 50 ergeben in der Basler Tabelle dieselbe Soll-Form → Tempo hier nicht massgebend.)
+function fuehrungsartBasel(route: Routentyp, strassentyp?: Strassentyp): Fuehrungsart {
+  if (strassentyp === 'siedlungsorientiert') return 'Mischverkehr'   // (Velostrasse-Ausgestaltung, DWV-Deckel)
+  // verkehrsorientiert (oder unbekannt → konservativ verkehrsorientiert):
+  return route === 'Velohauptroute' ? 'Radstreifen oder Radweg' : 'Radstreifen'
+}
+
+// Dispatcher: wählt die stadtabhängige Soll-Tabelle. Bern bleibt Default (auch für unbekannte Städte).
+export function fuehrungsart(
+  dtv: number, v: number,
+  stadt: Stadt = 'bern', route: Routentyp = 'Velohauptroute', strassentyp?: Strassentyp,
+): Fuehrungsart {
+  switch (stadt) {
+    case 'zurich': return fuehrungsartZuerich(dtv, v, route)
+    case 'luzern': return fuehrungsartLuzern(dtv, v)
+    case 'basel':  return fuehrungsartBasel(route, strassentyp)
+    default:       return fuehrungsartBern(dtv, v)
+  }
 }
 
 // ── 2) NOTE: IST gegen SOLL bewerten ──────────────────────────────────────────
@@ -74,57 +141,96 @@ export const PARKEN_RELEVANT: IstFuehrungsform[] =
 // (Bedeutung Velonetz × ÖV-Angebot): Separate Velofläche / Übergang / Mischverkehr.
 export type OevAngebot = 'keine' | 'bus_ab15' | 'bus_5_15' | 'bus_unter5' | 'tram'
 export type Haltestellenloesung = 'Separate Velofläche' | 'Übergang' | 'Mischverkehr'
+// Union aller (stadtübergreifend vorkommenden) Haltestellentypen. Welche je Stadt verfügbar sind,
+// definiert HALTESTELLEN[stadt]; gemeinsame Namen (z. B. «Inselhaltestelle») können je Stadt
+// unterschiedliche Breiten tragen.
 export type Haltestellentyp =
   | 'keine'
-  // Familie «Separate Velofläche»:
-  | 'Haltestelle mit Veloumfahrung'        // HS1
-  | 'Kaphaltestelle mit Veloüberfahrt'     // HS2
-  | 'Haltestelle mit rückwärtigem Radweg'  // HS4
-  | 'Inselhaltestelle'                     // HS5
-  // Familie «Mischverkehr»:
-  | 'Kaphaltestelle'                       // HS3 (Ausnahme)
-  | 'Fahrbahnhaltestelle Bus'              // HS6
-  | 'Busbucht'                             // HS7
+  // Bern (HS1–HS7):
+  | 'Haltestelle mit Veloumfahrung'
+  | 'Kaphaltestelle mit Veloüberfahrt'
+  | 'Haltestelle mit rückwärtigem Radweg'
+  | 'Inselhaltestelle'
+  | 'Kaphaltestelle'
+  | 'Fahrbahnhaltestelle Bus'
+  | 'Busbucht'
+  // Zürich (Z HS1–3):
+  | 'Fahrbahnhaltestelle mit Veloumfahrung'
+  | 'Fahrbahnhaltestelle mit Veloüberfahrt'
+  | 'Fahrbahnhaltestelle mit Veloführung auf Fahrbahn'
+  // Basel (BS HS 1–4):
+  | 'Kap'
+  | 'Velobypass'
+  | 'Velo-Zeitinsel'
+  // Luzern (L HS 3/4):
+  | 'Fahrbahnhaltestelle'
+  | 'Fahrbahnhaltestelle in der Umweltspur'
 
-const HALTESTELLE_FAMILIE: Record<Haltestellentyp, 'Separate' | 'Mischverkehr' | null> = {
-  'keine': null,
-  'Haltestelle mit Veloumfahrung': 'Separate',
-  'Kaphaltestelle mit Veloüberfahrt': 'Separate',
-  'Haltestelle mit rückwärtigem Radweg': 'Separate',
-  'Inselhaltestelle': 'Separate',
-  'Kaphaltestelle': 'Mischverkehr',
-  'Fahrbahnhaltestelle Bus': 'Mischverkehr',
-  'Busbucht': 'Mischverkehr',
+interface HsTyp {
+  familie: 'Separate' | 'Mischverkehr'
+  breite?: { optimal: number; minimal: number }   // nur Typen mit Breitenkriterium
 }
 
-export const KOMPATIBLE_HALTESTELLEN: Record<Haltestellenloesung, Haltestellentyp[]> = {
-  'Separate Velofläche': ['Haltestelle mit Veloumfahrung', 'Kaphaltestelle mit Veloüberfahrt',
-                          'Haltestelle mit rückwärtigem Radweg', 'Inselhaltestelle'],
-  'Mischverkehr': ['Kaphaltestelle', 'Fahrbahnhaltestelle Bus', 'Busbucht'],
-  'Übergang': ['Haltestelle mit Veloumfahrung', 'Kaphaltestelle mit Veloüberfahrt',
-               'Haltestelle mit rückwärtigem Radweg', 'Inselhaltestelle',
-               'Kaphaltestelle', 'Fahrbahnhaltestelle Bus', 'Busbucht'],
+// Haltestellentypen je Stadt (mit Einsatzfamilie + optionaler Breitenvorgabe).
+// Quelle: Grundlagen/Haltestelle_Typen_Breiten_*.csv (siehe docs/regelwerk.json).
+const HALTESTELLEN: Record<Stadt, Partial<Record<Haltestellentyp, HsTyp>>> = {
+  bern: {
+    'Haltestelle mit Veloumfahrung':       { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.6 } }, // HS1
+    'Kaphaltestelle mit Veloüberfahrt':    { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.5 } }, // HS2
+    'Kaphaltestelle':                      { familie: 'Mischverkehr' },                                       // HS3
+    'Haltestelle mit rückwärtigem Radweg': { familie: 'Separate', breite: { optimal: 2.5, minimal: 1.6 } }, // HS4
+    'Inselhaltestelle':                    { familie: 'Separate', breite: { optimal: 2.5, minimal: 1.5 } }, // HS5
+    'Fahrbahnhaltestelle Bus':             { familie: 'Mischverkehr' },                                       // HS6
+    'Busbucht':                            { familie: 'Mischverkehr' },                                       // HS7
+  },
+  zurich: {
+    'Fahrbahnhaltestelle mit Veloumfahrung':            { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.5 } }, // Z HS1
+    'Fahrbahnhaltestelle mit Veloüberfahrt':            { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.5 } }, // Z HS2
+    'Fahrbahnhaltestelle mit Veloführung auf Fahrbahn': { familie: 'Mischverkehr' },                                      // Z HS3
+  },
+  basel: {
+    'Kap':              { familie: 'Mischverkehr' },                                       // BS HS 1
+    'Velobypass':       { familie: 'Separate', breite: { optimal: 1.6, minimal: 1.2 } }, // BS HS 2
+    'Velo-Zeitinsel':   { familie: 'Separate', breite: { optimal: 2.05, minimal: 1.65 } }, // BS HS 3
+    'Inselhaltestelle': { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.6 } }, // BS HS 4
+  },
+  luzern: {
+    'Haltestelle mit Veloumfahrung':         { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.5 } }, // L HS 1
+    'Haltestelle mit rückwärtigem Radweg':   { familie: 'Separate', breite: { optimal: 2.5, minimal: 1.6 } }, // L HS 2
+    'Fahrbahnhaltestelle':                   { familie: 'Mischverkehr' },                                       // L HS 3
+    'Fahrbahnhaltestelle in der Umweltspur': { familie: 'Mischverkehr' },                                       // L HS 4
+    'Busbucht':                              { familie: 'Mischverkehr' },                                       // L HS 5
+  },
 }
 
-// Breitenvorgabe der Veloführung an der Haltestelle [m] je Typ (Velohauptroute → Optimal,
-// Veloroute → Minimal). Nur HS1/HS2/HS4/HS5 haben eine Breite; HS3/HS6/HS7 nicht (kein Kriterium).
-// Bei Optimal-Bereichen (z. B. 1,8–2,5) gilt die Untergrenze als Optimal-Schwelle.
-const HALTESTELLE_BREITE: Partial<Record<Haltestellentyp, { optimal: number; minimal: number }>> = {
-  'Haltestelle mit Veloumfahrung':        { optimal: 1.8, minimal: 1.6 },  // HS1 (Opt 1,8–2,5)
-  'Kaphaltestelle mit Veloüberfahrt':     { optimal: 1.8, minimal: 1.5 },  // HS2
-  'Haltestelle mit rückwärtigem Radweg':  { optimal: 1.8, minimal: 1.6 },  // HS4 (Opt 1,8–2,5)
-  'Inselhaltestelle':                     { optimal: 2.5, minimal: 1.5 },  // HS5
+function hsTyp(stadt: Stadt, typ: Haltestellentyp): HsTyp | undefined {
+  return typ === 'keine' ? undefined : HALTESTELLEN[stadt][typ]
 }
-// Haltestellentypen mit Breitenkriterium (für die UI-Sichtbarkeit des Breitenfelds).
-export const HALTESTELLE_MIT_BREITE = Object.keys(HALTESTELLE_BREITE) as Haltestellentyp[]
 
-// Soll-Haltestellenlösung aus Route × ÖV-Angebot (Masterplan-Diagramm, S. … «Veloverkehrslösung
-// gemäss Masterplan»). Scoring: ÖV (Tram 3 / Bus<5 2 / Bus5–15 1 / Bus≥15 0) + Route
-// (Velohauptroute 1 / Veloroute 0). Summe ≥ 3 → Separate, = 2 → Übergang, ≤ 1 → Mischverkehr.
-export function haltestellenLoesung(route: Routentyp, oev: OevAngebot): Haltestellenloesung | null {
+// Auswahlliste der Haltestellentypen je Stadt (für die UI).
+export function haltestellenTypen(stadt: Stadt): Haltestellentyp[] {
+  return Object.keys(HALTESTELLEN[stadt]) as Haltestellentyp[]
+}
+
+// Haltestellentypen mit Breitenkriterium je Stadt (für die UI-Sichtbarkeit des Breitenfelds).
+export function haltestellenMitBreite(stadt: Stadt): Haltestellentyp[] {
+  return haltestellenTypen(stadt).filter(t => HALTESTELLEN[stadt][t]?.breite != null)
+}
+
+// Soll-Haltestellenlösung aus Route × ÖV-Angebot — stadtabhängig:
+//  - bern:   Scoring ÖV (Tram 3 / Bus<5 2 / Bus5–15 1 / Bus≥15 0) + Route (Velohauptroute 1).
+//            ≥ 3 → Separate, = 2 → Übergang, ≤ 1 → Mischverkehr.
+//  - luzern: kein Tram-Bonus, gleiche Schwellen (Tram wie Bus<5 behandelt).
+//  - zurich: kriterienbasiert → null (kein automatischer Abzug; nur Typ-Auswahl + Breite).
+//  - basel:  null (Abzug nur über Typ-Familie + Breite, kein Takt×Route-Schema).
+export function haltestellenLoesung(
+  route: Routentyp, oev: OevAngebot, stadt: Stadt = 'bern',
+): Haltestellenloesung | null {
   if (oev === 'keine') return null
-  const oevLevel: Record<Exclude<OevAngebot, 'keine'>, number> =
-    { tram: 3, bus_unter5: 2, bus_5_15: 1, bus_ab15: 0 }
+  if (stadt === 'zurich' || stadt === 'basel') return null
+  const oevLevel: Record<Exclude<OevAngebot, 'keine'>, number> = stadt === 'luzern'
+    ? { tram: 2, bus_unter5: 2, bus_5_15: 1, bus_ab15: 0 }   // Luzern kennt kein Tram → wie Bus<5
+    : { tram: 3, bus_unter5: 2, bus_5_15: 1, bus_ab15: 0 }
   const sum = oevLevel[oev] + (route === 'Velohauptroute' ? 1 : 0)
   if (sum >= 3) return 'Separate Velofläche'
   if (sum === 2) return 'Übergang'
@@ -137,9 +243,11 @@ export function haltestellenLoesung(route: Routentyp, oev: OevAngebot): Halteste
 const HALTESTELLE_ABZUG = 1.0
 
 // Separationsstufe (Ordnung) für den "IST erfüllt SOLL?"-Vergleich.
-// Der Übergang 'Radstreifen oder Radweg' liegt zwischen Radstreifen (1) und Radweg (2).
+// Übergänge liegen zwischen den ganzen Stufen: 'Mischverkehr oder Radstreifen' zwischen
+// Mischverkehr (0) und Radstreifen (1); 'Radstreifen oder Radweg' zwischen Radstreifen (1) und Radweg (2).
 const SEPARATION: Record<Fuehrungsart, number> = {
   'Mischverkehr': 0,
+  'Mischverkehr oder Radstreifen': 0.5,
   'Radstreifen': 1,
   'Radstreifen oder Radweg': 1.5,
   'Radweg': 2,
@@ -216,7 +324,7 @@ export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
   'Radstreifen':                                         { optimal: 2.5, minimal: 1.8 },  // Q1a
   'Radweg strassenbegleitend / Geschützter Radstreifen': { optimal: 2.5, minimal: 1.8 },  // Q2a/Q2b
   'Radweg abgesetzt':                                    { optimal: 2.5, minimal: 1.8 },  // Q3
-  'Umweltspur':                                          { optimal: 4.5, minimal: 3.0 },  // Q4
+  'Umweltspur':                                          { optimal: 4.5, minimal: 3.75 }, // Q4 (Breiten wie Bern)
   'Velostrasse':                                         { optimal: 4.5, minimal: 4.5 },  // Q10
   'Fussweg Velo gestattet':                              { optimal: 3.5, minimal: 3.5 },  // S. 57
 }
@@ -271,14 +379,15 @@ const SCORE_PRO_NOTE = 14.4
 const tempoKey = (v: number): 'ruhig' | 'schnell' => (v <= 30 ? 'ruhig' : 'schnell')
 
 // Zielscore = feel-safe %, den die SOLL-Führungsart im aktuellen Tempo-Kontext erreicht.
-// Beim Übergang 'Radstreifen oder Radweg' das Mittel aus Radstreifen und Radweg
-// → Radstreifen erfüllt den Soll nur TEILWEISE (Entscheid des Anwenders).
+// Bei den Übergängen das Mittel der beiden Nachbarformen → die schwächere Form erfüllt nur TEILWEISE.
 function zielScore(soll: Fuehrungsart, v: number): number {
   const k = tempoKey(v)
   switch (soll) {
     case 'Mischverkehr': return FEELSAFE.Mischverkehr[k]
     case 'Radstreifen':  return FEELSAFE.Radstreifen[k]
     case 'Radweg':       return FEELSAFE.Radweg[k]
+    case 'Mischverkehr oder Radstreifen':
+      return (FEELSAFE.Mischverkehr[k] + FEELSAFE.Radstreifen[k]) / 2
     case 'Radstreifen oder Radweg':
       return (FEELSAFE.Radstreifen[k] + FEELSAFE.Radweg[k]) / 2
   }
@@ -352,8 +461,10 @@ export function fuehrungsformNote(
   oevAngebot: OevAngebot = 'keine', haltestellentyp: Haltestellentyp = 'keine',
   haltestelleBreite?: number, tramInFahrbahn = false,
   breitenSoll?: BreitenSoll,   // stadtspezifischer Breiten-Override (Fallback je Feld: Bern/IST)
+  stadt: Stadt = 'bern',       // bestimmt Soll-Tabelle + Haltestellen-Logik
+  strassentyp?: Strassentyp,   // nur Basel: für die strassentyp-basierte Soll-Wahl
 ): NotenErgebnis {
-  const soll = fuehrungsart(dtv, v)
+  const soll = fuehrungsart(dtv, v, stadt, routentyp, strassentyp)
   const meta = IST[ist]
 
   // ── Breite: Untergrenze je Routentyp (+ optionale Obergrenze, nur Velostrasse-Band). Abzug
@@ -381,14 +492,19 @@ export function fuehrungsformNote(
   // ── Tram in der Fahrbahn (Schienen): Malus nur bei Mischverkehr, tempo-abhängig (siehe TRAM_MALUS).
   const tramAbzug = (tramInFahrbahn && ist === 'Mischverkehr') ? TRAM_MALUS[tempoKey(v)] : 0
 
-  // ── Haltestelle: Soll-Lösung aus Route × ÖV; Abzug nur, wenn Separate Velofläche gefordert ist,
-  // der vorhandene Typ aber aus der Mischverkehr-Familie stammt (Über-Erfüllung/Übergang = ok).
-  const sollHaltestelle = haltestellenLoesung(routentyp, oevAngebot) ?? undefined
-  const kompatibleHaltestellen = sollHaltestelle ? KOMPATIBLE_HALTESTELLEN[sollHaltestelle] : []
+  // ── Haltestelle: Soll-Lösung aus Route × ÖV (stadtabhängig); Abzug nur, wenn Separate Velofläche
+  // gefordert ist, der vorhandene Typ aber aus der Mischverkehr-Familie stammt (Über-Erfüllung = ok).
+  // Zürich/Basel: keine Soll-Lösung (null) → kein automatischer Abzug, nur Typ-Auswahl + Breite.
+  const sollHaltestelle = haltestellenLoesung(routentyp, oevAngebot, stadt) ?? undefined
+  // Zur Soll-Lösung passende Typen der gewählten Stadt (Separate/Übergang = Separate-Typen; sonst alle).
+  const kompatibleHaltestellen = sollHaltestelle
+    ? haltestellenTypen(stadt).filter(t =>
+        sollHaltestelle === 'Mischverkehr' ? true : HALTESTELLEN[stadt][t]?.familie === 'Separate')
+    : []
   let haltestelleAbzug = 0
   let haltestelleStatus: NotenErgebnis['haltestelleStatus'] = 'keine'
   if (sollHaltestelle) {
-    const fam = HALTESTELLE_FAMILIE[haltestellentyp]
+    const fam = hsTyp(stadt, haltestellentyp)?.familie ?? null
     if (fam == null) {
       haltestelleStatus = 'pruefen'  // Ist-Typ nicht angegeben → nur Empfehlung
     } else if (sollHaltestelle === 'Separate Velofläche' && fam === 'Mischverkehr') {
@@ -399,8 +515,8 @@ export function fuehrungsformNote(
     }
   }
 
-  // ── Breite der Veloführung an der Haltestelle (nur Typen mit Breitenkriterium).
-  const hsSpec = HALTESTELLE_BREITE[haltestellentyp]
+  // ── Breite der Veloführung an der Haltestelle (nur Typen mit Breitenkriterium, stadtabhängig).
+  const hsSpec = hsTyp(stadt, haltestellentyp)?.breite
   const hsBreitenSoll = hsSpec
     ? (routentyp === 'Velohauptroute' ? hsSpec.optimal : hsSpec.minimal)
     : undefined

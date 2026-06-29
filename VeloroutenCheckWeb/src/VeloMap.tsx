@@ -18,6 +18,7 @@ export interface Cand {
     speed?: number                        // V_sig, Signalisierte Höchstgeschwindigkeit
     dtv?: number                          // 16×Nt + 8×Nn, Flächendeckende Verkehrsdaten
     routentyp?: 'Velohauptroute' | 'Veloroute'   // Veloroutennetz Masterplan
+    strassentyp?: 'verkehrsorientiert' | 'siedlungsorientiert'  // nur Basel (Strassen-/Wege-Datensatz)
     velostrasse?: boolean                 // Treffer im Velostrassen-Layer
     oevHalt?: boolean                     // Haltestelle im Abschnitt (Geoportal Haltestellen)
     oevHaltName?: string                  // Name der nächsten Haltestelle
