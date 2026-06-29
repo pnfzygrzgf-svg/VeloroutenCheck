@@ -30,6 +30,7 @@ interface CityCfg {
   breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>  // stadtspezifische Breiten-Sollwerte (sonst Bern)
   breitenQuelle?: string                          // Quellenangabe der stadtspez. Breiten (sonst „Masterplan Bern")
   standardDoc: { titel: string; url: string }     // massgebendes Grundlagendokument (Rechnerseite)
+  routenOptions?: { value: Routentyp; label: string }[]  // stadtspez. Routentyp-Labels (sonst kanonische Namen)
 }
 const CITIES: Record<CityId, CityCfg> = {
   bern: {
@@ -40,6 +41,7 @@ const CITIES: Record<CityId, CityCfg> = {
       titel: 'Standards Masterplans Veloinfrastruktur Stadt Bern',
       url: 'https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur',
     },
+    // Bern verwendet die kanonischen Namen direkt → kein routenOptions nötig
   },
   zurich: {
     label: 'Zürich', osmArea: 'Zürich', center: [47.374, 8.541],
@@ -50,6 +52,10 @@ const CITIES: Record<CityId, CityCfg> = {
       titel: 'Velostandards Stadt Zürich',
       url: 'https://www.stadt-zuerich.ch/content/dam/web/de/aktuell/publikationen/2024/velostandards-stadt-zuerich/velostandards-stadt-zuerich.pdf',
     },
+    routenOptions: [
+      { value: 'Velohauptroute', label: 'Velovorzugsroute' },
+      { value: 'Veloroute',      label: 'Hauptnetz' },
+    ],
   },
   basel: {
     label: 'Basel', osmArea: 'Basel', center: [47.557, 7.589],
@@ -60,6 +66,10 @@ const CITIES: Record<CityId, CityCfg> = {
       titel: 'Standards Fuss- und Velo-Verkehrsinfrastruktur',
       url: 'https://media.bs.ch/original_file/72373a2c610e23b19ae61cd148ad22f35b3d1fe2/2024-09-27-standards-fvv-is-bs.pdf',
     },
+    routenOptions: [
+      { value: 'Velohauptroute', label: 'Vorzugsroute' },
+      { value: 'Veloroute',      label: 'Pendler-/Basisroute' },
+    ],
   },
   luzern: {
     label: 'Luzern', osmArea: 'Luzern', center: [47.050, 8.307],
@@ -70,6 +80,10 @@ const CITIES: Record<CityId, CityCfg> = {
       titel: 'Standards Veloverkehr Stadt Luzern',
       url: 'https://www.stadtluzern.ch/_docn/2965064/Standards_Veloverkehr.pdf',
     },
+    routenOptions: [
+      { value: 'Velohauptroute', label: 'Velohauptroute' },
+      { value: 'Veloroute',      label: 'Hauptroute' },
+    ],
   },
   // St. Gallen vorerst nicht weiterverfolgt → nicht auswählbar. Adapter (stgallen.ts) bleibt
   // erhalten; zum Reaktivieren den Eintrag (und den Import oben) wieder einkommentieren.
@@ -591,6 +605,7 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
   const { ist } = section
   const q = section.quelle
   const bezugLabel = section.routentyp === 'Veloroute' ? 'Minimal' : 'Optimal'
+  const routenOptions = CITIES[city].routenOptions ?? ROUTE_OPTIONS.map(v => ({ value: v, label: v }))
   const hatMarker = (section.candIds?.length ?? 0) > 0   // nur OSM-Abschnitte sind auf der Karte markiert
 
   return (
@@ -659,7 +674,7 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
                   onChange={e => onChange({ routentyp: e.target.value as Routentyp })}
                   style={selectStyle}>
             <option value="">— wählen —</option>
-            {ROUTE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            {routenOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
         {/* Strassentyp — nur Basel: dort ist die Soll-Wahl strassentyp- statt DTV-basiert. */}
