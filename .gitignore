@@ -22,6 +22,7 @@ __pycache__/
 # ── Interne Arbeitsnotizen (kein Methodik-Inhalt) ────────────────────────────
 docs/ux-verbesserungen-plan.md
 docs/mobile-optimierung-plan.md
+docs/plan_supabase_kollaboration.md
 
 # ── Grosse / Dritt-Rohdaten: lokal halten, NICHT versionieren ────────────────
 # (Bezugsquellen sind im README dokumentiert; die App nutzt nur die gebündelten

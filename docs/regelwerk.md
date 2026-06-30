@@ -296,15 +296,16 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 
 *Quelle:* DTV_KMH_Fuehrungsform.csv (Luzern)
 
-*Hinweis:* Feinere DTV-Stufen als Bern. DTV-Obergrenze exklusive.
+*Hinweis:* Drei Zonen (Mischverkehr / Markierung / bauliche Trennung), auf die Berner Logik
+vereinfacht — Markierung = Radstreifen. DTV-Obergrenze exklusive.
 
 | DTV MIV \ km/h | ≤ 30 | 31–40 | 41–50 | 51–80 |
 |---|---|---|---|---|
-| < 2'000 | Mischverkehr | Mischverkehr | Mischverkehr | – |
+| < 2'000 | Mischverkehr | Mischverkehr | Radstreifen | Radweg |
 | 2'000–5'000 | Mischverkehr | Radstreifen | Radstreifen | Radweg |
-| 5'000–10'000 | Mischverkehr oder Radstreifen | Radstreifen | Radstreifen | Radweg |
-| 10'000–15'000 | Mischverkehr oder Radstreifen | Radstreifen | Radstreifen oder Radweg | Radweg |
-| ≥ 15'000 | – | Radweg | Radweg | Radweg |
+| 5'000–10'000 | Radstreifen | Radstreifen | Radstreifen | Radweg |
+| 10'000–15'000 | Radstreifen | Radstreifen | Radweg | Radweg |
+| ≥ 15'000 | Radweg | Radweg | Radweg | Radweg |
 
 ### Breiten-Sollwerte
 

@@ -41,6 +41,7 @@ export const ISTCOLOR: Record<string, string> = {
   'Radweg abgesetzt': '#16a34a',
   'Umweltspur': '#0891b2',
   'Velostrasse': '#2563eb',
+  'Kombinierter Fuss-/Radweg': '#0d9488',
   'Fussweg Velo gestattet': '#ea580c',
 }
 

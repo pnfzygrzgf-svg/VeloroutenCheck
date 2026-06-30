@@ -2,14 +2,12 @@
 
 VeloroutenCheck bewertet die Qualität von Veloinfrastruktur und vergibt dafür eine **Schulnote von 1 bis 6** (6 = beste). Grundlage sind zwei Quellen:
 
-- die **Veloinfrastruktur-Standards der jeweiligen Stadt** (welche Führungsform ist wo vorgesehen, welche Querschnitts- und Haltestellen-Vorgaben gelten) — je Stadt ein eigenes Grundlagendokument:
+- die **Veloinfrastruktur-Standards der jeweiligen Stadt**. Welche Führungsform ist wo vorgesehen, welche Querschnitts- und Haltestellen-Vorgaben usw. gelten.
   - Bern: **[Standards Masterplan Veloinfrastruktur Stadt Bern](https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur)**
   - Zürich: **[Velostandards Stadt Zürich](https://www.stadt-zuerich.ch/content/dam/web/de/aktuell/publikationen/2024/velostandards-stadt-zuerich/velostandards-stadt-zuerich.pdf)**
   - Basel: **[Standards Fuss- und Velo-Verkehrsinfrastruktur Basel-Stadt](https://media.bs.ch/original_file/72373a2c610e23b19ae61cd148ad22f35b3d1fe2/2024-09-27-standards-fvv-is-bs.pdf)**
   - Luzern: **[Standards Veloverkehr Stadt Luzern](https://www.stadtluzern.ch/_docn/2965064/Standards_Veloverkehr.pdf)**
 - die empirisch gemessene **subjektive Sicherheit** aus der Befragung von radwege-check / FixMyCity (wie sicher sich Velofahrende in einer Situation fühlen, „feel-safe %").
-
-Das massgebende Grundlagendokument der gewählten Stadt ist im Rechner verlinkt.
 
 Bewertet wird eine **Strecke**, die aus einem oder mehreren **Abschnitten** besteht. Jeder Abschnitt erhält eine eigene Note; die Strecke erhält die Note ihres schlechtesten Abschnitts.
 
@@ -50,16 +48,16 @@ Vibecoding. Don't trust, verify!
 
 **Strecke zusammenstellen.** Abschnitte lassen sich beliebig hinzufügen und entfernen. Segmente werden auf zwei Wegen geladen:
 
-- **Strassenname** eingeben und „Strasse laden" — lädt alle Segmente der Strasse aus OpenStreetMap.
-- **Klick auf die Karte** — fügt das nächstgelegene Strassensegment hinzu (eine Strecke lässt sich rein per Klick aufbauen).
+- **Strassenname** eingeben und „Strasse laden". Dies lädt alle Segmente der Strasse aus OpenStreetMap.
+- **Klick auf die Karte**. Dies fügt das nächstgelegene Strassensegment hinzu (eine Strecke lässt sich rein per Klick aufbauen).
 
 Mit „In Strecke übernehmen" werden die gewählten Segmente entlang der Strasse geordnet und benachbarte Segmente gleicher Führungsform und gleichen Tempos zu Abschnitten zusammengefasst.
 
-**Eingaben je Abschnitt.** DTV MIV, zulässige Höchstgeschwindigkeit, vorhandene Führungsform (Ist) und — ausser bei Mischverkehr — deren Breite; Routentyp (Velohauptroute / Veloroute); **bei Basel zusätzlich der Strassentyp** (verkehrs- / siedlungsorientiert, da dort die Soll-Wahl strassentyp-basiert ist); bei fahrbahnnahen Führungsformen, ob rechts längs geparkt wird (Dooring); das ÖV-Angebot und bei vorhandener Haltestelle der Haltestellentyp (Auswahl je Stadt).
+**Eingaben je Abschnitt.** DTV MIV, zulässige Höchstgeschwindigkeit, vorhandene Führungsform (Ist) und deren Breite; Routentyp (Velohauptroute / Veloroute); **bei Basel zusätzlich der Strassentyp** (verkehrs- / siedlungsorientiert, da dort die Soll-Wahl strassentyp-basiert ist); bei fahrbahnnahen Führungsformen, ob rechts längs geparkt wird (Dooring); das ÖV-Angebot und bei vorhandener Haltestelle der Haltestellentyp (Auswahl je Stadt).
 
 **Automatische Befüllung und Herkunft.** Wo Daten vorliegen, werden die Felder beim Laden automatisch gefüllt. Ein kleiner **Chip** am Feld zeigt die Herkunft des Werts:
 
-- **Geoportal** (Geoinformation Stadt Bern, blau),
+- **Geoportal** (zum Beispiel Geoinformation Stadt Bern, blau),
 - **OSM** (OpenStreetMap, grau),
 - **opentransportdata** (Fahrplan, für den Bus-Takt, grün),
 - kein Chip, sobald das Feld manuell geändert wurde.
@@ -68,7 +66,7 @@ Leere Pflichtfelder zeigen „Eingabe nötig".
 
 **Karten-Hilfen.** Mehrere Abschnitte sind auf der Karte **nummeriert** (passend zu „Abschnitt 1/2/3" im Rechner). Beim Überfahren einer Abschnittskarte mit der Maus werden die zugehörigen Segmente hervorgehoben — so lassen sich automatisch befüllte Werte gezielt pro Abschnitt prüfen und korrigieren. ÖV-Haltestellen erscheinen als Marker. Die Linienfarben zeigen die Ist-Führungsform (aus OSM).
 
-**Wann erscheint die Note?** Erst wenn die nötigen Felder gefüllt sind: **DTV, Tempo, Führungsform und Breite** — ausser bei **Mischverkehr**, das keine Breiten-Vorgabe hat (dort entfällt das Breite-Feld). Bis dahin steht „Eingabe nötig". Solange ein Abschnitt unvollständig ist, bleibt auch die Strecken-Note offen.
+**Wann erscheint die Note?** Erst wenn die nötigen Felder gefüllt sind: **DTV, Tempo, Führungsform und Breite** — ausser bei **Mischverkehr**, da diese Führungsform keine Breiten-Vorgabe hat. Bis dahin steht „Eingabe nötig". Solange ein Abschnitt unvollständig ist, bleibt auch die Strecken-Note offen.
 
 **Strecken-Note.** Die Strecke erhält die Note ihres **schlechtesten Abschnitts**. Angezeigt werden jede Abschnitts-Note einzeln, die Strecken-Note und der massgebende (schlechteste) Abschnitt.
 
@@ -80,7 +78,7 @@ Leere Pflichtfelder zeigen „Eingabe nötig".
 
 ### 1. Soll-Führungsform
 
-Welche Führungsform ist vorgesehen? Quelle: **Masterplan Veloinfrastruktur Stadt Bern (Okt. 2025), S. 11** — Entscheidung über DTV MIV × zulässige Höchstgeschwindigkeit:
+Welche Führungsform ist vorgesehen? Hier am Beispiel der Vorgaben des  **Masterplan Veloinfrastruktur Stadt Bern** — Entscheidung über DTV MIV × zulässige Höchstgeschwindigkeit:
 
 ```
 DTV MIV \ km/h     ≤ 30           31–40         41–50               51–80
@@ -89,8 +87,6 @@ DTV MIV \ km/h     ≤ 30           31–40         41–50               51–8
 5'000–10'000       Radstreifen oder Radweg (Übergang)               Radweg
 > 10'000           Radweg         Radweg        Radweg              Radweg
 ```
-
-Implementiert in `fuehrungsart(dtv, v)`.
 
 ### 2. Führungsform-Note (Ist gegen Soll)
 
@@ -108,7 +104,7 @@ der Endnote (kein Einfluss auf die Berechnung); die Grenzen folgen der Schulnote
 | 3,5 – 4,0 | Teilweise erfüllt |
 | ≤ 3,0 | Gar nicht erfüllt |
 
-**Rundung:** Die Note wird **immer auf die nächste 0,5 gerundet** (1,0 · 1,5 · 2,0 … 6,0). Gerundet wird kaufmännisch — genau zwischen zwei Stufen wird **aufgerundet** (z. B. 4,25 → 4,5; 4,24 → 4,0; 4,75 → 5,0). Die Rundung erfolgt **einmalig auf die Endnote** (nach dem Breiten-Abzug); alle Zwischenwerte bleiben ungerundet (`roundToHalf` = `Math.round(x · 2) / 2`).
+**Rundung:** Die Note wird **immer auf die nächste 0,5 gerundet** (1,0 · 1,5 · 2,0 … 6,0). Gerundet wird kaufmännisch. Die Rundung erfolgt **einmalig auf die Endnote** (nach dem Breiten-Abzug); alle Zwischenwerte bleiben ungerundet.
 
 #### Grundidee
 
@@ -134,7 +130,7 @@ Die vier Klassen-Anteile summieren sich je Szene auf 100. *Beispiel:* antworten 
 
 #### Schritt für Schritt
 
-1. **Empfohlene Form bestimmen** aus DTV und Tempo (`fuehrungsart`, Kap. 1). Beispiel:
+1. **Empfohlene Form bestimmen** aus DTV und Tempo. Beispiel:
    DTV 3'000 / 50 km/h → Soll = *Radweg*.
 2. **Prüfen, ob die vorhandene Form ausreicht.** Die Formen bilden eine Rangfolge nach zunehmender Trennung vom Autoverkehr:
 
@@ -234,6 +230,7 @@ Radweg strassenbegl. / Gesch. Radstreifen  Q2  2.50   1.80
 Radweg abgesetzt                           Q3  2.50   1.50
 Umweltspur (Bus+Velo)        Q4     4.50      3.75   (DTV/Tempo n.r.; siehe Bus-Takt)
 Velostrasse                  Q9     Band 4.50–6.50 m (Min u. Max, beide Routentypen; nur Tempo 30)
+Kombinierter Fuss-/Radweg    Q11    3.50      3.50   (Bern/Luzern; Basel 6.00/4.80; KEIN Note-4-Deckel)
 Fussweg Velo gestattet       Q12    3.50      3.50   (DTV/Tempo n.r.; Mischfläche, max. Note 4)
 Mischverkehr                 Q6     –         –      (keine Breitenvorgabe)
 ```
@@ -331,6 +328,10 @@ DTV und Tempo sind **nicht massgebend**, sondern der **Bus-Takt** (zusätzliches
 
 Nur **bei Tempo 30** zulässig; sonst entspricht die Führungsform nicht den Vorgaben → **Note 1** mit Hinweis. Bei Tempo 30 gilt die Form als erfüllt (Basis-Note 6); anschliessend wirkt die Breite. Die Breite ist ein **Band 4,50–6,50 m** (Min und Max, identisch für beide Routentypen): Abzug bei zu schmal (< 4,50 m) *oder* zu breit (> 6,50 m), je `Abweichung × 0,9`.
 
+#### Kombinierter Fuss-/Radweg (Q11)
+
+Gemeinsam genutzter, baulich **vom MIV abgesetzter** Geh-/Radweg (OSM: `path`/`footway` mit `bicycle=designated` + `foot=designated`, nicht `segregated`). Anders als der «Fussweg Velo gestattet» **keine Note-4-Deckelung**: hohe Separation (Rang wie Radweg) → erfüllt die Soll-Form (Basis-Note 6), die Note ist dann **breitengesteuert**. Breitenvorgabe stadtspezifisch: **Bern/Luzern/Zürich ≥ 3,50 m** (beide Routentypen; Zürich vermeidet die Form in aktuellen Planungen, Ausnahme bei geringer Frequenz, Mindestbreite 3,50 m gemäss VSS-Leitfaden); **Basel** frequenz-/routenabhängig **6,00 m** (Velohauptroute, mittlere–hohe Frequenz) bzw. **4,80 m** (Veloroute, geringe Frequenz; reduziert 5,00 / 4,20 m).
+
 #### Fussweg Velo gestattet (Q12)
 
 Mischfläche Fuss/Velo, Kompromiss-/Restlösung → höchstens **Note 4 («genügend»)**, davon Breiten-Abzug (Vorgabe ≥ 3,50 m, beide Routentypen). Die situativen **Voraussetzungen** werden als Hinweis-Checkliste angezeigt (kein Noteneinfluss): erhöhtes Schutzbedürfnis Velo (z. B. Schulwege), geringe Fuss-/Velofrequenz, Steigung oder kein Gefälle, etablierte/konfliktarme Situation, ausreichende Breite (≥ 3,50 m), fehlende Alternativen; zusätzlich der Hinweis: **bei Gefälle besondere Vorsicht** (hohe Differenzgeschwindigkeit Velo ↔ Fuss). Normativ (keine FixMyCity-Daten für Mischflächen verwendet).
@@ -390,7 +391,7 @@ Beim Laden werden die OSM-Segmente, wo verfügbar, automatisch mit weiteren Quel
 
 ### Geoportal und OSM
 
-OpenStreetMap (Overpass API) liefert die Geometrie, den Strassennamen und — wo getaggt — Tempo (`maxspeed`), Breite (`width`/`cycleway:*:width`) und die Ist-Führungsform. Die Geoportal-Layer der Stadt Bern (`map.bern.ch`, ArcGIS REST, GeoJSON) werden **live** dazugeladen (bei jedem „Strasse laden" / „Segmente im Kartenausschnitt laden") — bewusst so, damit die Daten automatisch aktuell bleiben. Schlägt ein einzelner Layer fehl (z. B. Server kurz nicht erreichbar), wird er übersprungen und der Import läuft mit den übrigen Quellen weiter. Die Strassensuche ist gross-/kleinschreibungsunabhängig (`jungfraustrasse` = `Jungfraustrasse`).
+OpenStreetMap (Overpass API) liefert die Geometrie, den Strassennamen und — wo getaggt — Tempo (`maxspeed`), Breite (`width`/`cycleway:*:width`) und die Ist-Führungsform. Die Geoportal-Layer der Stadt Bern (`map.bern.ch`, ArcGIS REST, GeoJSON) werden **live** dazugeladen (bei jedem „Strasse laden" / „Segmente im Kartenausschnitt laden") — bewusst so, damit die Daten automatisch aktuell bleiben. Schlägt ein einzelner Layer fehl (z. B. Server kurz nicht erreichbar), wird er übersprungen und der Import läuft mit den übrigen Quellen weiter. Die Strassensuche ist gross-/kleinschreibungsunabhängig.
 
 **Zuordnung OSM ↔ Geodaten (Überlappung statt Nähe).** Jedes OSM-Segment wird dem Bern-Feature zugeordnet, das tatsächlich *entlang* des Segments verläuft — gemessen am Anteil der (verdichteten) Segmentpunkte innerhalb 20 m der Feature-Linie (≥ 50 %; Velostrassen strenger mit ≥ 60 %, da sie die Ist-Führungsform setzen). Das verhindert, dass eine bloss **kreuzende** Strasse fälschlich zugeordnet wird (was eine reine Mittelpunkt-/Nächste-Punkt-Suche z. B. bei der Jungfraustrasse tat, wo Tempo/DTV/Routentyp dadurch leer blieben oder von der Querstrasse stammten). Implementiert in [`VeloroutenCheckWeb/src/geo.ts`](VeloroutenCheckWeb/src/geo.ts).
 
@@ -426,7 +427,7 @@ Die Überholabstände sind **reine Zusatzinformation** und fliessen **nicht** in
 
 Über die **Stadt-Auswahl** im Lade-Bereich lassen sich neben Bern auch **Zürich**, **Basel** und **Luzern** wählen. Stadtspezifisch sind sowohl die **Datenquellen** für die Anreicherung als auch die **Bewertungsvorgaben**:
 
-- **Soll-Führungsform** (Wahl aus DTV × Tempo): jede Stadt hat ihre eigene Entscheidungstabelle (`fuehrungsart(dtv, v, stadt, …)`). Bern und Luzern DTV-basiert (Luzern mit feineren Stufen und der Übergangsklasse «Mischverkehr oder Radstreifen»), Zürich je Routentyp, **Basel strassentyp-basiert** (verkehrs- vs. siedlungsorientiert). Die feel-safe-Anker sind stadtübergreifend.
+- **Soll-Führungsform** (Wahl aus DTV × Tempo): jede Stadt hat ihre eigene Entscheidungstabelle (`fuehrungsart(dtv, v, stadt, …)`). Bern und Luzern DTV-basiert (Luzern mit drei Zonen Mischverkehr/Markierung/bauliche Trennung, auf die Berner Logik vereinfacht), Zürich je Routentyp, **Basel strassentyp-basiert** (verkehrs- vs. siedlungsorientiert). Die feel-safe-Anker sind stadtübergreifend.
 - **Breiten-Sollwerte**: je Stadt eigene Standardmasse (alle nicht abgedeckten Fälle → Bern-Fallback je Feld).
 - **Haltestellen**: Typen, Familien und Soll-Lösung je Stadt (Bern/Luzern Takt×Route, Luzern ohne Tram; Zürich/Basel ohne automatischen Abzug — nur Typ-Auswahl + Breite).
 
@@ -466,7 +467,7 @@ Wo Zürich keine eigene Vorgabe hat (Velostrasse-Band 4,50–6,50 m, Fussweg Vel
 
 Routentyp live aus dem **Teilrichtplan Velo** (WFS `wfs.geo.bs.ch`, Bestandsnetz mit den Flags `tv_pendlerroute`/`tv_basisroute`). Zusätzlich setzt der **Velostadtplan** (data.bs.ch, `gml_id=Velostrasse`, 87 Segmente) die **Ist-Führungsform = Velostrasse**, analog Berns Velostrassen-Layer. **Strassentyp** und **signalisierte Höchstgeschwindigkeit** kommen amtlich aus dem Datensatz **„Strassen und Wege"** (data.bs.ch, Dataset `100250`, Felder `strassenkategorie` / `geschwindigkeit`, geometrisch zugeordnet) — der Strassentyp ist für die Basler Soll-Wahl massgebend (verkehrs- vs. siedlungsorientiert), das Tempo hat als amtliche Quelle Vorrang vor OSM (nur reale Werte 20–60; 0/5 = Fussgängerzone/Schritttempo werden ignoriert). Übrige Ist-Führungsform aus OSM; Breite aus OSM nur bei seltenem `cycleway:*:width`-Tag (de facto meist manuell); Tram/Haltestelle aus OSM; DTV und Bus-Takt manuell. Die „Eignung" des Velostadtplans („gut befahrbares Velonetz") ist eine Komfortbewertung und wird **nicht** als Routentyp übernommen.
 
-**Soll-Führungsform Basel.** Nicht DTV-, sondern **strassentyp**-basiert (× Routentyp): siedlungsorientierte Strasse → Mischverkehr (Velostrassen-Ausgestaltung, DWV-Deckel); verkehrsorientierte Strasse → Vorzugsroute «Radstreifen oder Radweg», Pendler-/Basisroute «Radstreifen» (`fuehrungsartBasel`). Der **Strassentyp** ist im Rechner ein eigenes Feld (nur bei Basel sichtbar, amtlich vorbefüllt) und für die Bewertung erforderlich.
+**Soll-Führungsform Basel.** Nicht DTV-, sondern **strassentyp**-basiert (× Routentyp): siedlungsorientierte Strasse → Mischverkehr (Velostrassen-Ausgestaltung, DWV-Deckel); verkehrsorientierte Strasse → Vorzugsroute «Radstreifen oder Radweg», Pendler-/Basisroute «Radstreifen» (`fuehrungsartBasel`). Der **Strassentyp** ist im Rechner ein eigenes Feld (nur bei Basel sichtbar, amtlich vorbefüllt) und für die Bewertung erforderlich. **DWV-Deckel:** Übersteigt der DTV auf einer siedlungsorientierten Strasse den Höchstwert (Velohauptroute 2'500, Veloroute 5'000), gibt Basel keine andere Führungsform vor — der Rechner zeigt dazu einen **Hinweis** (kein Notenabzug), da Basel oberhalb des Deckels keine konforme Lösung definiert.
 
 | Basel-Kategorie | → Routentyp |
 |---|---|

@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import {
   fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
-  erfuellungsgrad, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
+  erfuellungsgrad, vergleichsNoten, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   type Fuehrungsart, type IstFuehrungsform, type Routentyp, type ParkenRechts,
   type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
-  type Stadt, type Strassentyp,
+  type Stadt, type Strassentyp, type VergleichsNote,
 } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, type Cand, type SectionMarker, type Stop } from './VeloMap'
 import * as bern from './bern'
@@ -94,12 +94,14 @@ const CITIES: Record<CityId, CityCfg> = {
   // },
 }
 
+// Kurzlabel je Stadt für die kompakte Vergleichszeile (andere Standards).
+const STADT_KURZ: Record<CityId, string> = { bern: 'BE', zurich: 'ZH', basel: 'BS', luzern: 'LU' }
+
 // Quellenangabe der amtlichen Anreicherung für den Herkunfts-Chip (stadtabhängig).
 const AttribContext = createContext('Geoinformation Stadt Bern')
 
 const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
   'Mischverkehr':                  { bg: '#9ca3af', fg: '#ffffff' },
-  'Mischverkehr oder Radstreifen': { bg: '#c2b04a', fg: '#3b2f00' },
   'Radstreifen':                   { bg: '#eab308', fg: '#3b2f00' },
   'Radstreifen oder Radweg':       { bg: '#84a44b', fg: '#ffffff' },
   'Radweg':                        { bg: '#4d7c0f', fg: '#ffffff' },
@@ -107,7 +109,7 @@ const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
 
 const IST_OPTIONS: IstFuehrungsform[] = [
   'Mischverkehr', 'Radstreifen', 'Radweg strassenbegleitend / Geschützter Radstreifen', 'Radweg abgesetzt',
-  'Umweltspur', 'Velostrasse', 'Fussweg Velo gestattet',
+  'Umweltspur', 'Velostrasse', 'Kombinierter Fuss-/Radweg', 'Fussweg Velo gestattet',
 ]
 const ROUTE_OPTIONS: Routentyp[] = ['Velohauptroute', 'Veloroute']
 const PARKEN_OPTIONS: { value: ParkenRechts; label: string }[] = [
@@ -251,6 +253,10 @@ function istFromTags(t: Record<string, string>, highway: string): IstFuehrungsfo
   const has = (v: string) => cw.includes(v)
   if (t.bicycle_road === 'yes' || t.cyclestreet === 'yes') return 'Velostrasse'
   if (highway === 'cycleway') return 'Radweg abgesetzt'
+  // Gemeinsam genutzter Geh-/Radweg (Velo + Fuss je „designated", nicht getrennt) → kombiniert.
+  if ((highway === 'footway' || highway === 'path') &&
+      t.bicycle === 'designated' && (t.foot === 'designated' || t.foot === 'yes') &&
+      t.segregated !== 'yes') return 'Kombinierter Fuss-/Radweg'
   if ((highway === 'footway' || highway === 'path') &&
       ['yes', 'designated', 'permissive'].includes(t.bicycle)) return 'Fussweg Velo gestattet'
   if (has('track')) return 'Radweg strassenbegleitend / Geschützter Radstreifen'
@@ -589,10 +595,11 @@ const groupLabelStyle: React.CSSProperties = {
 }
 
 // ── Karte für einen Abschnitt: Eingaben + Einzelbewertung ────────────────────
-function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRemove, canRemove, onHover, breitenQuelle, city }: {
+function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onChange, onRemove, canRemove, onHover, breitenQuelle, city }: {
   index: number
   section: Section
   bewertung: NotenErgebnis | null
+  vergleich: VergleichsNote[] | null    // Endnoten nach den Standards der anderen Städte (null = unvollständig)
   isWorst: boolean
   modus: 'note' | 'erfuellung'
   onChange: (patch: Partial<Section>) => void
@@ -882,6 +889,33 @@ function SectionCard({ index, section, bewertung, isWorst, modus, onChange, onRe
           )}
         </div>
       </div>
+      )}
+
+      {/* Vergleich: Endnoten nach den Standards der anderen Städte — reine Zusatzinfo.
+          Schlanke Zeile (nur Kürzel + Note); Begründung der Abweichung in einem aufklappbaren
+          „Warum?" mit konkreten Werten. Basel-Strassentyp ist geschätzt. */}
+      {bewertung && vergleich && vergleich.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--text-muted)' }}>
+          <span style={{ fontWeight: 600 }}>Andere Standards: </span>
+          {vergleich.map((v, i) => (
+            <span key={v.stadt}>
+              {i > 0 && ' · '}
+              {STADT_KURZ[v.stadt]} {v.note.toFixed(1)}
+            </span>
+          ))}
+          {vergleich.some(v => v.gruende.length > 0) && (
+            <details style={{ marginTop: 4 }}>
+              <summary style={{ cursor: 'pointer', userSelect: 'none', opacity: 0.85 }}>Warum?</summary>
+              <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                {vergleich.filter(v => v.gruende.length > 0).map(v => (
+                  <li key={v.stadt} style={{ marginTop: 2 }}>
+                    {STADT_KURZ[v.stadt]} {v.note.toFixed(1)} — {v.gruende.join('; ')}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
       )}
 
       {/* OpenBikeSensor: gemessene Überholabstände — reine Zusatzinfo, kein Noteneinfluss.
@@ -1223,6 +1257,18 @@ export default function App() {
       city,                                            // Stadt → Soll-Tabelle + Haltestellen-Logik
       s.strassentyp || undefined)                      // Strassentyp (nur Basel)
   })
+  // Vergleichsnoten je Abschnitt nach den Standards der ANDEREN Städte (null = unvollständig).
+  // Reine Zusatzinfo; Basel-Strassentyp wird aus DTV/Tempo geschätzt (geschaetzt = true).
+  const vergleiche = sections.map(s => {
+    if (!sectionComplete(s)) return null
+    const breite = Number.isFinite(s.breite) ? s.breite : undefined
+    const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
+    return vergleichsNoten({
+      dtv: s.dtv, v: s.speed, ist: s.ist as IstFuehrungsform, breite,
+      routentyp: s.routentyp || 'Velohauptroute', parkenRechts: s.parkenRechts, oevTakt: s.oevTakt,
+      oevAngebot: s.oevAngebot, haltestellentyp: s.haltestellentyp, haltestelleBreite, tram: s.tram,
+    }, city)
+  })
   const offen = results.filter(r => r == null).length
   const alleVollstaendig = offen === 0 && results.length > 0
   // Strecken-Note nur, wenn alle Abschnitte vollständig sind.
@@ -1507,7 +1553,7 @@ export default function App() {
       {sections.map((s, i) => (
         <div key={s.id} id={'sec-' + i} style={{ scrollMarginTop: 64 }}>
           <SectionCard
-            index={i} section={s} bewertung={results[i]}
+            index={i} section={s} bewertung={results[i]} vergleich={vergleiche[i]}
             isWorst={i === worstIdx && sections.length > 1} modus={modus}
             onChange={patch => update(s.id, patch)}
             onRemove={() => remove(s.id)}
