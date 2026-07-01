@@ -320,6 +320,81 @@ tbody tr:nth-child(even) td { background: #f8faf8; }
 """
 
 
+# ── Grundlagen-Dokument (stadtübergreifend): feel-safe + Bewertungsparameter ───
+def _numde(x):
+    if isinstance(x, float) and x.is_integer():
+        x = int(x)
+    return str(x).replace(".", ",")
+
+
+# Stadtübergreifende Parameter (nur die wirklich städteunabhängigen; taktabhängige Umweltspur-
+# Schwellen sind stadtspezifisch und stehen im jeweiligen Stadt-Prüfdokument).
+GRUND_PARAMETER = [
+    ("feelSafeProNote", "feel-safe-Punkte pro Notenstufe"),
+    ("noteProMeter", "Breiten-Abzug pro fehlendem Meter"),
+    ("parkenRechtsAbzug", "Abzug Parkierung rechts (Dooring)"),
+    ("haltestelleAbzug", "Abzug Haltestelle (Soll «Separate Velofläche», Ist Mischverkehr-Typ)"),
+    ("umweltspurBasis", "Umweltspur: höchstens Note (Decke)"),
+    ("fusswegBasis", "Fussweg Velo gestattet: höchstens Note (Decke)"),
+]
+
+
+def render_feelsafe(data):
+    fs = data["feelSafe"]
+    rows = [[form, f"{_numde(w['ruhig'])} %", f"{_numde(w['schnell'])} %", w.get("verifiziert", "")]
+            for form, w in fs["werte"].items()]
+    hinweis = fs.get("hinweis", "").replace(" (tools/verify_06.py)", "")
+    parts = [
+        "<p>Die <b>feel-safe %</b> geben an, wie sicher sich Velofahrende in einer Situation fühlen "
+        "(Anteil der Bewertungen in den zwei besten von vier Klassen). Quelle: Befragung "
+        "radwege-check.de / FixMyCity, Velo-Perspektive, tram-bereinigt; unabhängig aus den "
+        "Einzelantworten nachgerechnet. «ruhig» = Tempo ≤ 30, «schnell» = Tempo > 30.</p>",
+        table(["Führungsform", "ruhig (V ≤ 30)", "schnell (V > 30)", "Verifiziert (radwege-check)"], rows),
+        note(hinweis),
+        "<p>Die Note misst, wie nahe die vorhandene Führungsform an die feel-safe % der geforderten "
+        "Form herankommt: pro <b>14,4</b> fehlende feel-safe-Punkte sinkt die Note um eine ganze "
+        "Stufe (6 → 1). Baulich getrennte Formen (Radweg) erfüllen den Soll und erhalten die Bestnote.</p>",
+    ]
+    return "\n".join(parts)
+
+
+def render_grund_parameter(data):
+    p = data["parameter"]
+    rows = []
+    for key, label in GRUND_PARAMETER:
+        e = p.get(key, {})
+        rows.append([label, _numde(e.get("wert", "")), e.get("einheit", ""), e.get("herleitung", "")])
+    tm = p.get("tramMalus", {})
+    rows.append(["Abzug Tram in der Fahrbahn (nur Mischverkehr)",
+                 f"{_numde(tm.get('ruhig'))} (ruhig) / {_numde(tm.get('schnell'))} (schnell)",
+                 tm.get("einheit", ""), tm.get("herleitung", "")])
+    pr = p.get("parkenRelevant", {})
+    rows.append(["Führungsformen mit Dooring-Relevanz", ", ".join(pr.get("formen", [])),
+                 "—", pr.get("hinweis", "")])
+    return table(["Parameter", "Wert", "Einheit", "Herleitung / Bemerkung"], rows)
+
+
+def build_grundlagen_html(data):
+    meta = data["meta"]
+    body = [
+        "<h1>VeloroutenCheck — Grundlagen: subjektive Sicherheit (feel-safe)</h1>",
+        '<p class="sub">Stadtübergreifende Bewertungsgrundlage</p>',
+        '<div class="intro">Dieses Dokument beschreibt die <b>stadtübergreifende</b> Grundlage der '
+        'VeloroutenCheck-Bewertung: die empirisch gemessene subjektive Sicherheit (feel-safe %) und '
+        'die daraus abgeleiteten Parameter. Diese Werte gelten für <b>alle Städte gleich</b> '
+        '(Bern, Zürich, Basel, Luzern …); die stadtspezifischen Vorgaben stehen im jeweiligen '
+        'Prüfdokument der Stadt.</div>',
+        h2("Feel-safe-Anker (empirisch, verifiziert)"),
+        render_feelsafe(data),
+        h2("Stadtübergreifende Bewertungsparameter"),
+        render_grund_parameter(data),
+        '<div class="foot">Subjektive Sicherheit (feel-safe %): radwege-check.de / FixMyCity. '
+        f'· Stand: {escape(meta.get("erstellt", ""))}</div>',
+    ]
+    return f"<!doctype html><html><head><meta charset='utf-8'><style>{CSS}</style></head><body>" \
+           + "\n".join(body) + "</body></html>"
+
+
 def build_html(data, stadt):
     d = data["staedte"][stadt]
     meta = data["meta"]
@@ -336,7 +411,8 @@ def build_html(data, stadt):
         '<div class="intro">Dieses Dokument fasst die im VeloroutenCheck hinterlegten '
         f'Bewertungs-Vorgaben für <b>{escape(stadt)}</b> zusammen. Bitte prüf die Werte '
         'gegen die massgebenden Standards deiner Stadt und meld Abweichungen zurück. '
-        'Die feel-safe-Werte (subjektive Sicherheit) sind stadtübergreifend und hier nicht aufgeführt.</div>')
+        'Die feel-safe-Werte (subjektive Sicherheit) sind stadtübergreifend und stehen im separaten '
+        'Grundlagen-Dokument «Subjektive Sicherheit (feel-safe)».</div>')
 
     body.append(f"<p><b>Routentypen:</b> {escape(routentypen)}</p>")
     if map_rows:
@@ -361,7 +437,7 @@ def build_html(data, stadt):
     stadt_q = STADT_QUELLE.get(stadt, "")
     body.append('<div class="foot">Massgebende Grundlage: '
                 + escape(stadt_q)
-                + '. Subjektive Sicherheit (feel-safe %, stadtübergreifend): radwege-check.de / FixMyCity.'
+                + '. Subjektive Sicherheit (feel-safe %, stadtübergreifend): siehe Grundlagen-Dokument (radwege-check.de / FixMyCity).'
                 + f' · Stand: {escape(meta.get("erstellt", ""))}</div>')
 
     return f"<!doctype html><html><head><meta charset='utf-8'><style>{CSS}</style></head><body>" \
@@ -385,6 +461,12 @@ def main():
         out = OUT_DIR / f"VeloroutenCheck_Pruefung_{stadt.replace('ü', 'ue')}.pdf"
         HTML(string=html).write_pdf(str(out))
         print(f"Geschrieben: {out.relative_to(ROOT)}")
+
+    # Stadtübergreifendes Grundlagen-Dokument (feel-safe) — immer mitgenerieren.
+    grund = build_grundlagen_html(data)
+    gout = OUT_DIR / "VeloroutenCheck_Grundlagen_subjektive-Sicherheit.pdf"
+    HTML(string=grund).write_pdf(str(gout))
+    print(f"Geschrieben: {gout.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

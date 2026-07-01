@@ -28,7 +28,9 @@
 # TRAM
 #   Standard: Tram-Szenen ausgeschlossen (FS-Art == 'Tram'); separat in §2 ausgewiesen.
 #
-# Aufruf:  python3 tools/verify_06.py     (schreibt 06_verifikation.json + .md)
+# Aufruf:  python3 tools/verify_06.py
+#   schreibt: docs/06_Verifikation_Empirie.md (versionierter Snapshot),
+#             _lokal/06_verifikation.json + _lokal/06_visualisierung.html (ignoriert)
 # ════════════════════════════════════════════════════════════════════════════
 
 import csv, json, os, sys
@@ -37,11 +39,19 @@ from collections import defaultdict
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 DATA = os.path.join(ROOT, 'FixMyCity_Daten')      # radwege-/scenes-CSVs + SurveyResults JSON
+LOKAL = os.path.join(ROOT, '_lokal')              # ignorierte Zwischenoutputs (.json-Rohdump, .html-Ansicht)
+MD_SNAPSHOT = os.path.join(ROOT, 'docs', '06_Verifikation_Empirie.md')  # versionierter Ergebnis-Snapshot
 
 
 def p(name):
-    """Ausgabe-/Projektpfad (VeloroutenCheck-Root): 06_verifikation.* , 06_visualisierung.html."""
+    """Projektpfad (VeloroutenCheck-Root)."""
     return os.path.join(ROOT, name)
+
+
+def lp(name):
+    """Pfad im ignorierten _lokal/-Ordner (wird bei Bedarf angelegt)."""
+    os.makedirs(LOKAL, exist_ok=True)
+    return os.path.join(LOKAL, name)
 
 
 def d(name):
@@ -353,10 +363,11 @@ def main():
     xval = crossvalidate(scenes, recs)
     out['sections']['kreuzvalidierung'] = xval
 
-    json.dump(out, open(p('06_verifikation.json'), 'w'), ensure_ascii=False, indent=1)
+    json.dump(out, open(lp('06_verifikation.json'), 'w'), ensure_ascii=False, indent=1)
     write_md(out)
     write_html(out)
-    print('geschrieben: 06_verifikation.json , 06_verifikation.md , 06_visualisierung.html')
+    print('geschrieben: docs/06_Verifikation_Empirie.md (Snapshot) , '
+          '_lokal/06_verifikation.json , _lokal/06_visualisierung.html')
     print_summary(out)
 
 
@@ -365,7 +376,7 @@ def write_html(out):
     tpl = open(os.path.join(HERE, 'visualisierung_template.html'), encoding='utf-8').read()
     payload = json.dumps(out, ensure_ascii=False)
     html = tpl.replace('__DATA__', payload)
-    open(p('06_visualisierung.html'), 'w', encoding='utf-8').write(html)
+    open(lp('06_visualisierung.html'), 'w', encoding='utf-8').write(html)
 
 
 def crossvalidate(scenes, recs):
@@ -534,7 +545,7 @@ def write_md(out):
       'Der „Gesamt"-Malus ist durch die Tempo-Mischung leicht überzeichnet; massgebend sind die '
       'tempo-kontrollierten Zeilen.\n')
 
-    open(p('06_verifikation.md'), 'w').write('\n'.join(L))
+    open(MD_SNAPSHOT, 'w').write('\n'.join(L))
 
 
 def print_summary(out):

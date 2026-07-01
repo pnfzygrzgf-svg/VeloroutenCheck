@@ -13,17 +13,10 @@ dist/
 __pycache__/
 *.pyc
 
-# ── Generierte Auswertungs-Outputs (regenerierbar via tools/verify_06.py) ─────
-# 06_verifikation.md wird als nachvollziehbarer Ergebnis-Snapshot versioniert;
-# .json (Rohdump) und .html (generierte Ansicht) bleiben aussen vor.
-06_verifikation.json
-06_visualisierung.html
-
-# ── Interne Arbeitsnotizen (kein Methodik-Inhalt) ────────────────────────────
-docs/ux-verbesserungen-plan.md
-docs/mobile-optimierung-plan.md
-docs/plan_supabase_kollaboration.md
-docs/befund_soll_basel_luzern.md
+# ── Lokale Arbeitsdateien: interne Notizen/Pläne + generierte Zwischenoutputs ──
+# (feel-safe-Verifikation: docs/06_Verifikation_Empirie.md wird versioniert;
+#  der .json-Rohdump und die .html-Ansicht von verify_06.py landen hier und bleiben aussen vor.)
+_lokal/
 
 # ── Grosse / Dritt-Rohdaten: lokal halten, NICHT versionieren ────────────────
 # (Bezugsquellen sind im README dokumentiert; die App nutzt nur die gebündelten
@@ -33,4 +26,4 @@ Grundlagen/
 Notizen/
 FixMyCity_Daten/
 Geoinformation Stadt Bern/
-OBS_Daten.json
+OBS_Daten*.json

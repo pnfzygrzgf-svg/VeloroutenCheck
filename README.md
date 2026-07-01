@@ -33,6 +33,7 @@ Vibecoding. Don't trust, verify!
 - [Bewertung (Methodik)](#bewertung-methodik)
   - [1. Soll-Führungsform](#1-soll-führungsform)
   - [2. Führungsform-Note (Ist gegen Soll)](#2-führungsform-note-ist-gegen-soll)
+    - [Subjektive Sicherheit (feel-safe)](#subjektive-sicherheit-feel-safe)
   - [3. Breiten-Abzug und Parkierung](#3-breiten-abzug-und-parkierung)
   - [4. Sonderfälle (Umweltspur, Velostrasse, Fussweg)](#4-sonderfälle-umweltspur-velostrasse-fussweg)
   - [5. Haltestellen (ÖV)](#5-haltestellen-öv)
@@ -112,7 +113,7 @@ Die Note misst, **wie nahe die subjektive Sicherheit der vorhandenen (Ist-)Form 
 
 Warum feel-safe? Die Soll-Wahl sagt nur, **welche** Form geeignet *wäre*. Wie viel eine schwächere Form an gefühlter Sicherheit kostet, lässt sich nicht aus der Tabelle ableiten — dafür dient die radwege-check-Befragung (FixMyCity).
 
-#### Was ist feel-safe %?
+#### Subjektive Sicherheit (feel-safe)
 
 In der Befragung beurteilte jede Person eine Szene auf einer **4-stufigen Skala**:
 
