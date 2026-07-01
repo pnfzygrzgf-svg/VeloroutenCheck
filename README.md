@@ -282,6 +282,8 @@ Wo das Velo **auf der Fahrbahn neben möglichem Längsparken** fährt, kann ange
 - **Ja** → **−1,0 Notenstufe** (damit nie Note 6, sobald Parken rechts vorhanden ist).
 - **Nein / Egal** → kein Abzug.
 
+Bei **Ja** kann zusätzlich angegeben werden, ob ein **Sicherheitsstreifen gegenüber den Parkplätzen** (SN 640 060; im Basler Standard-Papier genannt) vorhanden ist. Ist er vorhanden, entschärft er die Dooring-Gefahr → **kein Abzug**. Da SN 640 060 eine CH-Norm ist, gilt das in allen Stadt-Rechnern.
+
 **Herleitung des −1,0** (verifizierte radwege-Werte, Radstreifen, ungeschützt, tram-bereinigt):
 
 ```
@@ -314,15 +316,20 @@ Tempo 50                  17,7 %                9,7 %          8,0     ≈ 0,55
 
 #### Umweltspur (Q4, Bus+Velo)
 
-DTV und Tempo sind **nicht massgebend**, sondern der **Bus-Takt** (zusätzliches Feld öV-Takt [Min]) und die Breite.
+DTV und Tempo sind **nicht massgebend**, sondern der **Bus-Takt** (zusätzliches Feld öV-Takt [Min]) und die Breite. Die Eignung sinkt mit steigender Busfrequenz (kürzerem Takt) und ist nach oben auf **Note 4 («genügend»)** gedeckelt, davon der Breiten-Abzug (× 0,9). Die **Takt-Schwellen sind stadtspezifisch** (Konstante `UMWELTSPUR_TAKT`, Rampe `umweltspurBasis()`): Note 1 bei Takt ≤ `taktNote1`, Decke 4 ab Takt ≥ `taktOk`, linear dazwischen.
 
-- **Takt < 7,5 Min** (hohe Busfrequenz) → **Note 1** mit Hinweis (zu viele Busse für eine gemeinsame Spur mit dem Velo).
-- **Takt ≥ 7,5 Min** → zulässig: höchstens **Note 4 («genügend»)** als Basis, davon der
-  Breiten-Abzug (× 0,9; Vorgabe Optimal 4,50 m / Minimal 3,75 m).
+| Stadt | Takt-Modell | Quelle / Herleitung |
+|---|---|---|
+| **Bern** | Stufe: < 7,5 Min → Note 1, ≥ 7,5 Min → Decke 4 | Standard nennt eine tiefe–mittlere Busfrequenz (max. 7,5-Min-Takt). |
+| **Zürich** | Rampe 5↔15: ≤ 5 → Note 1, ≥ 15 → Decke 4 | Velostandards: «< 5 Min keine Anwendung, < 15 Min kritisch». |
+| **Luzern** | Rampe 5↔15 (gleiche Anker wie Zürich) | Eigene Bewertung 1–5: Takt < 5 → Bew. 1, ≥ 15 → Bew. 3 (Decke); normiert = Note 1↔4. |
+| **Basel** | keine Takt-Abhängigkeit | Basel nennt keinen Schwellwert; Eignung qualitativ (Busspur-Breite, Anzahl Linien, Taktdichte, Velofrequenz) → Note rein breitengetrieben + Hinweis. |
 
-> Datenlage: FixMyCity enthält praktisch keine Umweltspur-Szenen (nur 2 Bus-Szenen) → Note 4 und
-> Takt-Schwelle 7,5 Min sind **normativ gesetzt**. Parameter `UMWELTSPUR_BASIS`,
-> `UMWELTSPUR_MIN_TAKT`, tunbar.
+Breiten-Vorgaben je Stadt: Bern/Luzern 4,50 / 3,75 m; Zürich 4,80 / 4,50 m; Basel 4,50 / 3,00 m.
+
+> Datenlage: FixMyCity enthält praktisch keine Umweltspur-Szenen (nur 2 Bus-Szenen) → Decke Note 4 und
+> die Takt-Schwellen sind **normativ** (aus den jeweiligen Stadt-Standards). Parameter `UMWELTSPUR_BASIS`,
+> `UMWELTSPUR_TAKT`, tunbar.
 
 #### Velostrasse (Q9)
 
@@ -467,7 +474,7 @@ Wo Zürich keine eigene Vorgabe hat (Velostrasse-Band 4,50–6,50 m, Fussweg Vel
 
 Routentyp live aus dem **Teilrichtplan Velo** (WFS `wfs.geo.bs.ch`, Bestandsnetz mit den Flags `tv_pendlerroute`/`tv_basisroute`). Zusätzlich setzt der **Velostadtplan** (data.bs.ch, `gml_id=Velostrasse`, 87 Segmente) die **Ist-Führungsform = Velostrasse**, analog Berns Velostrassen-Layer. **Strassentyp** und **signalisierte Höchstgeschwindigkeit** kommen amtlich aus dem Datensatz **„Strassen und Wege"** (data.bs.ch, Dataset `100250`, Felder `strassenkategorie` / `geschwindigkeit`, geometrisch zugeordnet) — der Strassentyp ist für die Basler Soll-Wahl massgebend (verkehrs- vs. siedlungsorientiert), das Tempo hat als amtliche Quelle Vorrang vor OSM (nur reale Werte 20–60; 0/5 = Fussgängerzone/Schritttempo werden ignoriert). Übrige Ist-Führungsform aus OSM; Breite aus OSM nur bei seltenem `cycleway:*:width`-Tag (de facto meist manuell); Tram/Haltestelle aus OSM; DTV und Bus-Takt manuell. Die „Eignung" des Velostadtplans („gut befahrbares Velonetz") ist eine Komfortbewertung und wird **nicht** als Routentyp übernommen.
 
-**Soll-Führungsform Basel.** Nicht DTV-, sondern **strassentyp**-basiert (× Routentyp): siedlungsorientierte Strasse → Mischverkehr (Velostrassen-Ausgestaltung, DWV-Deckel); verkehrsorientierte Strasse → Vorzugsroute «Radstreifen oder Radweg», Pendler-/Basisroute «Radstreifen» (`fuehrungsartBasel`). Der **Strassentyp** ist im Rechner ein eigenes Feld (nur bei Basel sichtbar, amtlich vorbefüllt) und für die Bewertung erforderlich. **DWV-Deckel:** Übersteigt der DTV auf einer siedlungsorientierten Strasse den Höchstwert (Velohauptroute 2'500, Veloroute 5'000), gibt Basel keine andere Führungsform vor — der Rechner zeigt dazu einen **Hinweis** (kein Notenabzug), da Basel oberhalb des Deckels keine konforme Lösung definiert.
+**Soll-Führungsform Basel.** Nicht DTV-, sondern **strassentyp**-basiert (× Routentyp; Tab. 3, S. 15). Auf **siedlungsorientierten** (nicht verkehrsorientierten) Tempo-30-Strassen: Vorzugsroute (Velohauptroute) → **Velostrasse** (DWV-Deckel 2'500); Pendler-/Basisroute (Veloroute) → **Mischverkehr** (DWV-Deckel 5'000, empfohlen) **oder Velostrasse** (mögliche Form, **kein** DWV-Deckel). Jede andere Ist-Form ist dort **nicht vorgesehen** → Note max. 4. Auf **verkehrsorientierten** Strassen → Vorzugsroute «Radstreifen oder Radweg», Pendler-/Basisroute «Radstreifen» (`fuehrungsartBasel`); eine **Velostrasse gibt es dort nicht** (nicht zulässig → Note max. 4). Der **Strassentyp** ist im Rechner ein eigenes Feld (nur bei Basel sichtbar, amtlich vorbefüllt) und für die Bewertung erforderlich. **DWV-Deckel** (form-abhängig): übersteigt der DTV den Höchstwert (Velostrasse·Vorzugsroute 2'500, Mischverkehr·Pendler-Basis 5'000; Velostrasse·Pendler-Basis kein Deckel), zeigt der Rechner einen **Hinweis** (kein Notenabzug). **Velostrasse-Breite:** Nettobreite der Fahrgasse 4,50/4,30 m, bei **DWV < 1'000** reduziert **4,00 m** zulässig.
 
 | Basel-Kategorie | → Routentyp |
 |---|---|

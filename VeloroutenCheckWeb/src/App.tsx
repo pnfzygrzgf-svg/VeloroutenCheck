@@ -102,6 +102,7 @@ const AttribContext = createContext('Geoinformation Stadt Bern')
 
 const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
   'Mischverkehr':                  { bg: '#9ca3af', fg: '#ffffff' },
+  'Velostrasse':                   { bg: '#2563eb', fg: '#ffffff' },
   'Radstreifen':                   { bg: '#eab308', fg: '#3b2f00' },
   'Radstreifen oder Radweg':       { bg: '#84a44b', fg: '#ffffff' },
   'Radweg':                        { bg: '#4d7c0f', fg: '#ffffff' },
@@ -207,6 +208,7 @@ interface Section {
   routentyp: Routentyp | ''    // '' = noch nicht gewählt
   strassentyp: Strassentyp | ''  // '' = noch nicht gewählt (nur Basel relevant)
   parkenRechts: ParkenRechts
+  parkenSicherheitsstreifen: boolean  // Sicherheitsstreifen ggü. Parkplätzen (SN 640 060), nur bei Parkierung=ja
   oevTakt: number
   oevAngebot: OevAngebot
   haltestellentyp: Haltestellentyp
@@ -224,7 +226,7 @@ let nextId = 1
 function defaultSection(): Section {
   return {
     id: nextId++, dtv: NaN, speed: NaN, ist: '', breite: NaN,
-    routentyp: '', strassentyp: '', parkenRechts: 'egal', oevTakt: 10,
+    routentyp: '', strassentyp: '', parkenRechts: 'egal', parkenSicherheitsstreifen: false, oevTakt: 10,
     oevAngebot: 'keine', haltestellentyp: 'keine', haltestelleBreite: NaN,
     tram: false,
     quelle: {},
@@ -710,6 +712,16 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
             </select>
           </label>
         )}
+        {/* Sicherheitsstreifen ggü. Parkplätzen (SN 640 060) — nur wenn Parkierung rechts = Ja; hebt den Dooring-Abzug auf */}
+        {PARKEN_RELEVANT.includes(ist as IstFuehrungsform) && section.parkenRechts === 'ja' && (
+          <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={section.parkenSicherheitsstreifen}
+                   onChange={e => onChange({ parkenSicherheitsstreifen: e.target.checked })} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+              Sicherheitsstreifen gegenüber Parkplätzen (SN 640 060)
+            </span>
+          </label>
+        )}
         {/* öV-Takt nur bei der Umweltspur (Bus+Velo) */}
         {ist === 'Umweltspur' && (
           <NumberField label="öV-Takt (Bus)" unit="Min" value={section.oevTakt} step={0.5}
@@ -845,10 +857,37 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                     : `${bewertung.breitenStatus} (${bewertung.breitenDefizit.toFixed(2)} m) → Abzug ${bewertung.breitenabzug.toFixed(1)} Note`}
                 </div>
               )}
+              {city === 'basel' && ist === 'Velostrasse' && bewertung.sollbreite != null && (
+                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
+                  Nettobreite der Fahrgasse (ohne Parkierung und Sicherheitsabstand zur Parkierung).
+                </div>
+              )}
+              {city === 'bern' && ist === 'Velostrasse' && (
+                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
+                  Einsatzbereich: Nebenstrasse mit übergeordneter Velobedeutung, viel Veloverkehr,
+                  wenig MIV und ohne ÖV.
+                </div>
+              )}
+              {city === 'luzern' && ist === 'Velostrasse' && (
+                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
+                  Einsatzbereich: bei gebündelter Velonutzung auf Quartierstrassen in
+                  Tempo-30-Zonen; bei geringer MIV-Belastung und hohem Veloanteil (&gt; 50 %).
+                </div>
+              )}
+              {city === 'zurich' && ist === 'Velostrasse' && (
+                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
+                  Velostrasse: im Zürcher Grundlagenpapier nicht vorgesehen.
+                </div>
+              )}
               {bewertung.parkenAbzug > 0 && (
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
                   <strong>Parkierung rechts (Dooring):</strong> Abzug{' '}
                   {bewertung.parkenAbzug.toFixed(1)} Note
+                </div>
+              )}
+              {bewertung.parkenRechts === 'ja' && bewertung.parkenSicherheitsstreifen && (
+                <div style={{ marginTop: 6, opacity: 0.9 }}>
+                  <strong>Parkierung rechts (Dooring):</strong> Sicherheitsstreifen (SN 640 060) vorhanden → kein Abzug
                 </div>
               )}
               {bewertung.tramAbzug > 0 && (
@@ -977,7 +1016,7 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
     'Abschnitt', 'Strecke/Herkunft', 'DTV [Fz/Tag]', 'DTV-Quelle', 'Tempo [km/h]', 'Tempo-Quelle',
     'Ist-Führungsform', 'Ist-Quelle', 'Breite [m]', 'Breite-Quelle', 'Routentyp', 'Routentyp-Quelle',
     'Strassentyp', 'Strassentyp-Quelle',
-    'Parkierung rechts', 'Tram in Fahrbahn', 'ÖV-Angebot', 'Haltestellentyp', 'Soll-Führungsform', 'Note', 'Erfüllungsgrad',
+    'Parkierung rechts', 'Sicherheitsstreifen', 'Tram in Fahrbahn', 'ÖV-Angebot', 'Haltestellentyp', 'Soll-Führungsform', 'Note', 'Erfüllungsgrad',
     'OBS Median [m]', 'OBS n', 'OBS <1,5m [%]', 'OBS Befahrungen',
   ]
   const rows = sections.map((s, i) => {
@@ -992,7 +1031,9 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
       numDE(s.breite, 2), s.quelle.breite ? QUELLE_LABEL[s.quelle.breite] : '',
       s.routentyp || '', s.quelle.routentyp ? QUELLE_LABEL[s.quelle.routentyp] : '',
       s.strassentyp || '', s.quelle.strassentyp ? QUELLE_LABEL[s.quelle.strassentyp] : '',
-      s.parkenRechts, s.tram ? 'ja' : 'nein', s.oevAngebot, s.haltestellentyp,
+      s.parkenRechts,
+      s.parkenRechts === 'ja' ? (s.parkenSicherheitsstreifen ? 'ja' : 'nein') : '',
+      s.tram ? 'ja' : 'nein', s.oevAngebot, s.haltestellentyp,
       r ? r.soll : '', r ? numDE(r.note, 1) : 'unvollständig', r ? erfuellungsgrad(r.note) : '',
       obs && obs.count > 0 ? numDE(obs.median, 2) : '',
       obs ? String(obs.count) : '', Number.isFinite(obsPct) ? String(obsPct) : '',
@@ -1255,7 +1296,8 @@ export default function App() {
       s.parkenRechts, s.oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram,
       cityCfg.breiten?.[s.ist as IstFuehrungsform],   // stadtspezifische Breiten-Sollwerte
       city,                                            // Stadt → Soll-Tabelle + Haltestellen-Logik
-      s.strassentyp || undefined)                      // Strassentyp (nur Basel)
+      s.strassentyp || undefined,                      // Strassentyp (nur Basel)
+      s.parkenSicherheitsstreifen)                     // Sicherheitsstreifen ggü. Parkplätzen (SN 640 060)
   })
   // Vergleichsnoten je Abschnitt nach den Standards der ANDEREN Städte (null = unvollständig).
   // Reine Zusatzinfo; Basel-Strassentyp wird aus DTV/Tempo geschätzt (geschaetzt = true).
@@ -1265,7 +1307,8 @@ export default function App() {
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
     return vergleichsNoten({
       dtv: s.dtv, v: s.speed, ist: s.ist as IstFuehrungsform, breite,
-      routentyp: s.routentyp || 'Velohauptroute', parkenRechts: s.parkenRechts, oevTakt: s.oevTakt,
+      routentyp: s.routentyp || 'Velohauptroute', parkenRechts: s.parkenRechts,
+      parkenSicherheitsstreifen: s.parkenSicherheitsstreifen, oevTakt: s.oevTakt,
       oevAngebot: s.oevAngebot, haltestellentyp: s.haltestellentyp, haltestelleBreite, tram: s.tram,
     }, city)
   })

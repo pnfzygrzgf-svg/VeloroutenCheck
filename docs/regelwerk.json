@@ -31,8 +31,8 @@
     "parkenRechtsAbzug": {
       "wert": 1.0,
       "einheit": "Notenstufen",
-      "herleitung": "Radstreifen kein Parken 75,9 % vs. Parken rechts 61,4 % = 14,5 Pkt; ÷ 14,4 ≈ 1,0.",
-      "code": "PARKEN_RECHTS_ABZUG"
+      "herleitung": "Radstreifen kein Parken 75,9 % vs. Parken rechts 61,4 % = 14,5 Pkt; ÷ 14,4 ≈ 1,0. Ausnahme: ein Sicherheitsstreifen gegenüber den Parkplätzen (SN 640 060; im Basler Standard-Papier genannt) → KEIN Abzug (stadtübergreifend, Norm).",
+      "code": "PARKEN_RECHTS_ABZUG; Ausnahme via Parameter parkenSicherheitsstreifen in fuehrungsformNote"
     },
     "haltestelleAbzug": {
       "wert": 1.0,
@@ -72,7 +72,7 @@
         "Velostrasse",
         "Umweltspur"
       ],
-      "hinweis": "Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken).",
+      "hinweis": "Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken). Bei «Parkierung rechts = ja» kann zusätzlich ein Sicherheitsstreifen ggü. den Parkplätzen (SN 640 060) angegeben werden; ist er vorhanden, entfällt der Abzug.",
       "code": "PARKEN_RELEVANT"
     }
   },
@@ -115,7 +115,8 @@
         "breiteBeiParkierung": null,
         "routentyp": "Velohauptroute",
         "maxDtv": null,
-        "hinweis": "Breitenrange 4,50–6,50 m."
+        "hinweis": "Breitenrange 4,50–6,50 m.",
+        "einsatzbereich": "Nebenstrasse mit übergeordneter Velobedeutung, viel Veloverkehr, wenig MIV und ohne ÖV."
       },
       "Basel": {
         "breiteMin": 4.5,
@@ -123,7 +124,8 @@
         "breiteBeiParkierung": 7.0,
         "routentyp": "Velovorzugsroute",
         "maxDtv": 2500,
-        "hinweis": "Breite 4,50 m; bei Parkierung 7,00 m; bis max. 2'500 DTV."
+        "hinweis": "Nettobreite 4,50 m (Vorzugsroute) / 4,30 m (Pendler-Basis); bei Parkierung 7,00 m; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel 2'500 nur Vorzugsroute (Hinweis).",
+        "einsatzbereich": "Nicht verkehrsorientierte (siedlungsorientierte) Tempo-30-Strasse (Tab. 3, S. 15): auf Vorzugsrouten einzige vorgesehene Form (≤ 2'500 DWV); auf Pendler-/Basisrouten mögliche Form zusätzlich zum Mischverkehr (kein DWV-Deckel). Auf verkehrsorientierten Strassen nicht vorgesehen."
       },
       "Zürich": {
         "breiteMin": null,
@@ -131,7 +133,8 @@
         "breiteBeiParkierung": null,
         "routentyp": null,
         "maxDtv": null,
-        "hinweis": "Im relevanten Dokument steht nichts dazu."
+        "hinweis": "Im relevanten Dokument steht nichts dazu.",
+        "einsatzbereich": "Im Zürcher Grundlagenpapier nicht vorgesehen."
       },
       "Luzern": {
         "breiteMin": 4.5,
@@ -139,55 +142,63 @@
         "breiteBeiParkierung": null,
         "routentyp": null,
         "maxDtv": null,
-        "hinweis": "Breite 4,50 m."
+        "hinweis": "Breite 4,50 m.",
+        "einsatzbereich": "Bei gebündelter Velonutzung auf Quartierstrassen in Tempo-30-Zonen; bei geringer MIV-Belastung und hohem Veloanteil (> 50 %)."
       }
     }
   },
   "umweltspuren": {
-    "quelle": "Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_*)",
+    "quelle": "Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_TAKT/BASIS, umweltspurBasis())",
     "querschnitt": "Q4",
     "regelnAlleStaedte": {
       "dtvTempoMassgebend": false,
-      "massgebend": "Bus-Takt",
-      "minTaktMin": 7.5,
+      "massgebend": "Bus-Takt (stadtspezifische Schwellen)",
       "basisNote": 4,
       "feelClass": "Mischverkehr",
       "dooringRelevant": true,
-      "hinweisTakt": "DTV/Tempo nicht massgebend, sondern der Bus-Takt. Takt < 7,5 Min (hohe Busfrequenz) → Note 1. Takt ≥ 7,5 Min → Basisnote 4 («genügend»), davon Breiten-Abzug.",
-      "code": "UMWELTSPUR_MIN_TAKT=7.5, UMWELTSPUR_BASIS=4, feelClass='Mischverkehr', PARKEN_RELEVANT enthält 'Umweltspur'"
+      "hinweisTakt": "DTV/Tempo nicht massgebend, sondern der Bus-Takt. Die Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerem Takt) und ist nach oben auf «genügend» (Note 4) gedeckelt. Schwellen stadtspezifisch: Note 1 bei Takt ≤ taktNote1, Decke 4 ab Takt ≥ taktOk, linear interpoliert dazwischen; davon noch Breiten-Abzug.",
+      "code": "UMWELTSPUR_BASIS=4, UMWELTSPUR_TAKT (Anker pro Stadt), umweltspurBasis() (lineare Rampe), feelClass='Mischverkehr', PARKEN_RELEVANT enthält 'Umweltspur'"
     },
     "proStadt": {
       "Bern": {
         "breiteOptimal": 4.5,
         "breiteMinimal": 3.75,
-        "minTaktMin": 7.5,
+        "taktNote1": 7.5,
+        "taktOk": 7.5,
+        "taktModell": "Stufe: Takt < 7,5 Min → Note 1, ≥ 7,5 Min → Decke 4.",
         "breiteHerkunft": "stadt",
-        "taktHerkunft": "bern",
-        "hinweis": ""
+        "taktHerkunft": "stadt",
+        "hinweis": "Tiefe–mittlere Busfrequenz (max. 7,5-Min-Takt); ein einziger Schwellwert (Stufe)."
       },
       "Luzern": {
         "breiteOptimal": 4.5,
         "breiteMinimal": 3.75,
-        "minTaktMin": 7.5,
+        "taktNote1": 5,
+        "taktOk": 15,
+        "taktModell": "Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen (gleiche Anker wie Zürich).",
         "breiteHerkunft": "bern",
-        "taktHerkunft": "bern",
-        "hinweis": "Breiten und Takt-Schwelle aus Bern übernommen (kein eigener Luzerner Wert)."
+        "taktHerkunft": "stadt",
+        "hinweis": "Breiten aus Bern übernommen. Eigene Takt-Bewertung 1–5: Takt < 5 → Bewertung 1, ≥ 15 → Bewertung 3 (= Umweltspur-Decke); normiert fällt Bewertung 1↔3 auf Note 1↔4 → Rampe 5↔15."
       },
       "Zürich": {
         "breiteOptimal": 4.8,
         "breiteMinimal": 4.5,
-        "minTaktMin": 7.5,
+        "taktNote1": 5,
+        "taktOk": 15,
+        "taktModell": "Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen.",
         "breiteHerkunft": "stadt",
-        "taktHerkunft": "bern",
-        "hinweis": "≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt-Schwelle aus Bern übernommen."
+        "taktHerkunft": "stadt",
+        "hinweis": "≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt: < 5 Min keine Anwendung, < 15 Min kritisch → Rampe 5↔15."
       },
       "Basel": {
         "breiteOptimal": 4.5,
         "breiteMinimal": 3.0,
-        "minTaktMin": 7.5,
+        "taktNote1": null,
+        "taktOk": null,
+        "taktModell": "Keine Takt-Abhängigkeit (qualitativ).",
         "breiteHerkunft": "stadt",
-        "taktHerkunft": "bern",
-        "hinweis": "Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Takt-Schwelle aus Bern übernommen."
+        "taktHerkunft": null,
+        "hinweis": "Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Kein Takt-Schwellwert: Eignung qualitativ (Busspur-Breite, Anzahl Buslinien, Taktdichte, Velofrequenz) → Note rein breitengetrieben."
       }
     }
   },
@@ -429,11 +440,6 @@
             "optimal": 4.5,
             "minimal": 3.2,
             "minimum": 3.2
-          },
-          "Q11 Komb. Fuss-/Radweg": {
-            "optimal": 3.5,
-            "minimal": 3.5,
-            "minimum": 3.5
           },
           "Q12 Fussweg Velo gestattet": {
             "optimal": 3.5,
@@ -852,14 +858,14 @@
       "sollTabelle": {
         "typ": "nachStrassentyp",
         "quelle": "DTV_KMH_Fuehrungsform.csv (Basel). Strasseneinteilung: data.bs.ch/explore/assets/100250. DWV als DTV verwenden.",
-        "hinweis": "Kein DTV-Bänder-System, sondern Strassentyp × Tempo. Velostrasse als Mischverkehr-Ausgestaltung mit DWV-Deckel.",
+        "hinweis": "Kein DTV-Bänder-System, sondern Strassentyp × Tempo × Netzhierarchie (Tab. 3, S. 15). Auf nicht verkehrsorientierten (siedlungsorientierten) Tempo-30-Strassen: Vorzugsroute → Velostrasse (DWV ≤ 2'500); Pendler-/Basisrouten → Mischverkehr (DWV ≤ 5'000) ODER Velostrasse (kein DWV-Deckel). Auf verkehrsorientierten Strassen gibt es keine Velostrasse; empfohlen sind dort Vorzugsroute → Radstreifen oder Radweg, Pendler-/Basisrouten → Radstreifen (die «Radspur» der Tabelle wird der Einfachheit halber als breiter Radstreifen behandelt, keine eigene Form). Jede nicht vorgesehene Form → Note max. 4. DWV-Deckel bleibt Hinweis ohne Notenabzug. Velostrasse: bei DWV < 1'000 reduzierte Breite 4,00 m zulässig.",
         "Vorzugsroute": [
           {
             "strassentyp": "nicht verkehrsorientierte Strasse",
             "vMin": 0,
             "vMax": 30,
-            "form": "Mischverkehr",
-            "hinweis": "Ausgestaltung als Velostrasse, max. DWV 2500"
+            "form": "Velostrasse",
+            "hinweis": "einzige vorgesehene Form; Hinweis ab DWV 2500; bei DWV < 1000 Breite 4,00 m möglich"
           },
           {
             "strassentyp": "verkehrsorientierte Strasse",
@@ -880,7 +886,7 @@
             "vMin": 0,
             "vMax": 30,
             "form": "Mischverkehr",
-            "hinweis": "max. DWV 5000"
+            "hinweis": "empfohlen ≤ DWV 5000; zusätzlich Velostrasse als mögliche Form (ohne DWV-Deckel)"
           },
           {
             "strassentyp": "verkehrsorientierte Strasse",
@@ -932,9 +938,9 @@
           },
           "Q9 Velostrasse": {
             "optimal": 4.5,
-            "minimal": 4.5,
+            "minimal": 4.3,
             "minimum": null,
-            "hinweis": "Velovorzugsroute, bis max. 2'500 DTV; bei Parkierung 7,00 m"
+            "hinweis": "Nur auf nicht verkehrsorientierten (siedlungsorientierten) Strassen: Vorzugsroute einzige Form, Pendler-/Basis mögliche Form (neben Mischverkehr). Nettobreite der Fahrgasse (ohne Parkierung + Sicherheitsabstand): optimal 4,50 / minimal 4,30; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel (Vorzugsroute 2'500) bleibt Hinweis."
           },
           "Q10 Zweirichtungsradweg": {
             "optimal": 4.0,
@@ -990,7 +996,7 @@
       "sollTabelle": {
         "typ": "dtvXvMatrix",
         "quelle": "DTV_KMH_Fuehrungsform.csv (Luzern)",
-        "hinweis": "Feinere DTV-Stufen als Bern. DTV-Obergrenze exklusive.",
+        "hinweis": "Drei Zonen (Mischverkehr / Markierung / bauliche Trennung), auf die Berner Logik vereinfacht — Markierung = Radstreifen. DTV-Obergrenze exklusive.",
         "regeln": [
           {
             "dtvMin": 0,
@@ -1184,11 +1190,6 @@
             "optimal": 4.5,
             "minimal": 3.2,
             "minimum": 3.2
-          },
-          "Q11 Komb. Fuss-/Radweg": {
-            "optimal": 3.5,
-            "minimal": 3.5,
-            "minimum": 3.5
           },
           "Q12 Fussweg Velo gestattet": {
             "optimal": 3.5,

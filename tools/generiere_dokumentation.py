@@ -193,10 +193,12 @@ def render_velostrassen(v):
             fmt_m(s.get("breiteBeiParkierung")) if s.get("breiteBeiParkierung") is not None else "–",
             s.get("routentyp") or "–",
             f"{s['maxDtv']:,}".replace(",", "'") if s.get("maxDtv") is not None else "–",
+            s.get("einsatzbereich", "–"),
             s.get("hinweis", ""),
         ])
     parts.append(md_table(
-        ["Stadt", "Breite min", "Breite max", "Bei Parkierung", "Routentyp", "Max DTV", "Hinweis"],
+        ["Stadt", "Breite min", "Breite max", "Bei Parkierung", "Routentyp", "Max DTV",
+         "Einsatzbereich", "Hinweis"],
         rows))
     return "\n\n".join(parts)
 
@@ -218,11 +220,11 @@ def render_umweltspuren(u):
             stadt,
             fmt_m(s.get("breiteOptimal")),
             fmt_m(s.get("breiteMinimal")),
-            f"{s['minTaktMin']}".replace(".", ",") if s.get("minTaktMin") is not None else "–",
+            s.get("taktModell", "–"),
             s.get("hinweis", ""),
         ])
     parts.append(md_table(
-        ["Stadt", "Breite optimal", "Breite minimal", "Takt-Schwelle [Min]", "Hinweis"],
+        ["Stadt", "Breite optimal", "Breite minimal", "Takt-Modell", "Hinweis"],
         rows))
     return "\n\n".join(parts)
 

@@ -23,14 +23,14 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 |---|---|---|---|
 | feelSafeProNote | 14.4 | feel-safe-Punkte pro Notenstufe | Spanne Mischverkehr→Radweg bei hohem Tempo (90−18 = 72) geteilt durch 5 Notenstufen (6→1). |
 | noteProMeter | 0.9 | Notenstufen Abzug pro fehlendem Meter Breite | Radstreifen 2,0→3,5 m ≈ +20 feel-safe-Punkte über 1,5 m = 13,3 Pkt/m; ÷ 14,4 ≈ 0,9. |
-| parkenRechtsAbzug | 1.0 | Notenstufen | Radstreifen kein Parken 75,9 % vs. Parken rechts 61,4 % = 14,5 Pkt; ÷ 14,4 ≈ 1,0. |
+| parkenRechtsAbzug | 1.0 | Notenstufen | Radstreifen kein Parken 75,9 % vs. Parken rechts 61,4 % = 14,5 Pkt; ÷ 14,4 ≈ 1,0. Ausnahme: ein Sicherheitsstreifen gegenüber den Parkplätzen (SN 640 060; im Basler Standard-Papier genannt) → KEIN Abzug (stadtübergreifend, Norm). |
 | haltestelleAbzug | 1.0 | Notenstufen | Normativ: Soll verlangt Separate Velofläche, Ist-Typ aber Mischverkehr-Familie. |
 | umweltspurMinTakt | 7.5 | Minuten | Bus-Takt darunter (hohe Frequenz) → Note 1. Normativ gesetzt. |
 | umweltspurBasis | 4 | Note (Maximum bei zulässigem Takt) | Umweltspur als Velo-Führung höchstens «genügend». Normativ. |
 | fusswegBasis | 4 | Note (Maximum) | Fussweg Velo gestattet (Mischfläche) höchstens «genügend». Normativ. |
 | tramMalus (ruhig) | 0.8 | Notenstufen (nur Mischverkehr) | Mischverkehr mit vs. ohne Tram: T30 (26,3−14,4)/14,4 ≈ 0,8; T50 (17,7−9,7)/14,4 ≈ 0,55. |
 | tramMalus (schnell) | 0.55 |  |  |
-| parkenRelevant | Mischverkehr, Radstreifen, Velostrasse, Umweltspur | Führungsformen | Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken). |
+| parkenRelevant | Mischverkehr, Radstreifen, Velostrasse, Umweltspur | Führungsformen | Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken). Bei «Parkierung rechts = ja» kann zusätzlich ein Sicherheitsstreifen ggü. den Parkplätzen (SN 640 060) angegeben werden; ist er vorhanden, entfällt der Abzug. |
 
 ## Feel-safe-Anker
 
@@ -52,29 +52,29 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 - Velostrasse zählt als Mischverkehr (feel-safe-Klasse Mischverkehr).
 - Parkierung rechts (Dooring) relevant: ja
 
-| Stadt | Breite min | Breite max | Bei Parkierung | Routentyp | Max DTV | Hinweis |
-|---|---|---|---|---|---|---|
-| Bern | 4,50 | 6,50 | – | Velohauptroute | – | Breitenrange 4,50–6,50 m. |
-| Basel | 4,50 | – | 7,00 | Velovorzugsroute | 2'500 | Breite 4,50 m; bei Parkierung 7,00 m; bis max. 2'500 DTV. |
-| Zürich | – | – | – | – | – | Im relevanten Dokument steht nichts dazu. |
-| Luzern | 4,50 | 4,50 | – | – | – | Breite 4,50 m. |
+| Stadt | Breite min | Breite max | Bei Parkierung | Routentyp | Max DTV | Einsatzbereich | Hinweis |
+|---|---|---|---|---|---|---|---|
+| Bern | 4,50 | 6,50 | – | Velohauptroute | – | Nebenstrasse mit übergeordneter Velobedeutung, viel Veloverkehr, wenig MIV und ohne ÖV. | Breitenrange 4,50–6,50 m. |
+| Basel | 4,50 | – | 7,00 | Velovorzugsroute | 2'500 | Nicht verkehrsorientierte (siedlungsorientierte) Tempo-30-Strasse (Tab. 3, S. 15): auf Vorzugsrouten einzige vorgesehene Form (≤ 2'500 DWV); auf Pendler-/Basisrouten mögliche Form zusätzlich zum Mischverkehr (kein DWV-Deckel). Auf verkehrsorientierten Strassen nicht vorgesehen. | Nettobreite 4,50 m (Vorzugsroute) / 4,30 m (Pendler-Basis); bei Parkierung 7,00 m; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel 2'500 nur Vorzugsroute (Hinweis). |
+| Zürich | – | – | – | – | – | Im Zürcher Grundlagenpapier nicht vorgesehen. | Im relevanten Dokument steht nichts dazu. |
+| Luzern | 4,50 | 4,50 | – | – | – | Bei gebündelter Velonutzung auf Quartierstrassen in Tempo-30-Zonen; bei geringer MIV-Belastung und hohem Veloanteil (> 50 %). | Breite 4,50 m. |
 
 ## Umweltspuren (Q4) — Sonderfall
 
-*Quelle:* Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_*)
+*Quelle:* Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_TAKT/BASIS, umweltspurBasis())
 
 **Regeln für alle Städte:**
 
-- DTV/Tempo nicht massgebend, sondern der Bus-Takt. Takt < 7,5 Min (hohe Busfrequenz) → Note 1. Takt ≥ 7,5 Min → Basisnote 4 («genügend»), davon Breiten-Abzug.
+- DTV/Tempo nicht massgebend, sondern der Bus-Takt. Die Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerem Takt) und ist nach oben auf «genügend» (Note 4) gedeckelt. Schwellen stadtspezifisch: Note 1 bei Takt ≤ taktNote1, Decke 4 ab Takt ≥ taktOk, linear interpoliert dazwischen; davon noch Breiten-Abzug.
 - feel-safe-Klasse: Mischverkehr.
 - Parkierung rechts (Dooring) relevant: ja
 
-| Stadt | Breite optimal | Breite minimal | Takt-Schwelle [Min] | Hinweis |
+| Stadt | Breite optimal | Breite minimal | Takt-Modell | Hinweis |
 |---|---|---|---|---|
-| Bern | 4,50 | 3,75 | 7,5 |  |
-| Luzern | 4,50 | 3,75 | 7,5 | Breiten und Takt-Schwelle aus Bern übernommen (kein eigener Luzerner Wert). |
-| Zürich | 4,80 | 4,50 | 7,5 | ≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt-Schwelle aus Bern übernommen. |
-| Basel | 4,50 | 3,00 | 7,5 | Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Takt-Schwelle aus Bern übernommen. |
+| Bern | 4,50 | 3,75 | Stufe: Takt < 7,5 Min → Note 1, ≥ 7,5 Min → Decke 4. | Tiefe–mittlere Busfrequenz (max. 7,5-Min-Takt); ein einziger Schwellwert (Stufe). |
+| Luzern | 4,50 | 3,75 | Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen (gleiche Anker wie Zürich). | Breiten aus Bern übernommen. Eigene Takt-Bewertung 1–5: Takt < 5 → Bewertung 1, ≥ 15 → Bewertung 3 (= Umweltspur-Decke); normiert fällt Bewertung 1↔3 auf Note 1↔4 → Rampe 5↔15. |
+| Zürich | 4,80 | 4,50 | Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen. | ≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt: < 5 Min keine Anwendung, < 15 Min kritisch → Rampe 5↔15. |
+| Basel | 4,50 | 3,00 | Keine Takt-Abhängigkeit (qualitativ). | Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Kein Takt-Schwellwert: Eignung qualitativ (Busspur-Breite, Anzahl Buslinien, Taktdichte, Velofrequenz) → Note rein breitengetrieben. |
 
 ## Haltestellen-Typ-Bezeichnungen (stadtübergreifend)
 
@@ -130,8 +130,8 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 | Q8 Quartierstrasse T30/T20 | – | – | – | – |
 | Q9 Velostrasse | 4,50 | 4,50 | – | 6,50 |
 | Q10 Zweirichtungsradweg | 4,50 | 3,20 | 3,20 | – |
-| Q11 Komb. Fuss-/Radweg | 3,50 | 3,50 | 3,50 | – |
 | Q12 Fussweg Velo gestattet | 3,50 | 3,50 | 3,50 | – |
+| Q11 Kombinierter Fuss-/Radweg | 3,50 | 3,50 | – | – |
 
 ### Haltestellen
 
@@ -172,13 +172,14 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 
 *Quelle:* DTV_KMH_Fuehrungsform.csv (Zürich)
 
-*Hinweis:* Je Routentyp eigene Matrix. DTV-Bänder wie in der CSV.
+*Hinweis:* Je Routentyp eigene Matrix (Velostandards Abb. 1, S. 14). Mischverkehr nur ≤30 km/h und unter DWV-Deckel: Velovorzugsroute <2'500, Hauptroute <5'000.
 
 **Velovorzugsroute**
 
 | DTV MIV \ km/h | ≤ 30 | 31–40 | 41–50 | 51–80 |
 |---|---|---|---|---|
 | < 2'500 | Mischverkehr | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
+| 2'500–5'000 | Radstreifen oder Radweg | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
 | 5'000–7'500 | Radstreifen oder Radweg | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
 | ≥ 7'500 | Radstreifen oder Radweg | Radweg | Radweg | Radweg |
 
@@ -187,7 +188,8 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 | DTV MIV \ km/h | ≤ 30 | 31–40 | 41–50 | 51–80 |
 |---|---|---|---|---|
 | < 2'500 | Mischverkehr | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
-| 5'000–7'500 | Mischverkehr | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
+| 2'500–5'000 | Mischverkehr | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
+| 5'000–7'500 | Radstreifen oder Radweg | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
 | ≥ 7'500 | Radstreifen oder Radweg | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
 
 ### Breiten-Sollwerte
@@ -204,6 +206,7 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 | Q3 Radweg abgesetzt | 2,50 | 2,20 | 1,80 | – |
 | Q4 Umweltspur (Bus+Velo) | 4,80 | 4,50 | – | – |
 | Q10 Zweirichtungsradweg | 4,80 | 3,50 | 3,00 | – |
+| Q11 Kombinierter Fuss-/Radweg | 3,50 | 3,50 | 3,50 | – |
 
 ### Haltestellen
 
@@ -232,13 +235,13 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 
 *Quelle:* DTV_KMH_Fuehrungsform.csv (Basel). Strasseneinteilung: data.bs.ch/explore/assets/100250. DWV als DTV verwenden.
 
-*Hinweis:* Kein DTV-Bänder-System, sondern Strassentyp × Tempo. Velostrasse als Mischverkehr-Ausgestaltung mit DWV-Deckel.
+*Hinweis:* Kein DTV-Bänder-System, sondern Strassentyp × Tempo × Netzhierarchie (Tab. 3, S. 15). Auf nicht verkehrsorientierten (siedlungsorientierten) Tempo-30-Strassen: Vorzugsroute → Velostrasse (DWV ≤ 2'500); Pendler-/Basisrouten → Mischverkehr (DWV ≤ 5'000) ODER Velostrasse (kein DWV-Deckel). Auf verkehrsorientierten Strassen gibt es keine Velostrasse; empfohlen sind dort Vorzugsroute → Radstreifen oder Radweg, Pendler-/Basisrouten → Radstreifen (die «Radspur» der Tabelle wird der Einfachheit halber als breiter Radstreifen behandelt, keine eigene Form). Jede nicht vorgesehene Form → Note max. 4. DWV-Deckel bleibt Hinweis ohne Notenabzug. Velostrasse: bei DWV < 1'000 reduzierte Breite 4,00 m zulässig.
 
 **Vorzugsroute**
 
 | Strassentyp | Tempo | Führungsform |
 |---|---|---|
-| nicht verkehrsorientierte Strasse | 0–30 km/h | Mischverkehr (Ausgestaltung als Velostrasse, max. DWV 2500) |
+| nicht verkehrsorientierte Strasse | 0–30 km/h | Velostrasse (einzige vorgesehene Form; Hinweis ab DWV 2500; bei DWV < 1000 Breite 4,00 m möglich) |
 | verkehrsorientierte Strasse | 0–30 km/h | Radstreifen oder Radweg |
 | verkehrsorientierte Strasse | 31–50 km/h | Radstreifen oder Radweg |
 
@@ -246,7 +249,7 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 
 | Strassentyp | Tempo | Führungsform |
 |---|---|---|
-| nicht verkehrsorientierte Strasse | 0–30 km/h | Mischverkehr (max. DWV 5000) |
+| nicht verkehrsorientierte Strasse | 0–30 km/h | Mischverkehr (empfohlen ≤ DWV 5000; zusätzlich Velostrasse als mögliche Form (ohne DWV-Deckel)) |
 | verkehrsorientierte Strasse | 0–30 km/h | Radstreifen |
 | verkehrsorientierte Strasse | 31–50 km/h | Radstreifen |
 
@@ -264,8 +267,9 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 | Q3 Radweg abgesetzt | 2,50 | 2,20 | – | – |
 | Q4 Umweltspur (Bus+Velo) | 4,50 | 3,00 | – | – |
 | Q5 Kernfahrbahn | 1,80 | 1,80 | 1,80 | – |
-| Q9 Velostrasse | 4,50 | 4,50 | – | – |
+| Q9 Velostrasse | 4,50 | 4,30 | – | – |
 | Q10 Zweirichtungsradweg | 4,00 | 3,40 | 2,80 | – |
+| Q11 Kombinierter Fuss-/Radweg | 6,00 | 4,80 | – | – |
 
 ### Haltestellen
 
@@ -296,8 +300,7 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 
 *Quelle:* DTV_KMH_Fuehrungsform.csv (Luzern)
 
-*Hinweis:* Drei Zonen (Mischverkehr / Markierung / bauliche Trennung), auf die Berner Logik
-vereinfacht — Markierung = Radstreifen. DTV-Obergrenze exklusive.
+*Hinweis:* Drei Zonen (Mischverkehr / Markierung / bauliche Trennung), auf die Berner Logik vereinfacht — Markierung = Radstreifen. DTV-Obergrenze exklusive.
 
 | DTV MIV \ km/h | ≤ 30 | 31–40 | 41–50 | 51–80 |
 |---|---|---|---|---|
@@ -324,8 +327,8 @@ vereinfacht — Markierung = Radstreifen. DTV-Obergrenze exklusive.
 | Q7 Einbahn Velogegenverkehr | 2,50 | 1,80 | 1,50 | – |
 | Q9 Velostrasse | 4,50 | 4,50 | – | – |
 | Q10 Zweirichtungsradweg | 4,50 | 3,20 | 3,20 | – |
-| Q11 Komb. Fuss-/Radweg | 3,50 | 3,50 | 3,50 | – |
 | Q12 Fussweg Velo gestattet | 3,50 | 3,50 | 3,50 | – |
+| Q11 Kombinierter Fuss-/Radweg | 3,50 | 3,50 | – | – |
 
 ### Haltestellen
 

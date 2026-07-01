@@ -256,6 +256,8 @@ def render_velostrasse(data, stadt):
             "Max DTV", thousands(s["maxDtv"]) if s.get("maxDtv") is not None else "–",
         ]]
         items.append(table(["Vorgabe (Velostrasse)", stadt], rows))
+        if s.get("einsatzbereich"):
+            items.append(note(f"Einsatzbereich: {s['einsatzbereich']}"))
         if s.get("hinweis"):
             items.append(note(s["hinweis"]))
     return "\n".join(items)
@@ -274,19 +276,16 @@ def render_umweltspur(data, stadt):
     ]
     if s:
         breite_bern = s.get("breiteHerkunft") == "bern" and stadt != "Bern"
-        takt_bern = s.get("taktHerkunft") == "bern" and stadt != "Bern"
         b_badge = BERN_BADGE if breite_bern else ""
-        t_badge = BERN_BADGE if takt_bern else ""
         rows = [[
             Raw("Breite Velohauptroute (optimal)" + b_badge), fmt_m(s.get("breiteOptimal")),
         ], [
             Raw("Breite Veloroute (minimal)" + b_badge), fmt_m(s.get("breiteMinimal")),
         ], [
-            Raw("Takt-Schwelle [Min]" + t_badge),
-            f"{s['minTaktMin']}".replace(".", ",") if s.get("minTaktMin") is not None else "–",
+            "Takt-Modell", s.get("taktModell", "–"),
         ]]
         items.append(table(["Vorgabe (Umweltspur)", stadt], rows))
-        if breite_bern or takt_bern:
+        if breite_bern:
             items.append(BERN_LEGENDE)
         if s.get("hinweis"):
             items.append(note(s["hinweis"]))
