@@ -74,3 +74,18 @@ export function distPointToLineM(p: LL, line: LL[]): number {
   if (line.length < 2) return Infinity
   return distToLine(p, line, KY * Math.cos((p.lat * Math.PI) / 180))
 }
+
+// Bounding-Box einer Polylinie (für den billigen Vorfilter vor dem teuren overlapScore).
+export type BboxLL = { s: number; n: number; w: number; e: number }
+export function bboxOfLL(line: LL[]): BboxLL {
+  let s = Infinity, n = -Infinity, w = Infinity, e = -Infinity
+  for (const p of line) {
+    if (p.lat < s) s = p.lat; if (p.lat > n) n = p.lat
+    if (p.lon < w) w = p.lon; if (p.lon > e) e = p.lon
+  }
+  return { s, n, w, e }
+}
+// Überlappen sich zwei Bboxen (mit Puffer padDeg in Grad)?
+export function bboxOverlap(a: BboxLL, b: BboxLL, padDeg: number): boolean {
+  return a.s - padDeg <= b.n && a.n + padDeg >= b.s && a.w - padDeg <= b.e && a.e + padDeg >= b.w
+}

@@ -27,12 +27,24 @@ import type { Cand } from './VeloMap'
 import type { Routentyp, Strassentyp } from './fuehrungsform'
 import { densify } from './geo'
 import {
-  bboxOf, bestOverlapFeature, loadOevFromOsm, OVERLAP_M, SAMPLE_M,
-  type Bbox, type GeoJsonFeature,
+  bboxOf, bestOverlapFeature, loadOevFromOsm, nearestDtv, OVERLAP_M, SAMPLE_M,
+  type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
 
-// ÖV (Tram/Haltestelle) aus OSM — wie die anderen Tram-Städte.
-export const loadOev = loadOevFromOsm
+// DTV je Zählstelle aus dem gebündelten Snapshot (public/dtv_basel.json, via tools/dtv_basel.py) —
+// Basel liefert nur Stundenwerte, daher offline zum Werktags-Mittel aggregiert (nicht live wie ZH/LU).
+let dtvCache: Promise<DtvStation[]> | undefined
+function fetchDtvStations(): Promise<DtvStation[]> {
+  if (!dtvCache) {
+    dtvCache = fetch(import.meta.env.BASE_URL + 'dtv_basel.json')
+      .then(r => (r.ok ? r.json() : []))
+      .catch(() => [] as DtvStation[])
+  }
+  return dtvCache
+}
+
+// ÖV (Tram/Haltestelle) aus OSM + Bus-Takt aus dem gebündelten GTFS-Snapshot (oev_takt.py).
+export const loadOev = (cands: Cand[]) => loadOevFromOsm(cands, 'oev_takt_basel.json')
 
 // ── Routentyp aus dem Teilrichtplan Velo (WFS, Bestandsnetz mit Flags) ─────────
 const BS_WFS = 'https://wfs.geo.bs.ch/'
@@ -112,12 +124,13 @@ function geschwindigkeit(p: Record<string, string | number | null>): number | un
 export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
   if (cands.length === 0) return cands
   const bbox = bboxOf(cands)
-  const [features, velostrassen, strassen] = await Promise.all([
+  const [features, velostrassen, strassen, stations] = await Promise.all([
     fetchVelonetz(bbox).catch(() => []),
     loadVelostrassen(),
     fetchStrassentyp(bbox).catch(() => []),
+    fetchDtvStations(),
   ])
-  if (features.length === 0 && velostrassen.length === 0 && strassen.length === 0) return cands
+  if (features.length === 0 && velostrassen.length === 0 && strassen.length === 0 && stations.length === 0) return cands
   return cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
     const routenF = bestOverlapFeature(dense, features)
@@ -125,10 +138,11 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
     const strassenF = bestOverlapFeature(dense, strassen)
     const strassentyp = strassenF ? kategorieToStrassentyp(strassenF.properties) : undefined
     const speed = strassenF ? geschwindigkeit(strassenF.properties) : undefined
+    const dtv = nearestDtv(dense, stations)
     // Velostrasse setzt die Ist-Führungsform → strenger (VELO_FRACTION), damit eine bloss
     // kreuzende Velostrasse die OSM-Führungsform nicht fälschlich überschreibt.
     const velostrasse = bestOverlapFeature(dense, velostrassen, OVERLAP_M, VELO_FRACTION) != null
-    if (!routentyp && !velostrasse && !strassentyp && !speed) return c
+    if (!routentyp && !velostrasse && !strassentyp && !speed && dtv == null) return c
     return {
       ...c,
       bern: {
@@ -137,6 +151,7 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
         ...(strassentyp ? { strassentyp } : {}),
         ...(speed ? { speed } : {}),
         ...(velostrasse ? { velostrasse: true } : {}),
+        ...(dtv != null ? { dtv } : {}),
       },
     }
   })

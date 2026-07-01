@@ -429,12 +429,13 @@ function candsToSections(cands: Cand[]): Section[] {
 
 // Overpass-Endpunkte: Hauptinstanz + Ausweich-Mirror (Failover bei Überlastung/Ausfall).
 const OVERPASS_ENDPOINTS = [
+  'https://overpass.osm.ch/api/interpreter',       // Schweizer Mirror (SOSM) — schnell/zuverlässig für CH-Daten
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
 ]
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-const REQUEST_TIMEOUT_MS = 25000   // Per-Versuch-Timeout: hängende Mirror nicht ewig abwarten
+const REQUEST_TIMEOUT_MS = 12000   // Per-Versuch-Timeout: hängende Mirror schnell überspringen (Failover)
 const MAX_BACKOFF_MS = 10000       // Obergrenze fürs Warten (auch bei grossem Retry-After)
 
 // fetch mit hartem Timeout (AbortController) — verhindert, dass eine nicht antwortende
@@ -1133,6 +1134,9 @@ export default function App() {
   const setMsg = (text: string, kind: 'info' | 'ok' | 'error' = 'info') => { setOsmMsg(text); setOsmKind(kind) }
   const [city, setCity] = useState<CityId>('bern')               // gewählte Stadt → Datenquellen/Beschriftung
   const cityCfg = CITIES[city]
+  // OBS-Snapshot der Stadt (bis ~2,7 MB) im Hintergrund vorwärmen, sobald die Stadt feststeht —
+  // damit der erste Strassen-Load nicht am Download/Parsen hängt (Cache in obs.ts; enrichObs([]) lädt nur).
+  useEffect(() => { if (cityCfg.obsFile) void enrichObs([], cityCfg.obsFile).catch(() => {}) }, [cityCfg.obsFile])
   const [cands, setCands] = useState<Cand[]>([])
   const [stops, setStops] = useState<Stop[]>([])                  // ÖV-Haltestellen für Karten-Marker
   // Stadtwechsel: geladene Segmente/Haltestellen verwerfen (sie tragen die Anreicherung der alten Stadt).
@@ -1173,20 +1177,27 @@ export default function App() {
   const mapRef = useRef<import('leaflet').Map | null>(null)
   const selCount = cands.filter(c => c.selected).length
 
-  // Kandidaten mit OpenBikeSensor-Überholabständen anreichern (gebündelter Snapshot je Stadt, siehe obs.ts).
-  const withObs = async (cs: Cand[]): Promise<Cand[]> => {
-    if (!cityCfg.obsFile) return cs   // Stadt ohne OBS-Snapshot → überspringen
-    const obs = await enrichObs(cs, cityCfg.obsFile).catch(() => new Map())
-    return obs.size === 0 ? cs : cs.map(c => (obs.has(c.id) ? { ...c, obs: obs.get(c.id) } : c))
-  }
-  // Kandidaten mit ÖV anreichern (Haltestelle/Modus) + Haltestellen-Punkte für die Karte.
-  // Quelle je nach Stadt: Bern = Geoportal (bern.ts), Zürich = OSM (zurich.ts).
-  const withOev = async (cs: Cand[]): Promise<{ cands: Cand[]; stops: Stop[] }> => {
-    const { byId, stops } = await cityCfg.loadOev(cs)
-      .catch(() => ({ byId: new Map<number, OevInfo>(), stops: [] as Stop[] }))
-    const cands = byId.size === 0 ? cs
-      : cs.map(c => (byId.has(c.id) ? { ...c, bern: { ...c.bern, ...byId.get(c.id) } } : c))
-    return { cands, stops }
+  // Kandidaten anreichern: die drei UNABHÄNGIGEN Quellen (amtlich/Adapter, OpenBikeSensor, ÖV) laufen
+  // PARALLEL und werden je Kandidat einmalig zusammengeführt (Latenz = Maximum statt Summe). Ein Fehler
+  // je Quelle ist isoliert — die Anreicherung ist Zusatz und darf den OSM-Import nie verhindern.
+  const enrichAll = async (c: Cand[]): Promise<{ cands: Cand[]; stops: Stop[] }> => {
+    const [ec, obs, oev] = await Promise.all([
+      cityCfg.enrichCands(c).catch(() => c),
+      cityCfg.obsFile
+        ? enrichObs(c, cityCfg.obsFile).catch(() => new Map<number, ObsStats>())
+        : Promise.resolve(new Map<number, ObsStats>()),
+      cityCfg.loadOev(c).catch(() => ({ byId: new Map<number, OevInfo>(), stops: [] as Stop[] })),
+    ])
+    const bernById = new Map(ec.map(x => [x.id, x.bern]))
+    const cands = c.map(cand => {
+      const bern = { ...bernById.get(cand.id), ...(oev.byId.get(cand.id) ?? {}) }
+      const o = obs.get(cand.id)
+      const out: Cand = { ...cand }
+      if (Object.keys(bern).length) out.bern = bern
+      if (o) out.obs = o
+      return out
+    })
+    return { cands, stops: oev.stops }
   }
   // Haltestellen-Marker zusammenführen (nach Name+Position eindeutig).
   const mergeStops = (prev: Stop[], neu: Stop[]) => {
@@ -1204,15 +1215,22 @@ export default function App() {
     setOsmBusy(true); setMsg('Lade Segmente aus OpenStreetMap …')
     try {
       const c = await loadStreetCandidates(name, cityCfg.osmArea)
-      const { cands: enriched, stops: st } = await withOev(await withObs(await cityCfg.enrichCands(c).catch(() => c)))
-      setCands(enriched); setStops(st)
+      setCands(c); setStops([])          // Segmente SOFORT zeigen (anklickbar) — Anreicherung folgt im Hintergrund
+      if (!c.length) {
+        setMsg(`Keine Velo-relevanten Segmente für „${name}" (Stadt ${cityCfg.label}) gefunden.`, 'info')
+        return
+      }
+      setMsg(`${c.length} Segmente geladen (© OpenStreetMap, ODbL) · reichere an …`, 'ok')
+      const { cands: enriched, stops: st } = await enrichAll(c)
+      // Angereicherte je Id einspielen; Auswahl (falls inzwischen getoggelt) erhalten. Ids, die nicht
+      // mehr da sind (zwischenzeitlich neue Ladung), werden ignoriert.
+      const byId = new Map(enriched.map(e => [e.id, e]))
+      setCands(prev => prev.map(p => { const e = byId.get(p.id); return e ? { ...e, selected: p.selected } : p }))
+      setStops(st)
       const amtlichHit = enriched.some(x => x.bern)
-      setMsg(c.length
-        ? `${c.length} Segmente geladen (© OpenStreetMap, ODbL)` +
-          (amtlichHit ? ` · Anreicherung: ${cityCfg.attribution}.` : '.') +
-          ' Auf der Karte ab-/zuwählen, dann übernehmen.'
-        : `Keine Velo-relevanten Segmente für „${name}" (Stadt ${cityCfg.label}) gefunden.`,
-        c.length ? 'ok' : 'info')
+      setMsg(`${c.length} Segmente geladen (© OpenStreetMap, ODbL)` +
+        (amtlichHit ? ` · Anreicherung: ${cityCfg.attribution}.` : '.') +
+        ' Auf der Karte ab-/zuwählen, dann übernehmen.', 'ok')
     } catch (e) { setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
     finally { setOsmBusy(false) }
   }
@@ -1225,13 +1243,18 @@ export default function App() {
     setOsmBusy(true); setMsg('Lade Segmente im Kartenausschnitt …')
     try {
       const roh = await loadBboxCandidates(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
-      const { cands: neu, stops: st } = await withOev(await withObs(await cityCfg.enrichCands(roh).catch(() => roh)))
-      setCands(prev => {
+      setCands(prev => {                 // neue Segmente SOFORT hinzufügen (roh), Anreicherung folgt
         const ids = new Set(prev.map(c => c.id))
-        return [...prev, ...neu.filter(c => !ids.has(c.id))]
+        return [...prev, ...roh.filter(c => !ids.has(c.id))]
       })
+      setMsg(roh.length ? `${roh.length} Segmente im Ausschnitt · reichere an …` : 'Keine neuen Segmente im Ausschnitt.',
+        roh.length ? 'ok' : 'info')
+      if (!roh.length) return
+      const { cands: neu, stops: st } = await enrichAll(roh)
+      const byId = new Map(neu.map(n => [n.id, n]))
+      setCands(prev => prev.map(c => { const n = byId.get(c.id); return n ? { ...n, selected: c.selected } : c }))
       setStops(prev => mergeStops(prev, st))
-      setMsg(`${neu.length} Segmente im Ausschnitt gefunden (neue hinzugefügt).`, neu.length ? 'ok' : 'info')
+      setMsg(`${neu.length} Segmente im Ausschnitt (angereichert).`, 'ok')
     } catch (e) { setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
     finally { setOsmBusy(false) }
   }
@@ -1248,12 +1271,13 @@ export default function App() {
     try {
       const roh = await loadNearestCandidate(lat, lon)
       if (!roh) { setMsg('An dieser Stelle kein velorelevantes Segment gefunden.', 'info'); return }
-      const { cands: [c], stops: st } = await withOev(await withObs(await cityCfg.enrichCands([roh]).catch(() => [roh])))
-      const exists = cands.some(p => p.id === c.id)
-      setCands(prev => (prev.some(p => p.id === c.id) ? prev : [...prev, c]))
+      if (cands.some(p => p.id === roh.id)) { setMsg(`Segment „${roh.name}" ist bereits geladen.`, 'info'); return }
+      setCands(prev => (prev.some(p => p.id === roh.id) ? prev : [...prev, roh]))   // sofort hinzufügen
+      setMsg(`Segment „${roh.name}" hinzugefügt · reichere an …`, 'ok')
+      const { cands: [c], stops: st } = await enrichAll([roh])
+      setCands(prev => prev.map(p => (p.id === c.id ? { ...c, selected: p.selected } : p)))
       setStops(prev => mergeStops(prev, st))
-      setMsg(exists ? `Segment „${c.name}" ist bereits geladen.` : `Segment „${c.name}" hinzugefügt.`,
-        exists ? 'info' : 'ok')
+      setMsg(`Segment „${c.name}" hinzugefügt.`, 'ok')
     } catch (e) { setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
     finally { setOsmBusy(false) }
   }

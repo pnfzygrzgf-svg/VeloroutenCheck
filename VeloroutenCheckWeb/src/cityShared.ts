@@ -7,7 +7,7 @@
 
 import type { Cand, Stop } from './VeloMap'
 import type { OevInfo } from './bern'
-import { densify, overlapScore, distPointToLineM, type LL } from './geo'
+import { densify, overlapScore, distPointToLineM, bboxOfLL, bboxOverlap, type LL, type BboxLL } from './geo'
 
 // ── Geo-Matching gegen ein GeoJSON-Liniennetz ─────────────────────────────────
 export interface GeoJsonFeature {
@@ -19,6 +19,19 @@ export const SAMPLE_M = 15      // Schrittweite zum Verdichten der Kandidaten-Ge
 export const OVERLAP_M = 20     // Punkt gilt als „auf dem Feature", wenn ≤ 20 m entfernt.
 export const MIN_FRACTION = 0.5 // ≥ 50 % der Punkte entlang → Treffer.
 export const STOP_DIST_M = 30   // Haltestelle gilt als „im Abschnitt", wenn ≤ 30 m vom Segment.
+export const DTV_STOP_M = 25    // DTV-Zählstelle gilt als „auf der Strasse", wenn ≤ 25 m vom Segment.
+
+// DTV-Zählstellen (Punkte, {lat,lon,dtv}) → DTV der Strasse: nächste Station auf dem dichten Kandidaten
+// (≤ DTV_STOP_M), sonst undefined. Partiell — greift nur, wo eine Zählstelle auf der Strasse liegt.
+export interface DtvStation { lat: number; lon: number; dtv: number }
+export function nearestDtv(candDense: LL[], stations: DtvStation[]): number | undefined {
+  let best: number | undefined, bd = DTV_STOP_M
+  for (const s of stations) {
+    const d = distPointToLineM(s, candDense)
+    if (d <= bd) { bd = d; best = s.dtv }
+  }
+  return best
+}
 
 export function featureLatLon(feature: GeoJsonFeature): LL[] {
   if (!feature.geometry) return []
@@ -28,15 +41,37 @@ export function featureLatLon(feature: GeoJsonFeature): LL[] {
   return coords.map(([lon, lat]) => ({ lat, lon }))
 }
 
+// Feature-Geometrie + Bbox EINMAL je Layer vorberechnen (nicht pro Kandidat neu). Der Cache ist
+// per Array-Referenz (WeakMap): innerhalb eines enrichCands-Laufs wird dasselbe features-Array für
+// alle Kandidaten übergeben → einmal aufbereitet; alte Layer werden mit dem Array GC-frei.
+interface PreparedFeature { f: GeoJsonFeature; ll: LL[]; bbox: BboxLL }
+const preparedCache = new WeakMap<GeoJsonFeature[], PreparedFeature[]>()
+function prepareFeatures(features: GeoJsonFeature[]): PreparedFeature[] {
+  let p = preparedCache.get(features)
+  if (!p) {
+    p = features.map(f => { const ll = featureLatLon(f); return { f, ll, bbox: bboxOfLL(ll) } })
+    preparedCache.set(features, p)
+  }
+  return p
+}
+
 // Feature mit dem grössten Überlappungs-Score; nur ab minFraction (sonst undefined →
-// kein Treffer, statt einer bloss kreuzenden Strasse aufzusitzen).
+// kein Treffer, statt einer bloss kreuzenden Strasse aufzusitzen). Billiger Bbox-Vorfilter vor dem
+// teuren overlapScore → Matching ~linear statt O(Kandidaten × Features × Punkte²). Ergebnis identisch
+// (verworfene Paare überlappen räumlich nicht → Score 0).
 export function bestOverlapFeature(
   candGeom: LL[], features: GeoJsonFeature[], maxDistM = OVERLAP_M, minFraction = MIN_FRACTION,
 ): GeoJsonFeature | undefined {
+  const prepared = prepareFeatures(features)
+  const candBbox = bboxOfLL(candGeom)
+  // Puffer in Grad, konservativ: ÷74000 deckt maxDistM in BEIDEN Richtungen (Längengrad ist bei ~47°
+  // kürzer, ~111000·cos → nie fälschlich verwerfen; Breite wird leicht überpuffert = harmlos).
+  const padDeg = (maxDistM + 5) / 74000
   let best: GeoJsonFeature | undefined, bf = 0
-  for (const f of features) {
-    const o = overlapScore(candGeom, featureLatLon(f), maxDistM)
-    if (o > bf) { bf = o; best = f }
+  for (const pf of prepared) {
+    if (pf.ll.length < 2 || !bboxOverlap(candBbox, pf.bbox, padDeg)) continue
+    const o = overlapScore(candGeom, pf.ll, maxDistM)
+    if (o > bf) { bf = o; best = pf.f }
   }
   return bf >= minFraction ? best : undefined
 }
@@ -55,6 +90,7 @@ export function bboxOf(cands: Cand[]): Bbox {
 export type OevInfoOsm = OevInfo & { oevQuelle?: 'amtlich' | 'osm' }
 
 const OVERPASS = [
+  'https://overpass.osm.ch/api/interpreter',        // Schweizer Mirror (SOSM) — schnell/zuverlässig für CH
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
@@ -71,7 +107,8 @@ async function overpass(query: string): Promise<OsmEl[]> {
   let lastErr: unknown
   for (const url of OVERPASS) {
     try {
-      const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(query) })
+      const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(query),
+        signal: AbortSignal.timeout(12000) })   // hängenden Mirror nicht ewig abwarten → Failover
       if (!res.ok) { lastErr = new Error('Overpass HTTP ' + res.status); continue }
       const data = await res.json() as { elements?: OsmEl[] }
       return data.elements || []
@@ -80,8 +117,36 @@ async function overpass(query: string): Promise<OsmEl[]> {
   throw lastErr ?? new Error('Overpass nicht erreichbar')
 }
 
-export async function loadOevFromOsm(cands: Cand[]): Promise<{ byId: Map<number, OevInfoOsm>; stops: Stop[] }> {
+// Gebündelte Bus-Takt-Snapshots (public/oev_takt_<stadt>.json = [{lat,lon,n,name}], via oev_takt.py) —
+// je Datei einmal laden. busPerH wird der OSM-Haltestelle per nächstem GTFS-Punkt (≤ TAKT_STOP_M) zugeordnet.
+interface TaktPoint { lat: number; lon: number; n: number }
+const TAKT_STOP_M = 80
+const taktCache = new Map<string, Promise<TaktPoint[]>>()
+function loadTakt(file: string): Promise<TaktPoint[]> {
+  let c = taktCache.get(file)
+  if (!c) {
+    c = fetch(import.meta.env.BASE_URL + file)
+      .then(r => (r.ok ? r.json() : []))
+      .catch(() => [] as TaktPoint[])
+    taktCache.set(file, c)
+  }
+  return c
+}
+function nearestTaktBus(stop: LL, takt: TaktPoint[]): number | undefined {
+  let best: number | undefined, bd = TAKT_STOP_M
+  for (const t of takt) {
+    const dlat = (t.lat - stop.lat) * 111320
+    const dlon = (t.lon - stop.lon) * 111320 * Math.cos(stop.lat * Math.PI / 180)
+    const d = Math.hypot(dlat, dlon)
+    if (d <= bd) { bd = d; best = t.n }
+  }
+  return best
+}
+
+// taktFile (optional): gebündelter Bus-Takt-Snapshot der Stadt → setzt oevBus/busPerH je Haltestelle.
+export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<{ byId: Map<number, OevInfoOsm>; stops: Stop[] }> {
   if (cands.length === 0) return { byId: new Map(), stops: [] }
+  const takt = taktFile ? await loadTakt(taktFile) : []
   const b = bboxOf(cands)
   const bb = `${b.s},${b.w},${b.n},${b.e}`
   const els = await overpass(
@@ -117,9 +182,10 @@ export async function loadOevFromOsm(cands: Cand[]): Promise<{ byId: Map<number,
     for (const st of stops) if (distPointToLineM(st, dense) <= STOP_DIST_M) { nearStop = st; break }
     const oevTram = tramLines.some(l => overlapScore(dense, l, OVERLAP_M) >= MIN_FRACTION)
     if (nearStop || oevTram) {
+      const busPerH = nearStop ? nearestTaktBus(nearStop, takt) : undefined   // aus dem Takt-Snapshot (falls Datei da)
       byId.set(c.id, {
         oevHalt: !!nearStop, oevHaltName: nearStop?.name,
-        oevTram, oevBus: false,            // Bus-Takt aus OSM nicht ableitbar → manuell
+        oevTram, oevBus: busPerH != null, busPerH,
         oevQuelle: 'osm',
       })
     }

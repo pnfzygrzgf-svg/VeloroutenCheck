@@ -16,7 +16,7 @@
 // die Führungsform-Note ein (die folgt dem Masterplan).
 
 import type { Cand } from './VeloMap'
-import { densify, overlapScore, type LL } from './geo'
+import { densify, overlapScore, bboxOfLL, bboxOverlap, type LL } from './geo'
 
 // Aggregierte Überhol-Statistik eines Segments.
 export interface ObsStats {
@@ -92,12 +92,15 @@ export async function enrichObs(cands: Cand[], file = 'obs_bern.json'): Promise<
   const s = Math.min(...lats) - pad, n = Math.max(...lats) + pad
   const w = Math.min(...lons) - pad, e = Math.max(...lons) + pad
   const inBox = feats.filter(f => f.line.some(p => p.lat >= s && p.lat <= n && p.lon >= w && p.lon <= e))
-  const dense = cands.map(c => ({ id: c.id, geom: densify(c.geom, SAMPLE_M) }))
+  const dense = cands.map(c => { const geom = densify(c.geom, SAMPLE_M); return { id: c.id, geom, bbox: bboxOfLL(geom) } })
+  const padDeg = (OVERLAP_M + 5) / 74000   // konservativ (deckt OVERLAP_M in beiden Richtungen, s. cityShared)
 
   const acc = new Map<number, { vals: number[]; count: number; below: number; usage: number }>()
   for (const f of inBox) {
+    const fbox = bboxOfLL(f.line)
     let bestId: number | undefined, bestScore = 0
     for (const c of dense) {
+      if (!bboxOverlap(c.bbox, fbox, padDeg)) continue   // billiger Vorfilter vor overlapScore
       const sc = overlapScore(c.geom, f.line, OVERLAP_M)
       if (sc > bestScore) { bestScore = sc; bestId = c.id }
     }

@@ -23,12 +23,31 @@ import type { Cand } from './VeloMap'
 import type { Routentyp } from './fuehrungsform'
 import { densify } from './geo'
 import {
-  bboxOf, bestOverlapFeature, loadOevFromOsm, SAMPLE_M,
-  type Bbox, type GeoJsonFeature,
+  bboxOf, bestOverlapFeature, loadOevFromOsm, nearestDtv, SAMPLE_M,
+  type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
 
-// ÖV (Haltestelle) aus OSM — gemeinsamer Helfer (Luzern hat kein Tram → nur Haltestelle).
-export const loadOev = loadOevFromOsm
+// DTV je Zählstelle live aus der Stadt-Luzern-ArcGIS (OGD/verkehrszaehldaten, Feld `DTV_ANZAHL`).
+// CORS-offen (schon fürs Velonetz genutzt). Wenige Punkte → einmal laden und cachen.
+let dtvCache: Promise<DtvStation[]> | undefined
+function fetchDtvStations(): Promise<DtvStation[]> {
+  if (!dtvCache) {
+    dtvCache = fetch('https://map.stadtluzern.ch/server/rest/services/OGD/verkehrszaehldaten/MapServer/0/query'
+      + '?where=1%3D1&outFields=DTV_ANZAHL&returnGeometry=true&outSR=4326&f=geojson',
+      { signal: AbortSignal.timeout(8000) })
+      .then(r => (r.ok ? r.json() : { features: [] }))
+      .then((d: { features?: { geometry?: { coordinates: [number, number] }; properties?: { DTV_ANZAHL?: number } }[] }) =>
+        (d.features ?? []).flatMap(f => {
+          const c = f.geometry?.coordinates, dtv = f.properties?.DTV_ANZAHL
+          return c && dtv ? [{ lat: c[1], lon: c[0], dtv }] : []
+        }))
+      .catch(() => [] as DtvStation[])
+  }
+  return dtvCache
+}
+
+// ÖV (Haltestelle) aus OSM + Bus-Takt aus dem gebündelten GTFS-Snapshot (oev_takt.py).
+export const loadOev = (cands: Cand[]) => loadOevFromOsm(cands, 'oev_takt_luzern.json')
 
 // ── Routentyp aus dem Velonetz (ArcGIS REST, Layer 7) ─────────────────────────
 const VELONETZ_LU = 'https://map.stadtluzern.ch/server/rest/services/OGD/velonetz/MapServer/7/query'
@@ -54,13 +73,16 @@ async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
 
 export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
   if (cands.length === 0) return cands
-  const features = await fetchVelonetz(bboxOf(cands)).catch(() => [])
-  if (features.length === 0) return cands
+  const [features, stations] = await Promise.all([
+    fetchVelonetz(bboxOf(cands)).catch(() => []),
+    fetchDtvStations(),
+  ])
   return cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
-    const f = bestOverlapFeature(dense, features)
+    const f = features.length ? bestOverlapFeature(dense, features) : undefined
     const routentyp = f ? routentypFrom(f.properties.VELO_ROUTENTYP) : undefined
-    if (!routentyp) return c
-    return { ...c, bern: { ...c.bern, routentyp } }
+    const dtv = nearestDtv(dense, stations)
+    if (!routentyp && dtv == null) return c
+    return { ...c, bern: { ...c.bern, ...(routentyp ? { routentyp } : {}), ...(dtv != null ? { dtv } : {}) } }
   })
 }
