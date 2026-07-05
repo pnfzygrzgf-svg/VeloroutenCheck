@@ -123,6 +123,16 @@ export type IstFuehrungsform =
   | 'Velostrasse'
   | 'Kombinierter Fuss-/Radweg'
   | 'Fussweg Velo gestattet'
+  // Q7 „Einbahn mit Velogegenverkehr" — dreistufig, je nach Sicherung der Gegenrichtung:
+  | 'Einbahn Velogegenverkehr ohne Markierung'         // wie Mischverkehr (Rang 0)
+  | 'Einbahn Velogegenverkehr mit Markierung'          // wie Radstreifen (Rang 1)
+  | 'Einbahn Velogegenverkehr mit baulicher Trennung'  // = Radweg (Rang 2)
+
+// Die drei Q7-Varianten (für UI-Gruppierung „Einbahn mit Velogegenverkehr" + Default).
+export const GEGENVERKEHR_FORMEN: IstFuehrungsform[] =
+  ['Einbahn Velogegenverkehr ohne Markierung', 'Einbahn Velogegenverkehr mit Markierung',
+   'Einbahn Velogegenverkehr mit baulicher Trennung']
+export const GEGENVERKEHR_DEFAULT: IstFuehrungsform = 'Einbahn Velogegenverkehr mit Markierung'
 
 export type Routentyp = 'Velohauptroute' | 'Veloroute'
 
@@ -132,7 +142,7 @@ export type ParkenRechts = 'ja' | 'nein' | 'egal'
 // Führungsformen, bei denen Parken rechts (Dooring) relevant ist: Velo fährt auf der Fahrbahn
 // neben möglichem Längsparken. Nicht bei baulich abgesetzten Radwegen / Fussweg (anderer Mechanismus).
 export const PARKEN_RELEVANT: IstFuehrungsform[] =
-  ['Mischverkehr', 'Radstreifen', 'Velostrasse', 'Umweltspur']
+  ['Mischverkehr', 'Radstreifen', 'Velostrasse', 'Umweltspur', 'Einbahn Velogegenverkehr mit Markierung']
 
 // ── Haltestellen (ÖV) ─────────────────────────────────────────────────────────
 // Umgang mit ÖV-Haltestellen im Abschnitt. Soll-Lösung aus Masterplan-Diagramm
@@ -292,6 +302,12 @@ const IST: Record<IstFuehrungsform, IstMeta> = {
   // Fussweg Velo gestattet (Q12): Mischfläche Fuss/Velo, Kompromiss-/Restlösung. DTV/Tempo
   // nicht massgebend. Breite i. d. R. ≥ 3,50 m (gilt für beide Routentypen → optimal = minimal).
   'Fussweg Velo gestattet':    { q: 'Q12', rank: 0, feelClass: 'Mischverkehr', optimal: 3.5, minimal: 3.5 },
+  // Q7 „Einbahn mit Velogegenverkehr" — Sicherung der Gegenrichtung bestimmt die Stufe:
+  //   ohne Markierung → Mischverkehr (Rang 0, keine Breite); mit Markierung → Radstreifen (Rang 1);
+  //   mit baulicher Trennung → Radweg (Rang 2). Regelbreiten (Bern) 2,0/1,8; Stadt-Overrides in BREITEN_*.
+  'Einbahn Velogegenverkehr ohne Markierung':        { q: 'Q7', rank: 0, feelClass: 'Mischverkehr' },
+  'Einbahn Velogegenverkehr mit Markierung':         { q: 'Q7', rank: 1, feelClass: 'Radstreifen', optimal: 2.0, minimal: 1.8 },
+  'Einbahn Velogegenverkehr mit baulicher Trennung': { q: 'Q7', rank: 2, feelClass: 'Radweg',      optimal: 2.0, minimal: 1.8 },
 }
 
 // ── Stadtspezifische Breiten-Sollwerte (optionaler Override je Führungsform) ──────
@@ -311,6 +327,9 @@ export const BREITEN_ZUERICH: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
   // Gemeinsamer Rad-/Fussweg: in ZH-Planungen vermieden, Ausnahme bei geringer Frequenz;
   // Mindestbreite 3,50 m (VSS-Leitfaden), beide Routentypen.
   'Kombinierter Fuss-/Radweg':                           { optimal: 3.5, minimal: 3.5 },
+  // Q7 Einbahn mit Velogegenverkehr: ZH nennt nur ein Mindestmass 1,80 m.
+  'Einbahn Velogegenverkehr mit Markierung':             { optimal: 1.8, minimal: 1.8 },
+  'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 1.8, minimal: 1.8 },
 }
 
 // Stadt Basel — Standards Fuss- und Veloverkehrsinfrastruktur Kanton Basel-Stadt (2024), Tab. 4
@@ -324,8 +343,11 @@ export const BREITEN_BASEL: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
   // (→ Velohauptroute) 6,00 m, geringe Frequenz (→ Veloroute) 4,80 m.
   'Kombinierter Fuss-/Radweg':                           { optimal: 6.0, minimal: 4.8 },
   // Velostrasse (einzige zulässige Form auf siedlungsorientierten Strassen): Nettobreite der
-  // Fahrgasse (ohne Parkierung + Sicherheitsabstand zur Parkierung). optimal 4,50 / minimal 4,30.
+  // Fahrbahn (ohne Parkierung + Sicherheitsabstand zur Parkierung). optimal 4,50 / minimal 4,30.
   'Velostrasse':                                         { optimal: 4.5, minimal: 4.3 },
+  // Q7 Einbahn mit Velogegenverkehr — Basel „wie Radstreifen" (2,5 / 1,8).
+  'Einbahn Velogegenverkehr mit Markierung':             { optimal: 2.5, minimal: 1.8 },
+  'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 2.5, minimal: 1.8 },
 }
 
 // Stadt Luzern — Standards Veloverkehr Stadt Luzern (Q-Blätter, S. 30–57):
@@ -338,6 +360,9 @@ export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
   'Velostrasse':                                         { optimal: 4.5, minimal: 4.5 },  // Q9
   'Kombinierter Fuss-/Radweg':                           { optimal: 3.5, minimal: 3.5 },  // ≥ 3,50 (beide Routentypen)
   'Fussweg Velo gestattet':                              { optimal: 3.5, minimal: 3.5 },  // S. 57
+  // Q7 Einbahn mit Velogegenverkehr — Luzern: Velohauptroute 2,50 / Veloroute 2,00.
+  'Einbahn Velogegenverkehr mit Markierung':             { optimal: 2.5, minimal: 2.0 },
+  'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 2.5, minimal: 2.0 },
 }
 
 // Notenstufen-Abzug pro fehlendem Meter Breite (Variante A, linear). Hergeleitet aus dem

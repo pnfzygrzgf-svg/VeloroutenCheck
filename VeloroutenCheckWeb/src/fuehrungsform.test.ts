@@ -379,3 +379,27 @@ describe('Sicherheitsstreifen (SN 640 060) hebt den Dooring-Abzug auf', () => {
     expect(r.parkenSicherheitsstreifen).toBe(true)
   })
 })
+
+describe('Q7 — Einbahn mit Velogegenverkehr (dreistufig)', () => {
+  const q7 = (ist: Parameters<typeof fuehrungsformNote>[2], breite: number | undefined, dtv: number, v = 50) =>
+    fuehrungsformNote(dtv, v, ist, breite, 'Velohauptroute',
+      'egal', undefined, 'keine', 'keine', undefined, false, undefined, 'bern', undefined)
+
+  it('mit Markierung erfüllt Soll „Radstreifen" (Rang 1), breitenkonform → Note 6', () => {
+    const r = q7('Einbahn Velogegenverkehr mit Markierung', 2.0, 1000)  // fuehrungsart(1000,50)=Radstreifen
+    expect(r.soll).toBe('Radstreifen')
+    expect(r.note).toBe(6)
+  })
+  it('ohne Markierung verfehlt Soll „Radstreifen" (Rang 0) → Note < 6', () =>
+    expect(q7('Einbahn Velogegenverkehr ohne Markierung', undefined, 1000).note).toBeLessThan(6))
+  it('mit baulicher Trennung erfüllt Soll „Radweg" (Rang 2) → Note 6', () => {
+    const r = q7('Einbahn Velogegenverkehr mit baulicher Trennung', 2.0, 3000)  // fuehrungsart(3000,50)=Radweg
+    expect(r.soll).toBe('Radweg')
+    expect(r.note).toBe(6)
+  })
+  it('Stadt-Breiten je Q7-Variante', () => {
+    expect(BREITEN_LUZERN['Einbahn Velogegenverkehr mit Markierung']).toEqual({ optimal: 2.5, minimal: 2.0 })
+    expect(BREITEN_BASEL['Einbahn Velogegenverkehr mit Markierung']).toEqual({ optimal: 2.5, minimal: 1.8 })
+    expect(BREITEN_ZUERICH['Einbahn Velogegenverkehr mit baulicher Trennung']).toEqual({ optimal: 1.8, minimal: 1.8 })
+  })
+})

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import {
   fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
   erfuellungsgrad, vergleichsNoten, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
+  GEGENVERKEHR_FORMEN, GEGENVERKEHR_DEFAULT,
   type Fuehrungsart, type IstFuehrungsform, type Routentyp, type ParkenRechts,
   type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
   type Stadt, type Strassentyp, type VergleichsNote,
@@ -14,6 +15,7 @@ import * as luzern from './luzern'
 // import * as stgallen from './stgallen'   // St. Gallen vorerst nicht weiterverfolgt (siehe CITIES)
 import { type OevInfo } from './bern'
 import { enrichObs, mergeObs, type ObsStats } from './obs'
+import { enrichVelostreifen, type VeloInfo } from './velostreifen'
 
 // ── Städte-Registry: pro Stadt die Datenquellen + Beschriftungen bündeln ───────
 // bern.ts bleibt unverändert; zurich/basel/luzern/stgallen.ts spiegeln dieselben Schnittstellen.
@@ -27,6 +29,7 @@ interface CityCfg {
   enrichCands: (cands: Cand[]) => Promise<Cand[]>
   loadOev: (cands: Cand[]) => Promise<LoadOevResult>
   obsFile?: string                                // OpenBikeSensor-Snapshot (public/), falls vorhanden
+  velostreifenFile?: string                       // lokaler Markierungs-Snapshot (nicht öffentlich), falls vorhanden
   breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>  // stadtspezifische Breiten-Sollwerte (sonst Bern)
   breitenQuelle?: string                          // Quellenangabe der stadtspez. Breiten (sonst „Masterplan Bern")
   standardDoc: { titel: string; url: string }     // massgebendes Grundlagendokument (Rechnerseite)
@@ -37,6 +40,7 @@ const CITIES: Record<CityId, CityCfg> = {
     label: 'Bern', osmArea: 'Bern', center: [46.948, 7.447],
     attribution: 'Geoinformation Stadt Bern',
     enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json',
+    velostreifenFile: 'velostreifen_bern.json',   // lokaler Snapshot; im öffentlichen Build nicht vorhanden
     standardDoc: {
       titel: 'Standards Masterplans Veloinfrastruktur Stadt Bern',
       url: 'https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur',
@@ -195,7 +199,7 @@ const HALT_COLOR: Record<Haltestellenloesung, { bg: string; fg: string }> = {
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
 // Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
 // Fehlt ein Eintrag, ist das Feld leer (keine erfundenen Werte).
-type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan'
+type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung'
 // Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
 type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram' | 'strassentyp'
 
@@ -261,6 +265,17 @@ function istFromTags(t: Record<string, string>, highway: string): IstFuehrungsfo
       t.segregated !== 'yes') return 'Kombinierter Fuss-/Radweg'
   if ((highway === 'footway' || highway === 'path') &&
       ['yes', 'designated', 'permissive'].includes(t.bicycle)) return 'Fussweg Velo gestattet'
+  // Q7 „Einbahn mit Velogegenverkehr": Velostreifen entgegen der Einbahn (cycleway:*:oneway=-1 bzw.
+  // Legacy cycleway=opposite*). Die Sicherung der Gegenrichtung bestimmt die Stufe. VOR has('track')/has('lane').
+  const contraSide = ['left', 'right', 'both'].find(s => t[`cycleway:${s}:oneway`] === '-1')
+  const legacy = [t.cycleway, t['cycleway:left'], t['cycleway:right']].find(v => v?.startsWith('opposite'))
+  if (contraSide || legacy) {
+    const val = contraSide ? (t[`cycleway:${contraSide}`] || '') : (legacy || '')
+    if (val === 'lane' || val === 'opposite_lane') return 'Einbahn Velogegenverkehr mit Markierung'
+    if (val === 'track' || val === 'opposite_track') return 'Einbahn Velogegenverkehr mit baulicher Trennung'
+    return 'Einbahn Velogegenverkehr ohne Markierung'
+  }
+  if (t.oneway === 'yes' && t['oneway:bicycle'] === 'no') return 'Einbahn Velogegenverkehr ohne Markierung'
   if (has('track')) return 'Radweg strassenbegleitend / Geschützter Radstreifen'
   if (has('share_busway')) return 'Umweltspur'
   if (has('lane')) return 'Radstreifen'
@@ -323,11 +338,16 @@ function candToSection(c: Cand): Section {
   else if (c.speed != null) { s.speed = c.speed; s.quelle.speed = 'osm' }
   // DTV: nur amtlich (OSM kennt keinen DTV)
   if (c.bern?.dtv != null) { s.dtv = c.bern.dtv; s.quelle.dtv = 'amtlich' }
-  // Führungsform: Velostrasse amtlich, sonst OSM-Ableitung
+  // Führungsform: Velostrasse (Geoportal) > Radstreifen (Markierung) > OSM-Ableitung.
+  // Ausnahme: ein OSM-Q7 (Einbahn mit Velogegenverkehr) ist die spezifischere Form und wird von der
+  // Markierung NICHT zu „Radstreifen" übersteuert (Contraflow ≠ normaler Radstreifen).
+  const markierungWins = !!c.bern?.radstreifen && !GEGENVERKEHR_FORMEN.includes(c.ist as IstFuehrungsform)
   if (c.bern?.velostrasse) { s.ist = 'Velostrasse'; s.quelle.ist = 'amtlich' }
+  else if (markierungWins) { s.ist = 'Radstreifen'; s.quelle.ist = 'markierung' }
   else { s.ist = c.ist as IstFuehrungsform; s.quelle.ist = 'osm' }
-  // Breite: nur OSM (wenn getaggt)
-  if (c.breite != null) { s.breite = c.breite; s.quelle.breite = 'osm' }
+  // Breite: Markierung (gemessener Velostreifen) > OSM (wenn getaggt) — Markierung nur, wenn sie auch die Form stellt.
+  if (markierungWins && c.bern?.radstreifen?.breite != null) { s.breite = c.bern.radstreifen.breite; s.quelle.breite = 'markierung' }
+  else if (c.breite != null) { s.breite = c.breite; s.quelle.breite = 'osm' }
   // Routentyp: nur amtlich
   if (c.bern?.routentyp) { s.routentyp = c.bern.routentyp; s.quelle.routentyp = 'amtlich' }
   // Strassentyp: nur amtlich (Basel, Dataset 100250)
@@ -534,10 +554,12 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
     amtlich: { t: 'Geoportal', bg: '#dbeafe', fg: '#1e40af', title: amtlichTitle },
     osm: { t: 'OSM', bg: 'var(--border-subtle)', fg: 'var(--text-muted-strong)', title: 'OpenStreetMap' },
     fahrplan: { t: 'opentransportdata', bg: '#dcfce7', fg: '#166534', title: 'Fahrplan (opentransportdata.swiss / GTFS)' },
+    markierung: { t: 'Markierung', bg: '#ffedd5', fg: '#9a3412', title: 'Aus der Fahrbahnmarkierung ermittelter Velostreifen (lokale Auswertung)' },
     fehlt: { t: 'Eingabe nötig', bg: '#fee2e2', fg: '#b91c1c' },
   }
   const key = fehlt ? 'fehlt'
-    : q === 'amtlich' ? 'amtlich' : q === 'osm' ? 'osm' : q === 'fahrplan' ? 'fahrplan' : null
+    : q === 'amtlich' ? 'amtlich' : q === 'osm' ? 'osm' : q === 'fahrplan' ? 'fahrplan'
+    : q === 'markierung' ? 'markierung' : null
   if (!key) return null
   const c = map[key]
   return (
@@ -666,14 +688,29 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
         <label style={fieldStyle}>
           <FieldLabel label="Vorhandene Führungsform (Ist)"
                       chip={<QuelleChip q={q.ist} fehlt={ist === ''} />} />
-          <select value={ist} onChange={e => onChange({ ist: e.target.value as IstFuehrungsform })}
+          <select value={GEGENVERKEHR_FORMEN.includes(ist as IstFuehrungsform) ? '__gegenverkehr__' : ist}
+                  onChange={e => onChange({ ist: e.target.value === '__gegenverkehr__'
+                    ? GEGENVERKEHR_DEFAULT : e.target.value as IstFuehrungsform })}
                   style={selectStyle}>
             <option value="">— wählen —</option>
             {IST_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            <option value="__gegenverkehr__">Einbahn mit Velogegenverkehr</option>
           </select>
         </label>
-        {/* Breite nur bei Formen mit Breiten-Vorgabe (nicht Mischverkehr; erst nach Formwahl). */}
-        {ist !== '' && ist !== 'Mischverkehr' && (
+        {/* Zweite Stufe: Sicherung der Gegenrichtung → bestimmt die Q7-Führungsform. */}
+        {GEGENVERKEHR_FORMEN.includes(ist as IstFuehrungsform) && (
+          <label style={fieldStyle}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Sicherung der Gegenrichtung</span>
+            <select value={ist} onChange={e => onChange({ ist: e.target.value as IstFuehrungsform })}
+                    style={selectStyle}>
+              <option value="Einbahn Velogegenverkehr ohne Markierung">Ohne Markierung</option>
+              <option value="Einbahn Velogegenverkehr mit Markierung">Mit Markierung</option>
+              <option value="Einbahn Velogegenverkehr mit baulicher Trennung">Mit baulicher Trennung (Radweg)</option>
+            </select>
+          </label>
+        )}
+        {/* Breite nur bei Formen mit Breiten-Vorgabe (nicht Mischverkehr / Velogegenverkehr ohne Markierung). */}
+        {ist !== '' && ist !== 'Mischverkehr' && ist !== 'Einbahn Velogegenverkehr ohne Markierung' && (
           <NumberField label="Breite der Führungsform" unit="m" value={section.breite} step={0.1}
                        onChange={v => onChange({ breite: v })}
                        chip={<QuelleChip q={q.breite} fehlt={!Number.isFinite(section.breite)} />} />
@@ -860,13 +897,16 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
               )}
               {city === 'basel' && ist === 'Velostrasse' && bewertung.sollbreite != null && (
                 <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
-                  Nettobreite der Fahrgasse (ohne Parkierung und Sicherheitsabstand zur Parkierung).
+                  Nettobreite der Fahrbahn (ohne Parkierung und Sicherheitsabstand zur Parkierung).
                 </div>
               )}
               {city === 'bern' && ist === 'Velostrasse' && (
                 <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
                   Einsatzbereich: Nebenstrasse mit übergeordneter Velobedeutung, viel Veloverkehr,
                   wenig MIV und ohne ÖV.
+                  {bewertung.sollbreite != null && (
+                    <> Die Breitenvorgabe ist die Nettobreite der Fahrbahn (ohne Parkierung).</>
+                  )}
                 </div>
               )}
               {city === 'luzern' && ist === 'Velostrasse' && (
@@ -1004,7 +1044,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
 }
 
 // ── CSV-Export (client-seitig, ohne Library) ─────────────────────────────────
-const QUELLE_LABEL: Record<Quelle, string> = { amtlich: 'Geoportal', osm: 'OSM', manuell: 'manuell', fahrplan: 'opentransportdata' }
+const QUELLE_LABEL: Record<Quelle, string> = { amtlich: 'Geoportal', osm: 'OSM', manuell: 'manuell', fahrplan: 'opentransportdata', markierung: 'Markierung' }
 // Zahl im de-CH-Format (Komma-Dezimal); leer, wenn nicht gesetzt.
 const numDE = (x: number, dec = 0) => (Number.isFinite(x) ? x.toFixed(dec).replace('.', ',') : '')
 // CSV-Feld maskieren (Semikolon-getrennt, de-CH/Excel).
@@ -1137,6 +1177,8 @@ export default function App() {
   // OBS-Snapshot der Stadt (bis ~2,7 MB) im Hintergrund vorwärmen, sobald die Stadt feststeht —
   // damit der erste Strassen-Load nicht am Download/Parsen hängt (Cache in obs.ts; enrichObs([]) lädt nur).
   useEffect(() => { if (cityCfg.obsFile) void enrichObs([], cityCfg.obsFile).catch(() => {}) }, [cityCfg.obsFile])
+  // Lokalen Velostreifen-Snapshot (falls vorhanden) ebenso vorwärmen; fehlt er (öffentlicher Build) → no-op.
+  useEffect(() => { if (cityCfg.velostreifenFile) void enrichVelostreifen([], cityCfg.velostreifenFile).catch(() => {}) }, [cityCfg.velostreifenFile])
   const [cands, setCands] = useState<Cand[]>([])
   const [stops, setStops] = useState<Stop[]>([])                  // ÖV-Haltestellen für Karten-Marker
   // Stadtwechsel: geladene Segmente/Haltestellen verwerfen (sie tragen die Anreicherung der alten Stadt).
@@ -1181,16 +1223,21 @@ export default function App() {
   // PARALLEL und werden je Kandidat einmalig zusammengeführt (Latenz = Maximum statt Summe). Ein Fehler
   // je Quelle ist isoliert — die Anreicherung ist Zusatz und darf den OSM-Import nie verhindern.
   const enrichAll = async (c: Cand[]): Promise<{ cands: Cand[]; stops: Stop[] }> => {
-    const [ec, obs, oev] = await Promise.all([
+    const [ec, obs, oev, velo] = await Promise.all([
       cityCfg.enrichCands(c).catch(() => c),
       cityCfg.obsFile
         ? enrichObs(c, cityCfg.obsFile).catch(() => new Map<number, ObsStats>())
         : Promise.resolve(new Map<number, ObsStats>()),
       cityCfg.loadOev(c).catch(() => ({ byId: new Map<number, OevInfo>(), stops: [] as Stop[] })),
+      cityCfg.velostreifenFile
+        ? enrichVelostreifen(c, cityCfg.velostreifenFile).catch(() => new Map<number, VeloInfo>())
+        : Promise.resolve(new Map<number, VeloInfo>()),
     ])
     const bernById = new Map(ec.map(x => [x.id, x.bern]))
     const cands = c.map(cand => {
-      const bern = { ...bernById.get(cand.id), ...(oev.byId.get(cand.id) ?? {}) }
+      const v = velo.get(cand.id)
+      const bern = { ...bernById.get(cand.id), ...(oev.byId.get(cand.id) ?? {}),
+                     ...(v ? { radstreifen: v } : {}) }
       const o = obs.get(cand.id)
       const out: Cand = { ...cand }
       if (Object.keys(bern).length) out.bern = bern

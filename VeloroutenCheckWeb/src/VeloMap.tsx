@@ -20,6 +20,7 @@ export interface Cand {
     routentyp?: 'Velohauptroute' | 'Veloroute'   // Veloroutennetz Masterplan
     strassentyp?: 'verkehrsorientiert' | 'siedlungsorientiert'  // nur Basel (Strassen-/Wege-Datensatz)
     velostrasse?: boolean                 // Treffer im Velostrassen-Layer
+    radstreifen?: { breite?: number }     // Treffer im lokalen Markierungs-Snapshot (Velostreifen, siehe velostreifen.ts)
     oevHalt?: boolean                     // Haltestelle im Abschnitt (Geoportal Haltestellen)
     oevHaltName?: string                  // Name der nächsten Haltestelle
     oevTram?: boolean                     // Tram-Linie verläuft entlang (OeV_Linien)
@@ -43,6 +44,9 @@ export const ISTCOLOR: Record<string, string> = {
   'Velostrasse': '#2563eb',
   'Kombinierter Fuss-/Radweg': '#0d9488',
   'Fussweg Velo gestattet': '#ea580c',
+  'Einbahn Velogegenverkehr ohne Markierung': '#78716c',
+  'Einbahn Velogegenverkehr mit Markierung': '#d97706',
+  'Einbahn Velogegenverkehr mit baulicher Trennung': '#15803d',
 }
 
 // Nummern-Marker eines Abschnitts auf der Karte (num = Abschnitts-Nummer).

@@ -423,7 +423,7 @@
           "Q7 Einbahn Velogegenverkehr": {
             "optimal": 2.0,
             "minimal": 1.8,
-            "minimum": 1.5
+            "minimum": 1.8
           },
           "Q8 Quartierstrasse T30/T20": {
             "optimal": null,
@@ -940,7 +940,7 @@
             "optimal": 4.5,
             "minimal": 4.3,
             "minimum": null,
-            "hinweis": "Nur auf nicht verkehrsorientierten (siedlungsorientierten) Strassen: Vorzugsroute einzige Form, Pendler-/Basis mögliche Form (neben Mischverkehr). Nettobreite der Fahrgasse (ohne Parkierung + Sicherheitsabstand): optimal 4,50 / minimal 4,30; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel (Vorzugsroute 2'500) bleibt Hinweis."
+            "hinweis": "Nur auf nicht verkehrsorientierten (siedlungsorientierten) Strassen: Vorzugsroute einzige Form, Pendler-/Basis mögliche Form (neben Mischverkehr). Nettobreite der Fahrbahn (ohne Parkierung + Sicherheitsabstand): optimal 4,50 / minimal 4,30; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel (Vorzugsroute 2'500) bleibt Hinweis."
           },
           "Q10 Zweirichtungsradweg": {
             "optimal": 4.0,
@@ -1178,8 +1178,8 @@
           },
           "Q7 Einbahn Velogegenverkehr": {
             "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": 1.5
+            "minimal": 2.0,
+            "minimum": 1.8
           },
           "Q9 Velostrasse": {
             "optimal": 4.5,

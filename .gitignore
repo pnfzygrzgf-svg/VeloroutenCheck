@@ -23,7 +23,10 @@ _lokal/
 #  Snapshots unter VeloroutenCheckWeb/public/.)
 Fahrplan/
 Grundlagen/
-Notizen/
+Auswertung/
 FixMyCity_Daten/
 Geoinformation Stadt Bern/
 OBS_Daten*.json
+
+# Lokaler, nicht öffentlicher Snapshot (nur Dev; im öffentlichen Build nicht enthalten).
+VeloroutenCheckWeb/public/velostreifen_bern.json
