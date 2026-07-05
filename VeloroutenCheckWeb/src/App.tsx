@@ -199,7 +199,18 @@ const HALT_COLOR: Record<Haltestellenloesung, { bg: string; fg: string }> = {
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
 // Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
 // Fehlt ein Eintrag, ist das Feld leer (keine erfundenen Werte).
-type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung'
+type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung' | 'angenommen'
+
+// DTV-Annahme (nur Bern): fehlt der DTV, gilt bei bekanntem Tempo DTV ≤ 2000. Die „Flächendeckenden
+// Verkehrsdaten" Bern führen alle Strassen > 2000 + alle Altstadt-Strassen — kein Eintrag ⇒ ≤ 2000
+// (ausserhalb Altstadt; die Live-Punktabfrage liefert in der Altstadt zuverlässig einen Wert).
+const DTV_ANGENOMMEN = 1000   // Repräsentant des „< 2000"-Bands (jeder Wert < 2000 ergibt dasselbe Soll)
+function dtvAssumed(s: Section, city: CityId): boolean {
+  return !Number.isFinite(s.dtv) && city === 'bern' && Number.isFinite(s.speed)
+}
+function dtvEff(s: Section, city: CityId): number {
+  return Number.isFinite(s.dtv) ? s.dtv : (dtvAssumed(s, city) ? DTV_ANGENOMMEN : NaN)
+}
 // Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
 type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram' | 'strassentyp'
 
@@ -555,11 +566,12 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
     osm: { t: 'OSM', bg: 'var(--border-subtle)', fg: 'var(--text-muted-strong)', title: 'OpenStreetMap' },
     fahrplan: { t: 'opentransportdata', bg: '#dcfce7', fg: '#166534', title: 'Fahrplan (opentransportdata.swiss / GTFS)' },
     markierung: { t: 'Markierung', bg: '#ffedd5', fg: '#9a3412', title: 'Aus der Fahrbahnmarkierung ermittelter Velostreifen (lokale Auswertung)' },
+    angenommen: { t: '≤ 2000 angenommen', bg: '#fef9c3', fg: '#854d0e', title: 'Flächendeckende Verkehrsdaten Bern: kein Eintrag ⇒ DTV ≤ 2000 (ausserhalb Altstadt)' },
     fehlt: { t: 'Eingabe nötig', bg: '#fee2e2', fg: '#b91c1c' },
   }
   const key = fehlt ? 'fehlt'
     : q === 'amtlich' ? 'amtlich' : q === 'osm' ? 'osm' : q === 'fahrplan' ? 'fahrplan'
-    : q === 'markierung' ? 'markierung' : null
+    : q === 'markierung' ? 'markierung' : q === 'angenommen' ? 'angenommen' : null
   if (!key) return null
   const c = map[key]
   return (
@@ -681,7 +693,8 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
         <NumberField label="DTV MIV" unit="Fz/Tag" value={section.dtv} step={100}
                      onChange={v => onChange({ dtv: v })}
-                     chip={<QuelleChip q={q.dtv} fehlt={!Number.isFinite(section.dtv)} />} />
+                     chip={<QuelleChip q={dtvAssumed(section, city) ? 'angenommen' : q.dtv}
+                                       fehlt={!Number.isFinite(section.dtv) && !dtvAssumed(section, city)} />} />
         <NumberField label="Zul. Höchstgeschwindigkeit" unit="km/h" value={section.speed} step={10}
                      onChange={v => onChange({ speed: v })}
                      chip={<QuelleChip q={q.speed} fehlt={!Number.isFinite(section.speed)} />} />
@@ -1044,7 +1057,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
 }
 
 // ── CSV-Export (client-seitig, ohne Library) ─────────────────────────────────
-const QUELLE_LABEL: Record<Quelle, string> = { amtlich: 'Geoportal', osm: 'OSM', manuell: 'manuell', fahrplan: 'opentransportdata', markierung: 'Markierung' }
+const QUELLE_LABEL: Record<Quelle, string> = { amtlich: 'Geoportal', osm: 'OSM', manuell: 'manuell', fahrplan: 'opentransportdata', markierung: 'Markierung', angenommen: 'angenommen ≤2000' }
 // Zahl im de-CH-Format (Komma-Dezimal); leer, wenn nicht gesetzt.
 const numDE = (x: number, dec = 0) => (Number.isFinite(x) ? x.toFixed(dec).replace('.', ',') : '')
 // CSV-Feld maskieren (Semikolon-getrennt, de-CH/Excel).
@@ -1052,7 +1065,7 @@ const csvCell = (v: string | number) => {
   const s = String(v ?? '')
   return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
 }
-function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streckeNote: number | null): string {
+function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streckeNote: number | null, city: CityId): string {
   const head = [
     'Abschnitt', 'Strecke/Herkunft', 'DTV [Fz/Tag]', 'DTV-Quelle', 'Tempo [km/h]', 'Tempo-Quelle',
     'Ist-Führungsform', 'Ist-Quelle', 'Breite [m]', 'Breite-Quelle', 'Routentyp', 'Routentyp-Quelle',
@@ -1066,7 +1079,7 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
     const obsPct = obs && obs.count > 0 ? Math.round(100 * obs.below150 / obs.count) : NaN
     return [
       `Abschnitt ${i + 1}`, s.label ?? '',
-      numDE(s.dtv), s.quelle.dtv ? QUELLE_LABEL[s.quelle.dtv] : '',
+      numDE(s.dtv), s.quelle.dtv ? QUELLE_LABEL[s.quelle.dtv] : (dtvAssumed(s, city) ? QUELLE_LABEL.angenommen : ''),
       numDE(s.speed), s.quelle.speed ? QUELLE_LABEL[s.quelle.speed] : '',
       s.ist || '', s.quelle.ist ? QUELLE_LABEL[s.quelle.ist] : '',
       numDE(s.breite, 2), s.quelle.breite ? QUELLE_LABEL[s.quelle.breite] : '',
@@ -1352,7 +1365,8 @@ export default function App() {
   // Eine Note braucht DTV, Tempo, Führungsform und – ausser bei Mischverkehr (keine
   // Breiten-Vorgabe) – die Breite. Sonst keine Bewertung (statt auf erfundenen Werten zu rechnen).
   const sectionComplete = (s: Section) =>
-    Number.isFinite(s.dtv) && Number.isFinite(s.speed) && s.ist !== '' &&
+    // DTV zählt als vorhanden, wenn er entweder eingegeben ist oder (nur Bern) als ≤ 2000 angenommen wird.
+    Number.isFinite(dtvEff(s, city)) && Number.isFinite(s.speed) && s.ist !== '' &&
     (s.ist === 'Mischverkehr' || Number.isFinite(s.breite)) &&
     // Basel: Soll-Wahl ist strassentyp-basiert → Strassentyp nötig.
     (city !== 'basel' || s.strassentyp !== '')
@@ -1363,7 +1377,7 @@ export default function App() {
     const breite = Number.isFinite(s.breite) ? s.breite : undefined
     const routentyp = s.routentyp || 'Velohauptroute'
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
-    return fuehrungsformNote(s.dtv, s.speed, s.ist as IstFuehrungsform, breite, routentyp,
+    return fuehrungsformNote(dtvEff(s, city), s.speed, s.ist as IstFuehrungsform, breite, routentyp,
       s.parkenRechts, s.oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram,
       cityCfg.breiten?.[s.ist as IstFuehrungsform],   // stadtspezifische Breiten-Sollwerte
       city,                                            // Stadt → Soll-Tabelle + Haltestellen-Logik
@@ -1377,7 +1391,7 @@ export default function App() {
     const breite = Number.isFinite(s.breite) ? s.breite : undefined
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
     return vergleichsNoten({
-      dtv: s.dtv, v: s.speed, ist: s.ist as IstFuehrungsform, breite,
+      dtv: dtvEff(s, city), v: s.speed, ist: s.ist as IstFuehrungsform, breite,
       routentyp: s.routentyp || 'Velohauptroute', parkenRechts: s.parkenRechts,
       parkenSicherheitsstreifen: s.parkenSicherheitsstreifen, oevTakt: s.oevTakt,
       oevAngebot: s.oevAngebot, haltestellentyp: s.haltestellentyp, haltestelleBreite, tram: s.tram,
@@ -1686,7 +1700,7 @@ export default function App() {
                          cursor: 'pointer', flex: 1, minWidth: 200 }}>
           + Abschnitt hinzufügen
         </button>
-        <button onClick={() => downloadCsv(buildCsv(sections, results, streckeNote))}
+        <button onClick={() => downloadCsv(buildCsv(sections, results, streckeNote, city))}
                 title="Alle Abschnitte mit Werten, Herkunft und Note als CSV (Excel) herunterladen"
                 style={{ border: '1px solid var(--accent)', background: '#fff', color: 'var(--accent)',
                          borderRadius: 10, padding: '10px 16px', fontSize: 14, fontWeight: 600,
