@@ -69,6 +69,55 @@ export function overlapScore(candGeom: LL[], line: LL[], maxDistM: number): numb
   return Math.max(fracNear(candGeom, line, kx, maxDistM), fracNear(line, candGeom, kx, maxDistM))
 }
 
+// Richtung (Einheitsvektor, planar) der zu p nächstgelegenen Kante von `line`.
+function dirAt(p: LL, line: LL[], kx: number): [number, number] {
+  let best = Infinity, dx = 1, dy = 0
+  for (let i = 1; i < line.length; i++) {
+    const a = line[i - 1], b = line[i]
+    const d = projDistPointSeg(p, a, b, kx)
+    if (d < best) {
+      best = d
+      const vx = (b.lon - a.lon) * kx, vy = (b.lat - a.lat) * KY
+      const n = Math.hypot(vx, vy) || 1
+      dx = vx / n; dy = vy / n
+    }
+  }
+  return [dx, dy]
+}
+
+const COS_MAX_ANGLE = Math.cos((30 * Math.PI) / 180)   // lokale Parallelität: ≤ 30° (Richtungssinn egal)
+
+// MEHRHEITS-Zuordnung: welcher Linien-Kandidat deckt den grössten Teil des (verdichteten)
+// Abschnitts ab? Jeder Abschnitts-Punkt stimmt für die nächstgelegene, LOKAL PARALLELE
+// (≤ 30°) Linie ≤ maxDistM; der Index mit den meisten Stimmen gewinnt, sofern er
+// ≥ minFraction der Punkte abdeckt (sonst -1). GERICHTET statt symmetrisch (overlapScore):
+//   a) eine kurze Fremdlinie (z. B. DTV-Segment einer Nachbarstrasse), die selbst ganz am
+//      Abschnitt liegt, aber nur einen Bruchteil des Abschnitts abdeckt, gewinnt nicht mehr;
+//   b) quer einmündende Linien werden über die Parallelitäts-Prüfung verworfen.
+// Restrisiko bleibt eine parallele Nachbarlinie < maxDistM, wenn die eigene Strasse keine
+// Linie im Datensatz hat.
+export function majorityLineIndex(candGeom: LL[], lines: LL[][], maxDistM: number, minFraction: number): number {
+  if (candGeom.length === 0 || lines.length === 0) return -1
+  const kx = KY * Math.cos((candGeom[0].lat * Math.PI) / 180)
+  const votes = new Array<number>(lines.length).fill(0)
+  for (const p of candGeom) {
+    let bestD = maxDistM, bestI = -1
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].length < 2) continue
+      const d = distToLine(p, lines[i], kx)
+      if (d <= bestD) { bestD = d; bestI = i }
+    }
+    if (bestI < 0) continue
+    const [fx, fy] = dirAt(p, lines[bestI], kx)
+    const [cx, cy] = dirAt(p, candGeom, kx)
+    if (Math.abs(fx * cx + fy * cy) < COS_MAX_ANGLE) continue   // quer → keine Stimme
+    votes[bestI]++
+  }
+  let bi = -1, bv = 0
+  for (let i = 0; i < lines.length; i++) if (votes[i] > bv) { bv = votes[i]; bi = i }
+  return bi >= 0 && bv / candGeom.length >= minFraction ? bi : -1
+}
+
 // Kürzeste Distanz [m] eines Punktes zu einer Polylinie (z. B. Haltestelle ↔ Strassen-Segment).
 export function distPointToLineM(p: LL, line: LL[]): number {
   if (line.length < 2) return Infinity

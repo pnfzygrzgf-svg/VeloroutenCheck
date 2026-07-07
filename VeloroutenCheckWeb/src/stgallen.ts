@@ -41,7 +41,8 @@ function artToRoutentyp(a: unknown): Routentyp | undefined {
 async function fetchVeloplan(b: Bbox): Promise<GeoJsonFeature[]> {
   // Opendatasoft-Geofilter: in_bbox(feld, latmin, lonmin, latmax, lonmax) → nur Kartenbereich.
   const params = new URLSearchParams({ where: `in_bbox(geo_shape, ${b.s}, ${b.w}, ${b.n}, ${b.e})` })
-  const res = await fetch(`${VELOPLAN}?${params}`)
+  // Timeout: ein hängender Server darf enrichAll/die UI nicht dauerhaft blockieren.
+  const res = await fetch(`${VELOPLAN}?${params}`, { signal: AbortSignal.timeout(15000) })
   if (!res.ok) throw new Error(`Veloplan St. Gallen HTTP ${res.status}`)
   const data: { features?: GeoJsonFeature[] } = await res.json()
   return (data.features || []).filter(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString')

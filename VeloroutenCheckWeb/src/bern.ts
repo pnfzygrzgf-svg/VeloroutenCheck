@@ -26,7 +26,7 @@
 
 import type { Cand, Stop } from './VeloMap'
 import type { Routentyp } from './fuehrungsform'
-import { densify, overlapScore, distPointToLineM, type LL } from './geo'
+import { densify, overlapScore, majorityLineIndex, distPointToLineM, type LL } from './geo'
 
 const BASE = 'https://map.bern.ch/arcgis/rest/services/Geoportal'
 
@@ -45,7 +45,8 @@ async function fetchBernGeojson(
     geometryType: 'esriGeometryEnvelope', inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
     outFields, outSR: '4326', f: 'geojson',
   })
-  const res = await fetch(`${BASE}/${service}/MapServer/0/query?${params}`)
+  // Timeout: ein hängender Geoportal-Server darf enrichAll/die UI nicht dauerhaft blockieren.
+  const res = await fetch(`${BASE}/${service}/MapServer/0/query?${params}`, { signal: AbortSignal.timeout(15000) })
   if (!res.ok) throw new Error(`${service} HTTP ${res.status}`)
   const data: GeoJsonResponse = await res.json()
   return data.features || []
@@ -64,17 +65,14 @@ function featureLatLon(feature: GeoJsonFeature): LL[] {
   return coords.map(([lon, lat]) => ({ lat, lon }))
 }
 
-// Feature mit dem grössten Überlappungs-Score; akzeptiert nur, wenn ≥ minFraction
-// (sonst undefined → kein Treffer, statt einer kreuzenden Strasse aufzusitzen).
+// Feature per Mehrheits-Zuordnung (majorityLineIndex, geo.ts): gewinnt, wer den grössten Teil
+// des Abschnitts lokal parallel abdeckt (≥ minFraction, sonst undefined). Gerichtet statt
+// symmetrisch — eine kurze DTV-/Tempo-Linie einer Nachbarstrasse kann nicht mehr aufsitzen.
 function bestOverlapFeature(
   candGeom: LL[], features: GeoJsonFeature[], maxDistM: number, minFraction: number,
 ): GeoJsonFeature | undefined {
-  let best: GeoJsonFeature | undefined, bf = 0
-  for (const f of features) {
-    const o = overlapScore(candGeom, featureLatLon(f), maxDistM)
-    if (o > bf) { bf = o; best = f }
-  }
-  return bf >= minFraction ? best : undefined
+  const i = majorityLineIndex(candGeom, features.map(featureLatLon), maxDistM, minFraction)
+  return i >= 0 ? features[i] : undefined
 }
 
 function bboxOf(cands: Cand[]): { s: number; w: number; n: number; e: number } {

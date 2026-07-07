@@ -66,7 +66,8 @@ async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
     typeName: BS_LAYER, outputFormat: 'geojson', srsName: 'EPSG:4326',
     bbox: `${bbox.s},${bbox.w},${bbox.n},${bbox.e},urn:ogc:def:crs:EPSG::4326`,
   })
-  const res = await fetch(`${BS_WFS}?${params}`)
+  // Timeout: ein hängender WFS darf enrichAll/die UI nicht dauerhaft blockieren.
+  const res = await fetch(`${BS_WFS}?${params}`, { signal: AbortSignal.timeout(15000) })
   if (!res.ok) throw new Error(`Teilrichtplan Velo HTTP ${res.status}`)
   const data: { features?: GeoJsonFeature[] } = await res.json()
   return (data.features || []).filter(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString')
@@ -82,7 +83,7 @@ const VELO_FRACTION = 0.6  // strenger als Routentyp: Velostrasse überschreibt 
 let velostrassenCache: Promise<GeoJsonFeature[]> | null = null
 function loadVelostrassen(): Promise<GeoJsonFeature[]> {
   if (!velostrassenCache) {
-    velostrassenCache = fetch(VELOSTADTPLAN_GEOJSON)
+    velostrassenCache = fetch(VELOSTADTPLAN_GEOJSON, { signal: AbortSignal.timeout(15000) })
       .then(r => (r.ok ? r.json() : { features: [] }))
       .then((d: { features?: GeoJsonFeature[] }) => d.features || [])
       .catch(() => [])
@@ -101,7 +102,7 @@ function strassenGeojsonUrl(bbox: Bbox): string {
 }
 
 async function fetchStrassentyp(bbox: Bbox): Promise<GeoJsonFeature[]> {
-  const res = await fetch(strassenGeojsonUrl(bbox))
+  const res = await fetch(strassenGeojsonUrl(bbox), { signal: AbortSignal.timeout(15000) })
   if (!res.ok) throw new Error(`Strassen und Wege HTTP ${res.status}`)
   const data: { features?: GeoJsonFeature[] } = await res.json()
   return (data.features || []).filter(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString')

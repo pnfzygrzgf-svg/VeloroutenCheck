@@ -7,7 +7,7 @@
 
 import type { Cand, Stop } from './VeloMap'
 import type { OevInfo } from './bern'
-import { densify, overlapScore, distPointToLineM, bboxOfLL, bboxOverlap, type LL, type BboxLL } from './geo'
+import { densify, overlapScore, majorityLineIndex, distPointToLineM, bboxOfLL, bboxOverlap, type LL, type BboxLL } from './geo'
 
 // ── Geo-Matching gegen ein GeoJSON-Liniennetz ─────────────────────────────────
 export interface GeoJsonFeature {
@@ -55,10 +55,11 @@ function prepareFeatures(features: GeoJsonFeature[]): PreparedFeature[] {
   return p
 }
 
-// Feature mit dem grössten Überlappungs-Score; nur ab minFraction (sonst undefined →
-// kein Treffer, statt einer bloss kreuzenden Strasse aufzusitzen). Billiger Bbox-Vorfilter vor dem
-// teuren overlapScore → Matching ~linear statt O(Kandidaten × Features × Punkte²). Ergebnis identisch
-// (verworfene Paare überlappen räumlich nicht → Score 0).
+// Feature per Mehrheits-Zuordnung (majorityLineIndex, geo.ts): gewinnt, wer den grössten Teil des
+// Abschnitts lokal parallel abdeckt (≥ minFraction, sonst undefined) — gerichtet statt symmetrisch,
+// damit eine kurze Fremdlinie einer Nachbarstrasse nicht aufsitzt. Billiger Bbox-Vorfilter davor →
+// Matching ~linear statt O(Kandidaten × Features × Punkte²). Ergebnis identisch (verworfene Paare
+// überlappen räumlich nicht → keine Stimmen).
 export function bestOverlapFeature(
   candGeom: LL[], features: GeoJsonFeature[], maxDistM = OVERLAP_M, minFraction = MIN_FRACTION,
 ): GeoJsonFeature | undefined {
@@ -67,13 +68,9 @@ export function bestOverlapFeature(
   // Puffer in Grad, konservativ: ÷74000 deckt maxDistM in BEIDEN Richtungen (Längengrad ist bei ~47°
   // kürzer, ~111000·cos → nie fälschlich verwerfen; Breite wird leicht überpuffert = harmlos).
   const padDeg = (maxDistM + 5) / 74000
-  let best: GeoJsonFeature | undefined, bf = 0
-  for (const pf of prepared) {
-    if (pf.ll.length < 2 || !bboxOverlap(candBbox, pf.bbox, padDeg)) continue
-    const o = overlapScore(candGeom, pf.ll, maxDistM)
-    if (o > bf) { bf = o; best = pf.f }
-  }
-  return bf >= minFraction ? best : undefined
+  const nearby = prepared.filter(pf => pf.ll.length >= 2 && bboxOverlap(candBbox, pf.bbox, padDeg))
+  const i = majorityLineIndex(candGeom, nearby.map(pf => pf.ll), maxDistM, minFraction)
+  return i >= 0 ? nearby[i].f : undefined
 }
 
 export interface Bbox { s: number; w: number; n: number; e: number }

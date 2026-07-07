@@ -72,8 +72,12 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
   const suppress = useRef(false)        // Klick auf Linie soll keinen Karten-Klick auslösen
   const clickCb = useRef(onMapClick)    // immer den aktuellen Callback aufrufen
   clickCb.current = onMapClick
+  const readyCb = useRef(onReady)       // dito (onReady wird inline übergeben → neue Referenz je Render)
+  readyCb.current = onReady
 
-  // Karte einmalig initialisieren (CyclOSM-Hintergrund).
+  // Karte einmalig initialisieren (CyclOSM-Hintergrund); nur beim Mount — Callbacks laufen über
+  // Refs, das Zentrum bei Stadtwechsel über den Folge-Effekt. Cleanup beim Unmount (z. B.
+  // Rechner → Startseite), sonst bleibt je Wechsel eine verwaiste Leaflet-Instanz zurück (Leck).
   useEffect(() => {
     if (!elRef.current || mapRef.current) return
     const map = L.map(elRef.current).setView(center, 13)  // Anfangs-Mitte je Stadt
@@ -88,8 +92,13 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
       clickCb.current?.(e.latlng.lat, e.latlng.lng)
     })
     mapRef.current = map
-    onReady?.(map)
-  }, [onReady, center])
+    readyCb.current?.(map)
+    return () => {
+      map.remove()
+      mapRef.current = null; layerRef.current = null; lineRef.current.clear(); lastFit.current = ''
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Stadtwechsel: Karte auf das neue Zentrum springen (greift, solange keine Segmente
   // geladen sind — beim Laden passt fitBounds ohnehin neu ein).

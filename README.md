@@ -23,7 +23,7 @@ Vibecoding. Don't trust, verify!
 |---|---|
 | [`VeloroutenCheckWeb/`](VeloroutenCheckWeb/) | Die Web-App (React + Vite + TypeScript). |
 | [`tools/`](tools/) | Offline-Skripte: `oev_takt.py` (GTFS → Bus-Takt-Snapshots je Stadt), `dtv_basel.py` (DTV-Snapshot Basel), `verify_06.py` (Nachrechnung der feel-safe-Anker), `visualisierung_template.html`. |
-| `docs/` | Methodik-Notizen und Herleitungen (lokal, nicht im Repo). |
+| [`docs/`](docs/) | Methodik-Notizen, Herleitungen und das Regelwerk (`regelwerk.json`/`.md`). Die zugrunde liegenden Rohdaten liegen lokal und sind nicht im Repo. |
 
 ---
 

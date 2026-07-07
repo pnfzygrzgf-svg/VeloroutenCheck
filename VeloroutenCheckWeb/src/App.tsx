@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
-  erfuellungsgrad, vergleichsNoten, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
+  brauchtBreite, erfuellungsgrad, vergleichsNoten, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   GEGENVERKEHR_FORMEN, GEGENVERKEHR_DEFAULT,
   type Fuehrungsart, type IstFuehrungsform, type Routentyp, type ParkenRechts,
   type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
@@ -444,8 +444,11 @@ function mergeSegs(ordered: Seg[]): Section[] {
         oevTram: oevs.some(o => o.oevTram), oevBus: oevs.some(o => o.oevBus), busPerH,
       }
       const auto = oevAngebotAuto(rep.sec.oev)
-      if (auto) { rep.sec.oevAngebot = auto; rep.sec.quelle.oevAngebot = auto === 'tram' ? 'amtlich' : 'fahrplan' }
-      rep.sec.tram = rep.sec.oev.oevTram; rep.sec.quelle.tram = 'amtlich'
+      // Herkunft nicht hartkodieren: candToSection hat sie stadtkorrekt gesetzt (Bern = amtlich/
+      // fahrplan, ZH/BS/LU = osm) — vom erkannten Segment der Gruppe übernehmen.
+      const oevQ = g.find(seg => seg.sec.oev)?.sec.quelle.tram ?? 'amtlich'
+      if (auto) { rep.sec.oevAngebot = auto; rep.sec.quelle.oevAngebot = auto === 'tram' ? oevQ : 'fahrplan' }
+      rep.sec.tram = rep.sec.oev.oevTram; rep.sec.quelle.tram = oevQ
     }
     return rep.sec
   })
@@ -722,8 +725,8 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
             </select>
           </label>
         )}
-        {/* Breite nur bei Formen mit Breiten-Vorgabe (nicht Mischverkehr / Velogegenverkehr ohne Markierung). */}
-        {ist !== '' && ist !== 'Mischverkehr' && ist !== 'Einbahn Velogegenverkehr ohne Markierung' && (
+        {/* Breite nur bei Formen mit Breiten-Vorgabe (optimal/minimal in IST) — gleiche Regel wie der Note-Guard. */}
+        {ist !== '' && brauchtBreite(ist) && (
           <NumberField label="Breite der Führungsform" unit="m" value={section.breite} step={0.1}
                        onChange={v => onChange({ breite: v })}
                        chip={<QuelleChip q={q.breite} fehlt={!Number.isFinite(section.breite)} />} />
@@ -1094,10 +1097,12 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
       obs ? String(obs.usage) : '',
     ]
   })
-  // Schlusszeile: Strecken-Note (schlechtester Abschnitt).
-  const foot = ['Strecke', 'schlechtester Abschnitt', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
-    streckeNote != null ? numDE(streckeNote, 1) : 'unvollständig',
-    streckeNote != null ? erfuellungsgrad(streckeNote) : '', '', '', '', '']
+  // Schlusszeile: Strecken-Note (schlechtester Abschnitt). Spalten aus dem Kopf abgeleitet,
+  // damit die Zeile bei Spaltenänderungen ausgerichtet bleibt.
+  const foot = head.map((h, i) =>
+    i === 0 ? 'Strecke' : i === 1 ? 'schlechtester Abschnitt' :
+    h === 'Note' ? (streckeNote != null ? numDE(streckeNote, 1) : 'unvollständig') :
+    h === 'Erfüllungsgrad' ? (streckeNote != null ? erfuellungsgrad(streckeNote) : '') : '')
   return [head, ...rows, foot].map(row => row.map(csvCell).join(';')).join('\r\n')
 }
 function downloadCsv(csv: string) {
@@ -1194,10 +1199,14 @@ export default function App() {
   useEffect(() => { if (cityCfg.velostreifenFile) void enrichVelostreifen([], cityCfg.velostreifenFile).catch(() => {}) }, [cityCfg.velostreifenFile])
   const [cands, setCands] = useState<Cand[]>([])
   const [stops, setStops] = useState<Stop[]>([])                  // ÖV-Haltestellen für Karten-Marker
-  // Stadtwechsel: geladene Segmente/Haltestellen verwerfen (sie tragen die Anreicherung der alten Stadt).
+  // Stadtwechsel: geladene Segmente/Haltestellen UND Abschnitte verwerfen — die Abschnitte tragen
+  // Quellen/Annahmen der alten Stadt (z. B. Bern-DTV-Annahme, Geoportal-Chips) und wären in der
+  // neuen Stadt still falsch etikettiert.
   const wechsleStadt = (c: CityId) => {
     if (c === city) return
-    setCity(c); setCands([]); setStops([]); setStreet(''); setMsg('')
+    const hatte = sections.some(s => s.ist !== '' || Number.isFinite(s.dtv) || s.candIds?.length)
+    setCity(c); setCands([]); setStops([]); setStreet(''); setSections([defaultSection()])
+    setMsg(hatte ? 'Stadtwechsel: die übernommenen Abschnitte wurden geleert.' : '')
   }
   // Herkunft der massgeblichen Breiten-Vorgabe eines Abschnitts: stadtspezifischer Standard,
   // wenn die Stadt für diese Führungsform/diesen Routentyp einen Wert liefert — sonst Masterplan Bern.
@@ -1319,8 +1328,10 @@ export default function App() {
     finally { setOsmBusy(false) }
   }
 
-  const toggleCand = (id: number) =>
-    setCands(prev => prev.map(c => (c.id === id ? { ...c, selected: !c.selected } : c)))
+  // Stabil (useCallback): geht als Prop in den VeloMap-Zeichen-Effekt — eine neue Referenz je
+  // Render würde die Karte bei jedem Tastendruck in einer SectionCard komplett neu zeichnen.
+  const toggleCand = useCallback((id: number) =>
+    setCands(prev => prev.map(c => (c.id === id ? { ...c, selected: !c.selected } : c))), [])
 
   // Weg 3: Klick auf die Karte → nächstes Segment laden, anreichern und hinzufügen.
   // Wie beim Strassen-/Ausschnitt-Laden mit den Stadt-Daten + OpenBikeSensor anreichern
@@ -1362,12 +1373,13 @@ export default function App() {
   const add = () => setSections(prev => [...prev, defaultSection()])
   const remove = (id: number) => setSections(prev => prev.filter(s => s.id !== id))
 
-  // Eine Note braucht DTV, Tempo, Führungsform und – ausser bei Mischverkehr (keine
-  // Breiten-Vorgabe) – die Breite. Sonst keine Bewertung (statt auf erfundenen Werten zu rechnen).
+  // Eine Note braucht DTV, Tempo, Führungsform und – bei Formen mit Breiten-Vorgabe – die Breite.
+  // Formen ohne Vorgabe (Mischverkehr, Einbahn ohne Markierung) sind ausgenommen; dort ist das
+  // Breite-Feld auch ausgeblendet (gleiche Regel via brauchtBreite, sonst Sackgasse ohne Note).
   const sectionComplete = (s: Section) =>
     // DTV zählt als vorhanden, wenn er entweder eingegeben ist oder (nur Bern) als ≤ 2000 angenommen wird.
     Number.isFinite(dtvEff(s, city)) && Number.isFinite(s.speed) && s.ist !== '' &&
-    (s.ist === 'Mischverkehr' || Number.isFinite(s.breite)) &&
+    (!brauchtBreite(s.ist) || Number.isFinite(s.breite)) &&
     // Basel: Soll-Wahl ist strassentyp-basiert → Strassentyp nötig.
     (city !== 'basel' || s.strassentyp !== '')
   // Einzelbewertungen je Abschnitt (null = unvollständig); Strecke = schlechtester Abschnitt.
@@ -1411,19 +1423,22 @@ export default function App() {
 
   // Karten-Marker je Abschnitt: Nummer am Mittelpunkt des längsten zugehörigen OSM-Segments
   // (liegt auf der Linie). Nur Abschnitte mit OSM-Herkunft (candIds); manuelle ohne Marker.
-  const candById = new Map(cands.map(c => [c.id, c]))
-  const markers: SectionMarker[] = sections.flatMap((s, i) => {
-    const segs = (s.candIds ?? [])
-      .map(id => candById.get(id)).filter((c): c is Cand => !!c && c.geom.length >= 2)
-    if (segs.length === 0) return []
-    const longest = segs.reduce((a, b) => (b.len > a.len ? b : a))
-    const mid = longest.geom[Math.floor(longest.geom.length / 2)]
-    return [{ num: i + 1, lat: mid.lat, lon: mid.lon }]
-  })
-  // Cand-IDs des gehoverten Abschnitts → Karten-Highlight.
-  const highlightIds = hoverSec != null
+  // useMemo: stabile Referenz, sonst zeichnet der VeloMap-Effekt bei jedem Render alles neu.
+  const markers: SectionMarker[] = useMemo(() => {
+    const candById = new Map(cands.map(c => [c.id, c]))
+    return sections.flatMap((s, i) => {
+      const segs = (s.candIds ?? [])
+        .map(id => candById.get(id)).filter((c): c is Cand => !!c && c.geom.length >= 2)
+      if (segs.length === 0) return []
+      const longest = segs.reduce((a, b) => (b.len > a.len ? b : a))
+      const mid = longest.geom[Math.floor(longest.geom.length / 2)]
+      return [{ num: i + 1, lat: mid.lat, lon: mid.lon }]
+    })
+  }, [cands, sections])
+  // Cand-IDs des gehoverten Abschnitts → Karten-Highlight (useMemo: stabile Set-Referenz).
+  const highlightIds = useMemo(() => hoverSec != null
     ? new Set(sections.find(s => s.id === hoverSec)?.candIds ?? [])
-    : undefined
+    : undefined, [hoverSec, sections])
 
   return (
     <AttribContext.Provider value={cityCfg.attribution}>

@@ -301,6 +301,7 @@ const IST: Record<IstFuehrungsform, IstMeta> = {
   'Kombinierter Fuss-/Radweg': { q: 'Q11', rank: 2, feelClass: 'Radweg', optimal: 3.5, minimal: 3.5 },
   // Fussweg Velo gestattet (Q12): Mischfläche Fuss/Velo, Kompromiss-/Restlösung. DTV/Tempo
   // nicht massgebend. Breite i. d. R. ≥ 3,50 m (gilt für beide Routentypen → optimal = minimal).
+  // rank/feelClass ungenutzt (Sonderfall greift vor dem Rang-Vergleich, wie Umweltspur/Velostrasse).
   'Fussweg Velo gestattet':    { q: 'Q12', rank: 0, feelClass: 'Mischverkehr', optimal: 3.5, minimal: 3.5 },
   // Q7 „Einbahn mit Velogegenverkehr" — Sicherung der Gegenrichtung bestimmt die Stufe:
   //   ohne Markierung → Mischverkehr (Rang 0, keine Breite); mit Markierung → Radstreifen (Rang 1);
@@ -457,6 +458,14 @@ function zielScore(soll: Fuehrungsart, v: number): number {
 // Wird NUR EINMAL auf die Endnote angewandt (nach dem Breiten-Abzug); Zwischenwerte bleiben roh.
 const roundToHalf = (x: number): number => Math.round(x * 2) / 2
 
+// Formen ohne Breiten-Vorgabe (kein optimal/minimal in IST, z. B. Mischverkehr oder Einbahn
+// Velogegenverkehr ohne Markierung) brauchen keine Breiten-Eingabe — UI-Feld und Note-Guard
+// koppeln sich hieran, damit beide dieselben Formen ausnehmen.
+export function brauchtBreite(ist: IstFuehrungsform): boolean {
+  const m = IST[ist]
+  return m.optimal != null || m.minimal != null
+}
+
 // Vierstufige verbale Erfüllungsskala als alternative Darstellung der Schulnote (1…6).
 // Reine Nachklassierung der Endnote — kein Einfluss auf die Berechnung. Grenzen an der
 // Schulnoten-Logik: 4 = «genügend» (Vorgabe gerade erfüllt) → teilweise; ungenügend (≤ 3) → gar nicht.
@@ -565,10 +574,12 @@ export function fuehrungsformNote(
   // gefordert ist, der vorhandene Typ aber aus der Mischverkehr-Familie stammt (Über-Erfüllung = ok).
   // Zürich/Basel: keine Soll-Lösung (null) → kein automatischer Abzug, nur Typ-Auswahl + Breite.
   const sollHaltestelle = haltestellenLoesung(routentyp, oevAngebot, stadt) ?? undefined
-  // Zur Soll-Lösung passende Typen der gewählten Stadt (Separate/Übergang = Separate-Typen; sonst alle).
+  // Zur Soll-Lösung passende Typen der gewählten Stadt — deckungsgleich mit der Abzugslogik unten:
+  // nur «Separate Velofläche» schränkt auf die Separate-Familie ein; bei «Mischverkehr» und
+  // «Übergang» sind beide Familien zulässig (Übergang = beides vertretbar, kein Abzug).
   const kompatibleHaltestellen = sollHaltestelle
     ? haltestellenTypen(stadt).filter(t =>
-        sollHaltestelle === 'Mischverkehr' ? true : HALTESTELLEN[stadt][t]?.familie === 'Separate')
+        sollHaltestelle === 'Separate Velofläche' ? HALTESTELLEN[stadt][t]?.familie === 'Separate' : true)
     : []
   let haltestelleAbzug = 0
   let haltestelleStatus: NotenErgebnis['haltestelleStatus'] = 'keine'
@@ -669,7 +680,9 @@ export function fuehrungsformNote(
     const takt = UMWELTSPUR_TAKT[stadt]
     if (takt == null) {
       // Basel: kein Takt-Schwellwert → keine Takt-Abhängigkeit; Note rein breitengetrieben (Decke 4)
-      // plus Hinweis auf die qualitativen Faktoren (Tab. 4, Standards FVV BS).
+      // plus Hinweis auf die qualitativen Faktoren (Tab. 4, Standards FVV BS). Erreicht wird dieser
+      // Zweig nur auf verkehrsorientierten/unbestimmten Strassen — auf siedlungsorientierten greift
+      // bewusst schon der Basel-Block oben (Umweltspur ist dort keine vorgesehene Form, Tab. 3).
       return finish(UMWELTSPUR_BASIS, true, 0, { maxNote: UMWELTSPUR_BASIS,
         hinweis: 'Basel nennt keinen Takt-Schwellwert: Eignung hängt qualitativ von Busspur-Breite, '
           + 'Anzahl Buslinien, Taktdichte und Velofrequenz ab.' })
@@ -704,7 +717,7 @@ export function fuehrungsformNote(
 // durch. Die feel-safe-Logik ist stadtübergreifend; Unterschiede entstehen nur aus
 // der Soll-Tabelle (fuehrungsart) und den stadtspezifischen Breiten-Sollwerten.
 
-export const STAEDTE: Stadt[] = ['bern', 'zurich', 'basel', 'luzern']
+const STAEDTE: Stadt[] = ['bern', 'zurich', 'basel', 'luzern']   // nur intern (vergleichsNoten)
 
 // Stadtspezifische Breiten-Sollwerte je Stadt (Bern = keine → Berner Standardwerte aus IST).
 const BREITEN_BY_STADT: Record<Stadt, Partial<Record<IstFuehrungsform, BreitenSoll>> | undefined> = {

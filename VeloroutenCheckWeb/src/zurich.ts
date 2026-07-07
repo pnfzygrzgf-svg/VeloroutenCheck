@@ -68,7 +68,8 @@ async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
     typeName: 'view_velonetz', outputFormat: 'application/json', srsName: 'EPSG:4326',
     bbox: `${bbox.s},${bbox.w},${bbox.n},${bbox.e},urn:ogc:def:crs:EPSG::4326`,
   })
-  const res = await fetch(`${VELONETZ_WFS}?${params}`)
+  // Timeout: ein hängender WFS darf enrichAll/die UI nicht dauerhaft blockieren.
+  const res = await fetch(`${VELONETZ_WFS}?${params}`, { signal: AbortSignal.timeout(15000) })
   if (!res.ok) throw new Error(`Velonetzplanung HTTP ${res.status}`)
   const data: { features?: GeoJsonFeature[] } = await res.json()
   return (data.features || []).filter(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString')

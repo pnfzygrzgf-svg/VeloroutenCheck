@@ -65,7 +65,8 @@ async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
     geometryType: 'esriGeometryEnvelope', inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
     outFields: 'VELO_ROUTENTYP', outSR: '4326', f: 'geojson',
   })
-  const res = await fetch(`${VELONETZ_LU}?${params}`)
+  // Timeout: ein hängender Server darf enrichAll/die UI nicht dauerhaft blockieren.
+  const res = await fetch(`${VELONETZ_LU}?${params}`, { signal: AbortSignal.timeout(15000) })
   if (!res.ok) throw new Error(`Velonetz Luzern HTTP ${res.status}`)
   const data: { features?: GeoJsonFeature[] } = await res.json()
   return (data.features || []).filter(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString')

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen,
   BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
-  vergleichsNoten, baselStrassentypAusVerkehr,
+  vergleichsNoten, baselStrassentypAusVerkehr, brauchtBreite, erfuellungsgrad,
 } from './fuehrungsform'
 import type { BreitenSoll } from './fuehrungsform'
 
@@ -401,5 +401,91 @@ describe('Q7 — Einbahn mit Velogegenverkehr (dreistufig)', () => {
     expect(BREITEN_LUZERN['Einbahn Velogegenverkehr mit Markierung']).toEqual({ optimal: 2.5, minimal: 2.0 })
     expect(BREITEN_BASEL['Einbahn Velogegenverkehr mit Markierung']).toEqual({ optimal: 2.5, minimal: 1.8 })
     expect(BREITEN_ZUERICH['Einbahn Velogegenverkehr mit baulicher Trennung']).toEqual({ optimal: 1.8, minimal: 1.8 })
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// Abzugsmechanik + Sonderfälle (Review-Nachrüstung): Tram-Malus, Velostrasse-
+// Grenzen, Haltestellen-Abzug/-Breite, Erfüllungsskala, Breitenpflicht.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('Tram in der Fahrbahn (TRAM_MALUS)', () => {
+  it('Mischverkehr T30: 6,0 → 5,0 (Malus 0,8, gerundet)', () => {
+    const ohne = fuehrungsformNote(1000, 30, 'Mischverkehr')
+    const mit = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'keine', 'keine', undefined, true)
+    expect(ohne.note).toBe(6)
+    expect(mit.tramAbzug).toBeCloseTo(0.8)
+    expect(mit.note).toBe(5)
+  })
+  it('kein Malus bei Radstreifen (nur Mischverkehr betroffen)', () => {
+    const r = fuehrungsformNote(3000, 30, 'Radstreifen', 2.5, 'Velohauptroute',
+      'egal', undefined, 'keine', 'keine', undefined, true)
+    expect(r.tramAbzug).toBe(0)
+    expect(r.note).toBe(6)
+  })
+})
+
+describe('Velostrasse — Grenzen', () => {
+  it('v > 30 → Note 1 (nicht zulässig)', () => {
+    const r = fuehrungsformNote(1000, 50, 'Velostrasse', 4.5)
+    expect(r.note).toBe(1)
+    expect(r.hinweis).toContain('Tempo 30')
+  })
+  it('zu breit (7,5 m > Band 6,5) → Abzug, Status „zu breit"', () => {
+    const r = fuehrungsformNote(1000, 30, 'Velostrasse', 7.5)
+    expect(r.breitenStatus).toBe('zu breit')
+    expect(r.breitenDefizit).toBeCloseTo(1.0)
+    expect(r.note).toBe(5)   // 6 − 1,0 · 0,9 = 5,1 → 5,0
+  })
+})
+
+describe('Haltestelle — Abzug und Breite (Bern)', () => {
+  it('Separate gefordert (Tram, Velohauptroute), Mischverkehr-Typ → Abzug 1,0', () => {
+    const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'tram', 'Kaphaltestelle')
+    expect(r.sollHaltestelle).toBe('Separate Velofläche')
+    expect(r.haltestelleStatus).toBe('inkompatibel')
+    expect(r.haltestelleAbzug).toBe(1)
+    expect(r.note).toBe(5)
+  })
+  it('Übergang (Bus 5–15, Velohauptroute): Mischverkehr-Typ kompatibel, kein Abzug — und in der Typenliste', () => {
+    const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'bus_5_15', 'Kaphaltestelle')
+    expect(r.sollHaltestelle).toBe('Übergang')
+    expect(r.haltestelleStatus).toBe('kompatibel')
+    expect(r.haltestelleAbzug).toBe(0)
+    // Liste und Abzugslogik deckungsgleich: der akzeptierte Typ steht auch in der Liste.
+    expect(r.kompatibleHaltestellen).toContain('Kaphaltestelle')
+    expect(r.note).toBe(6)
+  })
+  it('zu schmale Veloführung an der Haltestelle → hsBreitenabzug', () => {
+    const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
+    expect(r.hsBreitenSoll).toBe(1.8)
+    expect(r.hsBreiteStatus).toBe('zu schmal')
+    expect(r.hsBreitenabzug).toBeCloseTo(0.45)
+    expect(r.note).toBe(5.5)   // 6 − 0,45 = 5,55 → 5,5
+  })
+})
+
+describe('erfuellungsgrad + brauchtBreite', () => {
+  it('Notenstufen → Erfüllungsskala', () => {
+    expect(erfuellungsgrad(6)).toBe('Vollständig erfüllt')
+    expect(erfuellungsgrad(5.5)).toBe('Vollständig erfüllt')
+    expect(erfuellungsgrad(5)).toBe('Weitgehend erfüllt')
+    expect(erfuellungsgrad(4)).toBe('Teilweise erfüllt')
+    expect(erfuellungsgrad(3)).toBe('Gar nicht erfüllt')
+  })
+  it('Formen ohne Breiten-Vorgabe brauchen keine Breite (Guard-/UI-Kopplung)', () => {
+    expect(brauchtBreite('Mischverkehr')).toBe(false)
+    expect(brauchtBreite('Einbahn Velogegenverkehr ohne Markierung')).toBe(false)
+    expect(brauchtBreite('Radstreifen')).toBe(true)
+    expect(brauchtBreite('Velostrasse')).toBe(true)
+  })
+  it('Einbahn ohne Markierung: Note auch ohne Breite berechenbar (keine Sackgasse)', () => {
+    const r = fuehrungsformNote(1000, 30, 'Einbahn Velogegenverkehr ohne Markierung')
+    expect(r.note).toBeGreaterThanOrEqual(1)
+    expect(r.breitenStatus).toBe('keine')
   })
 })
