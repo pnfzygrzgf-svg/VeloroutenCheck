@@ -241,7 +241,7 @@ let nextId = 1
 function defaultSection(): Section {
   return {
     id: nextId++, dtv: NaN, speed: NaN, ist: '', breite: NaN,
-    routentyp: '', strassentyp: '', parkenRechts: 'egal', parkenSicherheitsstreifen: false, oevTakt: 10,
+    routentyp: '', strassentyp: '', parkenRechts: 'egal', parkenSicherheitsstreifen: false, oevTakt: NaN,
     oevAngebot: 'keine', haltestellentyp: 'keine', haltestelleBreite: NaN,
     tram: false,
     quelle: {},
@@ -276,17 +276,8 @@ function istFromTags(t: Record<string, string>, highway: string): IstFuehrungsfo
       t.segregated !== 'yes') return 'Kombinierter Fuss-/Radweg'
   if ((highway === 'footway' || highway === 'path') &&
       ['yes', 'designated', 'permissive'].includes(t.bicycle)) return 'Fussweg Velo gestattet'
-  // Q7 „Einbahn mit Velogegenverkehr": Velostreifen entgegen der Einbahn (cycleway:*:oneway=-1 bzw.
-  // Legacy cycleway=opposite*). Die Sicherung der Gegenrichtung bestimmt die Stufe. VOR has('track')/has('lane').
-  const contraSide = ['left', 'right', 'both'].find(s => t[`cycleway:${s}:oneway`] === '-1')
-  const legacy = [t.cycleway, t['cycleway:left'], t['cycleway:right']].find(v => v?.startsWith('opposite'))
-  if (contraSide || legacy) {
-    const val = contraSide ? (t[`cycleway:${contraSide}`] || '') : (legacy || '')
-    if (val === 'lane' || val === 'opposite_lane') return 'Einbahn Velogegenverkehr mit Markierung'
-    if (val === 'track' || val === 'opposite_track') return 'Einbahn Velogegenverkehr mit baulicher Trennung'
-    return 'Einbahn Velogegenverkehr ohne Markierung'
-  }
-  if (t.oneway === 'yes' && t['oneway:bicycle'] === 'no') return 'Einbahn Velogegenverkehr ohne Markierung'
+  // „Einbahn mit Velogegenverkehr" (Q7) wird NICHT automatisch erkannt — im Dropdown von Hand wählbar.
+  // Ein Contraflow-Velostreifen fällt hier auf die zugrundeliegende Anlage zurück (z. B. lane → Radstreifen).
   if (has('track')) return 'Radweg strassenbegleitend / Geschützter Radstreifen'
   if (has('share_busway')) return 'Umweltspur'
   if (has('lane')) return 'Radstreifen'
@@ -880,7 +871,9 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
             <>
               <div style={{ marginTop: 4, opacity: 0.85 }}>
                 {ist === 'Umweltspur'
-                  ? `öV-Takt ${section.oevTakt} Min (≥ 7,5 zulässig) → Basis-Note 4 (max. «genügend»); DTV/Tempo nicht massgebend.`
+                  ? (Number.isFinite(section.oevTakt)
+                      ? `öV-Takt ${section.oevTakt} Min (≥ 7,5 zulässig) → Basis-Note 4 (max. «genügend»); DTV/Tempo nicht massgebend.`
+                      : `Kein öV-Takt angegeben → als zulässig angenommen (Basis-Note 4, max. «genügend»); DTV/Tempo nicht massgebend. Für die Prüfung «zu hohe Busfrequenz» den Takt eintragen.`)
                   : ist === 'Fussweg Velo gestattet'
                     ? 'Mischfläche Fuss/Velo · Basis-Note 4 (max. «genügend»); DTV/Tempo nicht massgebend.'
                     : bewertung.erfuellt
@@ -1389,8 +1382,9 @@ export default function App() {
     const breite = Number.isFinite(s.breite) ? s.breite : undefined
     const routentyp = s.routentyp || 'Velohauptroute'
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
+    const oevTakt = Number.isFinite(s.oevTakt) ? s.oevTakt : undefined   // leeres Feld → unbekannter Takt
     return fuehrungsformNote(dtvEff(s, city), s.speed, s.ist as IstFuehrungsform, breite, routentyp,
-      s.parkenRechts, s.oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram,
+      s.parkenRechts, oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram,
       cityCfg.breiten?.[s.ist as IstFuehrungsform],   // stadtspezifische Breiten-Sollwerte
       city,                                            // Stadt → Soll-Tabelle + Haltestellen-Logik
       s.strassentyp || undefined,                      // Strassentyp (nur Basel)
@@ -1405,7 +1399,8 @@ export default function App() {
     return vergleichsNoten({
       dtv: dtvEff(s, city), v: s.speed, ist: s.ist as IstFuehrungsform, breite,
       routentyp: s.routentyp || 'Velohauptroute', parkenRechts: s.parkenRechts,
-      parkenSicherheitsstreifen: s.parkenSicherheitsstreifen, oevTakt: s.oevTakt,
+      parkenSicherheitsstreifen: s.parkenSicherheitsstreifen,
+      oevTakt: Number.isFinite(s.oevTakt) ? s.oevTakt : undefined,
       oevAngebot: s.oevAngebot, haltestellentyp: s.haltestellentyp, haltestelleBreite, tram: s.tram,
     }, city)
   })
