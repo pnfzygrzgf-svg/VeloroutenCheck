@@ -26,7 +26,7 @@
 
 import type { Cand, Stop } from './VeloMap'
 import type { Routentyp } from './fuehrungsform'
-import { densify, overlapScore, majorityLineIndex, distPointToLineM, type LL } from './geo'
+import { densify, overlapScore, majorityLineIndex, majorityValue, distPointToLineM, type LL } from './geo'
 
 const BASE = 'https://map.bern.ch/arcgis/rest/services/Geoportal'
 
@@ -112,16 +112,32 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
   // Das Veloroutennetz enthält auch unklassifizierte Netzgeometrie (Velorouten_beschrieb = null).
   // Vorab herausfiltern, damit ein solches Stück nicht eine echte Klassifizierung verdeckt.
   const routen = routenRoh.filter(f => f.properties.Velorouten_beschrieb != null)
+
+  // ── Zuordnung NACH WERT statt nach Feature (majorityValue, siehe geo.ts) ──────────────
+  // Alle drei Layer sind je AchsenABSCHNITT segmentiert und damit feiner als die OSM-Wege:
+  // ein 842-m-Weg läuft über fünf Verkehrsdaten-Abschnitte, die alle denselben DTV tragen.
+  // Pro Feature gezählt zersplittern die Stimmen (29/24/19/16/12 %), keines erreicht
+  // MIN_FRACTION — und der Abschnitt bliebe ohne DTV, obwohl er zu 100 % abgedeckt ist.
+  // Nach Wert gezählt gewinnt der Wert, der die Mehrheit des Abschnitts abdeckt.
+  // Geometrien/Werte einmal je Layer aufbereiten (statt je Kandidat neu).
+  const tempoGeom = tempo.map(featureLatLon)
+  const tempoWert = tempo.map(f => {
+    const v = Number(f.properties.V_sig)
+    return Number.isFinite(v) ? v : null
+  })
+  const dtvGeom = dtv.map(featureLatLon)
+  const dtvWert = dtv.map(f => {
+    const nt = Number(f.properties.Nt), nn = Number(f.properties.Nn)
+    return Number.isFinite(nt) && Number.isFinite(nn) ? dtvFromNtNn(nt, nn) : null
+  })
+  const routenGeom = routen.map(featureLatLon)
+  const routenWert = routen.map(f => f.properties.Velorouten_beschrieb as string | null)
+
   return cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
-    const tempoF = bestOverlapFeature(dense, tempo, OVERLAP_M, MIN_FRACTION)
-    const dtvF = bestOverlapFeature(dense, dtv, OVERLAP_M, MIN_FRACTION)
-    const routenF = bestOverlapFeature(dense, routen, OVERLAP_M, MIN_FRACTION)
-    const speed = tempoF ? Number(tempoF.properties.V_sig) : undefined
-    const dtvVal = dtvF ? dtvFromNtNn(Number(dtvF.properties.Nt), Number(dtvF.properties.Nn)) : undefined
-    const routentyp = routenF
-      ? (routenF.properties.Velorouten_beschrieb as Routentyp)
-      : undefined
+    const speed = majorityValue(dense, tempoGeom, tempoWert, OVERLAP_M, MIN_FRACTION)
+    const dtvVal = majorityValue(dense, dtvGeom, dtvWert, OVERLAP_M, MIN_FRACTION)
+    const routentyp = majorityValue(dense, routenGeom, routenWert, OVERLAP_M, MIN_FRACTION) as Routentyp | undefined
     // Velostrasse setzt die Ist-Führungsform → strenger (VELO_FRACTION), damit eine bloss
     // kreuzende Velostrasse die OSM-Führungsform nicht fälschlich überschreibt.
     const velostrasse = bestOverlapFeature(dense, velostrassen, OVERLAP_M, VELO_FRACTION) != null

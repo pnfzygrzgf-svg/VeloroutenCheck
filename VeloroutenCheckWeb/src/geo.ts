@@ -98,24 +98,61 @@ const COS_MAX_ANGLE = Math.cos((30 * Math.PI) / 180)   // lokale Parallelität: 
 // Linie im Datensatz hat.
 export function majorityLineIndex(candGeom: LL[], lines: LL[][], maxDistM: number, minFraction: number): number {
   if (candGeom.length === 0 || lines.length === 0) return -1
-  const kx = KY * Math.cos((candGeom[0].lat * Math.PI) / 180)
   const votes = new Array<number>(lines.length).fill(0)
-  for (const p of candGeom) {
+  for (const i of naechsteLinieJePunkt(candGeom, lines, maxDistM)) if (i >= 0) votes[i]++
+  let bi = -1, bv = 0
+  for (let i = 0; i < lines.length; i++) if (votes[i] > bv) { bv = votes[i]; bi = i }
+  return bi >= 0 && bv / candGeom.length >= minFraction ? bi : -1
+}
+
+// Je Abschnitts-Punkt der Index der nächstgelegenen, LOKAL PARALLELEN Linie ≤ maxDistM
+// (sonst -1). Gemeinsamer Kern von majorityLineIndex und majorityValue.
+function naechsteLinieJePunkt(candGeom: LL[], lines: LL[][], maxDistM: number): number[] {
+  const kx = KY * Math.cos((candGeom[0].lat * Math.PI) / 180)
+  return candGeom.map(p => {
     let bestD = maxDistM, bestI = -1
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].length < 2) continue
       const d = distToLine(p, lines[i], kx)
       if (d <= bestD) { bestD = d; bestI = i }
     }
-    if (bestI < 0) continue
+    if (bestI < 0) return -1
     const [fx, fy] = dirAt(p, lines[bestI], kx)
     const [cx, cy] = dirAt(p, candGeom, kx)
-    if (Math.abs(fx * cx + fy * cy) < COS_MAX_ANGLE) continue   // quer → keine Stimme
-    votes[bestI]++
+    return Math.abs(fx * cx + fy * cy) < COS_MAX_ANGLE ? -1 : bestI   // quer → keine Stimme
+  })
+}
+
+// MEHRHEIT NACH WERT statt nach Linie — für Attribute, die sich VIELE Features TEILEN.
+//
+// Warum es das braucht: majorityLineIndex verlangt, dass EIN EINZELNES Feature ≥ minFraction
+// des Abschnitts abdeckt. Die Geoportal-Layer sind aber je AchsenABSCHNITT segmentiert und
+// damit feiner als die OSM-Wege — gemessen an der Bremgartenstrasse (842 m): fünf
+// Verkehrsdaten-Abschnitte, ALLE mit DTV 8350, Stimmen 29/24/19/16/12 % → keiner erreicht
+// 50 %, der Abschnitt bliebe ohne DTV, obwohl er zu 100 % abgedeckt ist. Dasselbe beim
+// Routentyp und beim Tempo. Hier wird deshalb je Punkt die nächste Linie bestimmt, die Stimme
+// aber ihrem WERT gutgeschrieben; gewinnt der Wert, der die Mehrheit des Abschnitts abdeckt.
+// (Bei echt unterschiedlichen Abschnittswerten — z. B. DTV 2470 vs. 2679 — entscheidet damit
+// die Mehrheit, statt gar nichts zu liefern.)
+//
+// Werte werden über `String(wert)` gruppiert; `null`/`undefined` stimmen nicht mit.
+export function majorityValue<T>(
+  candGeom: LL[], lines: LL[][], values: (T | null | undefined)[],
+  maxDistM: number, minFraction: number,
+): T | undefined {
+  if (candGeom.length === 0 || lines.length === 0) return undefined
+  const votes = new Map<string, { n: number; wert: T }>()
+  for (const i of naechsteLinieJePunkt(candGeom, lines, maxDistM)) {
+    const v = i >= 0 ? values[i] : null
+    if (v == null) continue
+    const k = String(v)
+    const e = votes.get(k)
+    if (e) e.n++
+    else votes.set(k, { n: 1, wert: v })
   }
-  let bi = -1, bv = 0
-  for (let i = 0; i < lines.length; i++) if (votes[i] > bv) { bv = votes[i]; bi = i }
-  return bi >= 0 && bv / candGeom.length >= minFraction ? bi : -1
+  let best: { n: number; wert: T } | undefined
+  for (const e of votes.values()) if (!best || e.n > best.n) best = e
+  return best && best.n / candGeom.length >= minFraction ? best.wert : undefined
 }
 
 // Kürzeste Distanz [m] eines Punktes zu einer Polylinie (z. B. Haltestelle ↔ Strassen-Segment).

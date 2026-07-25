@@ -175,6 +175,29 @@ describe('fuehrungsformNote — Bern Beispiel aus README (unverändert)', () => 
   })
 })
 
+describe('Zweirichtungsradweg (Q10) — baulich getrennt, Breite entscheidet', () => {
+  // Rang 2 wie der Radweg: erfüllt jedes Soll. Die Note steuert allein die Breite, und die
+  // liegt höher als beim Einrichtungs-Radweg (4,50 Velohauptroute / 3,20 Veloroute), weil
+  // zwei Fahrtrichtungen samt Begegnungsfall hineinmüssen.
+  it('erfüllt auch das strengste Soll (Radweg) bei genügender Breite → Note 6', () => {
+    const r = fuehrungsformNote(12000, 60, 'Zweirichtungsradweg', 4.5, 'Velohauptroute')
+    expect(r.soll).toBe('Radweg')
+    expect(r.note).toBe(6)
+  })
+  it('Velohauptroute mit 3,0 m → zu schmal, Abzug', () => {
+    const r = fuehrungsformNote(3000, 50, 'Zweirichtungsradweg', 3.0, 'Velohauptroute')
+    expect(r.note).toBeLessThan(6)
+  })
+  it('Veloroute: 3,20 m genügt (dort wo die Hauptroute noch Abzug bekäme)', () => {
+    expect(fuehrungsformNote(3000, 50, 'Zweirichtungsradweg', 3.2, 'Veloroute').note).toBe(6)
+    expect(fuehrungsformNote(3000, 50, 'Zweirichtungsradweg', 3.2, 'Velohauptroute').note).toBeLessThan(6)
+  })
+  it('strenger als der Einrichtungs-Radweg: 2,5 m sind dort ok, hier nicht', () => {
+    expect(fuehrungsformNote(3000, 50, 'Radweg abgesetzt', 2.5, 'Velohauptroute').note).toBe(6)
+    expect(fuehrungsformNote(3000, 50, 'Zweirichtungsradweg', 2.5, 'Velohauptroute').note).toBeLessThan(6)
+  })
+})
+
 describe('Luzern Markierungszone (DTV ≥ 5000 / ≤30 → Radstreifen)', () => {
   // Soll = Radstreifen: Ist Radstreifen erfüllt (bei genügender Breite Note 6),
   // Ist Mischverkehr unterschreitet → Abzug.

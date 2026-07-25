@@ -123,6 +123,7 @@ export type IstFuehrungsform =
   | 'Velostrasse'
   | 'Kombinierter Fuss-/Radweg'
   | 'Fussweg Velo gestattet'
+  | 'Zweirichtungsradweg'                              // Q10: baulich getrennt, beide Richtungen
   // Q7 „Einbahn mit Velogegenverkehr" — dreistufig, je nach Sicherung der Gegenrichtung:
   | 'Einbahn Velogegenverkehr ohne Markierung'         // wie Mischverkehr (Rang 0)
   | 'Einbahn Velogegenverkehr mit Markierung'          // wie Radstreifen (Rang 1)
@@ -303,6 +304,11 @@ const IST: Record<IstFuehrungsform, IstMeta> = {
   // nicht massgebend. Breite i. d. R. ≥ 3,50 m (gilt für beide Routentypen → optimal = minimal).
   // rank/feelClass ungenutzt (Sonderfall greift vor dem Rang-Vergleich, wie Umweltspur/Velostrasse).
   'Fussweg Velo gestattet':    { q: 'Q12', rank: 0, feelClass: 'Mischverkehr', optimal: 3.5, minimal: 3.5 },
+  // Zweirichtungsradweg (Q10): baulich vom MIV getrennt und in BEIDEN Richtungen befahrbar
+  // → höchste Separation (rank 2), erfüllt damit jedes Soll; die Qualität steuert allein die
+  // Breite. Sie ist grösser als beim Einrichtungs-Radweg, weil zwei Fahrtrichtungen samt
+  // Begegnungsfall hineinmüssen: 4,50 (Velohauptroute) / 3,20 (Veloroute).
+  'Zweirichtungsradweg':       { q: 'Q10', rank: 2, feelClass: 'Radweg', optimal: 4.5, minimal: 3.2 },
   // Q7 „Einbahn mit Velogegenverkehr" — Sicherung der Gegenrichtung bestimmt die Stufe:
   //   ohne Markierung → Mischverkehr (Rang 0, keine Breite); mit Markierung → Radstreifen (Rang 1);
   //   mit baulicher Trennung → Radweg (Rang 2). Regelbreiten (Bern) 2,0/1,8; Stadt-Overrides in BREITEN_*.

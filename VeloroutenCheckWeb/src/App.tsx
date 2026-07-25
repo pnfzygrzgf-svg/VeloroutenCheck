@@ -114,7 +114,7 @@ const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
 
 const IST_OPTIONS: IstFuehrungsform[] = [
   'Mischverkehr', 'Radstreifen', 'Radweg strassenbegleitend / Geschützter Radstreifen', 'Radweg abgesetzt',
-  'Umweltspur', 'Velostrasse', 'Kombinierter Fuss-/Radweg', 'Fussweg Velo gestattet',
+  'Zweirichtungsradweg', 'Umweltspur', 'Velostrasse', 'Kombinierter Fuss-/Radweg', 'Fussweg Velo gestattet',
 ]
 const ROUTE_OPTIONS: Routentyp[] = ['Velohauptroute', 'Veloroute']
 const PARKEN_OPTIONS: { value: ParkenRechts; label: string }[] = [
@@ -269,6 +269,13 @@ function istFromTags(t: Record<string, string>, highway: string): IstFuehrungsfo
   const cw = [t.cycleway, t['cycleway:both'], t['cycleway:left'], t['cycleway:right']]
   const has = (v: string) => cw.includes(v)
   if (t.bicycle_road === 'yes' || t.cyclestreet === 'yes') return 'Velostrasse'
+  // Zweirichtungsradweg (Q10): eigener Radweg, der AUSDRÜCKLICH in beide Richtungen freigegeben
+  // ist. Bewusst nur bei explizitem Tag — ein `cycleway` ohne oneway-Angabe bleibt „Radweg
+  // abgesetzt". (Formal gilt in OSM dort zwar Zweirichtung als Default, praktisch ist das Tag
+  // aber oft schlicht nicht gesetzt; stillschweigend umzudeuten würde bestehende Bewertungen
+  // verschieben — die Breitenvorgabe steigt von 2,5 auf 4,5 m.)
+  if (highway === 'cycleway' && (t.oneway === 'no' || t['oneway:bicycle'] === 'no'))
+    return 'Zweirichtungsradweg'
   if (highway === 'cycleway') return 'Radweg abgesetzt'
   // Gemeinsam genutzter Geh-/Radweg (Velo + Fuss je „designated", nicht getrennt) → kombiniert.
   if ((highway === 'footway' || highway === 'path') &&
