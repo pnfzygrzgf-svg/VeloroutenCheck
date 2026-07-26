@@ -302,8 +302,9 @@ const IST: Record<IstFuehrungsform, IstMeta> = {
   'Kombinierter Fuss-/Radweg': { q: 'Q11', rank: 2, feelClass: 'Radweg', optimal: 3.5, minimal: 3.5 },
   // Fussweg Velo gestattet (Q12): Mischfläche Fuss/Velo, Kompromiss-/Restlösung. DTV/Tempo
   // nicht massgebend. Breite i. d. R. ≥ 3,50 m (gilt für beide Routentypen → optimal = minimal).
-  // rank/feelClass ungenutzt (Sonderfall greift vor dem Rang-Vergleich, wie Umweltspur/Velostrasse).
-  'Fussweg Velo gestattet':    { q: 'Q12', rank: 0, feelClass: 'Mischverkehr', optimal: 3.5, minimal: 3.5 },
+  // Vom MIV getrennte Fläche → rank 2 / Radweg-Klasse, kein Mischverkehr. Beides bleibt ohne
+  // Rechenwirkung: der Sonderfall greift vor dem Rang-Vergleich, wie Umweltspur/Velostrasse.
+  'Fussweg Velo gestattet':    { q: 'Q12', rank: 2, feelClass: 'Radweg', optimal: 3.5, minimal: 3.5 },
   // Zweirichtungsradweg (Q10): baulich vom MIV getrennt und in BEIDEN Richtungen befahrbar
   // → höchste Separation (rank 2), erfüllt damit jedes Soll; die Qualität steuert allein die
   // Breite. Sie ist grösser als beim Einrichtungs-Radweg, weil zwei Fahrtrichtungen samt
