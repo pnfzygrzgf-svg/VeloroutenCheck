@@ -81,10 +81,22 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
   useEffect(() => {
     if (!elRef.current || mapRef.current) return
     const map = L.map(elRef.current).setView(center, 13)  // Anfangs-Mitte je Stadt
-    L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap-Mitwirkende · Stil: CyclOSM',
-    }).addTo(map)
+    // Drei Hintergründe zur Wahl: CyclOSM (Velo-Infrastruktur betont), Orthofoto (Führungsform
+    // am Luftbild prüfbar — OSM-Tags sagen nicht immer, was gebaut ist), Hell (ruhiger Kontrast
+    // für die Linienfarben). swisstopo deckt alle vier Städte ab. CyclOSM bleibt der Default.
+    const basemaps: Record<string, L.TileLayer> = {
+      'CyclOSM': L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '© OpenStreetMap-Mitwirkende · Stil: CyclOSM',
+      }),
+      'Orthofoto (swisstopo)': L.tileLayer(
+        'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',
+        { maxZoom: 20, attribution: '© swisstopo' }),
+      'Hell (Carto)': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 20, attribution: '© OpenStreetMap-Mitwirkende · © CARTO',
+      }),
+    }
+    basemaps['CyclOSM'].addTo(map)
+    L.control.layers(basemaps, undefined, { position: 'topright' }).addTo(map)
     layerRef.current = L.layerGroup().addTo(map)
     // Klick auf freie Karte (nicht auf eine Linie) → Segment an der Stelle hinzufügen.
     map.on('click', (e: L.LeafletMouseEvent) => {
