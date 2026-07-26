@@ -393,34 +393,46 @@ const PARKEN_RECHTS_ABZUG = 1.0
 const TRAM_MALUS: Record<'ruhig' | 'schnell', number> = { ruhig: 0.8, schnell: 0.55 }
 
 // Umweltspur (Bus+Velo): Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerer Takt)
-// und ist nach oben auf «genügend» (Basisnote 4) gedeckelt — DTV/Tempo sind nicht massgebend.
+// und ist nach oben gedeckelt — DTV/Tempo sind nicht massgebend.
 // (Aus den FixMyCity-Daten nicht ableitbar — nur 2 Bus-Szenen; Werte normativ.)
 //
-// Stadt-spezifische Takt-Schwellen (Min): Note 1 bei Takt ≤ taktNote1, Decke (Basis 4) ab Takt ≥ taktOk,
+// Die Decke ist STADTABHÄNGIG: Bern 5 («weitgehend»), übrige Städte 4 («genügend») nach ihren
+// eigenen Standards. Für Zürich/Luzern ist sie zugleich der obere Anker der Takt-Rampe, deshalb
+// darf sie nicht global verstellt werden.
+//
+// Stadt-spezifische Takt-Schwellen (Min): Note 1 bei Takt ≤ taktNote1, Decke ab Takt ≥ taktOk,
 // linear interpoliert dazwischen. Herleitung pro Stadt:
 //   • Bern: Standard nennt einen einzigen Schwellwert (tiefe–mittlere Busfrequenz, Takt ≥ 7,5 Min) →
-//     Stufe (taktNote1 = taktOk = 7,5; Verhalten wie bisher).
+//     Stufe (taktNote1 = taktOk = 7,5). Decke 5 — dasselbe wie im lokalen Batch-Rechner.
 //   • Zürich: «< 5 Min keine Anwendung, < 15 Min kritisch» → Rampe 5↔15.
 //   • Luzern: Bewertung 1–5; Takt < 5 → Bew. 1, Takt ≥ 15 → Bew. 3 (= Umweltspur-Decke). Die
 //     Bewertungs-Endpunkte fallen normiert exakt auf Berns Skala (Bew. 1 ↔ Note 1, Bew. 3 ↔ Note 4)
 //     → identische Anker wie Zürich (5↔15).
 //   • Basel: nennt KEINEN Takt-Schwellwert (Eignung nur qualitativ: Busspur-Breite, Anzahl Buslinien,
 //     Taktdichte, Velofrequenz) → keine Takt-Abhängigkeit; Note rein breitengetrieben + Hinweis.
-const UMWELTSPUR_BASIS = 4        // max. Note (Decke) bei zulässigem Takt und genügender Breite
-const UMWELTSPUR_TAKT: Record<Stadt, { taktNote1: number; taktOk: number } | null> = {
-  bern:   { taktNote1: 7.5, taktOk: 7.5 },   // Stufe
-  zurich: { taktNote1: 5, taktOk: 15 },      // Rampe
-  luzern: { taktNote1: 5, taktOk: 15 },      // Rampe (gleiche Anker wie Zürich)
-  basel:  null,                              // keine Takt-Abhängigkeit
+// Max. Note (Decke) bei zulässigem Takt und genügender Breite — je Stadt.
+const UMWELTSPUR_DECKE: Record<Stadt, number> = { bern: 5, zurich: 4, luzern: 4, basel: 4 }
+// Bern: dreistufige Tabelle, deckungsgleich mit dem lokalen Batch-Rechner (umweltspur_note()).
+// Unter 7,5 Min bleibt es bei Note 2 — der Standard nennt die Umweltspur dort als Führungsform
+// unzulässig, das steht als Warnung daneben, erzwingt die Note aber nicht mehr.
+// Zürich/Luzern: Rampe zwischen den beiden Ankern, unter taktNote1 fix Note 1.
+type UmweltspurRegel =
+  | { art: 'stufen'; baender: [number, number][]; warnAb: number }   // [Takt-Untergrenze, Note]
+  | { art: 'rampe'; taktNote1: number; taktOk: number }
+const UMWELTSPUR_TAKT: Record<Stadt, UmweltspurRegel | null> = {
+  bern:   { art: 'stufen', baender: [[0, 2], [7.5, 4], [15, 5]], warnAb: 7.5 },
+  zurich: { art: 'rampe', taktNote1: 5, taktOk: 15 },
+  luzern: { art: 'rampe', taktNote1: 5, taktOk: 15 },   // gleiche Anker wie Zürich
+  basel:  null,                                          // keine Takt-Abhängigkeit
 }
 
 // Takt → Umweltspur-Basisnote (auf 0,5 gerundet, damit die Decke ein sauberer Halbschritt ist und
 // die spätere Endrundung sie nicht überschreitet). Annahme: oevTakt ≥ taktNote1 (darunter Note 1).
-function umweltspurBasis(takt: number, taktNote1: number, taktOk: number): number {
-  if (takt >= taktOk) return UMWELTSPUR_BASIS
+function umweltspurBasis(takt: number, taktNote1: number, taktOk: number, decke: number): number {
+  if (takt >= taktOk) return decke
   if (takt <= taktNote1 || taktOk === taktNote1) return 1   // Stufe oder unterer Anker
   const frac = (takt - taktNote1) / (taktOk - taktNote1)
-  return Math.round((1 + frac * (UMWELTSPUR_BASIS - 1)) * 2) / 2
+  return Math.round((1 + frac * (decke - 1)) * 2) / 2
 }
 
 // Fussweg Velo gestattet (Q12, Mischfläche Fuss/Velo): Kompromisslösung → höchstens «genügend».
@@ -473,6 +485,15 @@ export function brauchtBreite(ist: IstFuehrungsform): boolean {
   return m.optimal != null || m.minimal != null
 }
 
+// Formen mit Sonderregel: die Note entsteht ohne DTV und Tempo — die Umweltspur aus dem ÖV-Takt,
+// der Fussweg aus der festen Basis 4. Auch der einzige tempoabhängige Abzug (Tram-Malus) greift
+// nur bei Mischverkehr. Folglich wird für sie auch keine Soll-Führungsform gebraucht oder gezeigt.
+// NICHT hier: Velostrasse (wertet v > 30 aus) und Zweirichtungsradweg (Rang-Vergleich gegen Soll).
+const OHNE_DTV_TEMPO: IstFuehrungsform[] = ['Umweltspur', 'Fussweg Velo gestattet']
+export function brauchtDtvTempo(ist: IstFuehrungsform): boolean {
+  return !OHNE_DTV_TEMPO.includes(ist)
+}
+
 // Vierstufige verbale Erfüllungsskala als alternative Darstellung der Schulnote (1…6).
 // Reine Nachklassierung der Endnote — kein Einfluss auf die Berechnung. Grenzen an der
 // Schulnoten-Logik: 4 = «genügend» (Vorgabe gerade erfüllt) → teilweise; ungenügend (≤ 3) → gar nicht.
@@ -519,7 +540,8 @@ export interface NotenErgebnis {
   hsBreitenSoll?: number    // massgebliche Vorgabe [m]; undefined = kein Breitenkriterium
   hsBreitenabzug: number    // Notenabzug aus zu schmaler Haltestellen-Breite
   hsBreiteStatus: 'erfuellt' | 'zu schmal' | 'keine'
-  hinweis?: string       // z. B. Velostrasse-Tempo-Regel
+  hinweis?: string       // ERSETZT die normale Erklärung in der UI (z. B. Velostrasse-Tempo-Regel)
+  warnung?: string       // steht ZUSÄTZLICH zur normalen Erklärung (Note bleibt regulär gerechnet)
 }
 
 // Hauptbewertung: Führungsform-Note (Soll vs. Ist) plus Breiten-, Parkierungs- und Haltestellen-
@@ -633,7 +655,7 @@ export function fuehrungsformNote(
   // (Sonderfälle mit fixer Note 1). Rundung erfolgt EINMALIG hier auf die Endnote.
   const finish = (
     basisnote: number, erfuellt: boolean, defizit: number,
-    opts: { hinweis?: string; maxNote?: number; forceNote?: number } = {},
+    opts: { hinweis?: string; warnung?: string; maxNote?: number; forceNote?: number } = {},
   ): NotenErgebnis => {
     const maxNote = opts.maxNote ?? 6
     const roh = basisnote - breitenabzug - parkenAbzug - tramAbzug - haltestelleAbzug - hsBreitenabzug
@@ -647,6 +669,7 @@ export function fuehrungsformNote(
       haltestelleStatus, haltestelleAbzug,
       haltestelleBreite, hsBreitenSoll, hsBreitenabzug, hsBreiteStatus,
       hinweis: [opts.hinweis, baselDeckelHinweis].filter(Boolean).join(' · ') || undefined,
+      warnung: opts.warnung,
     }
   }
 
@@ -684,22 +707,35 @@ export function fuehrungsformNote(
 
   // Sonderfall Umweltspur (Q4): DTV/Tempo irrelevant, massgebend ist der Bus-Takt (stadtspezifisch).
   if (ist === 'Umweltspur') {
-    const takt = UMWELTSPUR_TAKT[stadt]
-    if (takt == null) {
+    const regel = UMWELTSPUR_TAKT[stadt]
+    const decke = UMWELTSPUR_DECKE[stadt]
+    if (regel == null) {
       // Basel: kein Takt-Schwellwert → keine Takt-Abhängigkeit; Note rein breitengetrieben (Decke 4)
       // plus Hinweis auf die qualitativen Faktoren (Tab. 4, Standards FVV BS). Erreicht wird dieser
       // Zweig nur auf verkehrsorientierten/unbestimmten Strassen — auf siedlungsorientierten greift
       // bewusst schon der Basel-Block oben (Umweltspur ist dort keine vorgesehene Form, Tab. 3).
-      return finish(UMWELTSPUR_BASIS, true, 0, { maxNote: UMWELTSPUR_BASIS,
+      return finish(decke, true, 0, { maxNote: decke,
         hinweis: 'Basel nennt keinen Takt-Schwellwert: Eignung hängt qualitativ von Busspur-Breite, '
           + 'Anzahl Buslinien, Taktdichte und Velofrequenz ab.' })
     }
-    if (oevTakt != null && oevTakt < takt.taktNote1) {
-      return finish(1, false, 0, { forceNote: 1,
-        hinweis: `Umweltspur bei Takt < ${takt.taktNote1} Min nicht zulässig (zu hohe Busfrequenz).` })
+    // Ohne Takt-Angabe gilt in beiden Modellen die Decke — ein Eintrag kann die Note nur senken.
+    if (regel.art === 'stufen') {
+      // Bern: grösstes Band, dessen Untergrenze ≤ Takt (Bänder aufsteigend).
+      let basis = decke
+      if (oevTakt != null) for (const [ab, note] of regel.baender) if (oevTakt >= ab) basis = note
+      // Unter der Schwelle nennt der Standard die Umweltspur als Führungsform unzulässig. Das steht
+      // als Warnung NEBEN der Bewertung — die Note kommt weiterhin aus der Tabelle (kein forceNote).
+      const warnung = oevTakt != null && oevTakt < regel.warnAb
+        ? `Umweltspur bei Takt < ${regel.warnAb} Min nicht zulässig (zu hohe Busfrequenz).`
+        : undefined
+      return finish(basis, true, 0, { maxNote: basis, warnung })
     }
-    // Zulässiger/unbekannter Takt: stadtspezifische Basisnote (Stufe Bern, Rampe ZH/LU), Decke 4.
-    const basis = oevTakt != null ? umweltspurBasis(oevTakt, takt.taktNote1, takt.taktOk) : UMWELTSPUR_BASIS
+    // Zürich/Luzern: unter dem unteren Anker fix Note 1, sonst Rampe bis zur Decke.
+    if (oevTakt != null && oevTakt < regel.taktNote1) {
+      return finish(1, false, 0, { forceNote: 1,
+        hinweis: `Umweltspur bei Takt < ${regel.taktNote1} Min nicht zulässig (zu hohe Busfrequenz).` })
+    }
+    const basis = oevTakt != null ? umweltspurBasis(oevTakt, regel.taktNote1, regel.taktOk, decke) : decke
     return finish(basis, true, 0, { maxNote: basis })
   }
 

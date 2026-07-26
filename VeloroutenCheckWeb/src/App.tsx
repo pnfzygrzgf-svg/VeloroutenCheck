@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
-  brauchtBreite, erfuellungsgrad, vergleichsNoten, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
+  brauchtBreite, brauchtDtvTempo, erfuellungsgrad, vergleichsNoten, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   GEGENVERKEHR_FORMEN, GEGENVERKEHR_DEFAULT,
   type Fuehrungsart, type IstFuehrungsform, type Routentyp, type ParkenRechts,
   type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
@@ -695,10 +695,10 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
         <NumberField label="DTV MIV" unit="Fz/Tag" value={section.dtv} step={100}
                      onChange={v => onChange({ dtv: v })}
                      chip={<QuelleChip q={dtvAssumed(section, city) ? 'angenommen' : q.dtv}
-                                       fehlt={!Number.isFinite(section.dtv) && !dtvAssumed(section, city)} />} />
+                                       fehlt={ist !== '' && brauchtDtvTempo(ist) && !Number.isFinite(section.dtv) && !dtvAssumed(section, city)} />} />
         <NumberField label="Zul. Höchstgeschwindigkeit" unit="km/h" value={section.speed} step={10}
                      onChange={v => onChange({ speed: v })}
-                     chip={<QuelleChip q={q.speed} fehlt={!Number.isFinite(section.speed)} />} />
+                     chip={<QuelleChip q={q.speed} fehlt={ist !== '' && brauchtDtvTempo(ist) && !Number.isFinite(section.speed)} />} />
         <label style={fieldStyle}>
           <FieldLabel label="Vorhandene Führungsform (Ist)"
                       chip={<QuelleChip q={q.ist} fehlt={ist === ''} />} />
@@ -845,8 +845,9 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
         <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10,
                       background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412',
                       fontSize: 13.5 }}>
-          <strong>Eingabe nötig:</strong> DTV, Tempo, Führungsform
-          {ist !== 'Mischverkehr' && ' und Breite'} angeben — dann wird die Note berechnet.
+          <strong>Eingabe nötig:</strong> Führungsform
+          {(ist === '' || brauchtDtvTempo(ist)) && ', DTV, Tempo'}
+          {ist !== '' && ist !== 'Mischverkehr' && brauchtBreite(ist) && ' und Breite'} angeben — dann wird die Note berechnet.
         </div>
       ) : (
       <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10,
@@ -868,7 +869,8 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
           )}
         </div>
         <div style={{ fontSize: 13.5, opacity: 0.97 }}>
-          {ist !== 'Umweltspur' && ist !== 'Fussweg Velo gestattet' &&
+          {/* Ohne DTV/Tempo gibt es keine Soll-Führungsform — dieselbe Quelle wie die Pflichtfelder. */}
+          {brauchtDtvTempo(bewertung.ist) &&
             <div><strong>Soll:</strong> {bewertung.soll}</div>}
           <div><strong>Ist:</strong> {bewertung.ist} ({bewertung.q})</div>
 
@@ -878,15 +880,23 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
             <>
               <div style={{ marginTop: 4, opacity: 0.85 }}>
                 {ist === 'Umweltspur'
+                  // Basisnote aus dem Ergebnis, nicht hartkodiert: die Decke ist stadtabhängig
+                  // (Bern 5, übrige 4). Die Takt-Schwelle wird bewusst nicht genannt — sie ist
+                  // ebenfalls stadtabhängig, und liegt der Takt darunter, zeigt der Zweig oben
+                  // ohnehin den hinweis statt dieses Satzes.
                   ? (Number.isFinite(section.oevTakt)
-                      ? `öV-Takt ${section.oevTakt} Min (≥ 7,5 zulässig) → Basis-Note 4 (max. «genügend»); DTV/Tempo nicht massgebend.`
-                      : `Kein öV-Takt angegeben → als zulässig angenommen (Basis-Note 4, max. «genügend»); DTV/Tempo nicht massgebend. Für die Prüfung «zu hohe Busfrequenz» den Takt eintragen.`)
+                      ? `öV-Takt ${section.oevTakt} Min → Basis-Note ${bewertung.basisnote} (Decke); DTV/Tempo nicht massgebend.`
+                      : `Kein öV-Takt angegeben → als zulässig angenommen (Basis-Note ${bewertung.basisnote} = Decke); DTV/Tempo nicht massgebend. Für die Prüfung «zu hohe Busfrequenz» den Takt eintragen.`)
                   : ist === 'Fussweg Velo gestattet'
                     ? 'Mischfläche Fuss/Velo · Basis-Note 4 (max. «genügend»); DTV/Tempo nicht massgebend.'
                     : bewertung.erfuellt
                       ? 'Form erfüllt den Soll → Form-Note 6.'
                       : `feel-safe-Defizit ${bewertung.defizit} Pkt. → Form-Note ${bewertung.basisnote.toFixed(1)}.`}
               </div>
+              {/* warnung steht ZUSÄTZLICH zur Erklärung (hinweis oben ersetzt sie stattdessen). */}
+              {bewertung.warnung && (
+                <div style={{ marginTop: 4, fontWeight: 700 }}>⚠ {bewertung.warnung}</div>
+              )}
               {bewertung.sollbreite == null ? (
                 <div style={{ marginTop: 6, opacity: 0.75 }}>Keine Breitenvorgabe für diese Form.</div>
               ) : bewertung.breite == null ? (
@@ -1091,7 +1101,8 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
       s.parkenRechts,
       s.parkenRechts === 'ja' ? (s.parkenSicherheitsstreifen ? 'ja' : 'nein') : '',
       s.tram ? 'ja' : 'nein', s.oevAngebot, s.haltestellentyp,
-      r ? r.soll : '', r ? numDE(r.note, 1) : 'unvollständig', r ? erfuellungsgrad(r.note) : '',
+      r && brauchtDtvTempo(r.ist) ? r.soll : '',   // ohne DTV/Tempo hätte ein Soll keine Bedeutung
+      r ? numDE(r.note, 1) : 'unvollständig', r ? erfuellungsgrad(r.note) : '',
       obs && obs.count > 0 ? numDE(obs.median, 2) : '',
       obs ? String(obs.count) : '', Number.isFinite(obsPct) ? String(obsPct) : '',
       obs ? String(obs.usage) : '',
@@ -1377,8 +1388,11 @@ export default function App() {
   // Formen ohne Vorgabe (Mischverkehr, Einbahn ohne Markierung) sind ausgenommen; dort ist das
   // Breite-Feld auch ausgeblendet (gleiche Regel via brauchtBreite, sonst Sackgasse ohne Note).
   const sectionComplete = (s: Section) =>
-    // DTV zählt als vorhanden, wenn er entweder eingegeben ist oder (nur Bern) als ≤ 2000 angenommen wird.
-    Number.isFinite(dtvEff(s, city)) && Number.isFinite(s.speed) && s.ist !== '' &&
+    // Form zuerst: ohne sie lässt sich nicht sagen, welche Felder überhaupt gebraucht werden.
+    s.ist !== '' &&
+    // DTV/Tempo nur, wo die Form sie auswertet (nicht bei Umweltspur und Fussweg Velo gestattet).
+    // DTV zählt als vorhanden, wenn er eingegeben ist oder (nur Bern) als ≤ 2000 angenommen wird.
+    (!brauchtDtvTempo(s.ist) || (Number.isFinite(dtvEff(s, city)) && Number.isFinite(s.speed))) &&
     (!brauchtBreite(s.ist) || Number.isFinite(s.breite)) &&
     // Basel: Soll-Wahl ist strassentyp-basiert → Strassentyp nötig.
     (city !== 'basel' || s.strassentyp !== '')

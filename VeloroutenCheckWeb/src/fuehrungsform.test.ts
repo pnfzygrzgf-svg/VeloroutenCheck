@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen,
   BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
-  vergleichsNoten, baselStrassentypAusVerkehr, brauchtBreite, erfuellungsgrad,
+  vergleichsNoten, baselStrassentypAusVerkehr, brauchtBreite, brauchtDtvTempo, erfuellungsgrad,
 } from './fuehrungsform'
-import type { BreitenSoll } from './fuehrungsform'
+import type { BreitenSoll, IstFuehrungsform } from './fuehrungsform'
 
 // ════════════════════════════════════════════════════════════════════════════
 // Charakterisierungs-/Regressionstests. Bern soll unverändert bleiben; die neuen
@@ -138,10 +138,24 @@ describe('Umweltspur — stadtspezifischer Takt (Stufe Bern, Rampe ZH/LU, Basel 
     fuehrungsformNote(5000, 50, 'Umweltspur', breite, 'Velohauptroute',
       'egal', takt, 'keine', 'keine', undefined, false, soll, stadt)
 
-  it('Bern: Takt 7 (< 7,5) → Note 1', () =>
-    expect(us('bern', 7, 4.5, undefined).note).toBe(1))
-  it('Bern: Takt 8 (≥ 7,5) → Decke 4', () =>
+  // Bern: dreistufige Tabelle, deckungsgleich mit dem lokalen Batch-Rechner.
+  it('Bern: Takt 6 (< 7,5) → Note 2', () =>
+    expect(us('bern', 6, 4.5, undefined).note).toBe(2))
+  it('Bern: Takt 8 (7,5 bis < 15) → Note 4', () =>
     expect(us('bern', 8, 4.5, undefined).note).toBe(4))
+  it('Bern: Takt 20 (≥ 15) → Decke 5', () =>
+    expect(us('bern', 20, 4.5, undefined).note).toBe(5))
+  it('Bern: ohne Takt-Angabe → Decke 5 (ein Eintrag kann nur senken)', () =>
+    expect(us('bern', undefined, 4.5, undefined).note).toBe(5))
+  it('Bern: unter 7,5 Min warnt der Standard, erzwingt die Note aber nicht', () => {
+    const r = us('bern', 6, 4.5, undefined)
+    expect(r.warnung).toMatch(/nicht zulässig/)
+    expect(r.hinweis).toBeUndefined()   // ersetzt die Erklärung NICHT
+  })
+  it('Zürich behält Decke 4 und den Notenzwang unter 5 Min (Rampe, nicht Stufen)', () => {
+    expect(us('zurich', undefined, 4.8, BREITEN_ZUERICH['Umweltspur']).note).toBe(4)
+    expect(us('zurich', 4, 4.8, BREITEN_ZUERICH['Umweltspur']).hinweis).toMatch(/nicht zulässig/)
+  })
 
   it('Zürich: Takt 4 (< 5) → Note 1', () =>
     expect(us('zurich', 4, 4.8, BREITEN_ZUERICH['Umweltspur']).note).toBe(1))
@@ -510,5 +524,47 @@ describe('erfuellungsgrad + brauchtBreite', () => {
     const r = fuehrungsformNote(1000, 30, 'Einbahn Velogegenverkehr ohne Markierung')
     expect(r.note).toBeGreaterThanOrEqual(1)
     expect(r.breitenStatus).toBe('keine')
+  })
+})
+
+describe('DTV/Tempo-Unabhängigkeit — brauchtDtvTempo()', () => {
+  const DTVS = [0, 1500, 12000, NaN]
+  const TEMPI = [20, 30, 50, 60, NaN]
+  // Note über alle DTV×Tempo-Kombinationen sammeln; bei den unabhängigen Formen muss es genau
+  // EINEN Wert geben. Das ist der Nachweis, dass das Prädikat die richtigen Formen nennt.
+  const noten = (ist: IstFuehrungsform, breite: number | undefined, takt?: number) =>
+    new Set(DTVS.flatMap(dtv => TEMPI.map(v =>
+      fuehrungsformNote(dtv, v, ist, breite, 'Velohauptroute',
+        'egal', takt, 'keine', 'keine', undefined, false, undefined, 'bern').note)))
+
+  it('Umweltspur ohne Takt: Note unabhängig von DTV und Tempo', () =>
+    expect(noten('Umweltspur', undefined)).toEqual(new Set([5])))
+  it('Umweltspur mit Takt 6: Note unabhängig von DTV und Tempo', () =>
+    expect(noten('Umweltspur', undefined, 6)).toEqual(new Set([2])))
+  it('Umweltspur mit Takt 8: Note unabhängig von DTV und Tempo', () =>
+    expect(noten('Umweltspur', undefined, 8)).toEqual(new Set([4])))
+  it('Fussweg Velo gestattet: Note unabhängig von DTV und Tempo', () =>
+    expect(noten('Fussweg Velo gestattet', 3.5)).toEqual(new Set([4])))
+
+  it('brauchtDtvTempo: false nur für diese beiden Formen', () => {
+    expect(brauchtDtvTempo('Umweltspur')).toBe(false)
+    expect(brauchtDtvTempo('Fussweg Velo gestattet')).toBe(false)
+    expect(brauchtDtvTempo('Mischverkehr')).toBe(true)
+    expect(brauchtDtvTempo('Velostrasse')).toBe(true)
+    expect(brauchtDtvTempo('Zweirichtungsradweg')).toBe(true)
+  })
+
+  // Gegenprobe: wo die Felder wirken, MUSS die Note variieren — sonst wäre das Prädikat zu weit.
+  it('Gegenprobe Velostrasse: Tempo entscheidet (30 → 6, 50 → 1)', () => {
+    const vs = (v: number) => fuehrungsformNote(1000, v, 'Velostrasse', 4.5, 'Velohauptroute',
+      'egal', undefined, 'keine', 'keine', undefined, false, undefined, 'bern').note
+    expect(vs(30)).toBe(6)
+    expect(vs(50)).toBe(1)
+  })
+  it('Gegenprobe Mischverkehr: DTV entscheidet (1000/30 → 6, 12000/30 → schlechter)', () => {
+    const mv = (dtv: number) => fuehrungsformNote(dtv, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'keine', 'keine', undefined, false, undefined, 'bern').note
+    expect(mv(1000)).toBe(6)
+    expect(mv(12000)).toBeLessThan(6)
   })
 })

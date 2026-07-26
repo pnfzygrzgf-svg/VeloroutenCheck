@@ -333,19 +333,19 @@ Tempo 50                  17,7 %                9,7 %          8,0     ≈ 0,55
 
 #### Umweltspur (Q4, Bus+Velo)
 
-DTV und Tempo sind **nicht massgebend**, sondern der **Bus-Takt** (zusätzliches Feld öV-Takt [Min]) und die Breite. Die Eignung sinkt mit steigender Busfrequenz (kürzerem Takt) und ist nach oben auf **Note 4 («genügend»)** gedeckelt, davon der Breiten-Abzug (× 0,9). Die **Takt-Schwellen sind stadtspezifisch** (Konstante `UMWELTSPUR_TAKT`, Rampe `umweltspurBasis()`): Note 1 bei Takt ≤ `taktNote1`, Decke 4 ab Takt ≥ `taktOk`, linear dazwischen.
+DTV und Tempo sind **nicht massgebend**, sondern der **Bus-Takt** (zusätzliches Feld öV-Takt [Min]) und die Breite. Die Eignung sinkt mit steigender Busfrequenz (kürzerem Takt) und ist nach oben gedeckelt, davon der Breiten-Abzug (× 0,9). **Decke und Takt-Modell sind stadtspezifisch** (Konstanten `UMWELTSPUR_DECKE` und `UMWELTSPUR_TAKT`): Bern rechnet mit **Stufen**, Zürich und Luzern mit einer **Rampe** (`umweltspurBasis()`) — Note 1 bei Takt ≤ `taktNote1`, die Decke ab Takt ≥ `taktOk`, linear dazwischen. Ohne Takt-Angabe gilt die Decke — ein eingetragener Takt kann die Note nur senken.
 
 | Stadt | Takt-Modell | Quelle / Herleitung |
 |---|---|---|
-| **Bern** | Stufe: < 7,5 Min → Note 1, ≥ 7,5 Min → Decke 4 | Standard nennt eine tiefe–mittlere Busfrequenz (max. 7,5-Min-Takt). |
-| **Zürich** | Rampe 5↔15: ≤ 5 → Note 1, ≥ 15 → Decke 4 | Velostandards: «< 5 Min keine Anwendung, < 15 Min kritisch». |
+| **Bern** | Drei Stufen: < 7,5 → **2**, 7,5 bis < 15 → **4**, ≥ 15 → **Decke 5** | Deckungsgleich mit dem lokalen Batch-Rechner. Unter 7,5 Min nennt der Standard die Umweltspur als Führungsform unzulässig — das erscheint als Warnung, erzwingt die Note aber nicht. |
+| **Zürich** | Rampe 5↔15: ≤ 5 → Note 1, ≥ 15 → Decke 4 (unverändert) | Velostandards: «< 5 Min keine Anwendung, < 15 Min kritisch». |
 | **Luzern** | Rampe 5↔15 (gleiche Anker wie Zürich) | Eigene Bewertung 1–5: Takt < 5 → Bew. 1, ≥ 15 → Bew. 3 (Decke); normiert = Note 1↔4. |
 | **Basel** | keine Takt-Abhängigkeit | Basel nennt keinen Schwellwert; Eignung qualitativ (Busspur-Breite, Anzahl Linien, Taktdichte, Velofrequenz) → Note rein breitengetrieben + Hinweis. |
 
 Breiten-Vorgaben je Stadt: Bern/Luzern 4,50 / 3,75 m; Zürich 4,80 / 4,50 m; Basel 4,50 / 3,00 m.
 
-> Datenlage: FixMyCity enthält praktisch keine Umweltspur-Szenen (nur 2 Bus-Szenen) → Decke Note 4 und
-> die Takt-Schwellen sind **normativ** (aus den jeweiligen Stadt-Standards). Parameter `UMWELTSPUR_BASIS`,
+> Datenlage: FixMyCity enthält praktisch keine Umweltspur-Szenen (nur 2 Bus-Szenen) → Decke und
+> Takt-Schwellen sind **normativ** (aus den jeweiligen Stadt-Standards). Parameter `UMWELTSPUR_DECKE`,
 > `UMWELTSPUR_TAKT`, tunbar.
 
 #### Velostrasse (Q9)
