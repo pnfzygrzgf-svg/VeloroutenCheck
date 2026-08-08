@@ -294,7 +294,7 @@ Bei erfüllter Breite (Ist ≥ Vorgabe) gibt es keinen Abzug.
 
 #### Parkierung rechts (Dooring)
 
-Wo das Velo **auf der Fahrbahn neben möglichem Längsparken** fährt, kann angegeben werden, ob rechts längs geparkt wird (Dooring-Lage). Das betrifft die Fahrbahn-Führungsformen **Mischverkehr, Radstreifen, Velostrasse und Umweltspur** (Konstante `PARKEN_RELEVANT` in [`VeloroutenCheckWeb/src/fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)); bei baulich abgesetzten Radwegen und beim Fussweg greift der Dooring-Mechanismus nicht, dort wird das Feld nicht angezeigt. Auswahl **Ja / Nein / Egal**:
+Wo das Velo **auf der Fahrbahn neben möglichem Längsparken** fährt, kann angegeben werden, ob rechts längs geparkt wird (Dooring-Lage). Das betrifft die Fahrbahn-Führungsformen **Mischverkehr, Radstreifen, Velostrasse, Umweltspur und Einbahn mit Velogegenverkehr (markiert)** (Konstante `PARKEN_RELEVANT` in [`VeloroutenCheckWeb/src/fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)); bei baulich abgesetzten Radwegen und beim Fussweg greift der Dooring-Mechanismus nicht, dort wird das Feld nicht angezeigt. Auswahl **Ja / Nein / Egal**:
 
 - **Ja** → **−1,0 Notenstufe** (damit nie Note 6, sobald Parken rechts vorhanden ist).
 - **Nein / Egal** → kein Abzug.
@@ -382,10 +382,10 @@ Scoring: ÖV (Tram 3 / Bus<5 2 / Bus5–15 1 / Bus≥15 0) + Route (Velohauptrou
 
 ```
 Typ                                      Einsatzbereich       Optimal   Minimal
-HS1  Haltestelle mit Veloumfahrung       Separate Velofläche  1.8–2.5   1.6
+HS1  Haltestelle mit Veloumfahrung       Separate Velofläche  1.8       1.6
 HS2  Kaphaltestelle mit Veloüberfahrt    Separate Velofläche  1.8       1.5
 HS3  Kaphaltestelle (Ausnahme)           Mischverkehr         –         –
-HS4  Haltestelle mit rückw. Radweg       Separate Velofläche  1.8–2.5   1.6
+HS4  Haltestelle mit rückw. Radweg       Separate Velofläche  2.5       1.6
 HS5  Inselhaltestelle                    Separate Velofläche  2.5       1.5
 HS6  Fahrbahnhaltestelle Bus             Mischverkehr         –         –
 HS7  Busbucht                            Mischverkehr         –         –
@@ -395,7 +395,9 @@ HS7  Busbucht                            Mischverkehr         –         –
 
 - **Einsatzbereich:** Abzug **−1,0**, wenn die Soll-Lösung *Separate Velofläche* verlangt, der vorhandene Typ aber aus der **Mischverkehr-Familie** (HS3/HS6/HS7) stammt. Über-Erfüllung und der Übergangsbereich geben keinen Abzug.
 - **Breite der Veloführung an der Haltestelle:** nur bei HS1/HS2/HS4/HS5. Zu schmal → Abzug
-  `Defizit_m × 0,9` (gleicher Satz wie die Führungsform-Breite).
+  `Defizit_m × 0,9` (gleicher Satz wie die Führungsform-Breite). Der Masterplan nennt für
+  HS1/HS4 den Bereich 1,8–2,5 m; der Rechner rechnet mit einem konkreten Sollwert je Typ
+  (HS1: 1,8 · HS4: 2,5 — `HALTESTELLEN` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)).
 
 > Normativ: zu Haltestellen gibt es keine FixMyCity-Daten → Schwellen aus dem Masterplan bzw.
 > gesetzt. Parameter `HALTESTELLE_ABZUG` und `NOTE_PRO_METER`, tunbar.
@@ -541,6 +543,16 @@ Die Überholabstände sind **reine Zusatzinformation** und fliessen **nicht** in
 
 Die Pflicht-Attributionen werden in der App angezeigt: die Karten-Attribution (OSM/CyclOSM) unten rechts auf der Karte, die Herkunft der übrigen Werte über die Feld-Chips und die Status-/Lade-Meldung.
 
+### Nutzungsstatistik (GoatCounter)
+
+Seitenaufrufe werden mit [GoatCounter](https://www.goatcounter.com/) gezählt (Einbindung in
+[`VeloroutenCheckWeb/index.html`](VeloroutenCheckWeb/index.html), Zähl-Endpunkt `vrc.goatcounter.com`).
+Datenschutzfreundlich: **cookielos**, keine Personendaten, privates Dashboard; auf `localhost`
+zählt das Skript nicht, Dev/Preview verfälschen die Statistik also nicht. Zusätzlich zum
+automatischen Seitenaufruf zählt die App den Wechsel in den Rechner als eigenen Pfad `/rechner`
+(`zaehleRechner()` in [`App.tsx`](VeloroutenCheckWeb/src/App.tsx)); der Hinweis für Nutzende steht
+auf der Einstiegsseite.
+
 ---
 
 ## Offene Punkte
@@ -579,11 +591,16 @@ Stack: React 18, Vite 5, TypeScript (strict).
 | [`VeloroutenCheckWeb/src/stgallen.ts`](VeloroutenCheckWeb/src/stgallen.ts) | St. Gallen: Veloplan-Opendatasoft (Routentyp) + ÖV aus OSM — *Adapter vorhanden, aber derzeit nicht auswählbar* |
 | [`VeloroutenCheckWeb/src/cityShared.ts`](VeloroutenCheckWeb/src/cityShared.ts) | Geteilte Stadt-Helfer: Geo-Matching + ÖV-Erkennung aus OSM |
 | [`VeloroutenCheckWeb/src/obs.ts`](VeloroutenCheckWeb/src/obs.ts) | OpenBikeSensor-Überholabstände |
+| [`VeloroutenCheckWeb/src/velostreifen.ts`](VeloroutenCheckWeb/src/velostreifen.ts) | Bern: lokaler Velostreifen-Snapshot (`public/velostreifen_bern.json`, **gitignored**) → Ist-Führungsform + Breite mit Chip **„Markierung"**. Fehlt die Datei (öffentlicher Build/Prod), ist die Quelle stumm — Dev und Prod können sich hier unterscheiden |
 | [`VeloroutenCheckWeb/src/geo.ts`](VeloroutenCheckWeb/src/geo.ts) | Geometrie-Helfer (Überlappungs-Matching) |
 | [`VeloroutenCheckWeb/src/fuehrungsform.test.ts`](VeloroutenCheckWeb/src/fuehrungsform.test.ts) | Vitest-Tests der Bewertungslogik (`npm test`) |
+| [`VeloroutenCheckWeb/src/geo.test.ts`](VeloroutenCheckWeb/src/geo.test.ts) | Vitest-Tests der Geometrie-Helfer (Matching, Überlappung) |
+| [`VeloroutenCheckWeb/src/regelwerk.drift.test.ts`](VeloroutenCheckWeb/src/regelwerk.drift.test.ts) | Drift-Wächter: `docs/regelwerk.json` gegen die Code-Konstanten — bricht `npm test`, bis die Doku nachgezogen und neu generiert ist |
 | [`tools/oev_takt.py`](tools/oev_takt.py) | GTFS → `oev_takt_{bern,zurich,basel,luzern}.json` (Bus-Takt, offline; Bern flach `{BPUIC→n}`, übrige georeferenziert `[{lat,lon,n,name}]`) |
 | [`tools/dtv_basel.py`](tools/dtv_basel.py) | data.bs.ch Stundenwerte → Werktags-Mittel-DTV je Zählstelle → `VeloroutenCheckWeb/public/dtv_basel.json` |
 | [`tools/verify_06.py`](tools/verify_06.py) | Nachrechnung der feel-safe-Anker (Reproduzierbarkeit, siehe unten) |
+| [`tools/generiere_dokumentation.py`](tools/generiere_dokumentation.py) | Generiert `docs/regelwerk.json` + `docs/regelwerk.md` aus den exportierten Konstanten (Regelwerk-Snapshot) |
+| [`tools/generiere_stadt_pdf.py`](tools/generiere_stadt_pdf.py) | Generiert die 5 Stadt-Regelwerk-PDFs aus `docs/regelwerk.json` (benötigt `weasyprint`) |
 
 > **Reproduzierbarkeit der feel-safe-Anker.** `tools/verify_06.py` rechnet die feel-safe-Werte aus
 > den Rohdaten nach. Es liest aus `FixMyCity_Daten/` (im Repo-Root): `SurveyResults_200414.json`

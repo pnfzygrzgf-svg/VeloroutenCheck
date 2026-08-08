@@ -73,7 +73,7 @@ function loadObs(file: string): Promise<ObsFeat[]> {
           usage: p.usage_count ?? 0,
         }
       }).filter(f => f.line.length >= 2))
-      .catch(() => [])     // Snapshot fehlt → leer, kein Abbruch
+      .catch(() => { caches.delete(file); return [] })   // Snapshot fehlt/Netzfehler → leer, aber NICHT eingefroren: nächster Aufruf lädt neu
     caches.set(file, cache)
   }
   return cache
@@ -86,11 +86,14 @@ export async function enrichObs(cands: Cand[], file = 'obs_bern.json'): Promise<
   const feats = await loadObs(file)
   if (cands.length === 0 || feats.length === 0) return new Map()
   // Bbox-Vorfilter (Performance).
-  const lats = cands.flatMap(c => c.geom.map(p => p.lat))
-  const lons = cands.flatMap(c => c.geom.map(p => p.lon))
+  // Schleife statt Spread: Math.min(...lats) sprengt bei sehr vielen Punkten den Stack.
+  let s0 = Infinity, n0 = -Infinity, w0 = Infinity, e0 = -Infinity
+  for (const c of cands) for (const p of c.geom) {
+    if (p.lat < s0) s0 = p.lat; if (p.lat > n0) n0 = p.lat
+    if (p.lon < w0) w0 = p.lon; if (p.lon > e0) e0 = p.lon
+  }
   const pad = 0.003
-  const s = Math.min(...lats) - pad, n = Math.max(...lats) + pad
-  const w = Math.min(...lons) - pad, e = Math.max(...lons) + pad
+  const s = s0 - pad, n = n0 + pad, w = w0 - pad, e = e0 + pad
   const inBox = feats.filter(f => f.line.some(p => p.lat >= s && p.lat <= n && p.lon >= w && p.lon <= e))
   const dense = cands.map(c => { const geom = densify(c.geom, SAMPLE_M); return { id: c.id, geom, bbox: bboxOfLL(geom) } })
   const padDeg = (OVERLAP_M + 5) / 74000   // konservativ (deckt OVERLAP_M in beiden Richtungen, s. cityShared)

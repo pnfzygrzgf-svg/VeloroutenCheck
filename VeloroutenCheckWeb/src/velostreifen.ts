@@ -47,7 +47,7 @@ function loadVelostreifen(file: string): Promise<VeloFeat[]> {
         const b = f.properties?.breite_m
         return [{ line, breite: typeof b === 'number' ? b : undefined }]
       }))
-      .catch(() => [] as VeloFeat[])   // Snapshot fehlt → leer
+      .catch(() => { caches.delete(file); return [] as VeloFeat[] })   // fehlt/Netzfehler → leer, nicht eingefroren
     caches.set(file, cache)
   }
   return cache
@@ -61,11 +61,14 @@ export async function enrichVelostreifen(
   const feats = await loadVelostreifen(file)
   if (cands.length === 0 || feats.length === 0) return new Map()
   // Bbox-Vorfilter (Performance): nur Features im Umgriff der Kandidaten prüfen.
-  const lats = cands.flatMap(c => c.geom.map(p => p.lat))
-  const lons = cands.flatMap(c => c.geom.map(p => p.lon))
+  // Schleife statt Spread: Math.min(...lats) sprengt bei sehr vielen Punkten den Stack.
+  let s0 = Infinity, n0 = -Infinity, w0 = Infinity, e0 = -Infinity
+  for (const c of cands) for (const p of c.geom) {
+    if (p.lat < s0) s0 = p.lat; if (p.lat > n0) n0 = p.lat
+    if (p.lon < w0) w0 = p.lon; if (p.lon > e0) e0 = p.lon
+  }
   const pad = 0.003
-  const s = Math.min(...lats) - pad, n = Math.max(...lats) + pad
-  const w = Math.min(...lons) - pad, e = Math.max(...lons) + pad
+  const s = s0 - pad, n = n0 + pad, w = w0 - pad, e = e0 + pad
   const inBox = feats.filter(f => f.line.some(p => p.lat >= s && p.lat <= n && p.lon >= w && p.lon <= e))
   if (inBox.length === 0) return new Map()
   const boxes = inBox.map(f => ({ f, bbox: bboxOfLL(f.line) }))

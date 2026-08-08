@@ -1,7 +1,7 @@
 {
   "name": "VeloroutenCheck",
   "short_name": "VeloroutenCheck",
-  "description": "Bewertung einer Velo-Strecke anhand des Masterplans Veloinfrastruktur Stadt Bern und der empirischen subjektiven Sicherheit.",
+  "description": "Bewertung einer Velo-Strecke anhand städtischer Velostandards (Bern, Zürich, Basel, Luzern) und der empirischen subjektiven Sicherheit.",
   "lang": "de",
   "start_url": ".",
   "scope": ".",

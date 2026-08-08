@@ -17,7 +17,8 @@
   --text: #334155;
   --text-muted-strong: #475569;
   --text-muted: #64748b;
-  --text-faint: #94a3b8;   /* auch: deaktivierte Buttons */
+  --text-faint: #64748b;   /* auch: deaktivierte Buttons. Vorher #94a3b8 — als Fliesstext auf
+                              --bg nur ~2,4:1 Kontrast (Fussnoten unlesbar); jetzt ≥ 4,5:1. */
 
   /* Rahmen */
   --border: #cbd5e1;

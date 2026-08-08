@@ -7,7 +7,7 @@
 
 import type { Cand, Stop } from './VeloMap'
 import type { OevInfo } from './bern'
-import { densify, overlapScore, majorityLineIndex, distPointToLineM, bboxOfLL, bboxOverlap, type LL, type BboxLL } from './geo'
+import { densify, overlapScore, majorityLineIndex, majorityValue, distPointToLineM, bboxOfLL, bboxOverlap, type LL, type BboxLL } from './geo'
 
 // ── Geo-Matching gegen ein GeoJSON-Liniennetz ─────────────────────────────────
 export interface GeoJsonFeature {
@@ -73,13 +73,32 @@ export function bestOverlapFeature(
   return i >= 0 ? nearby[i].f : undefined
 }
 
+// Mehrheits-Zuordnung pro WERT statt pro Feature (majorityValue, geo.ts): die Geoportal-Layer
+// sind je Achsenabschnitt segmentiert und damit feiner als die OSM-Wege — pro Feature gezählt
+// erreicht dann KEINES die 50 %, obwohl der Abschnitt zu 100 % von Features desselben Werts
+// abgedeckt ist (der Bern-Adapter nutzt das Muster seit je; die übrigen Städte zählten bis zum
+// 07.08.2026 pro Feature und verloren an fein segmentierten Layern Routentyp/Strassentyp).
+export function bestOverlapValue<T>(
+  candGeom: LL[], features: GeoJsonFeature[], value: (f: GeoJsonFeature) => T | null | undefined,
+  maxDistM = OVERLAP_M, minFraction = MIN_FRACTION,
+): T | undefined {
+  const prepared = prepareFeatures(features)
+  const candBbox = bboxOfLL(candGeom)
+  const padDeg = (maxDistM + 5) / 74000
+  const nearby = prepared.filter(pf => pf.ll.length >= 2 && bboxOverlap(candBbox, pf.bbox, padDeg))
+  return majorityValue(candGeom, nearby.map(pf => pf.ll), nearby.map(pf => value(pf.f)), maxDistM, minFraction)
+}
+
 export interface Bbox { s: number; w: number; n: number; e: number }
 export function bboxOf(cands: Cand[]): Bbox {
-  const pts = cands.flatMap(c => c.geom)
-  return {
-    s: Math.min(...pts.map(p => p.lat)), n: Math.max(...pts.map(p => p.lat)),
-    w: Math.min(...pts.map(p => p.lon)), e: Math.max(...pts.map(p => p.lon)),
+  // Schleife statt Math.min(...pts): der Spread sprengt ab ~100k Argumenten den Stack —
+  // ein grosszügiger «Segmente im Ausschnitt»-Load erreicht das locker (07.08.2026).
+  let s = Infinity, n = -Infinity, w = Infinity, e = -Infinity
+  for (const c of cands) for (const p of c.geom) {
+    if (p.lat < s) s = p.lat; if (p.lat > n) n = p.lat
+    if (p.lon < w) w = p.lon; if (p.lon > e) e = p.lon
   }
+  return { s, n, w, e }
 }
 
 // ── ÖV aus OSM: Tram in der Fahrbahn (railway=tram) + Haltestelle im Abschnitt ──
@@ -124,7 +143,7 @@ function loadTakt(file: string): Promise<TaktPoint[]> {
   if (!c) {
     c = fetch(import.meta.env.BASE_URL + file)
       .then(r => (r.ok ? r.json() : []))
-      .catch(() => [] as TaktPoint[])
+      .catch(() => { taktCache.delete(file); return [] as TaktPoint[] })   // Netzfehler nicht einfrieren
     taktCache.set(file, c)
   }
   return c
@@ -175,8 +194,16 @@ export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<
   const byId = new Map<number, OevInfoOsm>()
   for (const c of cands) {
     const dense = densify(c.geom, SAMPLE_M)
+    // NÄCHSTE Haltestelle, nicht die erste der Serverliste (07.08.2026): der frühere `break`
+    // beim ersten Treffer ≤ STOP_DIST_M liess die Antwort-Reihenfolge entscheiden — eine
+    // Bus-Kante in 28 m konnte die Tram-Kante in 5 m verdrängen (ÖV-Angebot „Bus" statt
+    // „Tram" → bis 1,0 Notenstufe über die Haltestellen-Lösung).
     let nearStop: Stop | undefined
-    for (const st of stops) if (distPointToLineM(st, dense) <= STOP_DIST_M) { nearStop = st; break }
+    let nearD = STOP_DIST_M
+    for (const st of stops) {
+      const d = distPointToLineM(st, dense)
+      if (d <= nearD) { nearD = d; nearStop = st }
+    }
     const oevTram = tramLines.some(l => overlapScore(dense, l, OVERLAP_M) >= MIN_FRACTION)
     if (nearStop || oevTram) {
       const busPerH = nearStop ? nearestTaktBus(nearStop, takt) : undefined   // aus dem Takt-Snapshot (falls Datei da)

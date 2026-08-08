@@ -23,6 +23,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GTFS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "Fahrplan", "gtfs_fp2026_20260620")
 TARGET = sys.argv[2] if len(sys.argv) > 2 else "20260915"   # repräsentativer Di
 PUBLIC = os.path.join(ROOT, "VeloroutenCheckWeb", "public")
+
+# Der Default-Pfad ist ein lokaler Snapshot und liegt nicht im Repo — ohne klare Meldung
+# endete ein frischer Checkout hier in einem FileNotFoundError tief im CSV-Code.
+if not os.path.isdir(GTFS):
+    sys.exit(
+        f"GTFS-Ordner nicht gefunden: {GTFS}\n"
+        "Aufruf: python3 tools/oev_takt.py <GTFS-Ordner> [YYYYMMDD]\n"
+        "Jahres-GTFS von https://opentransportdata.swiss/ laden und entpackt angeben."
+    )
 PEAK_H = 17   # Abendspitze 17:00–18:00
 
 # Stadt → (lat_min, lat_max, lon_min, lon_max, format).

@@ -97,6 +97,18 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
     }
     basemaps['CyclOSM'].addTo(map)
     L.control.layers(basemaps, undefined, { position: 'topright' }).addTo(map)
+    // Zoomen nur mit Ctrl/Cmd + Mausrad: Die Karte liegt mitten in einer scrollenden Seite —
+    // ein «nacktes» Rad-Ereignis soll die Seite scrollen, nicht die Karte zoomen (Scroll-Falle).
+    // Pinch-Zoom (Touch) und die +/−-Buttons bleiben unverändert.
+    map.scrollWheelZoom.disable()
+    const wheelEl = elRef.current
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()   // Browser-Seitenzoom unterdrücken, stattdessen Karte zoomen
+      const p = map.mouseEventToContainerPoint(e as unknown as MouseEvent)
+      map.setZoomAround(p, map.getZoom() + (e.deltaY < 0 ? 1 : -1))
+    }
+    wheelEl.addEventListener('wheel', onWheel, { passive: false })
     layerRef.current = L.layerGroup().addTo(map)
     // Klick auf freie Karte (nicht auf eine Linie) → Segment an der Stelle hinzufügen.
     map.on('click', (e: L.LeafletMouseEvent) => {
@@ -106,6 +118,7 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
     mapRef.current = map
     readyCb.current?.(map)
     return () => {
+      wheelEl.removeEventListener('wheel', onWheel)
       map.remove()
       mapRef.current = null; layerRef.current = null; lineRef.current.clear(); lastFit.current = ''
     }
@@ -190,6 +203,10 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
     if (sig !== lastFit.current && bounds.isValid()) {
       map.fitBounds(bounds, { padding: [24, 24] })
       lastFit.current = sig
+    } else if (!bounds.isValid()) {
+      // Karte geleert (Stadtwechsel): Signatur zurücksetzen, sonst passt ein erneutes Laden
+      // DERSELBEN Strasse (gleiche Ids → gleiche Signatur) die Karte nicht mehr ein.
+      lastFit.current = ''
     }
   }, [cands, onToggle, markers, stops, attribution])
 

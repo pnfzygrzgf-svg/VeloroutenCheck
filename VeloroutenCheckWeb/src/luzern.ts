@@ -23,7 +23,7 @@ import type { Cand } from './VeloMap'
 import type { Routentyp } from './fuehrungsform'
 import { densify } from './geo'
 import {
-  bboxOf, bestOverlapFeature, loadOevFromOsm, nearestDtv, SAMPLE_M,
+  bboxOf, bestOverlapValue, loadOevFromOsm, nearestDtv, SAMPLE_M,
   type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
 
@@ -39,9 +39,9 @@ function fetchDtvStations(): Promise<DtvStation[]> {
       .then((d: { features?: { geometry?: { coordinates: [number, number] }; properties?: { DTV_ANZAHL?: number } }[] }) =>
         (d.features ?? []).flatMap(f => {
           const c = f.geometry?.coordinates, dtv = f.properties?.DTV_ANZAHL
-          return c && dtv ? [{ lat: c[1], lon: c[0], dtv }] : []
+          return c && dtv != null ? [{ lat: c[1], lon: c[0], dtv }] : []
         }))
-      .catch(() => [] as DtvStation[])
+      .catch(() => { dtvCache = undefined; return [] as DtvStation[] })   // Netzfehler nicht einfrieren
   }
   return dtvCache
 }
@@ -80,8 +80,10 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
   ])
   return cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
-    const f = features.length ? bestOverlapFeature(dense, features) : undefined
-    const routentyp = f ? routentypFrom(f.properties.VELO_ROUTENTYP) : undefined
+    // Votum pro WERT statt pro Feature (fein segmentierter Layer, siehe bestOverlapValue).
+    const routentyp = features.length
+      ? bestOverlapValue(dense, features, f => routentypFrom(f.properties.VELO_ROUTENTYP))
+      : undefined
     const dtv = nearestDtv(dense, stations)
     if (!routentyp && dtv == null) return c
     return { ...c, bern: { ...c.bern, ...(routentyp ? { routentyp } : {}), ...(dtv != null ? { dtv } : {}) } }

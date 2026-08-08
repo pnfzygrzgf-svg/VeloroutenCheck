@@ -21,7 +21,7 @@ import type { Cand } from './VeloMap'
 import type { Routentyp } from './fuehrungsform'
 import { densify } from './geo'
 import {
-  bboxOf, bestOverlapFeature, loadOevFromOsm, SAMPLE_M,
+  bboxOf, bestOverlapValue, loadOevFromOsm, SAMPLE_M,
   type Bbox, type GeoJsonFeature,
 } from './cityShared'
 
@@ -54,8 +54,8 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
   if (features.length === 0) return cands
   return cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
-    const f = bestOverlapFeature(dense, features)
-    const routentyp = f ? artToRoutentyp(f.properties.art_text) : undefined
+    // Votum pro WERT statt pro Feature (fein segmentierter Layer, siehe bestOverlapValue).
+    const routentyp = bestOverlapValue(dense, features, f => artToRoutentyp(f.properties.art_text))
     if (!routentyp) return c
     return { ...c, bern: { ...c.bern, routentyp } }
   })

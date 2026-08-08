@@ -13,7 +13,8 @@
       "radwege-check.de / FixMyCity (subjektive Sicherheit, feel-safe %)",
       "Grundlagen/*.csv (DTV_KMH_Fuehrungsform, Fueherungsform_Breiten_Staedte, Routentypologie_Staedte, Haltestelle_Typen_Breiten_*, Haltestellen_Typen_Bezeichnung_Staedte, Haltestellen_veloverkehrsloesung)",
       "VeloroutenCheckWeb/src/fuehrungsform.ts (Parameter, feel-safe-Anker)"
-    ]
+    ],
+    "aktualisiert": "2026-08-08"
   },
   "parameter": {
     "feelSafeProNote": {
@@ -40,18 +41,6 @@
       "herleitung": "Normativ: Soll verlangt Separate Velofläche, Ist-Typ aber Mischverkehr-Familie.",
       "code": "HALTESTELLE_ABZUG"
     },
-    "umweltspurMinTakt": {
-      "wert": 7.5,
-      "einheit": "Minuten",
-      "herleitung": "Bus-Takt darunter (hohe Frequenz) → Note 1. Normativ gesetzt.",
-      "code": "UMWELTSPUR_MIN_TAKT"
-    },
-    "umweltspurBasis": {
-      "wert": 4,
-      "einheit": "Note (Maximum bei zulässigem Takt)",
-      "herleitung": "Umweltspur als Velo-Führung höchstens «genügend». Normativ.",
-      "code": "UMWELTSPUR_BASIS"
-    },
     "fusswegBasis": {
       "wert": 4,
       "einheit": "Note (Maximum)",
@@ -70,7 +59,8 @@
         "Mischverkehr",
         "Radstreifen",
         "Velostrasse",
-        "Umweltspur"
+        "Umweltspur",
+        "Einbahn Velogegenverkehr mit Markierung"
       ],
       "hinweis": "Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken). Bei «Parkierung rechts = ja» kann zusätzlich ein Sicherheitsstreifen ggü. den Parkplätzen (SN 640 060) angegeben werden; ist er vorhanden, entfällt der Abzug.",
       "code": "PARKEN_RELEVANT"
@@ -148,27 +138,42 @@
     }
   },
   "umweltspuren": {
-    "quelle": "Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_TAKT/BASIS, umweltspurBasis())",
+    "quelle": "Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_TAKT/UMWELTSPUR_DECKE, umweltspurBasis())",
     "querschnitt": "Q4",
     "regelnAlleStaedte": {
       "dtvTempoMassgebend": false,
       "massgebend": "Bus-Takt (stadtspezifische Schwellen)",
-      "basisNote": 4,
       "feelClass": "Mischverkehr",
       "dooringRelevant": true,
-      "hinweisTakt": "DTV/Tempo nicht massgebend, sondern der Bus-Takt. Die Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerem Takt) und ist nach oben auf «genügend» (Note 4) gedeckelt. Schwellen stadtspezifisch: Note 1 bei Takt ≤ taktNote1, Decke 4 ab Takt ≥ taktOk, linear interpoliert dazwischen; davon noch Breiten-Abzug.",
+      "hinweisTakt": "DTV/Tempo nicht massgebend, sondern der Bus-Takt. Die Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerem Takt); die Decke (Maximum) ist stadtabhängig: Bern Note 5 («weitgehend»), Zürich/Luzern/Basel Note 4 («genügend»). Schwellen stadtspezifisch, siehe Tabelle.",
       "code": "UMWELTSPUR_BASIS=4, UMWELTSPUR_TAKT (Anker pro Stadt), umweltspurBasis() (lineare Rampe), feelClass='Mischverkehr', PARKEN_RELEVANT enthält 'Umweltspur'"
     },
     "proStadt": {
       "Bern": {
         "breiteOptimal": 4.5,
         "breiteMinimal": 3.75,
-        "taktNote1": 7.5,
-        "taktOk": 7.5,
-        "taktModell": "Stufe: Takt < 7,5 Min → Note 1, ≥ 7,5 Min → Decke 4.",
+        "taktNote1": null,
+        "taktOk": null,
+        "taktModell": "Stufen: Takt < 7,5 Min → Note 2 (mit Warnung «nicht zulässig»), 7,5–15 Min → Note 4, ≥ 15 Min → Note 5 (Decke).",
         "breiteHerkunft": "stadt",
         "taktHerkunft": "stadt",
-        "hinweis": "Tiefe–mittlere Busfrequenz (max. 7,5-Min-Takt); ein einziger Schwellwert (Stufe)."
+        "hinweis": "Tiefe–mittlere Busfrequenz (max. 7,5-Min-Takt) als Schwellwert; darunter nennt der Standard die Umweltspur als unzulässig — Warnung neben der Note, kein Zwang auf Note 1. Dreistufige Tabelle wie im lokalen Batch-Rechner.",
+        "decke": 5,
+        "baender": [
+          [
+            0,
+            2
+          ],
+          [
+            7.5,
+            4
+          ],
+          [
+            15,
+            5
+          ]
+        ],
+        "warnAb": 7.5
       },
       "Luzern": {
         "breiteOptimal": 4.5,
@@ -178,7 +183,8 @@
         "taktModell": "Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen (gleiche Anker wie Zürich).",
         "breiteHerkunft": "bern",
         "taktHerkunft": "stadt",
-        "hinweis": "Breiten aus Bern übernommen. Eigene Takt-Bewertung 1–5: Takt < 5 → Bewertung 1, ≥ 15 → Bewertung 3 (= Umweltspur-Decke); normiert fällt Bewertung 1↔3 auf Note 1↔4 → Rampe 5↔15."
+        "hinweis": "Breiten aus Bern übernommen. Eigene Takt-Bewertung 1–5: Takt < 5 → Bewertung 1, ≥ 15 → Bewertung 3 (= Umweltspur-Decke); normiert fällt Bewertung 1↔3 auf Note 1↔4 → Rampe 5↔15.",
+        "decke": 4
       },
       "Zürich": {
         "breiteOptimal": 4.8,
@@ -188,7 +194,8 @@
         "taktModell": "Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen.",
         "breiteHerkunft": "stadt",
         "taktHerkunft": "stadt",
-        "hinweis": "≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt: < 5 Min keine Anwendung, < 15 Min kritisch → Rampe 5↔15."
+        "hinweis": "≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt: < 5 Min keine Anwendung, < 15 Min kritisch → Rampe 5↔15.",
+        "decke": 4
       },
       "Basel": {
         "breiteOptimal": 4.5,
@@ -198,7 +205,8 @@
         "taktModell": "Keine Takt-Abhängigkeit (qualitativ).",
         "breiteHerkunft": "stadt",
         "taktHerkunft": null,
-        "hinweis": "Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Kein Takt-Schwellwert: Eignung qualitativ (Busspur-Breite, Anzahl Buslinien, Taktdichte, Velofrequenz) → Note rein breitengetrieben."
+        "hinweis": "Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Kein Takt-Schwellwert: Eignung qualitativ (Busspur-Breite, Anzahl Buslinien, Taktdichte, Velofrequenz) → Note rein breitengetrieben.",
+        "decke": 4
       }
     }
   },

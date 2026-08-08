@@ -22,6 +22,7 @@ function havM(a: LL, b: LL): number {
 // Überlappungstest auch bei wenigen Stützpunkten (lange gerade Stücke) zuverlässig.
 export function densify(geom: LL[], stepM: number): LL[] {
   if (geom.length < 2) return geom
+  if (stepM <= 0) return geom   // sonst n = Infinity → Endlosschleife bei ungültigem Schritt
   const out: LL[] = []
   for (let i = 1; i < geom.length; i++) {
     const a = geom[i - 1], b = geom[i]
@@ -50,23 +51,37 @@ function distToLine(p: LL, line: LL[], kx: number): number {
   for (let i = 1; i < line.length; i++) best = Math.min(best, projDistPointSeg(p, line[i - 1], line[i], kx))
   return best
 }
-// Anteil der Punkte aus `points`, die innerhalb maxDistM der Linie `line` liegen (0…1).
-function fracNear(points: LL[], line: LL[], kx: number, maxDistM: number): number {
-  if (line.length < 2 || points.length === 0) return 0
-  let n = 0
-  for (const p of points) if (distToLine(p, line, kx) <= maxDistM) n++
-  return n / points.length
-}
+// (fracNear ohne Parallelitätsfilter ist am 07.08.2026 in fracNearParallel aufgegangen —
+// der distanz-only-Anteil liess Querstücke als Volltreffer durch, siehe overlapScore.)
 
 // Beidseitiger Überlappungs-Score zweier Polylinien (0…1):
 //   - kurzes Segment auf langer Linie → Anteil der Segmentpunkte an der Linie hoch,
 //   - langes Segment über viele kurze Teilstücke → Anteil der Teilstück-Punkte am Segment hoch.
-// Score = max(beide Anteile). Eine bloss kreuzende Strasse ist in beiden Richtungen niedrig.
-// `candGeom` sollte verdichtet (densify) übergeben werden.
+// Score = max(beide Anteile), aber nur LOKAL PARALLELE Punkte zählen (≤ 30°, wie
+// majorityLineIndex). Ohne den Parallelitätsfilter zählte ein kurzes QUERstück voll:
+// seine sämtlichen Punkte liegen nahe der langen Linie, und max() machte daraus Score 1,0 —
+// so wurde eine an der Kreuzung abgetrennte OSM-Tramweiche zum „Tram in der Fahrbahn"
+// (−0,55/−0,8 Note) und ein kreuzender Velostreifen zur Ist-Führungsform (07.08.2026).
+// Restrisiko bleibt — wie bei majorityLineIndex dokumentiert — eine PARALLELE Nachbarlinie
+// innerhalb maxDistM. `candGeom` sollte verdichtet (densify) übergeben werden.
 export function overlapScore(candGeom: LL[], line: LL[], maxDistM: number): number {
-  if (line.length < 2 || candGeom.length === 0) return 0
+  if (line.length < 2 || candGeom.length < 2) return 0
   const kx = KY * Math.cos((candGeom[0].lat * Math.PI) / 180)
-  return Math.max(fracNear(candGeom, line, kx, maxDistM), fracNear(line, candGeom, kx, maxDistM))
+  return Math.max(fracNearParallel(candGeom, line, kx, maxDistM),
+                  fracNearParallel(line, candGeom, kx, maxDistM))
+}
+// Anteil der Punkte aus `points`, die nahe an `line` liegen UND deren lokale Richtungen
+// übereinstimmen (Richtungssinn egal). Kern des Quer-Filters von overlapScore.
+function fracNearParallel(points: LL[], line: LL[], kx: number, maxDistM: number): number {
+  if (line.length < 2 || points.length < 2) return 0
+  let n = 0
+  for (const p of points) {
+    if (distToLine(p, line, kx) > maxDistM) continue
+    const [fx, fy] = dirAt(p, line, kx)
+    const [cx, cy] = dirAt(p, points, kx)
+    if (Math.abs(fx * cx + fy * cy) >= COS_MAX_ANGLE) n++
+  }
+  return n / points.length
 }
 
 // Richtung (Einheitsvektor, planar) der zu p nächstgelegenen Kante von `line`.

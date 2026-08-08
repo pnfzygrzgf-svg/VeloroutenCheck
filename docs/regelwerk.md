@@ -25,12 +25,10 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 | noteProMeter | 0.9 | Notenstufen Abzug pro fehlendem Meter Breite | Radstreifen 2,0→3,5 m ≈ +20 feel-safe-Punkte über 1,5 m = 13,3 Pkt/m; ÷ 14,4 ≈ 0,9. |
 | parkenRechtsAbzug | 1.0 | Notenstufen | Radstreifen kein Parken 75,9 % vs. Parken rechts 61,4 % = 14,5 Pkt; ÷ 14,4 ≈ 1,0. Ausnahme: ein Sicherheitsstreifen gegenüber den Parkplätzen (SN 640 060; im Basler Standard-Papier genannt) → KEIN Abzug (stadtübergreifend, Norm). |
 | haltestelleAbzug | 1.0 | Notenstufen | Normativ: Soll verlangt Separate Velofläche, Ist-Typ aber Mischverkehr-Familie. |
-| umweltspurMinTakt | 7.5 | Minuten | Bus-Takt darunter (hohe Frequenz) → Note 1. Normativ gesetzt. |
-| umweltspurBasis | 4 | Note (Maximum bei zulässigem Takt) | Umweltspur als Velo-Führung höchstens «genügend». Normativ. |
 | fusswegBasis | 4 | Note (Maximum) | Fussweg Velo gestattet (Mischfläche) höchstens «genügend». Normativ. |
 | tramMalus (ruhig) | 0.8 | Notenstufen (nur Mischverkehr) | Mischverkehr mit vs. ohne Tram: T30 (26,3−14,4)/14,4 ≈ 0,8; T50 (17,7−9,7)/14,4 ≈ 0,55. |
 | tramMalus (schnell) | 0.55 |  |  |
-| parkenRelevant | Mischverkehr, Radstreifen, Velostrasse, Umweltspur | Führungsformen | Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken). Bei «Parkierung rechts = ja» kann zusätzlich ein Sicherheitsstreifen ggü. den Parkplätzen (SN 640 060) angegeben werden; ist er vorhanden, entfällt der Abzug. |
+| parkenRelevant | Mischverkehr, Radstreifen, Velostrasse, Umweltspur, Einbahn Velogegenverkehr mit Markierung | Führungsformen | Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken). Bei «Parkierung rechts = ja» kann zusätzlich ein Sicherheitsstreifen ggü. den Parkplätzen (SN 640 060) angegeben werden; ist er vorhanden, entfällt der Abzug. |
 
 ## Feel-safe-Anker
 
@@ -61,20 +59,20 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 
 ## Umweltspuren (Q4) — Sonderfall
 
-*Quelle:* Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_TAKT/BASIS, umweltspurBasis())
+*Quelle:* Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_TAKT/UMWELTSPUR_DECKE, umweltspurBasis())
 
 **Regeln für alle Städte:**
 
-- DTV/Tempo nicht massgebend, sondern der Bus-Takt. Die Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerem Takt) und ist nach oben auf «genügend» (Note 4) gedeckelt. Schwellen stadtspezifisch: Note 1 bei Takt ≤ taktNote1, Decke 4 ab Takt ≥ taktOk, linear interpoliert dazwischen; davon noch Breiten-Abzug.
+- DTV/Tempo nicht massgebend, sondern der Bus-Takt. Die Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerem Takt); die Decke (Maximum) ist stadtabhängig: Bern Note 5 («weitgehend»), Zürich/Luzern/Basel Note 4 («genügend»). Schwellen stadtspezifisch, siehe Tabelle.
 - feel-safe-Klasse: Mischverkehr.
 - Parkierung rechts (Dooring) relevant: ja
 
-| Stadt | Breite optimal | Breite minimal | Takt-Modell | Hinweis |
-|---|---|---|---|---|
-| Bern | 4,50 | 3,75 | Stufe: Takt < 7,5 Min → Note 1, ≥ 7,5 Min → Decke 4. | Tiefe–mittlere Busfrequenz (max. 7,5-Min-Takt); ein einziger Schwellwert (Stufe). |
-| Luzern | 4,50 | 3,75 | Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen (gleiche Anker wie Zürich). | Breiten aus Bern übernommen. Eigene Takt-Bewertung 1–5: Takt < 5 → Bewertung 1, ≥ 15 → Bewertung 3 (= Umweltspur-Decke); normiert fällt Bewertung 1↔3 auf Note 1↔4 → Rampe 5↔15. |
-| Zürich | 4,80 | 4,50 | Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen. | ≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt: < 5 Min keine Anwendung, < 15 Min kritisch → Rampe 5↔15. |
-| Basel | 4,50 | 3,00 | Keine Takt-Abhängigkeit (qualitativ). | Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Kein Takt-Schwellwert: Eignung qualitativ (Busspur-Breite, Anzahl Buslinien, Taktdichte, Velofrequenz) → Note rein breitengetrieben. |
+| Stadt | Breite optimal | Breite minimal | Decke (max. Note) | Takt-Modell | Hinweis |
+|---|---|---|---|---|---|
+| Bern | 4,50 | 3,75 | 5 | Stufen: Takt < 7,5 Min → Note 2 (mit Warnung «nicht zulässig»), 7,5–15 Min → Note 4, ≥ 15 Min → Note 5 (Decke). | Tiefe–mittlere Busfrequenz (max. 7,5-Min-Takt) als Schwellwert; darunter nennt der Standard die Umweltspur als unzulässig — Warnung neben der Note, kein Zwang auf Note 1. Dreistufige Tabelle wie im lokalen Batch-Rechner. |
+| Luzern | 4,50 | 3,75 | 4 | Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen (gleiche Anker wie Zürich). | Breiten aus Bern übernommen. Eigene Takt-Bewertung 1–5: Takt < 5 → Bewertung 1, ≥ 15 → Bewertung 3 (= Umweltspur-Decke); normiert fällt Bewertung 1↔3 auf Note 1↔4 → Rampe 5↔15. |
+| Zürich | 4,80 | 4,50 | 4 | Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen. | ≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt: < 5 Min keine Anwendung, < 15 Min kritisch → Rampe 5↔15. |
+| Basel | 4,50 | 3,00 | 4 | Keine Takt-Abhängigkeit (qualitativ). | Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Kein Takt-Schwellwert: Eignung qualitativ (Busspur-Breite, Anzahl Buslinien, Taktdichte, Velofrequenz) → Note rein breitengetrieben. |
 
 ## Haltestellen-Typ-Bezeichnungen (stadtübergreifend)
 
@@ -126,7 +124,7 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 | Q4 Umweltspur (Bus+Velo) | 4,50 | 3,75 | 3,00 | – |
 | Q5 Kernfahrbahn | 2,50 | 1,80 | 1,50 | – |
 | Q6 Mischverkehr Hauptachse | – | – | – | – |
-| Q7 Einbahn Velogegenverkehr | 2,00 | 1,80 | 1,50 | – |
+| Q7 Einbahn Velogegenverkehr | 2,00 | 1,80 | 1,80 | – |
 | Q8 Quartierstrasse T30/T20 | – | – | – | – |
 | Q9 Velostrasse | 4,50 | 4,50 | – | 6,50 |
 | Q10 Zweirichtungsradweg | 4,50 | 3,20 | 3,20 | – |
@@ -324,7 +322,7 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 | Q3 Radweg abgesetzt | 2,50 | 1,80 | 1,60 | – |
 | Q4 Umweltspur (Bus+Velo) | 4,50 | 3,75 | – | – |
 | Q5 Kernfahrbahn | 1,80 | 1,50 | – | – |
-| Q7 Einbahn Velogegenverkehr | 2,50 | 1,80 | 1,50 | – |
+| Q7 Einbahn Velogegenverkehr | 2,50 | 2,00 | 1,80 | – |
 | Q9 Velostrasse | 4,50 | 4,50 | – | – |
 | Q10 Zweirichtungsradweg | 4,50 | 3,20 | 3,20 | – |
 | Q12 Fussweg Velo gestattet | 3,50 | 3,50 | 3,50 | – |

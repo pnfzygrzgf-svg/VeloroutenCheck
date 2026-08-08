@@ -27,7 +27,7 @@ import type { Cand } from './VeloMap'
 import type { Routentyp, Strassentyp } from './fuehrungsform'
 import { densify } from './geo'
 import {
-  bboxOf, bestOverlapFeature, loadOevFromOsm, nearestDtv, OVERLAP_M, SAMPLE_M,
+  bboxOf, bestOverlapValue, loadOevFromOsm, nearestDtv, OVERLAP_M, SAMPLE_M,
   type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
 
@@ -38,7 +38,7 @@ function fetchDtvStations(): Promise<DtvStation[]> {
   if (!dtvCache) {
     dtvCache = fetch(import.meta.env.BASE_URL + 'dtv_basel.json')
       .then(r => (r.ok ? r.json() : []))
-      .catch(() => [] as DtvStation[])
+      .catch(() => { dtvCache = undefined; return [] as DtvStation[] })   // Netzfehler nicht einfrieren
   }
   return dtvCache
 }
@@ -63,7 +63,7 @@ async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
   // MapServer-WFS 2.0: Achsenreihenfolge EPSG:4326 = lat,lon → bbox = minLat,minLon,maxLat,maxLon.
   const params = new URLSearchParams({
     service: 'WFS', version: '2.0.0', request: 'GetFeature',
-    typeName: BS_LAYER, outputFormat: 'geojson', srsName: 'EPSG:4326',
+    typeNames: BS_LAYER, outputFormat: 'geojson', srsName: 'EPSG:4326',
     bbox: `${bbox.s},${bbox.w},${bbox.n},${bbox.e},urn:ogc:def:crs:EPSG::4326`,
   })
   // Timeout: ein hängender WFS darf enrichAll/die UI nicht dauerhaft blockieren.
@@ -86,7 +86,7 @@ function loadVelostrassen(): Promise<GeoJsonFeature[]> {
     velostrassenCache = fetch(VELOSTADTPLAN_GEOJSON, { signal: AbortSignal.timeout(15000) })
       .then(r => (r.ok ? r.json() : { features: [] }))
       .then((d: { features?: GeoJsonFeature[] }) => d.features || [])
-      .catch(() => [])
+      .catch(() => { velostrassenCache = null; return [] })   // Netzfehler nicht einfrieren
   }
   return velostrassenCache
 }
@@ -116,10 +116,11 @@ function kategorieToStrassentyp(p: Record<string, string | number | null>): Stra
 }
 
 // Signalisierte Höchstgeschwindigkeit aus dem Datensatz (amtlich, besser als OSM-maxspeed).
-// Nur reale Verkehrstempi (20–60) übernehmen; 0/5 (Fussgängerzone/Schritttempo) und null ignorieren.
+// Nur reale Verkehrstempi (20–60) übernehmen; 0/5 (Fussgängerzone/Schritttempo) und null
+// ignorieren — ebenso > 60 (Hochleistungsstrassen sind kein Veloführungs-Kontext).
 function geschwindigkeit(p: Record<string, string | number | null>): number | undefined {
   const g = p.geschwindigkeit
-  return typeof g === 'number' && g >= 20 ? g : undefined
+  return typeof g === 'number' && g >= 20 && g <= 60 ? g : undefined
 }
 
 export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
@@ -134,23 +135,24 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
   if (features.length === 0 && velostrassen.length === 0 && strassen.length === 0 && stations.length === 0) return cands
   return cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
-    const routenF = bestOverlapFeature(dense, features)
-    const routentyp = routenF ? flagsToRoutentyp(routenF.properties) : undefined
-    const strassenF = bestOverlapFeature(dense, strassen)
-    const strassentyp = strassenF ? kategorieToStrassentyp(strassenF.properties) : undefined
-    const speed = strassenF ? geschwindigkeit(strassenF.properties) : undefined
+    // Votum pro WERT statt pro Feature: Teilrichtplan (4 002 Segmente) und «Strassen und Wege»
+    // (7 546) sind fein segmentiert — pro Feature erreichte keines die 50 %, und ohne Strassentyp
+    // ist ein Basler Abschnitt unbewertbar (Pflichtfeld der Soll-Wahl).
+    const routentyp = bestOverlapValue(dense, features, f => flagsToRoutentyp(f.properties))
+    const strassentyp = bestOverlapValue(dense, strassen, f => kategorieToStrassentyp(f.properties))
+    const speed = bestOverlapValue(dense, strassen, f => geschwindigkeit(f.properties))
     const dtv = nearestDtv(dense, stations)
     // Velostrasse setzt die Ist-Führungsform → strenger (VELO_FRACTION), damit eine bloss
     // kreuzende Velostrasse die OSM-Führungsform nicht fälschlich überschreibt.
-    const velostrasse = bestOverlapFeature(dense, velostrassen, OVERLAP_M, VELO_FRACTION) != null
-    if (!routentyp && !velostrasse && !strassentyp && !speed && dtv == null) return c
+    const velostrasse = bestOverlapValue(dense, velostrassen, () => true, OVERLAP_M, VELO_FRACTION) === true
+    if (!routentyp && !velostrasse && !strassentyp && speed == null && dtv == null) return c
     return {
       ...c,
       bern: {
         ...c.bern,
         ...(routentyp ? { routentyp } : {}),
         ...(strassentyp ? { strassentyp } : {}),
-        ...(speed ? { speed } : {}),
+        ...(speed != null ? { speed } : {}),
         ...(velostrasse ? { velostrasse: true } : {}),
         ...(dtv != null ? { dtv } : {}),
       },

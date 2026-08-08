@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen,
+  fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite,
   BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   vergleichsNoten, baselStrassentypAusVerkehr, brauchtBreite, brauchtDtvTempo, erfuellungsgrad,
+  roundToHalf,
 } from './fuehrungsform'
 import type { BreitenSoll, IstFuehrungsform } from './fuehrungsform'
 
@@ -328,11 +329,14 @@ describe('vergleichsNoten (Stadt-Vergleich)', () => {
   })
 
   it('identische Note ohne Schätzung liefert keine Gründe', () => {
-    // Bern als Referenz, Zürich-Note gleich → keine Gründe (Zürich wird nicht geschätzt).
-    const v = vergleichsNoten({ dtv: 3000, v: 50, ist: 'Radstreifen', breite: 2.2, routentyp: 'Veloroute' }, 'bern')
+    // Ruhiger Mischverkehr: Bern und Zürich verlangen beide Mischverkehr → Note beidseits 6.
+    // (Der frühere Fall DTV 3000/T50 hatte unterschiedliche Solls — die Assertion hinter dem
+    // `if (zh.note === bern)` lief daher NIE; jetzt wird die Gleichheit selbst mitgeprüft.)
+    const v = vergleichsNoten({ dtv: 1000, v: 30, ist: 'Mischverkehr', routentyp: 'Veloroute' }, 'bern')
     const zh = v.find(x => x.stadt === 'zurich')!
-    const bern = fuehrungsformNote(3000, 50, 'Radstreifen', 2.2, 'Veloroute').note
-    if (zh.note === bern) expect(zh.gruende).toEqual([])
+    const bern = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Veloroute').note
+    expect(zh.note).toBe(bern)
+    expect(zh.gruende).toEqual([])
   })
 })
 
@@ -566,5 +570,76 @@ describe('DTV/Tempo-Unabhängigkeit — brauchtDtvTempo()', () => {
       'egal', undefined, 'keine', 'keine', undefined, false, undefined, 'bern').note
     expect(mv(1000)).toBe(6)
     expect(mv(12000)).toBeLessThan(6)
+  })
+})
+
+// ════════════════════════════════════════════════════════════════════════════
+// Runde AS6: Lücken aus dem Review — Rundung, Übergangs-Soll, Kumulation/Boden,
+// Decken exakt, Haltestellen-Typlisten inhaltlich.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('roundToHalf — kaufmännisch auf halbe Noten (half-up)', () => {
+  it('rundet exakt auf 0,5-Schritte, Viertelwerte nach oben', () => {
+    expect(roundToHalf(3.25)).toBe(3.5)   // x,25 → aufwärts (Math.round(0.5) = 1)
+    expect(roundToHalf(3.75)).toBe(4.0)
+    expect(roundToHalf(3.24)).toBe(3.0)
+    expect(roundToHalf(3.26)).toBe(3.5)
+    expect(roundToHalf(5.999)).toBe(6.0)
+    expect(roundToHalf(1.0)).toBe(1.0)
+  })
+})
+
+describe('Übergangs-Soll «Radstreifen oder Radweg» — Zielwert ist der Mittelwert', () => {
+  it('Ist Radstreifen bei Soll «Radstreifen oder Radweg» → exakt 5,5', () => {
+    // Bern DTV 6000/T30 → Soll «Radstreifen oder Radweg» (Ziel = Mittel aus 74 und 92 = 83).
+    // Radstreifen 74 → Defizit 9 Pkt = 0,625 Noten → 5,375 → gerundet 5,5.
+    const r = fuehrungsformNote(6000, 30, 'Radstreifen', 2.5, 'Velohauptroute')
+    expect(r.soll).toBe('Radstreifen oder Radweg')
+    expect(r.note).toBe(5.5)
+  })
+})
+
+describe('Abzugs-Kumulation — Boden bei Note 1,0', () => {
+  it('Formdefizit + Parkierung + Tram drücken nie unter 1,0', () => {
+    // Mischverkehr bei Soll Radweg/T50: Basis 1 (Defizit 72 Pkt = 5 Noten); Parken −1, Tram −0,55.
+    const r = fuehrungsformNote(15000, 50, 'Mischverkehr', undefined, 'Velohauptroute',
+      'ja', undefined, 'keine', 'keine', undefined, true)
+    expect(r.note).toBe(1)
+  })
+})
+
+describe('Decken exakt (nicht durch Rundung überschreitbar)', () => {
+  it('Fussweg Velo gestattet ohne Abzüge → exakt 4,0', () => {
+    const r = fuehrungsformNote(1000, 30, 'Fussweg Velo gestattet')
+    expect(r.note).toBe(4)
+  })
+  it('Umweltspur Bern mit gutem Takt (≥ 15) → exakt 5,0 (Berner Decke)', () => {
+    const r = fuehrungsformNote(1000, 30, 'Umweltspur', undefined, 'Velohauptroute',
+      'egal', 20, 'keine', 'keine', undefined, false, undefined, 'bern')
+    expect(r.note).toBe(5)
+  })
+  it('Umweltspur Zürich mit gutem Takt → exakt 4,0 (Decke der übrigen Städte)', () => {
+    const r = fuehrungsformNote(1000, 30, 'Umweltspur', undefined, 'Velohauptroute',
+      'egal', 20, 'keine', 'keine', undefined, false, undefined, 'zurich')
+    expect(r.note).toBe(4)
+  })
+})
+
+describe('Haltestellen-Typlisten — inhaltlich (Familien-Konsistenz)', () => {
+  it('Bern: Breite nur bei den Separate-Typen, Mischverkehr-Familie ohne Breitenfeld', () => {
+    const mitBreite = haltestellenMitBreite('bern')
+    expect(mitBreite.sort()).toEqual([
+      'Haltestelle mit Veloumfahrung', 'Haltestelle mit rückwärtigem Radweg',
+      'Inselhaltestelle', 'Kaphaltestelle mit Veloüberfahrt',
+    ].sort())
+    for (const typ of ['Kaphaltestelle', 'Fahrbahnhaltestelle', 'Busbucht'] as const) {
+      expect(mitBreite, typ).not.toContain(typ)
+    }
+  })
+  it('jede Stadt: haltestellenMitBreite ist Teilmenge von haltestellenTypen', () => {
+    for (const stadt of ['bern', 'zurich', 'basel', 'luzern'] as const) {
+      const alle = haltestellenTypen(stadt)
+      for (const typ of haltestellenMitBreite(stadt)) expect(alle, `${stadt}: ${typ}`).toContain(typ)
+    }
   })
 })

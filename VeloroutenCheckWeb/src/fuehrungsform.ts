@@ -76,7 +76,7 @@ function fuehrungsartLuzern(dtv: number, v: number): Fuehrungsart {
 // (Tempo 30 und 50 ergeben in der Basler Tabelle dieselbe Soll-Form → Tempo hier nicht massgebend.)
 function fuehrungsartBasel(route: Routentyp, strassentyp?: Strassentyp): Fuehrungsart {
   // Siedlungsorientierte (nicht verkehrsorientierte) Tempo-30-Strasse: Basel sieht pro Routentyp
-  // genau EINE Führungsform vor (Standards FVV BS, Tab. 3, S. 19) — alle anderen nicht vorgesehen
+  // genau EINE Führungsform vor (Standards FVV BS, Tab. 3, S. 15) — alle anderen nicht vorgesehen
   // (Notenwirkung in fuehrungsformNote). DWV-Deckel bleibt Hinweis (Vorzugsroute 2'500 / Pendler-Basis 5'000):
   //   • Vorzugsroute (Velohauptroute) → Velostrasse.
   //   • Pendler-/Basisrouten (Veloroute) → Mischverkehr (keine Velostrasse).
@@ -249,7 +249,7 @@ export function haltestellenLoesung(
 // Abzug, wenn die Soll-Lösung «Separate Velofläche» verlangt, der vorhandene Haltestellentyp aber
 // aus der Mischverkehr-Familie stammt (Über-Erfüllung und Übergang gelten als kompatibel). Normativ
 // (keine FixMyCity-Daten zu Haltestellen), tunbar.
-const HALTESTELLE_ABZUG = 1.0
+export const HALTESTELLE_ABZUG = 1.0
 
 // Separationsstufe (Ordnung) für den "IST erfüllt SOLL?"-Vergleich.
 // Der Übergang 'Radstreifen oder Radweg' liegt zwischen Radstreifen (1) und Radweg (2).
@@ -376,21 +376,21 @@ export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
 // Notenstufen-Abzug pro fehlendem Meter Breite (Variante A, linear). Hergeleitet aus dem
 // empirischen Breiten-Gradienten: Radstreifen 2,0 → 3,5 m ≈ +20 feel-safe-Punkte über 1,5 m
 // = 13,3 Pkt/m; geteilt durch 14,4 Pkt/Notenstufe ≈ 0,9. Tunbarer Parameter.
-const NOTE_PRO_METER = 0.9
+export const NOTE_PRO_METER = 0.9
 
 // Abzug, wenn beim Radstreifen rechts (Bordsteinseite) längs geparkt wird — Dooring-Lage,
 // Velo zwischen Fahrspur und Parken. Hergeleitet aus den verifizierten radwege-Werten:
 // Radstreifen kein Parken 75,9 % vs. Parken rechts 61,4 % = 14,5 feel-safe-Punkte; geteilt durch
 // 14,4 Pkt/Notenstufe ≈ 1,0. Garantiert «keine Note 6», wenn Parken rechts vorhanden. Tunbar.
 // (Der Effekt ist empirisch breitenabhängig — schmal stärker — hier vereinfacht als fixer Abzug.)
-const PARKEN_RECHTS_ABZUG = 1.0
+export const PARKEN_RECHTS_ABZUG = 1.0
 
 // Tram in der Fahrbahn (Schienen) — Malus NUR bei Mischverkehr, tempo-abhängig. Empirisch aus den
 // radwege-Daten: Mischverkehr mit vs. ohne Tram, feel-safe-Verlust ÷ 14,4 Pkt/Notenstufe.
 // Tempo 30: (26,3−14,4)/14,4 ≈ 0,83 → 0,8 · Tempo 50: (17,7−9,7)/14,4 ≈ 0,56 → 0,55.
 // Bei eigener Radverkehrsanlage (Radstreifen) empirisch ~0 → dort kein Malus.
 // Herleitung/Reproduktion: tools/verify_06.py (§2) bzw. docs/07_Tram_in_der_Fahrbahn.md. Tunbar.
-const TRAM_MALUS: Record<'ruhig' | 'schnell', number> = { ruhig: 0.8, schnell: 0.55 }
+export const TRAM_MALUS: Record<'ruhig' | 'schnell', number> = { ruhig: 0.8, schnell: 0.55 }
 
 // Umweltspur (Bus+Velo): Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerer Takt)
 // und ist nach oben gedeckelt — DTV/Tempo sind nicht massgebend.
@@ -411,7 +411,7 @@ const TRAM_MALUS: Record<'ruhig' | 'schnell', number> = { ruhig: 0.8, schnell: 0
 //   • Basel: nennt KEINEN Takt-Schwellwert (Eignung nur qualitativ: Busspur-Breite, Anzahl Buslinien,
 //     Taktdichte, Velofrequenz) → keine Takt-Abhängigkeit; Note rein breitengetrieben + Hinweis.
 // Max. Note (Decke) bei zulässigem Takt und genügender Breite — je Stadt.
-const UMWELTSPUR_DECKE: Record<Stadt, number> = { bern: 5, zurich: 4, luzern: 4, basel: 4 }
+export const UMWELTSPUR_DECKE: Record<Stadt, number> = { bern: 5, zurich: 4, luzern: 4, basel: 4 }
 // Bern: dreistufige Tabelle, deckungsgleich mit dem lokalen Batch-Rechner (umweltspur_note()).
 // Unter 7,5 Min bleibt es bei Note 2 — der Standard nennt die Umweltspur dort als Führungsform
 // unzulässig, das steht als Warnung daneben, erzwingt die Note aber nicht mehr.
@@ -419,7 +419,7 @@ const UMWELTSPUR_DECKE: Record<Stadt, number> = { bern: 5, zurich: 4, luzern: 4,
 type UmweltspurRegel =
   | { art: 'stufen'; baender: [number, number][]; warnAb: number }   // [Takt-Untergrenze, Note]
   | { art: 'rampe'; taktNote1: number; taktOk: number }
-const UMWELTSPUR_TAKT: Record<Stadt, UmweltspurRegel | null> = {
+export const UMWELTSPUR_TAKT: Record<Stadt, UmweltspurRegel | null> = {
   bern:   { art: 'stufen', baender: [[0, 2], [7.5, 4], [15, 5]], warnAb: 7.5 },
   zurich: { art: 'rampe', taktNote1: 5, taktOk: 15 },
   luzern: { art: 'rampe', taktNote1: 5, taktOk: 15 },   // gleiche Anker wie Zürich
@@ -439,13 +439,13 @@ function umweltspurBasis(takt: number, taktNote1: number, taktOk: number, decke:
 // Basisnote 4 (davon Breiten-Abzug). Die situativen Voraussetzungen (Schutzbedürfnis, geringe
 // Frequenz, kein Gefälle, konfliktarm, fehlende Alternativen) sind Planerurteil → nur Hinweis im
 // UI, kein Noteneinfluss. Normativ (keine FixMyCity-Daten für Mischflächen).
-const FUSSWEG_BASIS = 4
+export const FUSSWEG_BASIS = 4
 
 // Empirische feel-safe % je Führungsform UND Tempo-Kontext (radwege-check, Velo-Perspektive,
 // tram-bereinigt). Werte unabhängig aus den Einzelantworten verifiziert (tools/verify_06.py;
 // Kreuzvalidierung vs. voteScore ø 1,8 Pkt). Aus den feel-safe-%-Werten je Tempo:
 //   ruhig  = V ≤ 30 km/h   |   schnell = V > 30 km/h   (Daten für 30 und 50 km/h)
-const FEELSAFE: Record<FeelClass, { ruhig: number; schnell: number }> = {
+export const FEELSAFE: Record<FeelClass, { ruhig: number; schnell: number }> = {
   'Mischverkehr': { ruhig: 26, schnell: 18 },  // verifiziert: T30 26.3 / T50 17.7
   'Radstreifen':  { ruhig: 74, schnell: 69 },  // verifiziert: T30 74.0 / T50 68.8 (alle Breiten)
   'Radweg':       { ruhig: 92, schnell: 90 },  // baulich getrennt (Poller-Niveau): T30 91.7 / T50 90.1
@@ -454,7 +454,7 @@ const FEELSAFE: Record<FeelClass, { ruhig: number; schnell: number }> = {
 // feel-safe-Punkte pro Notenstufe = Spanne Mischverkehr→Radweg bei hohem Tempo (90−18 = 72 Pkt)
 // geteilt durch 5 Notenstufen (6→1). So entspricht der ungünstigste Fall (Soll Radweg, Ist
 // Mischverkehr, schnell) genau Note 1. Tunbarer Parameter.
-const SCORE_PRO_NOTE = 14.4
+export const SCORE_PRO_NOTE = 14.4
 
 const tempoKey = (v: number): 'ruhig' | 'schnell' => (v <= 30 ? 'ruhig' : 'schnell')
 
@@ -475,7 +475,7 @@ function zielScore(soll: Fuehrungsart, v: number): number {
 // Auf die nächste 0,5 runden (kaufmännisch / round-half-up: genau dazwischen → aufgerundet,
 // da Math.round bei .5 Richtung +∞ rundet; z. B. 4,25 → 4,5, 4,24 → 4,0).
 // Wird NUR EINMAL auf die Endnote angewandt (nach dem Breiten-Abzug); Zwischenwerte bleiben roh.
-const roundToHalf = (x: number): number => Math.round(x * 2) / 2
+export const roundToHalf = (x: number): number => Math.round(x * 2) / 2   // exportiert für Tests
 
 // Formen ohne Breiten-Vorgabe (kein optimal/minimal in IST, z. B. Mischverkehr oder Einbahn
 // Velogegenverkehr ohne Markierung) brauchen keine Breiten-Eingabe — UI-Feld und Note-Guard
@@ -631,13 +631,16 @@ export function fuehrungsformNote(
     : undefined
   let hsBreitenabzug = 0
   let hsBreiteStatus: NotenErgebnis['hsBreiteStatus'] = 'keine'
-  if (hsBreitenSoll != null && haltestelleBreite != null && haltestelleBreite > 0) {
+  // Nur wenn überhaupt eine Haltestelle da ist (oevAngebot ≠ 'keine'): der Abzug hing bis zum
+  // 07.08.2026 allein am Typ — wer den ÖV auf «keine Haltestelle» zurückstellte, verlor zwar
+  // die Eingabefelder, Typ und Breite blieben aber im Zustand und der Abzug unsichtbar in der Note.
+  if (oevAngebot !== 'keine' && hsBreitenSoll != null && haltestelleBreite != null && haltestelleBreite > 0) {
     const d = Math.max(0, hsBreitenSoll - haltestelleBreite)
     hsBreitenabzug = d * NOTE_PRO_METER
     hsBreiteStatus = d === 0 ? 'erfuellt' : 'zu schmal'
   }
 
-  // Basel-DWV-Deckel auf siedlungsorientierter Strasse — FORM-abhängig (Tab. 3, S. 15/19; nur Hinweis,
+  // Basel-DWV-Deckel auf siedlungsorientierter Strasse — FORM-abhängig (Tab. 3, S. 15; nur Hinweis,
   // kein Notenabzug, da Basel oberhalb keine andere Lösung vorgibt):
   //   • Velostrasse auf Vorzugsroute (Velohauptroute): ≤ 2'500 DWV.
   //   • Mischverkehr auf Pendler-/Basisrouten (Veloroute): ≤ 5'000 DWV.
@@ -707,6 +710,9 @@ export function fuehrungsformNote(
 
   // Sonderfall Umweltspur (Q4): DTV/Tempo irrelevant, massgebend ist der Bus-Takt (stadtspezifisch).
   if (ist === 'Umweltspur') {
+    // Takt ≤ 0 ist keine sinnvolle Angabe (0 Minuten zwischen Bussen) — wie „nicht erfasst"
+    // behandeln, statt dass 0 in Bern alle ≥-Bänder verfehlt und so die BESTE Note ergäbe.
+    if (oevTakt != null && oevTakt <= 0) oevTakt = undefined
     const regel = UMWELTSPUR_TAKT[stadt]
     const decke = UMWELTSPUR_DECKE[stadt]
     if (regel == null) {
@@ -783,6 +789,7 @@ export interface VergleichArgs {
   parkenRechts?: ParkenRechts; parkenSicherheitsstreifen?: boolean; oevTakt?: number
   oevAngebot?: OevAngebot; haltestellentyp?: Haltestellentyp
   haltestelleBreite?: number; tram?: boolean
+  strassentyp?: Strassentyp   // amtlicher/manueller Basler Strassentyp; fehlt er, wird geschätzt
 }
 
 export interface VergleichsNote {
@@ -794,9 +801,12 @@ export interface VergleichsNote {
   gruende: string[]     // Klartext-Gründe (mit Werten), warum die Note von der Referenz abweicht
 }
 
-// Eine Bewertung nach den Standards einer Stadt berechnen (Basel: Strassentyp aus DTV/Tempo).
+// Eine Bewertung nach den Standards einer Stadt berechnen. Basel: der Strassentyp wird nur
+// GESCHÄTZT, wenn keiner übergeben wurde — sonst verwarf der Vergleich den amtlichen Wert
+// (Geoportal-Dataset 100250) und die Referenz war NICHT die angezeigte Hauptnote; die
+// „Gründe"-Zeilen begründeten dann Abweichungen zu einer Note, die niemand sieht (07.08.2026).
 function bewerteFuerStadt(a: VergleichArgs, stadt: Stadt): NotenErgebnis {
-  const strassentyp = stadt === 'basel' ? baselStrassentypAusVerkehr(a.dtv, a.v) : undefined
+  const strassentyp = stadt === 'basel' ? (a.strassentyp ?? baselStrassentypAusVerkehr(a.dtv, a.v)) : undefined
   return fuehrungsformNote(
     a.dtv, a.v, a.ist, a.breite, a.routentyp ?? 'Velohauptroute',
     a.parkenRechts ?? 'egal', a.oevTakt, a.oevAngebot ?? 'keine',
@@ -814,8 +824,9 @@ export function vergleichsNoten(a: VergleichArgs, ausser: Stadt): VergleichsNote
   return STAEDTE.filter(s => s !== ausser).map(stadt => {
     const r = bewerteFuerStadt(a, stadt)
     const gruende: string[] = []
-    // Basel: Strassentyp ist geschätzt → immer als erster Hinweis (auch ohne Notenabweichung).
-    if (stadt === 'basel')
+    // Basel: nur wenn der Strassentyp wirklich geschätzt wurde (kein amtlicher/manueller Wert),
+    // als erster Hinweis — auch ohne Notenabweichung.
+    if (stadt === 'basel' && a.strassentyp == null)
       gruende.push(`Strassentyp geschätzt (${baselStrassentypAusVerkehr(a.dtv, a.v)})`)
     // Abweichungstreiber nur listen, wenn die Note tatsächlich differiert.
     if (r.note !== ref.note) {

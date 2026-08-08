@@ -220,11 +220,12 @@ def render_umweltspuren(u):
             stadt,
             fmt_m(s.get("breiteOptimal")),
             fmt_m(s.get("breiteMinimal")),
+            s.get("decke", "–"),
             s.get("taktModell", "–"),
             s.get("hinweis", ""),
         ])
     parts.append(md_table(
-        ["Stadt", "Breite optimal", "Breite minimal", "Takt-Modell", "Hinweis"],
+        ["Stadt", "Breite optimal", "Breite minimal", "Decke (max. Note)", "Takt-Modell", "Hinweis"],
         rows))
     return "\n\n".join(parts)
 

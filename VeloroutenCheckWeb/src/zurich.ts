@@ -25,7 +25,7 @@ import type { Cand } from './VeloMap'
 import type { Routentyp } from './fuehrungsform'
 import { densify } from './geo'
 import {
-  bboxOf, bestOverlapFeature, loadOevFromOsm, nearestDtv, SAMPLE_M,
+  bboxOf, bestOverlapValue, loadOevFromOsm, nearestDtv, SAMPLE_M,
   type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
 
@@ -41,9 +41,9 @@ function fetchDtvStations(): Promise<DtvStation[]> {
       .then((d: { features?: { geometry?: { coordinates: [number, number] }; properties?: { dtv?: number } }[] }) =>
         (d.features ?? []).flatMap(f => {
           const c = f.geometry?.coordinates, dtv = f.properties?.dtv
-          return c && dtv ? [{ lat: c[1], lon: c[0], dtv }] : []
+          return c && dtv != null ? [{ lat: c[1], lon: c[0], dtv }] : []
         }))
-      .catch(() => [] as DtvStation[])
+      .catch(() => { dtvCache = undefined; return [] as DtvStation[] })   // Netzfehler nicht einfrieren
   }
   return dtvCache
 }
@@ -65,7 +65,7 @@ async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
   // WFS 2.0: Standard-Achsenreihenfolge für EPSG:4326 ist lat,lon → bbox = minLat,minLon,maxLat,maxLon.
   const params = new URLSearchParams({
     service: 'WFS', version: '2.0.0', request: 'GetFeature',
-    typeName: 'view_velonetz', outputFormat: 'application/json', srsName: 'EPSG:4326',
+    typeNames: 'view_velonetz', outputFormat: 'application/json', srsName: 'EPSG:4326',
     bbox: `${bbox.s},${bbox.w},${bbox.n},${bbox.e},urn:ogc:def:crs:EPSG::4326`,
   })
   // Timeout: ein hängender WFS darf enrichAll/die UI nicht dauerhaft blockieren.
@@ -85,8 +85,11 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
   ])
   return cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
-    const f = features.length ? bestOverlapFeature(dense, features) : undefined
-    const routentyp = f ? kategorieToRoutentyp(f.properties.kategorie) : undefined
+    // Votum pro WERT: die kantonalen Velonetz-Features sind kurz segmentiert — pro Feature
+    // erreichte keines die 50 % und der Routentyp fiel aus (07.08.2026).
+    const routentyp = features.length
+      ? bestOverlapValue(dense, features, f => kategorieToRoutentyp(f.properties.kategorie))
+      : undefined
     const dtv = nearestDtv(dense, stations)
     if (!routentyp && dtv == null) return c
     return { ...c, bern: { ...c.bern, ...(routentyp ? { routentyp } : {}), ...(dtv != null ? { dtv } : {}) } }

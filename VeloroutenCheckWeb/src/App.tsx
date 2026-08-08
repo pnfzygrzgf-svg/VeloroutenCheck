@@ -103,6 +103,9 @@ const STADT_KURZ: Record<CityId, string> = { bern: 'BE', zurich: 'ZH', basel: 'B
 
 // Quellenangabe der amtlichen Anreicherung für den Herkunfts-Chip (stadtabhängig).
 const AttribContext = createContext('Geoinformation Stadt Bern')
+// War der Berner DTV-Layer beim letzten Anreichern erreichbar? Steuert die «≤ 2000»-Annahme
+// (dtvAssumed) und deren Chip — bei Ausfall soll «Eingabe nötig» stehen, nicht die Annahme.
+const DtvQuelleOkContext = createContext(true)
 
 const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
   'Mischverkehr':                  { bg: '#9ca3af', fg: '#ffffff' },
@@ -165,13 +168,16 @@ const FUSSWEG_VORAUSSETZUNGEN = [
   'Fehlende Alternativen',
 ]
 
-// Farbe der Note (CH-Skala: 6 = beste/grün … 1 = schlechteste/rot).
+// Farbe der Note (CH-Skala: 6 = beste/grün … 1 = schlechteste/rot). Die oberen drei Grenzen
+// liegen auf den Wortgrenzen von erfuellungsgrad() (5,5 / 4,5 / 3,5) — vorher sprang die Farbe
+// bei 4,0, das Wort aber bei 3,5: Note 3,5 hiess «Teilweise erfüllt» und war trotzdem orange.
+// Farbtöne dunkel genug für weisse Schrift (Kontrast ≥ 4,5:1).
 function noteColor(n: number): { bg: string; fg: string } {
-  if (n >= 5.5) return { bg: '#15803d', fg: '#ffffff' }  // sehr gut
-  if (n >= 4.5) return { bg: '#65a30d', fg: '#ffffff' }  // gut
-  if (n >= 4.0) return { bg: '#ca8a04', fg: '#ffffff' }  // genügend
-  if (n >= 2.5) return { bg: '#ea580c', fg: '#ffffff' }  // ungenügend
-  return { bg: '#b91c1c', fg: '#ffffff' }                // schlecht
+  if (n >= 5.5) return { bg: '#15803d', fg: '#ffffff' }  // Vollständig erfüllt
+  if (n >= 4.5) return { bg: '#4d7c0f', fg: '#ffffff' }  // Weitgehend erfüllt
+  if (n >= 3.5) return { bg: '#a16207', fg: '#ffffff' }  // Teilweise erfüllt
+  if (n >= 2.5) return { bg: '#c2410c', fg: '#ffffff' }  // Gar nicht erfüllt (oberer Bereich)
+  return { bg: '#b91c1c', fg: '#ffffff' }                // Gar nicht erfüllt (unterer Bereich)
 }
 
 const DTV_BANDS   = ['< 2 000', '2 000 – 5 000', '5 000 – 10 000', '> 10 000']
@@ -191,9 +197,9 @@ const ROUTE_COLS: { label: string; r: Routentyp }[] = [
   { label: 'Velohauptroute', r: 'Velohauptroute' },
 ]
 const HALT_COLOR: Record<Haltestellenloesung, { bg: string; fg: string }> = {
-  'Separate Velofläche': { bg: '#16a34a', fg: '#ffffff' },
-  'Übergang':            { bg: '#84a44b', fg: '#ffffff' },
-  'Mischverkehr':        { bg: '#9ca3af', fg: '#ffffff' },
+  'Separate Velofläche': { bg: '#15803d', fg: '#ffffff' },
+  'Übergang':            { bg: '#5f7a2e', fg: '#ffffff' },
+  'Mischverkehr':        { bg: '#6b7280', fg: '#ffffff' },
 }
 
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
@@ -205,11 +211,14 @@ type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung' | 'angen
 // Verkehrsdaten" Bern führen alle Strassen > 2000 + alle Altstadt-Strassen — kein Eintrag ⇒ ≤ 2000
 // (ausserhalb Altstadt; die Live-Punktabfrage liefert in der Altstadt zuverlässig einen Wert).
 const DTV_ANGENOMMEN = 1000   // Repräsentant des „< 2000"-Bands (jeder Wert < 2000 ergibt dasselbe Soll)
-function dtvAssumed(s: Section, city: CityId): boolean {
-  return !Number.isFinite(s.dtv) && city === 'bern' && Number.isFinite(s.speed)
+// quelleOk: WAR der Verkehrsdaten-Layer beim Anreichern erreichbar? Nur dann ist «kein
+// Eintrag ⇒ ≤ 2000» ein gültiger Schluss — bei einem Ausfall bliebe die Note sonst mit dem
+// günstigsten Band stehen, als wäre sie amtlich begründet (07.08.2026, bernDtvLayerOk).
+function dtvAssumed(s: Section, city: CityId, quelleOk = true): boolean {
+  return quelleOk && !Number.isFinite(s.dtv) && city === 'bern' && Number.isFinite(s.speed)
 }
-function dtvEff(s: Section, city: CityId): number {
-  return Number.isFinite(s.dtv) ? s.dtv : (dtvAssumed(s, city) ? DTV_ANGENOMMEN : NaN)
+function dtvEff(s: Section, city: CityId, quelleOk = true): number {
+  return Number.isFinite(s.dtv) ? s.dtv : (dtvAssumed(s, city, quelleOk) ? DTV_ANGENOMMEN : NaN)
 }
 // Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
 type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram' | 'strassentyp'
@@ -597,18 +606,36 @@ function FieldLabel({ label, chip }: { label: string; chip?: React.ReactNode }) 
   )
 }
 
-function NumberField({ label, unit, value, onChange, step, chip }: {
+// «2,3» (Schweizer Komma) und «2.3» gleichermassen lesen; Unlesbares/Leeres wird NaN
+// («Eingabe nötig») statt still 0 — 0 wäre notenwirksam falsch (DTV 0, Breite 0).
+function parseZahl(r: string): number {
+  const t = r.trim().replace(',', '.')
+  if (t === '') return NaN
+  const n = Number(t)
+  return Number.isFinite(n) ? Math.max(0, n) : NaN
+}
+
+function NumberField({ label, unit, value, onChange, chip }: {
   label: string; unit: string; value: number; onChange: (v: number) => void
   step?: number; chip?: React.ReactNode
 }) {
+  // Text-Feld mit lokalem Rohtext statt type="number": erlaubt das Komma («2,3») und
+  // Tipp-Zwischenstände («2,»), ohne dass der Wert unterwegs zu 0 kollabiert.
+  const [text, setText] = useState(Number.isFinite(value) ? String(value).replace('.', ',') : '')
+  // Externe Wertänderung (OSM-Übernahme, Leeren) ins Feld spiegeln — aber nicht das
+  // gerade Getippte überschreiben, solange es denselben Wert bedeutet.
+  useEffect(() => {
+    const p = parseZahl(text)
+    const gleich = Number.isFinite(value) ? p === value : Number.isNaN(p)
+    if (!gleich) setText(Number.isFinite(value) ? String(value).replace('.', ',') : '')
+  }, [value])  // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 150 }}>
       <FieldLabel label={label} chip={chip} />
       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <input
-          type="number" min={0} step={step ?? 1} value={Number.isFinite(value) ? value : ''}
-          // Geleertes Feld → NaN (leer), nicht 0; sonst Wert ≥ 0.
-          onChange={e => { const r = e.target.value; onChange(r === '' ? NaN : Math.max(0, Number(r) || 0)) }}
+          type="text" inputMode="decimal" value={text}
+          onChange={e => { setText(e.target.value); onChange(parseZahl(e.target.value)) }}
           style={{
             width: '100%', padding: '8px 10px', borderRadius: 8,
             border: '1px solid var(--border)', fontSize: 16, textAlign: 'right',
@@ -647,6 +674,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
   breitenQuelle: string                 // Herkunft der Breiten-Vorgabe (stadtspez. Standard oder Masterplan Bern)
   city: CityId                          // Stadt → bestimmt Sichtbarkeit des Strassentyp-Felds (Basel)
 }) {
+  const dtvQuelleOk = useContext(DtvQuelleOkContext)
   const { ist } = section
   const q = section.quelle
   const bezugLabel = section.routentyp === 'Veloroute' ? 'Minimal' : 'Optimal'
@@ -694,8 +722,8 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
         <NumberField label="DTV MIV" unit="Fz/Tag" value={section.dtv} step={100}
                      onChange={v => onChange({ dtv: v })}
-                     chip={<QuelleChip q={dtvAssumed(section, city) ? 'angenommen' : q.dtv}
-                                       fehlt={ist !== '' && brauchtDtvTempo(ist) && !Number.isFinite(section.dtv) && !dtvAssumed(section, city)} />} />
+                     chip={<QuelleChip q={dtvAssumed(section, city, dtvQuelleOk) ? 'angenommen' : q.dtv}
+                                       fehlt={ist !== '' && brauchtDtvTempo(ist) && city !== 'basel' && !Number.isFinite(section.dtv) && !dtvAssumed(section, city, dtvQuelleOk)} />} />
         <NumberField label="Zul. Höchstgeschwindigkeit" unit="km/h" value={section.speed} step={10}
                      onChange={v => onChange({ speed: v })}
                      chip={<QuelleChip q={q.speed} fehlt={ist !== '' && brauchtDtvTempo(ist) && !Number.isFinite(section.speed)} />} />
@@ -798,7 +826,14 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
         <label style={fieldStyle}>
           <FieldLabel label="ÖV-Angebot (Haltestelle)" chip={<QuelleChip q={q.oevAngebot} />} />
           <select value={section.oevAngebot}
-                  onChange={e => onChange({ oevAngebot: e.target.value as OevAngebot })}
+                  onChange={e => {
+                    const v = e.target.value as OevAngebot
+                    // «keine Haltestelle» räumt Typ und Breite mit ab: die Felder verschwinden aus
+                    // der Maske, und was unsichtbar ist, darf nicht weiterrechnen (07.08.2026).
+                    onChange(v === 'keine'
+                      ? { oevAngebot: v, haltestellentyp: 'keine', haltestelleBreite: NaN }
+                      : { oevAngebot: v })
+                  }}
                   style={selectStyle}>
             {OEV_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -864,7 +899,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
             </div>
           ) : (
             <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1 }}>
-              {bewertung.note.toFixed(1)}
+              {numDE(bewertung.note, 1)}
             </div>
           )}
         </div>
@@ -891,7 +926,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                     ? 'Mischfläche Fuss/Velo · Basis-Note 4 (max. «genügend»); DTV/Tempo nicht massgebend.'
                     : bewertung.erfuellt
                       ? 'Form erfüllt den Soll → Form-Note 6.'
-                      : `feel-safe-Defizit ${bewertung.defizit} Pkt. → Form-Note ${bewertung.basisnote.toFixed(1)}.`}
+                      : `feel-safe-Defizit ${bewertung.defizit} Pkt. → Form-Note ${numDE(bewertung.basisnote, 1)}.`}
               </div>
               {/* warnung steht ZUSÄTZLICH zur Erklärung (hinweis oben ersetzt sie stattdessen). */}
               {bewertung.warnung && (
@@ -903,22 +938,22 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
                   <strong>Breite:</strong> nicht angegeben · Vorgabe{' '}
                   {bewertung.maxbreite != null
-                    ? `${bewertung.sollbreite.toFixed(2)}–${bewertung.maxbreite.toFixed(2)} m`
-                    : `${bezugLabel} ${bewertung.sollbreite.toFixed(2)} m`}
+                    ? `${numDE(bewertung.sollbreite, 2)}–${numDE(bewertung.maxbreite, 2)} m`
+                    : `${bezugLabel} ${numDE(bewertung.sollbreite, 2)} m`}
                   {` (Quelle: ${breitenQuelle})`}
                   {!section.routentyp && ' · Routentyp wählen'}
                 </div>
               ) : (
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
-                  <strong>Breite:</strong> {bewertung.breite.toFixed(2)} m · Vorgabe{' '}
+                  <strong>Breite:</strong> {numDE(bewertung.breite, 2)} m · Vorgabe{' '}
                   {bewertung.maxbreite != null
-                    ? `${bewertung.sollbreite.toFixed(2)}–${bewertung.maxbreite.toFixed(2)} m`
-                    : `${bezugLabel} ${bewertung.sollbreite.toFixed(2)} m`}
+                    ? `${numDE(bewertung.sollbreite, 2)}–${numDE(bewertung.maxbreite, 2)} m`
+                    : `${bezugLabel} ${numDE(bewertung.sollbreite, 2)} m`}
                   {` (Quelle: ${breitenQuelle})`}
                   {' · '}
                   {bewertung.breiteErfuellt
                     ? '✓ erfüllt'
-                    : `${bewertung.breitenStatus} (${bewertung.breitenDefizit.toFixed(2)} m) → Abzug ${bewertung.breitenabzug.toFixed(1)} Note`}
+                    : `${bewertung.breitenStatus} (${numDE(bewertung.breitenDefizit, 2)} m) → Abzug ${numDE(bewertung.breitenabzug, 1)} Note`}
                 </div>
               )}
               {city === 'basel' && ist === 'Velostrasse' && bewertung.sollbreite != null && (
@@ -949,7 +984,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
               {bewertung.parkenAbzug > 0 && (
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
                   <strong>Parkierung rechts (Dooring):</strong> Abzug{' '}
-                  {bewertung.parkenAbzug.toFixed(1)} Note
+                  {numDE(bewertung.parkenAbzug, 1)} Note
                 </div>
               )}
               {bewertung.parkenRechts === 'ja' && bewertung.parkenSicherheitsstreifen && (
@@ -960,7 +995,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
               {bewertung.tramAbzug > 0 && (
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
                   <strong>Tram in der Fahrbahn:</strong> Abzug{' '}
-                  {bewertung.tramAbzug.toFixed(2)} Note (Schienen im Mischverkehr)
+                  {numDE(bewertung.tramAbzug, 2)} Note (Schienen im Mischverkehr)
                 </div>
               )}
               {bewertung.sollHaltestelle && (
@@ -969,7 +1004,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                   {bewertung.haltestelleStatus === 'kompatibel' &&
                     ` · ${section.haltestellentyp} ✓ kompatibel`}
                   {bewertung.haltestelleStatus === 'inkompatibel' &&
-                    ` · ${section.haltestellentyp} ✗ → Abzug ${bewertung.haltestelleAbzug.toFixed(1)} Note`}
+                    ` · ${section.haltestellentyp} ✗ → Abzug ${numDE(bewertung.haltestelleAbzug, 1)} Note`}
                   {bewertung.haltestelleStatus === 'pruefen' &&
                     ` · Haltestellentyp wählen. Kompatibel: ${bewertung.kompatibleHaltestellen.join(', ')}`}
                   {bewertung.haltestelleStatus === 'inkompatibel' && (
@@ -983,12 +1018,12 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
                   <strong>Breite Haltestelle:</strong>{' '}
                   {bewertung.haltestelleBreite != null
-                    ? `${bewertung.haltestelleBreite.toFixed(2)} m`
+                    ? `${numDE(bewertung.haltestelleBreite, 2)} m`
                     : 'nicht angegeben'} · Vorgabe{' '}
-                  {bezugLabel} {bewertung.hsBreitenSoll.toFixed(2)} m
+                  {bezugLabel} {numDE(bewertung.hsBreitenSoll, 2)} m
                   {bewertung.haltestelleBreite != null && (' · ' + (bewertung.hsBreiteStatus === 'erfuellt'
                     ? '✓ erfüllt'
-                    : `zu schmal → Abzug ${bewertung.hsBreitenabzug.toFixed(1)} Note`))}
+                    : `zu schmal → Abzug ${numDE(bewertung.hsBreitenabzug, 1)} Note`))}
                 </div>
               )}
             </>
@@ -1006,7 +1041,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
           {vergleich.map((v, i) => (
             <span key={v.stadt}>
               {i > 0 && ' · '}
-              {STADT_KURZ[v.stadt]} {v.note.toFixed(1)}
+              {STADT_KURZ[v.stadt]} {numDE(v.note, 1)}
             </span>
           ))}
           {vergleich.some(v => v.gruende.length > 0) && (
@@ -1015,7 +1050,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
               <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
                 {vergleich.filter(v => v.gruende.length > 0).map(v => (
                   <li key={v.stadt} style={{ marginTop: 2 }}>
-                    {STADT_KURZ[v.stadt]} {v.note.toFixed(1)} — {v.gruende.join('; ')}
+                    {STADT_KURZ[v.stadt]} {numDE(v.note, 1)} — {v.gruende.join('; ')}
                   </li>
                 ))}
               </ul>
@@ -1033,7 +1068,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
           {section.obs.count > 0 ? (
             <>
               <strong>OpenBikeSensor:</strong> Median Überholabstand{' '}
-              <strong>{section.obs.median.toFixed(2)} m</strong>
+              <strong>{numDE(section.obs.median, 2)} m</strong>
               {' · '}{Math.round(100 * section.obs.below150 / section.obs.count)} % unter 1,5 m
               {' · '}n = {section.obs.count}
               {section.obs.usage > 0 && ` · ${section.obs.usage} Befahrungen`}
@@ -1078,21 +1113,24 @@ const csvCell = (v: string | number) => {
   const s = String(v ?? '')
   return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
 }
-function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streckeNote: number | null, city: CityId): string {
+function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streckeNote: number | null, city: CityId, dtvQuelleOk = true): string {
   const head = [
     'Abschnitt', 'Strecke/Herkunft', 'DTV [Fz/Tag]', 'DTV-Quelle', 'Tempo [km/h]', 'Tempo-Quelle',
     'Ist-Führungsform', 'Ist-Quelle', 'Breite [m]', 'Breite-Quelle', 'Routentyp', 'Routentyp-Quelle',
     'Strassentyp', 'Strassentyp-Quelle',
     'Parkierung rechts', 'Sicherheitsstreifen', 'Tram in Fahrbahn', 'ÖV-Angebot', 'Haltestellentyp', 'Soll-Führungsform', 'Note', 'Erfüllungsgrad',
     'OBS Median [m]', 'OBS n', 'OBS <1,5m [%]', 'OBS Befahrungen',
+    'Stadt', 'Abrufdatum',   // Kontext des Exports: welcher Standard galt, wann waren die Live-Quellen gezogen
   ]
+  const stadtLabel = CITIES[city].label
+  const abrufdatum = new Date().toISOString().slice(0, 10)
   const rows = sections.map((s, i) => {
     const r = results[i]
     const obs = s.obs
     const obsPct = obs && obs.count > 0 ? Math.round(100 * obs.below150 / obs.count) : NaN
     return [
       `Abschnitt ${i + 1}`, s.label ?? '',
-      numDE(s.dtv), s.quelle.dtv ? QUELLE_LABEL[s.quelle.dtv] : (dtvAssumed(s, city) ? QUELLE_LABEL.angenommen : ''),
+      numDE(s.dtv), s.quelle.dtv ? QUELLE_LABEL[s.quelle.dtv] : (dtvAssumed(s, city, dtvQuelleOk) ? QUELLE_LABEL.angenommen : ''),
       numDE(s.speed), s.quelle.speed ? QUELLE_LABEL[s.quelle.speed] : '',
       s.ist || '', s.quelle.ist ? QUELLE_LABEL[s.quelle.ist] : '',
       numDE(s.breite, 2), s.quelle.breite ? QUELLE_LABEL[s.quelle.breite] : '',
@@ -1106,6 +1144,7 @@ function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streck
       obs && obs.count > 0 ? numDE(obs.median, 2) : '',
       obs ? String(obs.count) : '', Number.isFinite(obsPct) ? String(obsPct) : '',
       obs ? String(obs.usage) : '',
+      stadtLabel, abrufdatum,
     ]
   })
   // Schlusszeile: Strecken-Note (schlechtester Abschnitt). Spalten aus dem Kopf abgeleitet,
@@ -1122,8 +1161,11 @@ function downloadCsv(csv: string) {
   const a = document.createElement('a')
   a.href = url
   a.download = `velocheck_${new Date().toISOString().slice(0, 10)}.csv`
+  // Safari braucht das <a> im DOM, und das sofortige revoke bricht dort den Download ab —
+  // deshalb anhängen und erst nach dem Klick-Tick aufräumen.
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url) }, 1000)
 }
 
 // ── Einstiegsseite ───────────────────────────────────────────────────────────
@@ -1205,18 +1247,22 @@ export default function App() {
   const cityCfg = CITIES[city]
   // OBS-Snapshot der Stadt (bis ~2,7 MB) im Hintergrund vorwärmen, sobald die Stadt feststeht —
   // damit der erste Strassen-Load nicht am Download/Parsen hängt (Cache in obs.ts; enrichObs([]) lädt nur).
-  useEffect(() => { if (cityCfg.obsFile) void enrichObs([], cityCfg.obsFile).catch(() => {}) }, [cityCfg.obsFile])
-  // Lokalen Velostreifen-Snapshot (falls vorhanden) ebenso vorwärmen; fehlt er (öffentlicher Build) → no-op.
-  useEffect(() => { if (cityCfg.velostreifenFile) void enrichVelostreifen([], cityCfg.velostreifenFile).catch(() => {}) }, [cityCfg.velostreifenFile])
+  // Erst im Rechner: die Einstiegsseite braucht die Snapshots nicht — dort wären es tote Downloads.
   const [cands, setCands] = useState<Cand[]>([])
   const [stops, setStops] = useState<Stop[]>([])                  // ÖV-Haltestellen für Karten-Marker
+  // Quellen-Status der letzten Anreicherung (nur Bern notenrelevant, siehe dtvAssumed).
+  const [dtvQuelleOk, setDtvQuelleOk] = useState(true)
   // Stadtwechsel: geladene Segmente/Haltestellen UND Abschnitte verwerfen — die Abschnitte tragen
   // Quellen/Annahmen der alten Stadt (z. B. Bern-DTV-Annahme, Geoportal-Chips) und wären in der
   // neuen Stadt still falsch etikettiert.
   const wechsleStadt = (c: CityId) => {
     if (c === city) return
+    ladeGen.current++   // hängige Lade-Ketten (falls doch eine läuft) als veraltet markieren
     const hatte = sections.some(s => s.ist !== '' || Number.isFinite(s.dtv) || s.candIds?.length)
     setCity(c); setCands([]); setStops([]); setStreet(''); setSections([defaultSection()])
+    setOsmBusy(false)      // eine evtl. hängige Ladung ist verworfen — nicht als „Lädt …" stehen lassen
+    setDtvQuelleOk(true)   // Quellen-Status gehört zur Stadt-Ladung, nicht zur neuen Stadt
+    undoRef.current = null; setUndoLabel(null)   // Undo über den Stadtwechsel hinweg wäre falsch etikettiert
     setMsg(hatte ? 'Stadtwechsel: die übernommenen Abschnitte wurden geleert.' : '')
   }
   // Herkunft der massgeblichen Breiten-Vorgabe eines Abschnitts: stadtspezifischer Standard,
@@ -1238,7 +1284,11 @@ export default function App() {
   }).goatcounter?.count?.({ path: '/rechner', title: 'Rechner', event: false })
   const go = (v: 'home' | 'rechner') => {
     setView(v)
-    if (typeof location !== 'undefined') location.hash = v === 'rechner' ? 'rechner' : ''
+    if (typeof location !== 'undefined') {
+      if (v === 'rechner') location.hash = 'rechner'
+      // Zurück zur Startseite ohne History-Eintrag und ohne «#»-Rest in der URL:
+      else history.replaceState(null, '', location.pathname + location.search)
+    }
     if (v === 'rechner') zaehleRechner()
   }
   // Vor/Zurück-Navigation (Hash) berücksichtigen.
@@ -1249,7 +1299,20 @@ export default function App() {
   }, [])
   // Direkt-Aufruf via #rechner einmalig zählen (best effort; count.js lädt asynchron).
   useEffect(() => { if (view === 'rechner') zaehleRechner() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+  // (Fortsetzung des Vorwärmens von oben — steht hier, weil `view` erst jetzt deklariert ist.)
+  useEffect(() => {
+    if (view === 'rechner' && cityCfg.obsFile) void enrichObs([], cityCfg.obsFile).catch(() => {})
+  }, [view, cityCfg.obsFile])
+  // Lokalen Velostreifen-Snapshot (falls vorhanden) ebenso vorwärmen; fehlt er (öffentlicher Build) → no-op.
+  useEffect(() => {
+    if (view === 'rechner' && cityCfg.velostreifenFile) void enrichVelostreifen([], cityCfg.velostreifenFile).catch(() => {})
+  }, [view, cityCfg.velostreifenFile])
   const mapRef = useRef<import('leaflet').Map | null>(null)
+  // Lade-Generation gegen Races: Stadtwechsel (und jeder neue Load) erhöht den Zähler; eine
+  // hängige await-Kette erkennt am veralteten Wert, dass ihr Ergebnis nicht mehr in den State
+  // gehört, und verwirft es still. Das Stadt-Select ist während osmBusy zusätzlich gesperrt —
+  // der Zähler ist der Gurt für alles, was daran vorbeikommt (z. B. langsame Anreicherung).
+  const ladeGen = useRef(0)
   const selCount = cands.filter(c => c.selected).length
 
   // Kandidaten anreichern: die drei UNABHÄNGIGEN Quellen (amtlich/Adapter, OpenBikeSensor, ÖV) laufen
@@ -1266,6 +1329,10 @@ export default function App() {
         ? enrichVelostreifen(c, cityCfg.velostreifenFile).catch(() => new Map<number, VeloInfo>())
         : Promise.resolve(new Map<number, VeloInfo>()),
     ])
+    // Layer-Status festhalten (nur Bern hat die Annahme-Logik). Muss NACH dem Adapter-Aufruf
+    // gelesen werden; bei Ausfall unterdrückt dtvAssumed die ≤2000-Annahme und der Nutzer
+    // sieht «Eingabe nötig» plus die Warnmeldung unten.
+    if (city === 'bern') setDtvQuelleOk(bern.bernDtvLayerOk())
     const bernById = new Map(ec.map(x => [x.id, x.bern]))
     const cands = c.map(cand => {
       const v = velo.get(cand.id)
@@ -1292,9 +1359,11 @@ export default function App() {
   const ladeStrasse = async () => {
     const name = street.trim()
     if (!name) return
+    const gen = ++ladeGen.current
     setOsmBusy(true); setMsg('Lade Segmente aus OpenStreetMap …')
     try {
       const c = await loadStreetCandidates(name, cityCfg.osmArea)
+      if (gen !== ladeGen.current) return          // inzwischen Stadtwechsel/neue Ladung → verwerfen
       setCands(c); setStops([])          // Segmente SOFORT zeigen (anklickbar) — Anreicherung folgt im Hintergrund
       if (!c.length) {
         setMsg(`Keine Velo-relevanten Segmente für „${name}" (Stadt ${cityCfg.label}) gefunden.`, 'info')
@@ -1302,17 +1371,21 @@ export default function App() {
       }
       setMsg(`${c.length} Segmente geladen (© OpenStreetMap, ODbL) · reichere an …`, 'ok')
       const { cands: enriched, stops: st } = await enrichAll(c)
+      if (gen !== ladeGen.current) return
       // Angereicherte je Id einspielen; Auswahl (falls inzwischen getoggelt) erhalten. Ids, die nicht
       // mehr da sind (zwischenzeitlich neue Ladung), werden ignoriert.
       const byId = new Map(enriched.map(e => [e.id, e]))
       setCands(prev => prev.map(p => { const e = byId.get(p.id); return e ? { ...e, selected: p.selected } : p }))
       setStops(st)
       const amtlichHit = enriched.some(x => x.bern)
+      const dtvWarnung = city === 'bern' && !bern.bernDtvLayerOk()
+        ? ' ⚠ Verkehrsdaten-Layer nicht erreichbar — DTV bitte manuell erfassen (keine ≤-2000-Annahme).'
+        : ''
       setMsg(`${c.length} Segmente geladen (© OpenStreetMap, ODbL)` +
         (amtlichHit ? ` · Anreicherung: ${cityCfg.attribution}.` : '.') +
-        ' Auf der Karte ab-/zuwählen, dann übernehmen.', 'ok')
-    } catch (e) { setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
-    finally { setOsmBusy(false) }
+        ' Auf der Karte ab-/zuwählen, dann übernehmen.' + dtvWarnung, dtvWarnung ? 'info' : 'ok')
+    } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
+    finally { if (gen === ladeGen.current) setOsmBusy(false) }
   }
 
   // Weg 2: Segmente im aktuellen Kartenausschnitt nachladen (zu den vorhandenen hinzufügen).
@@ -1320,9 +1393,11 @@ export default function App() {
     const map = mapRef.current
     if (!map) return
     const b = map.getBounds()
+    const gen = ++ladeGen.current
     setOsmBusy(true); setMsg('Lade Segmente im Kartenausschnitt …')
     try {
       const roh = await loadBboxCandidates(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
+      if (gen !== ladeGen.current) return
       setCands(prev => {                 // neue Segmente SOFORT hinzufügen (roh), Anreicherung folgt
         const ids = new Set(prev.map(c => c.id))
         return [...prev, ...roh.filter(c => !ids.has(c.id))]
@@ -1331,12 +1406,13 @@ export default function App() {
         roh.length ? 'ok' : 'info')
       if (!roh.length) return
       const { cands: neu, stops: st } = await enrichAll(roh)
+      if (gen !== ladeGen.current) return
       const byId = new Map(neu.map(n => [n.id, n]))
       setCands(prev => prev.map(c => { const n = byId.get(c.id); return n ? { ...n, selected: c.selected } : c }))
       setStops(prev => mergeStops(prev, st))
       setMsg(`${neu.length} Segmente im Ausschnitt (angereichert).`, 'ok')
-    } catch (e) { setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
-    finally { setOsmBusy(false) }
+    } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
+    finally { if (gen === ladeGen.current) setOsmBusy(false) }
   }
 
   // Stabil (useCallback): geht als Prop in den VeloMap-Zeichen-Effekt — eine neue Referenz je
@@ -1349,24 +1425,45 @@ export default function App() {
   // (Klick ist der Hauptweg zum Strecken-Aufbau, daher müssen DTV/Tempo/Routentyp/OBS auch hier kommen).
   const klickHinzufuegen = async (lat: number, lon: number) => {
     if (osmBusy) return                         // läuft schon eine Anfrage → Klick ignorieren (Rate-Limit schonen)
+    const gen = ++ladeGen.current
     setOsmBusy(true); setMsg('Suche Segment an der Klickstelle …')
     try {
       const roh = await loadNearestCandidate(lat, lon)
+      if (gen !== ladeGen.current) return
       if (!roh) { setMsg('An dieser Stelle kein velorelevantes Segment gefunden.', 'info'); return }
       if (cands.some(p => p.id === roh.id)) { setMsg(`Segment „${roh.name}" ist bereits geladen.`, 'info'); return }
       setCands(prev => (prev.some(p => p.id === roh.id) ? prev : [...prev, roh]))   // sofort hinzufügen
       setMsg(`Segment „${roh.name}" hinzugefügt · reichere an …`, 'ok')
       const { cands: [c], stops: st } = await enrichAll([roh])
+      if (gen !== ladeGen.current) return
       setCands(prev => prev.map(p => (p.id === c.id ? { ...c, selected: p.selected } : p)))
       setStops(prev => mergeStops(prev, st))
       setMsg(`Segment „${c.name}" hinzugefügt.`, 'ok')
-    } catch (e) { setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
-    finally { setOsmBusy(false) }
+    } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
+    finally { if (gen === ladeGen.current) setOsmBusy(false) }
+  }
+
+  // Undo-Schnappschuss für die zwei Aktionen, die viel Zustand auf einmal ersetzen/verwerfen
+  // («Übernehmen» überschreibt alle Abschnitte, «Karte leeren» wirft die geladenen Segmente weg).
+  // Ein Slot genügt: der jeweils letzte destruktive Schritt ist rückgängig machbar.
+  const undoRef = useRef<{ sections: Section[]; cands: Cand[]; stops: Stop[] } | null>(null)
+  const [undoLabel, setUndoLabel] = useState<string | null>(null)
+  const undoMerken = (label: string) => {
+    undoRef.current = { sections, cands, stops }
+    setUndoLabel(label)
+  }
+  const undoAusfuehren = () => {
+    const u = undoRef.current
+    if (!u) return
+    setSections(u.sections); setCands(u.cands); setStops(u.stops)
+    undoRef.current = null; setUndoLabel(null)
+    setMsg('Letzte Aktion rückgängig gemacht.', 'ok')
   }
 
   // Auswahl in die Strecke übernehmen (ordnen + zusammenfassen).
   const uebernehmen = () => {
     if (selCount === 0) { setMsg('Keine Segmente gewählt.', 'info'); return }
+    undoMerken('Übernehmen rückgängig')
     setSections(candsToSections(cands))
     setMsg(`${selCount} Segmente übernommen → geordnet und zusammengefasst. ` +
       'Herkunft je Feld am Chip (amtlich/OSM); leere Felder bitte ergänzen.', 'ok')
@@ -1392,7 +1489,10 @@ export default function App() {
     s.ist !== '' &&
     // DTV/Tempo nur, wo die Form sie auswertet (nicht bei Umweltspur und Fussweg Velo gestattet).
     // DTV zählt als vorhanden, wenn er eingegeben ist oder (nur Bern) als ≤ 2000 angenommen wird.
-    (!brauchtDtvTempo(s.ist) || (Number.isFinite(dtvEff(s, city)) && Number.isFinite(s.speed))) &&
+    // Basel: die Soll-Wahl ist strassentyp-basiert — DTV ist dort nur Zusatzinfo (DWV-Deckel-
+    // Hinweis) und darf die Note nicht blockieren; das TEMPO bleibt Pflicht (Velostrasse-Regel).
+    (!brauchtDtvTempo(s.ist) ||
+      ((city === 'basel' || Number.isFinite(dtvEff(s, city, dtvQuelleOk))) && Number.isFinite(s.speed))) &&
     (!brauchtBreite(s.ist) || Number.isFinite(s.breite)) &&
     // Basel: Soll-Wahl ist strassentyp-basiert → Strassentyp nötig.
     (city !== 'basel' || s.strassentyp !== '')
@@ -1404,7 +1504,7 @@ export default function App() {
     const routentyp = s.routentyp || 'Velohauptroute'
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
     const oevTakt = Number.isFinite(s.oevTakt) ? s.oevTakt : undefined   // leeres Feld → unbekannter Takt
-    return fuehrungsformNote(dtvEff(s, city), s.speed, s.ist as IstFuehrungsform, breite, routentyp,
+    return fuehrungsformNote(dtvEff(s, city, dtvQuelleOk), s.speed, s.ist as IstFuehrungsform, breite, routentyp,
       s.parkenRechts, oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram,
       cityCfg.breiten?.[s.ist as IstFuehrungsform],   // stadtspezifische Breiten-Sollwerte
       city,                                            // Stadt → Soll-Tabelle + Haltestellen-Logik
@@ -1415,14 +1515,20 @@ export default function App() {
   // Reine Zusatzinfo; Basel-Strassentyp wird aus DTV/Tempo geschätzt (geschaetzt = true).
   const vergleiche = sections.map(s => {
     if (!sectionComplete(s)) return null
+    // Ohne DTV (in Basel erlaubt) keine Vergleichsnoten: die DTV-basierten Soll-Tabellen der
+    // anderen Städte ergäben mit NaN still «Mischverkehr» (alle Schwellen-Vergleiche false).
+    if (brauchtDtvTempo(s.ist as IstFuehrungsform) && !Number.isFinite(dtvEff(s, city, dtvQuelleOk))) return null
     const breite = Number.isFinite(s.breite) ? s.breite : undefined
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
     return vergleichsNoten({
-      dtv: dtvEff(s, city), v: s.speed, ist: s.ist as IstFuehrungsform, breite,
+      dtv: dtvEff(s, city, dtvQuelleOk), v: s.speed, ist: s.ist as IstFuehrungsform, breite,
       routentyp: s.routentyp || 'Velohauptroute', parkenRechts: s.parkenRechts,
       parkenSicherheitsstreifen: s.parkenSicherheitsstreifen,
       oevTakt: Number.isFinite(s.oevTakt) ? s.oevTakt : undefined,
       oevAngebot: s.oevAngebot, haltestellentyp: s.haltestellentyp, haltestelleBreite, tram: s.tram,
+      // Amtlicher/manueller Basler Strassentyp mitgeben — sonst schätzte der Vergleich ihn neu
+      // und die Referenz wich von der angezeigten Hauptnote ab (07.08.2026).
+      strassentyp: s.strassentyp || undefined,
     }, city)
   })
   const offen = results.filter(r => r == null).length
@@ -1440,6 +1546,9 @@ export default function App() {
   // Karten-Marker je Abschnitt: Nummer am Mittelpunkt des längsten zugehörigen OSM-Segments
   // (liegt auf der Linie). Nur Abschnitte mit OSM-Herkunft (candIds); manuelle ohne Marker.
   // useMemo: stabile Referenz, sonst zeichnet der VeloMap-Effekt bei jedem Render alles neu.
+  // Abhängig nur von der candIds-STRUKTUR (Schlüssel unten), nicht vom sections-Array selbst —
+  // sonst löste jeder Tastendruck in einer SectionCard ein komplettes Karten-Neuzeichnen aus.
+  const candIdsKey = sections.map(s => `${s.id}:${(s.candIds ?? []).join('.')}`).join('|')
   const markers: SectionMarker[] = useMemo(() => {
     const candById = new Map(cands.map(c => [c.id, c]))
     return sections.flatMap((s, i) => {
@@ -1450,14 +1559,19 @@ export default function App() {
       const mid = longest.geom[Math.floor(longest.geom.length / 2)]
       return [{ num: i + 1, lat: mid.lat, lon: mid.lon }]
     })
-  }, [cands, sections])
-  // Cand-IDs des gehoverten Abschnitts → Karten-Highlight (useMemo: stabile Set-Referenz).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cands, candIdsKey])
+  // Cand-IDs des gehoverten Abschnitts → Karten-Highlight (useMemo: stabile Set-Referenz;
+  // gleiche Schlüssel-Logik wie markers, siehe oben).
   const highlightIds = useMemo(() => hoverSec != null
     ? new Set(sections.find(s => s.id === hoverSec)?.candIds ?? [])
-    : undefined, [hoverSec, sections])
+    : undefined,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hoverSec, candIdsKey])
 
   return (
     <AttribContext.Provider value={cityCfg.attribution}>
+    <DtvQuelleOkContext.Provider value={dtvQuelleOk}>
     <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)' }}>
       {/* Header (grün); Titel/Logo führen zur Einstiegsseite */}
       <header className="vrc-header">
@@ -1510,7 +1624,9 @@ export default function App() {
       {/* Sticky Ergebnis-Leiste: Strecken-Beurteilung jederzeit sichtbar (Punkt 1).
           Klick springt zum massgebenden bzw. ersten unvollständigen Abschnitt. Die volle
           Beurteilung steht weiterhin unten. */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 1100, marginBottom: 18 }}>
+      {/* zIndex bewusst klein: der Karten-Wrapper isoliert Leaflet (eigener Stacking-Context,
+          s. unten) — so muss die Sticky-Leiste native Dropdowns/Popover nicht mehr überbieten. */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 100, marginBottom: 18 }}>
         <button
           onClick={() => {
             const ziel = streckeNote != null ? worstIdx : results.findIndex(r => r == null)
@@ -1527,7 +1643,7 @@ export default function App() {
                          textTransform: 'uppercase', opacity: 0.85 }}>Strecke</span>
           <span style={{ fontSize: modus === 'erfuellung' ? 16 : 24, fontWeight: 800, lineHeight: 1 }}>
             {streckeNote == null ? '–'
-              : modus === 'erfuellung' ? erfuellungsgrad(streckeNote) : streckeNote.toFixed(1)}
+              : modus === 'erfuellung' ? erfuellungsgrad(streckeNote) : numDE(streckeNote, 1)}
           </span>
           <span style={{ fontSize: 13, opacity: 0.95 }}>
             {streckeNote != null
@@ -1544,6 +1660,7 @@ export default function App() {
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 130 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Stadt</span>
           <select value={city} onChange={e => wechsleStadt(e.target.value as CityId)}
+                  disabled={osmBusy}   // Stadtwechsel während einer laufenden Ladung sperren (Race-Schutz)
                   style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 16,
                            background: '#fff' }}>
             {(Object.keys(CITIES) as CityId[]).map(k => (
@@ -1563,7 +1680,7 @@ export default function App() {
             Strasse aus OpenStreetMap laden (Stadt {cityCfg.label})
           </span>
           <input value={street} onChange={e => setStreet(e.target.value)}
-                 onKeyDown={e => { if (e.key === 'Enter') ladeStrasse() }}
+                 onKeyDown={e => { if (e.key === 'Enter' && !osmBusy) ladeStrasse() }}
                  placeholder="z. B. Thunstrasse"
                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 16 }} />
         </label>
@@ -1593,7 +1710,9 @@ export default function App() {
         {/* Karte: immer sichtbar. Strecke per Klick auf die Karte aufbauen (Segment hinzufügen),
             Linien an-/abwählen, dann übernehmen. „Strasse laden" ist optional. */}
         <div style={{ flexBasis: '100%' }}>
-          <div style={{ position: 'relative' }}>
+          {/* zIndex 0 isoliert Leaflets interne z-Indizes (Controls bis 1000) im eigenen
+              Stacking-Context — sie können die Sticky-Leiste (zIndex 100) nicht mehr überdecken. */}
+          <div style={{ position: 'relative', zIndex: 0 }}>
             <VeloMap cands={cands} onToggle={toggleCand} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
@@ -1638,10 +1757,17 @@ export default function App() {
               {selCount} Segmente in Strecke übernehmen
             </button>
             {cands.length > 0 && (
-              <button onClick={() => { setCands([]); setStops([]); setMsg('') }}
+              <button onClick={() => { undoMerken('Karte leeren rückgängig'); setCands([]); setStops([]); setMsg('') }}
                       style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
                                borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
                 Karte leeren
+              </button>
+            )}
+            {undoLabel && (
+              <button onClick={undoAusfuehren}
+                      style={{ border: '1px dashed var(--border)', background: '#fff', color: 'var(--accent)',
+                               borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
+                ↩ {undoLabel}
               </button>
             )}
           </div>
@@ -1676,7 +1802,7 @@ export default function App() {
             </div>
           ) : (
             <div style={{ fontSize: streckeNote != null ? 48 : 22, fontWeight: 800, lineHeight: 1.1 }}>
-              {streckeNote != null ? streckeNote.toFixed(1) : '–'}
+              {streckeNote != null ? numDE(streckeNote, 1) : '–'}
             </div>
           )}
         </div>
@@ -1689,12 +1815,12 @@ export default function App() {
                 (<strong>Abschnitt {worstIdx + 1}</strong>,{' '}
                 {modus === 'erfuellung'
                   ? erfuellungsgrad((results[worstIdx] as NotenErgebnis).note).toLowerCase()
-                  : `Note ${(results[worstIdx] as NotenErgebnis).note.toFixed(1)}`}).
+                  : `Note ${numDE((results[worstIdx] as NotenErgebnis).note, 1)}`}).
               </div>
               <div style={{ marginTop: 4, opacity: 0.85, fontSize: 13 }}>
                 {modus === 'erfuellung'
                   ? results.map((r, i) => `A${i + 1}: ${erfuellungsgrad((r as NotenErgebnis).note)}`).join(' · ')
-                  : 'Einzelnoten: ' + results.map((r, i) => `A${i + 1}: ${(r as NotenErgebnis).note.toFixed(1)}`).join(' · ')}
+                  : 'Einzelnoten: ' + results.map((r, i) => `A${i + 1}: ${numDE((r as NotenErgebnis).note, 1)}`).join(' · ')}
               </div>
             </>
           ) : (
@@ -1731,7 +1857,7 @@ export default function App() {
                          cursor: 'pointer', flex: 1, minWidth: 200 }}>
           + Abschnitt hinzufügen
         </button>
-        <button onClick={() => downloadCsv(buildCsv(sections, results, streckeNote, city))}
+        <button onClick={() => downloadCsv(buildCsv(sections, results, streckeNote, city, dtvQuelleOk))}
                 title="Alle Abschnitte mit Werten, Herkunft und Note als CSV (Excel) herunterladen"
                 style={{ border: '1px solid var(--accent)', background: '#fff', color: 'var(--accent)',
                          borderRadius: 10, padding: '10px 16px', fontSize: 14, fontWeight: 600,
@@ -1850,6 +1976,7 @@ export default function App() {
       </div>
       )}
     </div>
+    </DtvQuelleOkContext.Provider>
     </AttribContext.Provider>
   )
 }

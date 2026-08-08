@@ -283,6 +283,8 @@ def render_umweltspur(data, stadt):
             Raw("Breite Veloroute (minimal)" + b_badge), fmt_m(s.get("breiteMinimal")),
         ], [
             "Takt-Modell", s.get("taktModell", "–"),
+        ], [
+            "Höchstens Note (Decke)", _numde(s["decke"]) if s.get("decke") is not None else "–",
         ]]
         items.append(table(["Vorgabe (Umweltspur)", stadt], rows))
         if breite_bern:
@@ -334,7 +336,6 @@ GRUND_PARAMETER = [
     ("noteProMeter", "Breiten-Abzug pro fehlendem Meter"),
     ("parkenRechtsAbzug", "Abzug Parkierung rechts (Dooring)"),
     ("haltestelleAbzug", "Abzug Haltestelle (Soll «Separate Velofläche», Ist Mischverkehr-Typ)"),
-    ("umweltspurBasis", "Umweltspur: höchstens Note (Decke)"),
     ("fusswegBasis", "Fussweg Velo gestattet: höchstens Note (Decke)"),
 ]
 

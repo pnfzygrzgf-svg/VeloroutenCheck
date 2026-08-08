@@ -77,10 +77,12 @@ function bestOverlapFeature(
 
 function bboxOf(cands: Cand[]): { s: number; w: number; n: number; e: number } {
   const pts = cands.flatMap(c => c.geom)
-  return {
-    s: Math.min(...pts.map(p => p.lat)), n: Math.max(...pts.map(p => p.lat)),
-    w: Math.min(...pts.map(p => p.lon)), e: Math.max(...pts.map(p => p.lon)),
+  let s = Infinity, n = -Infinity, w = Infinity, e = -Infinity
+  for (const p of pts) {
+    if (p.lat < s) s = p.lat; if (p.lat > n) n = p.lat
+    if (p.lon < w) w = p.lon; if (p.lon > e) e = p.lon
   }
+  return { s, n, w, e }   // Schleife statt Spread (Stack-Limit, siehe cityShared.bboxOf)
 }
 
 // Velostrassen (nur 7 Features) — einmalig laden und im Modul cachen.
@@ -89,6 +91,7 @@ function loadVelostrassen(): Promise<GeoJsonFeature[]> {
   if (!velostrassenCache) {
     velostrassenCache = fetchBernGeojson(
       'Velostrassen', { s: -90, w: -180, n: 90, e: 180 }, 'Name')
+    velostrassenCache.catch(() => { velostrassenCache = null })   // Fehlschlag nicht einfrieren
   }
   return velostrassenCache
 }
@@ -100,15 +103,25 @@ const VELO_FRACTION = 0.6  // strenger für Velostrassen (überschreibt die Ist-
 
 // Kandidaten mit amtlichen Bern-Daten anreichern (additiv, überschreibt nichts an c.*).
 // Ein einzelner Layer-Fehler (z. B. Netzwerk) darf den Import nicht blockieren.
+// Status des letzten enrichCands-Laufs: WAR der DTV-Layer erreichbar? Die «kein Eintrag ⇒
+// DTV ≤ 2000»-Annahme (App.tsx, dtvAssumed) ist nur gültig, wenn der Layer tatsächlich
+// geantwortet hat — bei einem Ausfall bekam sonst jede Strasse still den günstigsten
+// DTV-Band-Wert samt amtlich klingender Chip-Begründung (07.08.2026).
+let letzterDtvLayerOk = true
+export function bernDtvLayerOk(): boolean { return letzterDtvLayerOk }
+
 export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
   if (cands.length === 0) return cands
   const bbox = bboxOf(cands)
-  const [tempo, dtv, routenRoh, velostrassen] = await Promise.all([
+  const [tempo, dtvRoh, routenRoh, velostrassen] = await Promise.all([
     fetchBernGeojson('Signalisierte_Hoechstgeschwindigkeit', bbox, 'V_sig').catch(() => []),
-    fetchBernGeojson('Flaechendeckende_Verkehrsdaten', bbox, 'Nt,Nn').catch(() => []),
+    // null = Layer nicht erreichbar (≠ leeres, aber gültiges Ergebnis) — Grundlage der Annahme.
+    fetchBernGeojson('Flaechendeckende_Verkehrsdaten', bbox, 'Nt,Nn').catch(() => null),
     fetchBernGeojson('Veloroutennetz_Masterplan', bbox, 'Velorouten_beschrieb').catch(() => []),
     loadVelostrassen().catch(() => []),
   ])
+  letzterDtvLayerOk = dtvRoh !== null
+  const dtv = dtvRoh ?? []
   // Das Veloroutennetz enthält auch unklassifizierte Netzgeometrie (Velorouten_beschrieb = null).
   // Vorab herausfiltern, damit ein solches Stück nicht eine echte Klassifizierung verdeckt.
   const routen = routenRoh.filter(f => f.properties.Velorouten_beschrieb != null)
@@ -141,12 +154,15 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
     // Velostrasse setzt die Ist-Führungsform → strenger (VELO_FRACTION), damit eine bloss
     // kreuzende Velostrasse die OSM-Führungsform nicht fälschlich überschreibt.
     const velostrasse = bestOverlapFeature(dense, velostrassen, OVERLAP_M, VELO_FRACTION) != null
-    if (!speed && !dtvVal && !routentyp && !velostrasse) return c
+    // `!= null` statt falsy (07.08.2026): DTV 0 (Nt=Nn=0) und Tempo 0 sind gültige amtliche
+    // Werte — als „fehlt" behandelt log der Chip („angenommen" statt „amtlich").
+    if (speed == null && dtvVal == null && !routentyp && !velostrasse) return c
     return {
       ...c,
       bern: {
-        ...(speed ? { speed } : {}),
-        ...(dtvVal ? { dtv: dtvVal } : {}),
+        ...c.bern,   // vorhandene Anreicherung nicht verwerfen (wie die übrigen Adapter)
+        ...(speed != null ? { speed } : {}),
+        ...(dtvVal != null ? { dtv: dtvVal } : {}),
         ...(routentyp === 'Velohauptroute' || routentyp === 'Veloroute' ? { routentyp } : {}),
         ...(velostrasse ? { velostrasse: true } : {}),
       },
@@ -171,7 +187,8 @@ let taktCache: Promise<Record<string, number>> | null = null
 function loadTakt(): Promise<Record<string, number>> {
   if (!taktCache) {
     taktCache = fetch(import.meta.env.BASE_URL + 'oev_takt_bern.json')
-      .then(r => (r.ok ? r.json() : {})).catch(() => ({}))
+      .then(r => (r.ok ? r.json() : {}))
+      .catch(() => { taktCache = null; return {} })   // Netzfehler nicht einfrieren
   }
   return taktCache
 }
@@ -202,8 +219,16 @@ export async function loadOev(cands: Cand[]): Promise<{ byId: Map<number, OevInf
   const byId = new Map<number, OevInfo>()
   for (const c of cands) {
     const dense = densify(c.geom, SAMPLE_M)
+    // NÄCHSTE Haltestelle, nicht die erste der Serverliste (07.08.2026): der frühere `break`
+    // beim ersten Treffer ≤ STOP_DIST_M liess die Antwort-Reihenfolge entscheiden — eine
+    // Bus-Kante in 28 m konnte die Tram-Kante in 5 m verdrängen (ÖV-Angebot „Bus" statt
+    // „Tram" → bis 1,0 Notenstufe über die Haltestellen-Lösung).
     let nearStop: Stop | undefined
-    for (const st of stops) if (distPointToLineM(st, dense) <= STOP_DIST_M) { nearStop = st; break }
+    let nearD = STOP_DIST_M
+    for (const st of stops) {
+      const d = distPointToLineM(st, dense)
+      if (d <= nearD) { nearD = d; nearStop = st }
+    }
     const oevTram = tramLines.some(l => overlapScore(dense, l, OVERLAP_M) >= MIN_FRACTION)
     const oevBus = busLines.some(l => overlapScore(dense, l, OVERLAP_M) >= MIN_FRACTION)
     if (nearStop || oevTram || oevBus) {
