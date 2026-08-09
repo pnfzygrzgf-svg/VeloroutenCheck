@@ -179,10 +179,11 @@ describe('Umweltspur — stadtspezifischer Takt (Stufe Bern, Rampe ZH/LU, Basel 
 })
 
 describe('fuehrungsformNote — Bern Beispiel aus README (unverändert)', () => {
-  it('DTV 3000 / 50 / Radstreifen / 1,8 m / Velohauptroute → 4.0', () => {
+  it('DTV 3000 / 50 / Radstreifen / 1,8 m / Velohauptroute → 4.5', () => {
+    // Form 6 − (91−73)/14,4 = 4,75 · Breite −0,7 × 0,6 = −0,42 → 4,33 → 4,5
     const r = fuehrungsformNote(3000, 50, 'Radstreifen', 1.8, 'Velohauptroute')
     expect(r.soll).toBe('Radweg')
-    expect(r.note).toBe(4.0)
+    expect(r.note).toBe(4.5)
   })
   it('Ist = Soll (Radweg) → Note 6', () => {
     const r = fuehrungsformNote(3000, 50, 'Radweg strassenbegleitend / Geschützter Radstreifen', 2.5, 'Velohauptroute')
@@ -368,8 +369,10 @@ describe('Kombinierter Fuss-/Radweg (Q11)', () => {
     const r = fuehrungsformNote(5000, 50, 'Kombinierter Fuss-/Radweg', 3.5, 'Velohauptroute')
     expect(r.note).toBe(6)
   })
-  it('zu schmal → Abzug, aber weiterhin > 4 (Bern 3,00 m statt 3,50)', () => {
-    const r = fuehrungsformNote(5000, 50, 'Kombinierter Fuss-/Radweg', 3.0, 'Velohauptroute')
+  it('zu schmal → Abzug, aber weiterhin > 4 (Bern 2,50 m statt 3,50)', () => {
+    // Satz baulich 0,35: 1,0 m Defizit → 6 − 0,35 = 5,65 → 5,5. (Ein 0,5-m-Defizit
+    // verschwände beim 0,35er-Satz in der Rundung — darum hier das grössere.)
+    const r = fuehrungsformNote(5000, 50, 'Kombinierter Fuss-/Radweg', 2.5, 'Velohauptroute')
     expect(r.note).toBeGreaterThan(4)
     expect(r.note).toBeLessThan(6)
   })
@@ -399,18 +402,18 @@ describe('Sicherheitsstreifen (SN 640 060) hebt den Dooring-Abzug auf', () => {
     fuehrungsformNote(1000, 30, 'Radstreifen', breite, 'Velohauptroute',
       'ja', undefined, 'keine', 'keine', undefined, false, undefined, stadt, undefined, streifen)
 
-  it('Bern: ohne Streifen → Dooring-Abzug 1,0', () => {
+  it('Bern: ohne Streifen → Dooring-Abzug 1,5 (Formel: 0,6 + 0,9 × (3,5 − 2,5))', () => {
     const r = rs('bern', false)
-    expect(r.parkenAbzug).toBe(1.0)
+    expect(r.parkenAbzug).toBeCloseTo(1.5)
   })
-  it('Bern: mit Streifen → kein Abzug, Note 1 Stufe höher', () => {
+  it('Bern: mit Streifen → kein Abzug, Note 1,5 Stufen höher', () => {
     const ohne = rs('bern', false).note
     const mit = rs('bern', true)
     expect(mit.parkenAbzug).toBe(0)
-    expect(mit.note).toBe(ohne + 1)
+    expect(mit.note).toBe(ohne + 1.5)
   })
   it('stadtunabhängig: Zürich verhält sich gleich', () => {
-    expect(rs('zurich', false).parkenAbzug).toBe(1.0)
+    expect(rs('zurich', false).parkenAbzug).toBeCloseTo(1.5)
     expect(rs('zurich', true).parkenAbzug).toBe(0)
   })
   it('wirkungslos, wenn Parkierung rechts ≠ ja', () => {
@@ -451,12 +454,12 @@ describe('Q7 — Einbahn mit Velogegenverkehr (dreistufig)', () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe('Tram in der Fahrbahn (TRAM_MALUS)', () => {
-  it('Mischverkehr T30: 6,0 → 5,0 (Malus 0,8, gerundet)', () => {
+  it('Mischverkehr T30: 6,0 → 5,0 (Malus 1,2; 4,8 rundet auf 5,0)', () => {
     const ohne = fuehrungsformNote(1000, 30, 'Mischverkehr')
     const mit = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
       'egal', undefined, 'keine', 'keine', undefined, true)
     expect(ohne.note).toBe(6)
-    expect(mit.tramAbzug).toBeCloseTo(0.8)
+    expect(mit.tramAbzug).toBeCloseTo(1.2)
     expect(mit.note).toBe(5)
   })
   it('kein Malus bei Radstreifen (nur Mischverkehr betroffen)', () => {
@@ -505,8 +508,8 @@ describe('Haltestelle — Abzug und Breite (Bern)', () => {
       'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
     expect(r.hsBreitenSoll).toBe(1.8)
     expect(r.hsBreiteStatus).toBe('zu schmal')
-    expect(r.hsBreitenabzug).toBeCloseTo(0.45)
-    expect(r.note).toBe(5.5)   // 6 − 0,45 = 5,55 → 5,5
+    expect(r.hsBreitenabzug).toBeCloseTo(0.3)
+    expect(r.note).toBe(5.5)   // 6 − 0,5 × 0,6 = 5,70 → 5,5
   })
 })
 

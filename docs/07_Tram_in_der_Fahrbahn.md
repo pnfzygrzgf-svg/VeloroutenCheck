@@ -31,7 +31,8 @@ Anker (Funktion `share()` in `verify_06.py`).
 
 ## Rechenweg
 
-1. Alle Velo-Bewertungen zu **Mischverkehr**-Szenen auswählen.
+1. Alle Bewertungen der **Velo-Foto**-Mischverkehr-Szenen auswählen (Kamera C; die
+   Befragtengruppe wird nicht gefiltert — es zählt, was das Foto zeigt).
 2. Aufteilen in **mit Tram** (`tram == True`) und **ohne Tram** (`tram == False`).
 3. Je Gruppe feel-safe % berechnen — gesamt und getrennt nach Tempo 30 / Tempo 50.
 4. **Δ feel-safe** = feel-safe(ohne) − feel-safe(mit) = Verlust durch die Schienen.
@@ -45,19 +46,19 @@ Anker (Funktion `share()` in `verify_06.py`).
 
 | Kontext | mit Tram | ohne Tram | Δ feel-safe | Malus (Δ/14,4) |
 |---|---|---|---|---|
-| Gesamt | 12,1 % (N=1 907) | 25,4 % (N=6 378) | 13,3 | 0,92 |
-| Tempo 30 | 14,4 % (N=964) | 26,3 % (N=2 923) | 11,9 | **0,83** |
-| Tempo 50 | 9,7 % (N=943) | 17,7 % (N=2 843) | 8,0 | **0,56** |
+| Gesamt | 7,5 % (N=1 635) | 21,3 % (N=1 575) | 13,8 | 0,96 |
+| Tempo 30 | 9,4 % (N=839) | 27,1 % (N=801) | 17,7 | **1,23** |
+| Tempo 50 | 5,4 % (N=796) | 15,2 % (N=774) | 9,8 | **0,68** |
 
-**Radstreifen** (Referenz — eigene RVA): Δ ≈ 0,4 / 0,6 / −0,3 → Malus ≈ 0 → **kein** Tram-Effekt.
+**Radstreifen** (Referenz — eigene RVA): Δ ≈ -0,6 / 0,1 / -1,4 → Malus ≈ 0 → **kein** Tram-Effekt.
 
 ## Entscheidung / im Tool verdrahtet
 
 - Malus **nur bei Mischverkehr** (bei Radstreifen empirisch ~0).
-- **Tempo-abhängig**, gerundet: **−0,8** bei Tempo ≤ 30, **−0,55** bei Tempo > 30.
-- Bewusst **nicht** der „Gesamt"-Wert (0,92): Er ist durch die unterschiedliche Tempo-Mischung
-  zwischen Tram- und Nicht-Tram-Szenen leicht überzeichnet. Massgebend sind die
-  **tempo-kontrollierten** Zeilen.
+- **Tempo-abhängig**, gerundet: **−1,2** bei Tempo ≤ 30, **−0,7** bei Tempo > 30.
+- Bewusst **nicht** der „Gesamt"-Wert (0,96): Er mischt die Tempi. Massgebend sind die
+  **tempo-kontrollierten** Zeilen (Vergleich zudem bei gleichem Aufkommen — Tram-Szenen
+  existieren nur mit Aufkommen «wenig»).
 - Konstante: `TRAM_MALUS` in `src/fuehrungsform.ts`; greift, wenn „Tram in der Fahrbahn" gesetzt
   ist **und** Ist-Führungsform = Mischverkehr.
 

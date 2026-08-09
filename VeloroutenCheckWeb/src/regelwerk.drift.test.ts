@@ -17,7 +17,8 @@
 import { describe, expect, it } from 'vitest'
 import regelwerk from '../../docs/regelwerk.json'
 import {
-  FEELSAFE, FUSSWEG_BASIS, HALTESTELLE_ABZUG, NOTE_PRO_METER, PARKEN_RECHTS_ABZUG,
+  BREITE_SATZ, FEELSAFE, FUSSWEG_BASIS, HALTESTELLE_ABZUG,
+  PARKEN_ABZUG_BASIS, PARKEN_ABZUG_JE_M, PARKEN_ABZUG_OHNE_BREITE, PARKEN_ABZUG_REF,
   PARKEN_RELEVANT, SCORE_PRO_NOTE, TRAM_MALUS, UMWELTSPUR_DECKE, UMWELTSPUR_TAKT,
 } from './fuehrungsform'
 
@@ -27,11 +28,16 @@ describe('regelwerk.json spiegelt die Code-Konstanten (Parameter)', () => {
   it('feelSafeProNote = SCORE_PRO_NOTE', () => {
     expect(param.feelSafeProNote.wert).toBe(SCORE_PRO_NOTE)
   })
-  it('noteProMeter = NOTE_PRO_METER', () => {
-    expect(param.noteProMeter.wert).toBe(NOTE_PRO_METER)
+  it('breiteSatz (fahrbahn/baulich/fahrgasse) = BREITE_SATZ je feel-safe-Klasse', () => {
+    expect(param.breiteSatz.fahrbahn).toBe(BREITE_SATZ.Radstreifen)
+    expect(param.breiteSatz.baulich).toBe(BREITE_SATZ.Radweg)
+    expect(param.breiteSatz.fahrgasse).toBe(BREITE_SATZ.Mischverkehr)
   })
-  it('parkenRechtsAbzug = PARKEN_RECHTS_ABZUG', () => {
-    expect(param.parkenRechtsAbzug.wert).toBe(PARKEN_RECHTS_ABZUG)
+  it('parkenAbzug (Formel-Parameter) = PARKEN_ABZUG_*', () => {
+    expect(param.parkenAbzug.basis).toBe(PARKEN_ABZUG_BASIS)
+    expect(param.parkenAbzug.jeMeterUnterRef).toBe(PARKEN_ABZUG_JE_M)
+    expect(param.parkenAbzug.referenzBreite).toBe(PARKEN_ABZUG_REF)
+    expect(param.parkenAbzug.ohneBreite).toBe(PARKEN_ABZUG_OHNE_BREITE)
   })
   it('haltestelleAbzug = HALTESTELLE_ABZUG', () => {
     expect(param.haltestelleAbzug.wert).toBe(HALTESTELLE_ABZUG)

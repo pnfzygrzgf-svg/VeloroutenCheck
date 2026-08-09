@@ -163,7 +163,7 @@ Die vier Klassen-Anteile summieren sich je Szene auf 100. *Beispiel:* antworten 
 
 #### Empirische Anker (feel-safe %, verifiziert)
 
-radwege-check / FixMyCity, Velo-Perspektive, **tram-bereinigt**. Werte **unabhängig aus den Einzelantworten nachgerechnet** (`tools/verify_06.py`; Kreuzvalidierung gegen den offiziellen `voteScore`, ø 1,8 Punkte), je Tempo-Kontext, grosse Fallzahlen (N je Wert ≈ 3'000–27'000):
+radwege-check / FixMyCity, **tram-bereinigt**. Gezählt wird jede Bewertung der **Velo-Foto-Szenen** (Szenen-Merkmal `Kamera = C` — der Blickwinkel des Fotos bestimmt, welche Rolle bewertet wird), unabhängig von der Befragtengruppe; auch die Urteile der potenziellen Velofahrenden sind enthalten. Werte **unabhängig aus den Einzelantworten nachgerechnet** (`tools/verify_06.py`, §5; Kreuzvalidierung gegen den offiziellen `voteScore`, ø 1,8 Punkte), je Tempo-Kontext, grosse Fallzahlen (N je Wert ≈ 2'000–22'000):
 
 > **tram-bereinigt:** Befragungs-Szenen mit Tram (Schienen in der Fahrbahn) sind ausgeschlossen.
 > Tramschienen senken das Sicherheitsempfinden unabhängig von der Veloanlage (Sturzrisiko,
@@ -172,21 +172,20 @@ radwege-check / FixMyCity, Velo-Perspektive, **tram-bereinigt**. Werte **unabhä
 
 ```
                        ruhig (V ≤ 30)   schnell (V > 30)
-Mischverkehr                 26               18
-Radstreifen                  74               69
-Radweg (baulich getrennt)    92               90
+Mischverkehr                 22               13
+Radstreifen                  77               73
+Radweg (baulich getrennt)    91               91
 ```
 
 Zuordnung der Ist-Formen zu den Befragungsdaten:
 
 - **Mischverkehr** → keine Radverkehrsanlage.
-- **Radstreifen** → markierter Streifen auf der Fahrbahn (über alle Breiten gemittelt; 3,5 m liegt deutlich höher als 2,0 m, siehe [Offene Punkte](#offene-punkte)).
-- **Radweg** → baulich getrennt, angesetzt auf dem robusten Poller-/Trennungs-Niveau (≈ 91, kaum tempoabhängig). Dieser Wert gilt für **alle baulich getrennten Formen**: den *strassenbegleitenden Radweg / geschützten Radstreifen* (beide werden gleich behandelt) **und** den *abgesetzten Radweg* (Q3). *Hinweis:* In Berliner Daten liegen abgesetzte Seitenraum-Radwege tiefer (≈ 77, Konflikte mit Geschäften/Gastronomie im Seitenraum); dieser Abschlag wird **bewusst nicht** übernommen, da Berns abgesetzte Radwege deutlich weniger durch Seitenraum-Nutzungen geprägt sind. Q2 und Q3 unterscheiden sich daher nur in der Breitenvorgabe, nicht im feel-safe-Wert.
+- **Radstreifen** → die **Referenzkonfiguration**: Sollbreite 2,5 m ohne Parkierung, linear aus den gemessenen 2,0/3,5-m-Zellen interpoliert (73,0 + 0,5 × 8,4 ≈ 77 · 68,1 + 0,5 × 10,1 ≈ 73). Bewusst NICHT das Mittel über alle Szenen: Breite und Parkierung werden unten separat abgezogen — ein gepoolter Anker zählte sie doppelt.
+- **Radweg** → baulich getrennt, robustes Poller-/Trennungs-Niveau (gemessen 90,9/90,9 — hinter der Trennung ist das Tempo egal). Dieser Wert gilt für **alle baulich getrennten Formen**: den *strassenbegleitenden Radweg / geschützten Radstreifen* (beide werden gleich behandelt) **und** den *abgesetzten Radweg* (Q3). *Hinweis:* In Berliner Daten liegen abgesetzte Seitenraum-Radwege tiefer (≈ 77, Konflikte mit Geschäften/Gastronomie im Seitenraum); dieser Abschlag wird **bewusst nicht** übernommen, da Berns abgesetzte Radwege deutlich weniger durch Seitenraum-Nutzungen geprägt sind. Q2 und Q3 unterscheiden sich daher nur in der Breitenvorgabe, nicht im feel-safe-Wert.
 
 #### Warum 14,4 Punkte pro Notenstufe?
 
-Die grösste mögliche Abweichung ist **Soll Radweg / Ist Mischverkehr bei hohem Tempo**:
-Defizit = 90 − 18 = **72 Punkte**. Verteilt auf die **5 Notenstufen** von 6 bis 1 ergibt das 72 / 5 = **14,4 Punkte pro Stufe** — so entspricht genau dieser ungünstigste Fall der Note 1 (`SCORE_PRO_NOTE`, tunbar).
+Der Faktor koppelt die feel-safe-Skala an die fünf Notenstufen von 6 bis 1: eine Lücke von **72 Punkten** entspricht dem vollen Notenband (72 / 5 = **14,4 Punkte pro Stufe**; `SCORE_PRO_NOTE`, tunbar). Die grösste heute mögliche Lücke (Soll Radweg / Ist Mischverkehr, schnell: 91 − 13 = 78 Punkte) ergäbe rechnerisch 0,58 — der Notenboden 1 fängt sie ab.
 
 #### Warum kontext-sensitiv nach Tempo?
 
@@ -209,9 +208,9 @@ Abschnitt: **DTV 3'000 · 50 km/h · Ist = Radstreifen**
 Soll      = fuehrungsart(3000, 50)             = Radweg        (DTV 2'000–5'000, V > 40)
 Ist < Soll (Radstreifen < Radweg)              → Abzug
 Tempo     = schnell                            (50 > 30)
-Zielscore = feel-safe(Radweg, schnell)         = 90
-Defizit   = 90 − feel-safe(Radstreifen,schnell)= 90 − 69 = 21
-Note      = 6 − 21 / 14,4 = 6 − 1,46 = 4,54    → 4,5
+Zielscore = feel-safe(Radweg, schnell)         = 91
+Defizit   = 91 − feel-safe(Radstreifen,schnell)= 91 − 73 = 18
+Note      = 6 − 18 / 14,4 = 6 − 1,25 = 4,75    → 5,0
 ```
 
 #### Resultierende Noten
@@ -220,18 +219,18 @@ Bei Tempo > 30 (schnell):
 
 ```
 Soll \ Ist                Mischverkehr   Radstreifen   Radweg
-Radstreifen                   2.5            6.0         6.0
-Radstreifen oder Radweg       1.5            5.5         6.0
-Radweg                        1.0            4.5         6.0
+Radstreifen                   2.0            6.0         6.0
+Radstreifen oder Radweg       1.0            5.5         6.0
+Radweg                        1.0            5.0         6.0
 ```
 
 Bei Tempo ≤ 30 (ruhig) fallen dieselben Abweichungen milder aus:
 
 ```
 Soll \ Ist                Mischverkehr   Radstreifen   Radweg
-Radstreifen                   2.5            6.0         6.0
-Radstreifen oder Radweg       2.0            5.5         6.0
-Radweg                        1.5            5.0         6.0
+Radstreifen                   2.0            6.0         6.0
+Radstreifen oder Radweg       1.5            5.5         6.0
+Radweg                        1.0            5.0         6.0
 ```
 
 ### 3. Breiten-Abzug und Parkierung
@@ -257,37 +256,39 @@ Mischverkehr                 Q6     –         –      (keine Breitenvorgabe)
 ```
 Sollbreite   = Optimal (Velohauptroute) bzw. Minimal (Veloroute)
 Defizit_m    = max(0, Sollbreite − Ist-Breite)
-Breitenabzug = Defizit_m × 0,9        (Notenstufen pro fehlendem Meter)
+Breitenabzug = Defizit_m × Satz der feel-safe-Klasse:
+                 0,6  auf der Fahrbahn      (Radstreifen, Einbahn mit Markierung)
+                 0,35 hinter baulicher Trennung (Radwege, Fuss-/Radwege)
+                 0,9  Fahrgassen-Bänder     (Velostrasse, Umweltspur; normativ)
 Endnote      = runde_0,5( Führungsform-Note − Breitenabzug , begrenzt 1…6 )
 ```
 
-##### Herleitung der 0,9 Notenstufen pro Meter
+##### Herleitung der Breitensätze
 
-Der Abzug ist kein gesetzter Schwellenwert, sondern skaliert **linear** aus dem empirisch gemessenen Breiten-Effekt auf die gefühlte Sicherheit:
+Die Sätze skalieren **linear** aus dem gemessenen Breiten-Effekt — verglichen werden Szenen, die sich **nur in der Breite** unterscheiden (gleiche Parkierung, gleiches Tempo; `tools/verify_06.py`, §5):
 
 ```
-1. Empirie:  Radstreifen 2,0 → 3,5 m (= 1,5 m mehr)  =  +20 feel-safe-Punkte
-             (verifizierter Breitenmittelwert, tools/verify_06.py)
-2. pro Meter Breite:        20 ÷ 1,5            ≈  13,3 feel-safe-Punkte / m
-3. eine Notenstufe:                                14,4 feel-safe-Punkte   (SCORE_PRO_NOTE)
-4. Abzug pro Meter Breite:  13,3 ÷ 14,4         ≈  0,9 Notenstufen / m     (NOTE_PRO_METER)
+Fahrbahn (markierter Radstreifen, ohne Parken): 8,4–10,1 Pkt/m  ÷ 14,4  ≈ 0,6 Noten/m
+hinter baulicher Trennung:                       ≈ 5 Pkt/m       ÷ 14,4  ≈ 0,35 Noten/m
 ```
+
+Hinter der Trennung schützt die **Trennung**, nicht die Breite — Breite ist dort Komfort. Ein einziger gepoolter Satz (früher 0,9, aus «alle 2,0-m- gegen alle 3,5-m-Szenen») mischte die Parkierungswirkung in den Breiteneffekt; die sauber geschnittenen Sätze trennen beides.
 
 **Vorbehalte:**
 
-- **Scheingenauigkeit:** Die Daten liefern nur **zwei** Breiten-Stützpunkte (2,0 und 3,5 m). Der +20-Effekt über diese 1,5 m ist belegt, die Linearität auf Zentimeter-Ebene ist eine Modellannahme (Interpolation).
-- **Rundung relativiert kleine Defizite:** Da die Endnote auf 0,5 gerundet wird, kippt eine Stufe erst ab ≈ 0,28 m Defizit (Abzug > 0,25); kleine Defizite wirken nur kumulativ oder an einer Rundungsgrenze.
+- **Scheingenauigkeit:** Die Daten liefern nur **zwei** Breiten-Stützpunkte (2,0 und 3,5 m). Der Effekt über diese 1,5 m ist belegt, die Linearität auf Zentimeter-Ebene ist eine Modellannahme (Interpolation).
+- **Rundung relativiert kleine Defizite:** Da die Endnote auf 0,5 gerundet wird, kippt ein kleines Defizit die Stufe nur nahe einer Rundungsgrenze; sicher eine Stufe kostet beim Satz 0,6 erst ein Defizit ab ≈ 0,84 m.
 
-Tunbar über `NOTE_PRO_METER`.
+Tunbar über `BREITE_SATZ`.
 
-**Beispiel** (Fortsetzung: DTV 3'000 / 50 km/h / Ist Radstreifen → Form-Note 4,5):
+**Beispiel** (Fortsetzung: DTV 3'000 / 50 km/h / Ist Radstreifen → Form-Note ungerundet 4,75):
 
 ```
 Velohauptroute, Radstreifen, Breite 1,80 m
   Sollbreite   = Optimal 2,50 m
   Defizit      = 2,50 − 1,80 = 0,70 m
-  Breitenabzug = 0,70 × 0,9 = 0,63
-  Endnote      = 4,5 − 0,63 = 3,87 → 4,0
+  Breitenabzug = 0,70 × 0,6 = 0,42
+  Endnote      = 4,75 − 0,42 = 4,33 → 4,5
 ```
 
 Bei erfüllter Breite (Ist ≥ Vorgabe) gibt es keinen Abzug.
@@ -296,23 +297,22 @@ Bei erfüllter Breite (Ist ≥ Vorgabe) gibt es keinen Abzug.
 
 Wo das Velo **auf der Fahrbahn neben möglichem Längsparken** fährt, kann angegeben werden, ob rechts längs geparkt wird (Dooring-Lage). Das betrifft die Fahrbahn-Führungsformen **Mischverkehr, Radstreifen, Velostrasse, Umweltspur und Einbahn mit Velogegenverkehr (markiert)** (Konstante `PARKEN_RELEVANT` in [`VeloroutenCheckWeb/src/fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)); bei baulich abgesetzten Radwegen und beim Fussweg greift der Dooring-Mechanismus nicht, dort wird das Feld nicht angezeigt. Auswahl **Ja / Nein / Egal**:
 
-- **Ja** → **−1,0 Notenstufe** (damit nie Note 6, sobald Parken rechts vorhanden ist).
+- **Ja** → Abzug **0,6 + 0,9 × (3,5 − Streifenbreite)** Notenstufen (nie unter 0,6); ohne bekannte Streifenbreite (Mischverkehr, Velostrasse, Umweltspur, Radstreifen ohne Mass) pauschal **−1,0**. In jedem Fall keine Note 6, sobald Parken rechts vorhanden ist.
 - **Nein / Egal** → kein Abzug.
 
 Bei **Ja** kann zusätzlich angegeben werden, ob ein **Sicherheitsstreifen gegenüber den Parkplätzen** (SN 640 060; im Basler Standard-Papier genannt) vorhanden ist. Ist er vorhanden, entschärft er die Dooring-Gefahr → **kein Abzug**. Da SN 640 060 eine CH-Norm ist, gilt das in allen Stadt-Rechnern.
 
-**Herleitung des −1,0** (verifizierte radwege-Werte, Radstreifen, ungeschützt, tram-bereinigt):
+**Herleitung der Formel** (Radstreifen, ungeschützt, tram-bereinigt; Vergleich bei **gleicher Breite und gleichem Tempo**, `tools/verify_06.py` §5):
 
 ```
-kein Parken                         75,9 %   (N ≈ 6'800)
-Parken rechts vom Velo (Dooring)    61,4 %   (N ≈ 16'800)
-Differenz                          −14,5 feel-safe-Punkte
-−14,5 ÷ 14,4 Pkt/Notenstufe       ≈ −1,0 Notenstufe
+Parken-Offset bei 3,5 m Streifen:    8,5–9,6 Pkte  ≈ 0,6 Noten   (man kann der Türzone ausweichen)
+Parken-Offset bei 2,0 m Streifen:  28,8–29,6 Pkte  ≈ 2,0 Noten   (man fährt zwangsläufig darin)
+linear:  Abzug = 0,6 + 0,9 × (3,5 − Breite)
 ```
 
-**Wichtig:** Der Wert ist empirisch **am Radstreifen** kalibriert und wird auf die übrigen Fahrbahn-Führungsformen **bewusst gleich** angewandt — für diese Konstellationen liegt kein eigener verifizierter Koeffizient vor, das Dooring-Risiko besteht aber auch dort.
+**Wichtig:** Die Formel ist **am Radstreifen** kalibriert. Für Fahrbahn-Führungsformen ohne Streifenbreite (Mischverkehr, Velostrasse, Umweltspur) gilt die Pauschale −1,0 — die Befragung liefert dort keinen eigenen Wert, und im Mischverkehr fährt man faktisch in der Türzone.
 
-Zum Vergleich: liegt das Velo **rechts vom Parken** (Parken schirmt vom Verkehr ab), steigt der Wert auf ≈ 92 %; diese günstige Lage ist im Datensatz aber nur schwach belegt (6 Szenen) und derzeit nicht als eigene Option umgesetzt. Parameter `PARKEN_RECHTS_ABZUG`, tunbar.
+Zum Vergleich: liegt das Velo **rechts vom Parken** (Parken schirmt vom Verkehr ab), steigt der Wert auf ≈ 92 %; diese günstige Lage ist im Datensatz aber nur schwach belegt (6 Szenen) und derzeit nicht als eigene Option umgesetzt. Parameter `PARKEN_ABZUG_BASIS/JE_M/REF/OHNE_BREITE`, tunbar.
 
 #### Tram in der Fahrbahn
 
@@ -322,12 +322,12 @@ Liegen **Tramschienen in der Fahrbahn**, sinkt das Sicherheitsempfinden unabhän
 
 ```
                     feel-safe ohne Tram   feel-safe mit Tram   Δ        Malus (Δ/14,4)
-Tempo 30                  26,3 %               14,4 %         11,9     ≈ 0,8
-Tempo 50                  17,7 %                9,7 %          8,0     ≈ 0,55
-(N je Zelle ≈ 900–2'900)
+Tempo 30                  27,1 %                9,4 %         17,7     ≈ 1,2
+Tempo 50                  15,2 %                5,4 %          9,8     ≈ 0,7
+(N je Zelle ≈ 800–2'900; Vergleich bei gleichem Aufkommen)
 ```
 
-→ **tempo-abhängiger Abzug −0,8 (Tempo ≤ 30) / −0,55 (Tempo > 30)**, nur Mischverkehr. Konstante `TRAM_MALUS`, tunbar. Vollständiger Rechenweg und Reproduktion: `tools/verify_06.py` (§2) bzw. `docs/07_Tram_in_der_Fahrbahn.md`.
+→ **tempo-abhängiger Abzug −1,2 (Tempo ≤ 30) / −0,7 (Tempo > 30)**, nur Mischverkehr. Konstante `TRAM_MALUS`, tunbar. Vollständiger Rechenweg und Reproduktion: `tools/verify_06.py` (§2) bzw. `docs/07_Tram_in_der_Fahrbahn.md`.
 
 ### 4. Sonderfälle (Umweltspur, Velostrasse, Fussweg)
 
@@ -395,7 +395,7 @@ HS7  Busbucht                            Mischverkehr         –         –
 
 - **Einsatzbereich:** Abzug **−1,0**, wenn die Soll-Lösung *Separate Velofläche* verlangt, der vorhandene Typ aber aus der **Mischverkehr-Familie** (HS3/HS6/HS7) stammt. Über-Erfüllung und der Übergangsbereich geben keinen Abzug.
 - **Breite der Veloführung an der Haltestelle:** nur bei HS1/HS2/HS4/HS5. Zu schmal → Abzug
-  `Defizit_m × 0,9` (gleicher Satz wie die Führungsform-Breite). Der Masterplan nennt für
+  `Defizit_m × 0,6` (Satz der markierten Velofläche auf Fahrbahnniveau). Der Masterplan nennt für
   HS1/HS4 den Bereich 1,8–2,5 m; der Rechner rechnet mit einem konkreten Sollwert je Typ
   (HS1: 1,8 · HS4: 2,5 — `HALTESTELLEN` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)).
 
@@ -557,7 +557,7 @@ auf der Einstiegsseite.
 
 ## Offene Punkte
 
-- **Parken × Breite verfeinern:** der Breiten-Effekt ist mit Parken deutlich stärker (≈ 1,16 statt ≈ 0,5 Noten/m) — den Breiten-Abzug parken-abhängig machen statt fixem Parken-Abzug (Daten 06, §4).
+- ~~Parken × Breite verfeinern~~ — umgesetzt: der Parken-Abzug ist breitenabhängig (0,6 + 0,9 je Meter unter 3,5 m), die Breitensätze sind parken-bereinigt geschnitten (0,6/0,35).
 - **«Velo rechts vom Parken»** als eigene, bessere Parken-Lage aufnehmen (empirisch ≈ 92, aber nur 6 Szenen → erst mit besserer Datenlage).
 - **Velostrasse «zu breit»:** der Abzug über der Maximalbreite (6,50 m) ist normativ gesetzt (gleicher Satz wie «zu schmal») — bei Bedarf eigener Satz/Schwelle.
 - **«Radweg abgesetzt» (Q3):** In Berliner Daten tiefer (Seitenraum ≈ 77) als Poller-Niveau (≈ 91). Dieser Abschlag wird **bewusst nicht** angewandt (Berns Seitenraum ist weniger durch Geschäfte/Gastronomie geprägt als Berlins); Q3 trägt denselben feel-safe-Wert wie Q2 und unterscheidet sich nur in der Minimalbreite (1,50 m). Bei künftigen Berner Auswertungen überprüfen.

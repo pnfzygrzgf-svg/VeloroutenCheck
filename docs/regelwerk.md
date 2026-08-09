@@ -21,24 +21,24 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 
 | Parameter | Wert | Einheit | Herleitung |
 |---|---|---|---|
-| feelSafeProNote | 14.4 | feel-safe-Punkte pro Notenstufe | Spanne Mischverkehr→Radweg bei hohem Tempo (90−18 = 72) geteilt durch 5 Notenstufen (6→1). |
-| noteProMeter | 0.9 | Notenstufen Abzug pro fehlendem Meter Breite | Radstreifen 2,0→3,5 m ≈ +20 feel-safe-Punkte über 1,5 m = 13,3 Pkt/m; ÷ 14,4 ≈ 0,9. |
-| parkenRechtsAbzug | 1.0 | Notenstufen | Radstreifen kein Parken 75,9 % vs. Parken rechts 61,4 % = 14,5 Pkt; ÷ 14,4 ≈ 1,0. Ausnahme: ein Sicherheitsstreifen gegenüber den Parkplätzen (SN 640 060; im Basler Standard-Papier genannt) → KEIN Abzug (stadtübergreifend, Norm). |
+| feelSafeProNote | 14.4 | feel-safe-Punkte pro Notenstufe | 72 feel-safe-Punkte Lücke = das volle Notenband 6→1 (72 ÷ 5 = 14,4). Grösste heute mögliche Lücke (Radweg−Mischverkehr schnell: 91−13 = 78) läuft in den Notenboden 1. |
+| breiteSatz |  | Notenstufen Abzug pro fehlendem Meter Breite, je feel-safe-Klasse | Szenen, die sich NUR in der Breite unterscheiden (Velo-Foto-Bewertungen): auf der Fahrbahn 8,4–10,1 Pkt/m ≈ 0,6 Noten/m; hinter baulicher Trennung 5,0 Pkt/m ≈ 0,35. Fahrgassen-Bänder (Velostrasse, Umweltspur; feel-safe-Klasse Mischverkehr) normativ 0,9. |
+| parkenAbzug |  | Notenstufen; Formel basis + jeMeterUnterRef × max(0, referenzBreite − Streifenbreite) | Parken-Offset bei gleicher Breite/Tempo (Velo-Foto-Bewertungen): 3,5 m ≈ 8,5–9,6 Pkt (0,6 Noten), 2,0 m ≈ 28,8–29,7 Pkt (2,0 Noten) → linear 0,6 + 0,9 je Meter unter 3,5 m. Ohne bekannte Streifenbreite (Mischverkehr, Velostrasse, Umweltspur, Radstreifen ohne Mass) Pauschale 1,0. Ausnahme: Sicherheitsstreifen gegenüber den Parkplätzen (SN 640 060) → KEIN Abzug (stadtübergreifend, Norm). |
 | haltestelleAbzug | 1.0 | Notenstufen | Normativ: Soll verlangt Separate Velofläche, Ist-Typ aber Mischverkehr-Familie. |
 | fusswegBasis | 4 | Note (Maximum) | Fussweg Velo gestattet (Mischfläche) höchstens «genügend». Normativ. |
-| tramMalus (ruhig) | 0.8 | Notenstufen (nur Mischverkehr) | Mischverkehr mit vs. ohne Tram: T30 (26,3−14,4)/14,4 ≈ 0,8; T50 (17,7−9,7)/14,4 ≈ 0,55. |
-| tramMalus (schnell) | 0.55 |  |  |
+| tramMalus (ruhig) | 1.2 | Notenstufen (nur Mischverkehr) | Mischverkehr mit vs. ohne Tram (Velo-Foto-Bewertungen): T30 (27,1−9,4)/14,4 ≈ 1,2; T50 (15,2−5,4)/14,4 ≈ 0,7. Auf dem Radstreifen gemessen ≈ 0 → kein Malus. |
+| tramMalus (schnell) | 0.7 |  |  |
 | parkenRelevant | Mischverkehr, Radstreifen, Velostrasse, Umweltspur, Einbahn Velogegenverkehr mit Markierung | Führungsformen | Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken). Bei «Parkierung rechts = ja» kann zusätzlich ein Sicherheitsstreifen ggü. den Parkplätzen (SN 640 060) angegeben werden; ist er vorhanden, entfällt der Abzug. |
 
 ## Feel-safe-Anker
 
-*Hinweis:* radwege-check / FixMyCity, Velo-Perspektive, tram-bereinigt. Unabhängig aus Einzelantworten verifiziert (tools/verify_06.py). ruhig = V ≤ 30, schnell = V > 30.
+*Hinweis:* radwege-check / FixMyCity, tram-bereinigt. Gezählt wird jede Bewertung der VELO-FOTO-Szenen (Kamera C), unabhängig von der Befragtengruppe — massgebend ist, was das Foto zeigt. Radstreifen-Anker = Referenzkonfiguration (Sollbreite 2,5 m ohne Parkierung, interpoliert aus den 2,0/3,5-Zellen); Breite und Parkierung werden separat abgezogen. Reproduktion: tools/verify_06.py. ruhig = V ≤ 30, schnell = V > 30.
 
 | Führungsform | ruhig (V ≤ 30) | schnell (V > 30) | verifiziert |
 |---|---|---|---|
-| Mischverkehr | 26 | 18 | T30 26.3 / T50 17.7 |
-| Radstreifen | 74 | 69 | T30 74.0 / T50 68.8 (alle Breiten) |
-| Radweg | 92 | 90 | baulich getrennt, Poller-Niveau: T30 91.7 / T50 90.1 |
+| Mischverkehr | 22 | 13 | T30 22.3 / T50 12.8 |
+| Radstreifen | 77 | 73 | Referenz: 73.0+0.5×8.4=77.2 / 68.1+0.5×10.1=73.2 |
+| Radweg | 91 | 91 | T30 90.9 / T50 90.9 — Tempo hinter der Trennung egal |
 
 ## Velostrassen (Q9) — Sonderfall
 

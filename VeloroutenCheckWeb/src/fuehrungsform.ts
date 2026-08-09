@@ -373,24 +373,42 @@ export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
   'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 2.5, minimal: 2.0 },
 }
 
-// Notenstufen-Abzug pro fehlendem Meter Breite (Variante A, linear). Hergeleitet aus dem
-// empirischen Breiten-Gradienten: Radstreifen 2,0 → 3,5 m ≈ +20 feel-safe-Punkte über 1,5 m
-// = 13,3 Pkt/m; geteilt durch 14,4 Pkt/Notenstufe ≈ 0,9. Tunbarer Parameter.
-export const NOTE_PRO_METER = 0.9
+// Notenstufen-Abzug pro fehlendem Meter Breite — je feel-safe-Klasse verschieden, weil die
+// Befragung den Meter unterschiedlich bewertet (Szenen, die sich NUR in der Breite
+// unterscheiden; Velo-Foto-Bewertungen, tools/verify_06.py):
+//   • auf der Fahrbahn (Radstreifen-Klasse): 8,4–10,1 feel-safe-Punkte/m ≈ 0,6 Noten/m —
+//     hinter der Markierung schützt vor allem die Breite.
+//   • hinter baulicher Trennung (Radweg-Klasse): 5,0 Punkte/m ≈ 0,35 Noten/m — dort schützt
+//     die Trennung, Breite ist Komfort.
+//   • Mischverkehr-Klasse (Velostrasse-Fahrgassenband, Umweltspur): normativ 0,9 Noten/m —
+//     hier ist «Breite» die Fahrbahn/Spur, nicht ein Velostreifen; die Befragung liefert
+//     dafür keinen eigenen Gradienten. Tunbare Parameter.
+export const BREITE_SATZ: Record<FeelClass, number> = {
+  'Mischverkehr': 0.9,
+  'Radstreifen':  0.6,
+  'Radweg':       0.35,
+}
 
-// Abzug, wenn beim Radstreifen rechts (Bordsteinseite) längs geparkt wird — Dooring-Lage,
-// Velo zwischen Fahrspur und Parken. Hergeleitet aus den verifizierten radwege-Werten:
-// Radstreifen kein Parken 75,9 % vs. Parken rechts 61,4 % = 14,5 feel-safe-Punkte; geteilt durch
-// 14,4 Pkt/Notenstufe ≈ 1,0. Garantiert «keine Note 6», wenn Parken rechts vorhanden. Tunbar.
-// (Der Effekt ist empirisch breitenabhängig — schmal stärker — hier vereinfacht als fixer Abzug.)
-export const PARKEN_RECHTS_ABZUG = 1.0
+// Abzug, wenn rechts (Bordsteinseite) längs geparkt wird — Dooring-Lage, Velo zwischen
+// Fahrspur und Parken. Der Schaden ist BREITENABHÄNGIG (gleiche Zelle, nur Parken
+// verschieden; Velo-Foto-Bewertungen, tools/verify_06.py): bei 3,5 m Streifen ≈ 8,5–9,6
+// Punkte (0,6 Noten — man kann der Türzone ausweichen), bei 2,0 m ≈ 28,8–29,7 (2,0 Noten —
+// man fährt zwangsläufig darin). Linear:
+//   Abzug = 0,6 + 0,9 × (3,5 − Streifenbreite), nie unter 0,6.
+// Ohne bekannte Streifenbreite (Mischverkehr, Velostrasse, Umweltspur, Radstreifen ohne
+// Mass) bleibt der Pauschalwert 1,0 — die Befragung liefert dort keinen eigenen Wert, und
+// im Mischverkehr fährt man faktisch in der Türzone. Tunbare Parameter.
+export const PARKEN_ABZUG_BASIS = 0.6
+export const PARKEN_ABZUG_JE_M = 0.9
+export const PARKEN_ABZUG_REF = 3.5
+export const PARKEN_ABZUG_OHNE_BREITE = 1.0
 
 // Tram in der Fahrbahn (Schienen) — Malus NUR bei Mischverkehr, tempo-abhängig. Empirisch aus den
-// radwege-Daten: Mischverkehr mit vs. ohne Tram, feel-safe-Verlust ÷ 14,4 Pkt/Notenstufe.
-// Tempo 30: (26,3−14,4)/14,4 ≈ 0,83 → 0,8 · Tempo 50: (17,7−9,7)/14,4 ≈ 0,56 → 0,55.
+// radwege-Daten (Velo-Foto-Bewertungen): Mischverkehr mit vs. ohne Tram, Verlust ÷ 14,4.
+// Tempo 30: (27,1−9,4)/14,4 ≈ 1,23 → 1,2 · Tempo 50: (15,2−5,4)/14,4 ≈ 0,68 → 0,7.
 // Bei eigener Radverkehrsanlage (Radstreifen) empirisch ~0 → dort kein Malus.
 // Herleitung/Reproduktion: tools/verify_06.py (§2) bzw. docs/07_Tram_in_der_Fahrbahn.md. Tunbar.
-export const TRAM_MALUS: Record<'ruhig' | 'schnell', number> = { ruhig: 0.8, schnell: 0.55 }
+export const TRAM_MALUS: Record<'ruhig' | 'schnell', number> = { ruhig: 1.2, schnell: 0.7 }
 
 // Umweltspur (Bus+Velo): Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerer Takt)
 // und ist nach oben gedeckelt — DTV/Tempo sind nicht massgebend.
@@ -441,19 +459,25 @@ function umweltspurBasis(takt: number, taktNote1: number, taktOk: number, decke:
 // UI, kein Noteneinfluss. Normativ (keine FixMyCity-Daten für Mischflächen).
 export const FUSSWEG_BASIS = 4
 
-// Empirische feel-safe % je Führungsform UND Tempo-Kontext (radwege-check, Velo-Perspektive,
-// tram-bereinigt). Werte unabhängig aus den Einzelantworten verifiziert (tools/verify_06.py;
-// Kreuzvalidierung vs. voteScore ø 1,8 Pkt). Aus den feel-safe-%-Werten je Tempo:
+// Empirische feel-safe % je Führungsform UND Tempo-Kontext (radwege-check, tram-bereinigt).
+// Gezählt wird jede Bewertung der VELO-FOTO-Szenen (Kamera C) — unabhängig davon, als was
+// sich die antwortende Person versteht (auch potenzielle Velofahrende, Fussgänger,
+// Autofahrende); massgebend ist, was das Foto zeigt. Reproduktion: tools/verify_06.py,
+// Kontrolle gegen die offiziellen Aggregate («schmale RVA mit Parken 41,4 %»).
 //   ruhig  = V ≤ 30 km/h   |   schnell = V > 30 km/h   (Daten für 30 und 50 km/h)
+// Der Radstreifen-Anker ist die REFERENZKONFIGURATION (Sollbreite 2,5 m, ohne Parkierung,
+// interpoliert aus den 2,0/3,5-Zellen) — nicht das Mittel über alle Szenen: Breite und
+// Parkierung werden unten separat abgezogen, ein gepoolter Anker zählte sie doppelt.
 export const FEELSAFE: Record<FeelClass, { ruhig: number; schnell: number }> = {
-  'Mischverkehr': { ruhig: 26, schnell: 18 },  // verifiziert: T30 26.3 / T50 17.7
-  'Radstreifen':  { ruhig: 74, schnell: 69 },  // verifiziert: T30 74.0 / T50 68.8 (alle Breiten)
-  'Radweg':       { ruhig: 92, schnell: 90 },  // baulich getrennt (Poller-Niveau): T30 91.7 / T50 90.1
+  'Mischverkehr': { ruhig: 22, schnell: 13 },  // gemessen: T30 22.3 / T50 12.8
+  'Radstreifen':  { ruhig: 77, schnell: 73 },  // Referenz 2,5 m ohne Parken: 73.0+0.5×8.4=77.2 / 68.1+0.5×10.1=73.2
+  'Radweg':       { ruhig: 91, schnell: 91 },  // baulich getrennt (Poller-Niveau): 90.9 / 90.9 — Tempo egal
 }
 
-// feel-safe-Punkte pro Notenstufe = Spanne Mischverkehr→Radweg bei hohem Tempo (90−18 = 72 Pkt)
-// geteilt durch 5 Notenstufen (6→1). So entspricht der ungünstigste Fall (Soll Radweg, Ist
-// Mischverkehr, schnell) genau Note 1. Tunbarer Parameter.
+// feel-safe-Punkte pro Notenstufe: 72 Punkte Lücke = das volle Notenband 6→1 (72 ÷ 5 = 14,4).
+// Alle Abzüge und Sätze skalieren über diese Konstante. Die grösste heute mögliche Lücke
+// (Soll Radweg, Ist Mischverkehr, schnell: 91 − 13 = 78) ergäbe rechnerisch 0,58 — der
+// Notenboden 1 fängt sie ab. Tunbarer Parameter.
 export const SCORE_PRO_NOTE = 14.4
 
 const tempoKey = (v: number): 'ruhig' | 'schnell' => (v <= 30 ? 'ruhig' : 'schnell')
@@ -567,8 +591,10 @@ export function fuehrungsformNote(
   const meta = IST[ist]
 
   // ── Breite: Untergrenze je Routentyp (+ optionale Obergrenze, nur Velostrasse-Band). Abzug
-  // (Variante A, linear) = Abweichung ausserhalb des Bereichs × NOTE_PRO_METER. «Zu schmal» stützt
-  // sich auf den feel-safe-Gradienten; «zu breit» (nur Velostrasse) ist normativ, gleicher Satz.
+  // (linear) = Abweichung ausserhalb des Bereichs × BREITE_SATZ der feel-safe-Klasse (0,6 auf
+  // der Fahrbahn, 0,35 hinter baulicher Trennung, 0,9 normativ für Fahrgassen-Bänder).
+  // «Zu schmal» stützt sich auf den feel-safe-Gradienten; «zu breit» (nur Velostrasse) ist
+  // normativ, gleicher Satz.
   // Breiten-Sollwerte: stadtspezifischer Override je Feld, sonst Berner Wert (IST).
   const optimal = breitenSoll?.optimal ?? meta.optimal
   const minimal = breitenSoll?.minimal ?? meta.minimal
@@ -587,14 +613,19 @@ export function fuehrungsformNote(
     breitenDefizit = zuSchmal + zuBreit
     breitenStatus = breitenDefizit === 0 ? 'erfuellt' : (zuSchmal > 0 ? 'zu schmal' : 'zu breit')
   }
-  const breitenabzug = breitenDefizit * NOTE_PRO_METER
+  const breitenabzug = breitenDefizit * BREITE_SATZ[meta.feelClass]
   const breiteErfuellt = breitenStatus === 'erfuellt' || breitenStatus === 'keine'
 
   // ── Parkierung rechts (Dooring) bei fahrbahnnahen Formen (PARKEN_RELEVANT). Ein Sicherheitsstreifen
   // gegenüber den Parkplätzen (SN 640 060) entschärft die Dooring-Gefahr → dann kein Abzug.
+  // Breitenabhängige Formel nur, wo die eingegebene Breite ein VELOSTREIFEN ist (Radstreifen-
+  // Klasse); bei Fahrgassen-Breiten (Mischverkehr, Velostrasse, Umweltspur) Pauschale 1,0.
   const parkenAbzug =
     (PARKEN_RELEVANT.includes(ist) && parkenRechts === 'ja' && !parkenSicherheitsstreifen)
-      ? PARKEN_RECHTS_ABZUG : 0
+      ? ((meta.feelClass === 'Radstreifen' && breite != null && breite > 0)
+          ? PARKEN_ABZUG_BASIS + PARKEN_ABZUG_JE_M * Math.max(0, PARKEN_ABZUG_REF - breite)
+          : PARKEN_ABZUG_OHNE_BREITE)
+      : 0
 
   // ── Tram in der Fahrbahn (Schienen): Malus nur bei Mischverkehr, tempo-abhängig (siehe TRAM_MALUS).
   const tramAbzug = (tramInFahrbahn && ist === 'Mischverkehr') ? TRAM_MALUS[tempoKey(v)] : 0
@@ -636,7 +667,7 @@ export function fuehrungsformNote(
   // die Eingabefelder, Typ und Breite blieben aber im Zustand und der Abzug unsichtbar in der Note.
   if (oevAngebot !== 'keine' && hsBreitenSoll != null && haltestelleBreite != null && haltestelleBreite > 0) {
     const d = Math.max(0, hsBreitenSoll - haltestelleBreite)
-    hsBreitenabzug = d * NOTE_PRO_METER
+    hsBreitenabzug = d * BREITE_SATZ['Radstreifen']   // markierte Velofläche auf Fahrbahnniveau
     hsBreiteStatus = d === 0 ? 'erfuellt' : 'zu schmal'
   }
 
