@@ -133,8 +133,8 @@ Anker gepoolt (Klassen-Mittel, wie FEELSAFE Mischverkehr/Radweg):
   geschützt T50          90.9 %  (N=7517)
 
 Referenz-Anker Radstreifen (2,5 m ohne Parken, interpoliert): T30 77.2 · T50 73.1 → Code {'ruhig': 77, 'schnell': 73}
-Breitensatz Fahrbahn: (8.3, 10.1) Pkt/m = (0.58, 0.7) Noten/m → Code 0,6
-Breitensatz baulich:  5.3 Pkt/m = 0.37 Noten/m → Code 0,35
+Breitensatz Fahrbahn: (8.3, 10.1) Pkt/m (T30/T50) = (0.58, 0.7) Noten/m → Code 0.58 / 0.7
+Breitensatz baulich:  (5.0, 5.5) Pkt/m (T30/T50) = (0.35, 0.38) Noten/m → Code 0.35 / 0.38
 Parken-Offset T30 (3,5/2,0 m): (8.5, 28.8) Pkte = (0.59, 2.0) Noten · T50: (9.6, 29.6)
 → Code: pauschal 1,0 (PARKEN_ABZUG) — breitenabhängige Formel zurückgenommen, offener Punkt
 ```

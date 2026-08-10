@@ -3,7 +3,7 @@ import {
   fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite,
   BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   vergleichsNoten, baselStrassentypAusVerkehr, brauchtBreite, brauchtDtvTempo, erfuellungsgrad,
-  roundToHalf,
+  roundToHalf, BREITE_SATZ,
 } from './fuehrungsform'
 import type { BreitenSoll, IstFuehrungsform } from './fuehrungsform'
 
@@ -13,14 +13,47 @@ import type { BreitenSoll, IstFuehrungsform } from './fuehrungsform'
 // und Haltestellen.
 // ════════════════════════════════════════════════════════════════════════════
 
-describe('fuehrungsart — Bern (Default, unverändert)', () => {
+describe('fuehrungsart — Bern (Default)', () => {
   it('< 2000 / ≤30 → Mischverkehr', () => expect(fuehrungsart(1000, 30)).toBe('Mischverkehr'))
-  it('< 2000 / 50 → Radstreifen', () => expect(fuehrungsart(1000, 50)).toBe('Radstreifen'))
-  it('2000–5000 / 50 → Radweg', () => expect(fuehrungsart(3000, 50)).toBe('Radweg'))
+  it('< 2000 / 31–40 → Radstreifen', () => expect(fuehrungsart(1000, 40)).toBe('Radstreifen'))
+  it('2000–5000 / ≤40 → Radstreifen', () => expect(fuehrungsart(3000, 40)).toBe('Radstreifen'))
   it('5000–10000 / ≤30 → Radstreifen oder Radweg', () =>
     expect(fuehrungsart(7000, 30)).toBe('Radstreifen oder Radweg'))
   it('> 10000 → Radweg', () => expect(fuehrungsart(12000, 30)).toBe('Radweg'))
   it('> 50 km/h → Radweg', () => expect(fuehrungsart(500, 60)).toBe('Radweg'))
+})
+
+// Am 10.08.2026 an den lokalen Rechner angeglichen (soll_ist_analyse.py, soll_bern). Die drei
+// Gruppen unten sind genau die 18 Zellen, die vorher abwichen — je eine Zusage pro Gruppe,
+// damit die Angleichung nicht unbemerkt zurückfallen kann. Begründung: Kommentar bei
+// fuehrungsartBern (Masterplan S. 11, L-förmig schraffiertes Feld + drei Grenzwerte).
+describe('fuehrungsart — Bern: die angeglichenen Zellen', () => {
+  it('Band 41–50 km/h ist Übergang, unabhängig vom DTV-Band', () => {
+    // Vorher: unter 2'000 «Radstreifen», 2'000–5'000 «Radweg» — beides steht im Schema als
+    // «Radstreifen oder Radweg» (der waagrechte Schenkel der Schraffur).
+    for (const dtv of [500, 1999, 2000, 4999])
+      for (const v of [45, 50])
+        expect(fuehrungsart(dtv, v), `DTV ${dtv} / ${v}`).toBe('Radstreifen oder Radweg')
+  })
+  it('DTV genau 5000 ist NOCH Radstreifen (Bandgrenze des Schemas)', () => {
+    expect(fuehrungsart(5000, 40)).toBe('Radstreifen')
+    expect(fuehrungsart(5001, 40)).toBe('Radstreifen oder Radweg')
+  })
+  it('DTV genau 10000 ist NOCH Übergang («stark belastet» heisst > 10 000)', () => {
+    expect(fuehrungsart(10000, 30)).toBe('Radstreifen oder Radweg')
+    expect(fuehrungsart(10001, 30)).toBe('Radweg')
+  })
+  it('DTV genau 2000 ist SCHON Radstreifen («verkehrsarm» heisst < 2 000)', () => {
+    expect(fuehrungsart(1999, 30)).toBe('Mischverkehr')
+    expect(fuehrungsart(2000, 30)).toBe('Radstreifen')
+  })
+  it('die strengere der beiden Achsen entscheidet (Tempo kann DTV überstimmen)', () => {
+    // Verkehrsarm, aber schnell: das Tempo hebt die Zeile an.
+    expect(fuehrungsart(500, 30)).toBe('Mischverkehr')
+    expect(fuehrungsart(500, 35)).toBe('Radstreifen')
+    expect(fuehrungsart(500, 45)).toBe('Radstreifen oder Radweg')
+    expect(fuehrungsart(500, 60)).toBe('Radweg')
+  })
 })
 
 describe('fuehrungsart — Zürich (nach Routentyp)', () => {
@@ -178,15 +211,19 @@ describe('Umweltspur — stadtspezifischer Takt (Stufe Bern, Rampe ZH/LU, Basel 
       .toBe(us('basel', 20, 4.5, BREITEN_BASEL['Umweltspur']).note))
 })
 
-describe('fuehrungsformNote — Bern Beispiel aus README (unverändert)', () => {
-  it('DTV 3000 / 50 / Radstreifen / 1,8 m / Velohauptroute → 4.5', () => {
-    // Form 6 − (91−73)/14,4 = 4,75 · Breite −0,7 × 0,6 = −0,42 → 4,33 → 4,5
-    const r = fuehrungsformNote(3000, 50, 'Radstreifen', 1.8, 'Velohauptroute')
+describe('fuehrungsformNote — Bern Beispiel aus README', () => {
+  // 10.08.2026: DTV 3'000 → 12'000. Bei 50 km/h ist 3'000 seit der Angleichung an den lokalen
+  // Rechner «Radstreifen oder Radweg»; mit 12'000 bleibt das Soll «Radweg» und die ganze
+  // Beispielrechnung unverändert (91 − 73 = 18 → 4,75). Nur die Grundlage der Soll-Wahl wechselt
+  // vom DTV-Band 2'000–5'000 auf «> 10'000».
+  it('DTV 12000 / 50 / Radstreifen / 1,8 m / Velohauptroute → 4.5', () => {
+    // Form 6 − (91−73)/14,4 = 4,75 · Breite −0,7 m × 0,70 = −0,49 → 4,26 → 4,5
+    const r = fuehrungsformNote(12000, 50, 'Radstreifen', 1.8, 'Velohauptroute')
     expect(r.soll).toBe('Radweg')
     expect(r.note).toBe(4.5)
   })
   it('Ist = Soll (Radweg) → Note 6', () => {
-    const r = fuehrungsformNote(3000, 50, 'Radweg strassenbegleitend / Geschützter Radstreifen', 2.5, 'Velohauptroute')
+    const r = fuehrungsformNote(12000, 50, 'Radweg strassenbegleitend / Geschützter Radstreifen', 2.5, 'Velohauptroute')
     expect(r.note).toBe(6)
   })
 })
@@ -211,6 +248,37 @@ describe('Zweirichtungsradweg (Q10) — baulich getrennt, Breite entscheidet', (
   it('strenger als der Einrichtungs-Radweg: 2,5 m sind dort ok, hier nicht', () => {
     expect(fuehrungsformNote(3000, 50, 'Radweg abgesetzt', 2.5, 'Velohauptroute').note).toBe(6)
     expect(fuehrungsformNote(3000, 50, 'Zweirichtungsradweg', 2.5, 'Velohauptroute').note).toBeLessThan(6)
+  })
+})
+
+describe('Breitensatz — tempoabhängig (BREITE_SATZ, seit 10.08.2026)', () => {
+  // Der Satz stammt aus derselben Geraden wie der feel-safe-Anker: der Anker ist ihr Wert
+  // bei der Sollbreite, der Satz ihre Steigung. Die Steigung ist bei Tempo 50 spürbar
+  // steiler als bei Tempo 30 — hinter baulicher Trennung dagegen kaum. Bis zum 10.08.2026
+  // stand je Klasse ein einzelner Wert (die Tempo-30-Steigung), ohne dass das irgendwo
+  // vermerkt war; diese Tests halten die Tempo-Abhängigkeit fest.
+  it('Fahrbahn: derselbe Streifen wird an der schnellen Strasse härter abgezogen', () => {
+    // Radstreifen 2,0 m an einer Velohauptroute (Soll 2,5) → 0,5 m Defizit.
+    const langsam = fuehrungsformNote(6000, 30, 'Radstreifen', 2.0, 'Velohauptroute')
+    const schnell = fuehrungsformNote(6000, 50, 'Radstreifen', 2.0, 'Velohauptroute')
+    expect(langsam.breitenabzug).toBeCloseTo(0.29)   // 0,5 × 0,58
+    expect(schnell.breitenabzug).toBeCloseTo(0.35)   // 0,5 × 0,70
+    expect(schnell.breitenabzug).toBeGreaterThan(langsam.breitenabzug)
+  })
+  it('hinter baulicher Trennung fällt der Tempo-Unterschied fast weg', () => {
+    const langsam = fuehrungsformNote(6000, 30, 'Radweg abgesetzt', 2.0, 'Velohauptroute')
+    const schnell = fuehrungsformNote(6000, 50, 'Radweg abgesetzt', 2.0, 'Velohauptroute')
+    expect(langsam.breitenabzug).toBeCloseTo(0.175)  // 0,5 × 0,35
+    expect(schnell.breitenabzug).toBeCloseTo(0.19)   // 0,5 × 0,38
+    // Der Sprung ist auf der Fahrbahn ein Vielfaches dessen hinter der Trennung.
+    const spanneFahrbahn = BREITE_SATZ.Radstreifen.schnell - BREITE_SATZ.Radstreifen.ruhig
+    const spanneBaulich = BREITE_SATZ.Radweg.schnell - BREITE_SATZ.Radweg.ruhig
+    expect(spanneFahrbahn).toBeGreaterThan(spanneBaulich * 3)
+  })
+  it('Fahrgassen-Band (Mischverkehr-Klasse) bleibt tempo-unabhängig bei 0,9', () => {
+    // Normativ, kein Gradient aus der Befragung ableitbar — hier darf das Tempo nichts ändern.
+    expect(BREITE_SATZ.Mischverkehr.ruhig).toBe(0.9)
+    expect(BREITE_SATZ.Mischverkehr.schnell).toBe(0.9)
   })
 })
 
@@ -435,15 +503,18 @@ describe('Q7 — Einbahn mit Velogegenverkehr (dreistufig)', () => {
     fuehrungsformNote(dtv, v, ist, breite, 'Velohauptroute',
       'egal', undefined, 'keine', 'keine', undefined, false, undefined, 'bern', undefined)
 
+  // Gegenstand dieser drei Zusagen ist die RANG-Logik (welche Q7-Stufe erfüllt welches Soll),
+  // nicht die Soll-Tabelle. DTV/Tempo sind darum nur Mittel zum Zweck — sie wurden am
+  // 10.08.2026 nachgezogen, weil das Band 41–50 km/h jetzt durchgehend «Übergang» ist.
   it('mit Markierung erfüllt Soll „Radstreifen" (Rang 1), breitenkonform → Note 6', () => {
-    const r = q7('Einbahn Velogegenverkehr mit Markierung', 2.0, 1000)  // fuehrungsart(1000,50)=Radstreifen
+    const r = q7('Einbahn Velogegenverkehr mit Markierung', 2.0, 3000, 40)  // fuehrungsart(3000,40)=Radstreifen
     expect(r.soll).toBe('Radstreifen')
     expect(r.note).toBe(6)
   })
   it('ohne Markierung verfehlt Soll „Radstreifen" (Rang 0) → Note < 6', () =>
-    expect(q7('Einbahn Velogegenverkehr ohne Markierung', undefined, 1000).note).toBeLessThan(6))
+    expect(q7('Einbahn Velogegenverkehr ohne Markierung', undefined, 3000, 40).note).toBeLessThan(6))
   it('mit baulicher Trennung erfüllt Soll „Radweg" (Rang 2) → Note 6', () => {
-    const r = q7('Einbahn Velogegenverkehr mit baulicher Trennung', 2.0, 3000)  // fuehrungsart(3000,50)=Radweg
+    const r = q7('Einbahn Velogegenverkehr mit baulicher Trennung', 2.0, 12000)  // fuehrungsart(12000,50)=Radweg
     expect(r.soll).toBe('Radweg')
     expect(r.note).toBe(6)
   })
@@ -514,8 +585,20 @@ describe('Haltestelle — Abzug und Breite (Bern)', () => {
       'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
     expect(r.hsBreitenSoll).toBe(1.8)
     expect(r.hsBreiteStatus).toBe('zu schmal')
-    expect(r.hsBreitenabzug).toBeCloseTo(0.3)
-    expect(r.note).toBe(5.5)   // 6 − 0,5 × 0,6 = 5,70 → 5,5
+    expect(r.hsBreitenabzug).toBeCloseTo(0.29)
+    expect(r.note).toBe(5.5)   // 6 − 0,5 × 0,58 = 5,71 → 5,5
+  })
+  it('Haltestellen-Breite: der Abzug folgt dem Tempo wie auf der Strecke', () => {
+    // Dieselbe zu schmale Haltestelle, nur an einer schnelleren Strasse: 0,5 m fehlen
+    // × 0,70 statt × 0,58. Die Haltestellen-Breite nutzt bewusst den Radstreifen-Satz
+    // (markierte Velofläche auf Fahrbahnniveau) — dann muss sie auch dessen Tempo-Logik
+    // erben, sonst driftet sie gegen die Strecke.
+    const langsam = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
+    const schnell = fuehrungsformNote(1000, 50, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
+    expect(schnell.hsBreitenabzug).toBeCloseTo(0.35)
+    expect(schnell.hsBreitenabzug).toBeGreaterThan(langsam.hsBreitenabzug)
   })
 })
 

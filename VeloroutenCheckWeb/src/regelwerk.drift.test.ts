@@ -27,10 +27,13 @@ describe('regelwerk.json spiegelt die Code-Konstanten (Parameter)', () => {
   it('feelSafeProNote = SCORE_PRO_NOTE', () => {
     expect(param.feelSafeProNote.wert).toBe(SCORE_PRO_NOTE)
   })
-  it('breiteSatz (fahrbahn/baulich/fahrgasse) = BREITE_SATZ je feel-safe-Klasse', () => {
-    expect(param.breiteSatz.fahrbahn).toBe(BREITE_SATZ.Radstreifen)
-    expect(param.breiteSatz.baulich).toBe(BREITE_SATZ.Radweg)
-    expect(param.breiteSatz.fahrgasse).toBe(BREITE_SATZ.Mischverkehr)
+  // 10.08.2026: aus je einem Skalar sind Paare {ruhig, schnell} geworden — der Satz hängt
+  // jetzt am Tempo, wie der feel-safe-Anker derselben Kette. toEqual statt toBe, weil hier
+  // Objekte verglichen werden; ein vergessenes Tempo bricht damit sichtbar.
+  it('breiteSatz (fahrbahn/baulich/fahrgasse) = BREITE_SATZ je feel-safe-Klasse und Tempo', () => {
+    expect(param.breiteSatz.fahrbahn).toEqual(BREITE_SATZ.Radstreifen)
+    expect(param.breiteSatz.baulich).toEqual(BREITE_SATZ.Radweg)
+    expect(param.breiteSatz.fahrgasse).toEqual(BREITE_SATZ.Mischverkehr)
   })
   // 09.08.2026: aus den vier Formel-Parametern ist ein Skalar geworden (offener Punkt, s.
   // fuehrungsform.ts). Der JSON-Schlüssel heisst jetzt `parkenRechtsAbzug` — so, wie ihn

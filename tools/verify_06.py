@@ -401,15 +401,30 @@ def main():
     def w(k): return z[k][0]
     st30 = round((w('RS 3.5 m · ohne Parken · T30') - w('RS 2.0 m · ohne Parken · T30')) / 1.5, 1)
     st50 = round((w('RS 3.5 m · ohne Parken · T50') - w('RS 2.0 m · ohne Parken · T50')) / 1.5, 1)
-    g2 = share(sel(nontram, fuehrungsform='geschützt', width=2.0))
-    g35 = share(sel(nontram, fuehrungsform='geschützt', width=3.5))
+    # Baulich ebenfalls JE TEMPO — seit dem 10.08.2026 ist auch dieser Satz tempoabhängig.
+    # Ein über beide Tempi gepoolter Wert wäre hier zudem verzerrt: In der 3,5-m-Gruppe
+    # stecken Szenen aus einem Basisszenario ohne Tempo-Codierung, die in der 2,0-m-Gruppe
+    # fehlen (dasselbe Problem wie auf der Fahrbahn).
+    # fsart='Kfz' — NICHT bloss «ohne Tram». Der Poller-Streifen kommt auch an Einbahnen vor
+    # (44 Szenen); die nehmen an der Breitenfrage teil, ändern aber gleichzeitig die
+    # Fahrtrichtungs-Situation. Der Satz im Code ist aus den Kfz-Szenen abgeleitet, also muss
+    # diese Kontrollrechnung denselben Schnitt verwenden — sonst prüft sie eine andere Zahl,
+    # als sie ausweist (gefunden 10.08.2026: «ohne Tram» ergäbe bei Tempo 30 0,38 statt 0,35).
+    gb = {t: (share(sel(nontram, fuehrungsform='geschützt', width=2.0, speed=t, fsart='Kfz')),
+              share(sel(nontram, fuehrungsform='geschützt', width=3.5, speed=t, fsart='Kfz')))
+          for t in ('30', '50')}
+    bst = {t: round((gb[t][1][0] - gb[t][0][0]) / 1.5, 1) for t in ('30', '50')}
     kal['breitensatz'] = {
         'Fahrbahn Pkt/m (T30/T50, ohne Parken)': (st30, st50),
-        'Fahrbahn Noten/m': (round(st30 / SCORE_PRO_NOTE, 2), round(st50 / SCORE_PRO_NOTE, 2)),
-        'baulich 2,0 m / 3,5 m': (g2, g35),
-        'baulich Pkt/m': round((g35[0] - g2[0]) / 1.5, 1),
-        'baulich Noten/m': round((g35[0] - g2[0]) / 1.5 / SCORE_PRO_NOTE, 2),
-        'im Code (BREITE_SATZ)': {'fahrbahn': 0.6, 'baulich': 0.35},
+        'Fahrbahn Noten/m (T30/T50)': (round(st30 / SCORE_PRO_NOTE, 2),
+                                       round(st50 / SCORE_PRO_NOTE, 2)),
+        'baulich 2,0 m / 3,5 m (T30)': gb['30'],
+        'baulich 2,0 m / 3,5 m (T50)': gb['50'],
+        'baulich Pkt/m (T30/T50)': (bst['30'], bst['50']),
+        'baulich Noten/m (T30/T50)': (round(bst['30'] / SCORE_PRO_NOTE, 2),
+                                      round(bst['50'] / SCORE_PRO_NOTE, 2)),
+        'im Code (BREITE_SATZ)': {'fahrbahn': {'ruhig': 0.58, 'schnell': 0.70},
+                                  'baulich':  {'ruhig': 0.35, 'schnell': 0.38}},
     }
     kal['referenz_anker'] = {
         'T30': round(w('RS 2.0 m · ohne Parken · T30') + 0.5 * st30, 1),
@@ -635,9 +650,15 @@ def write_md(out):
       f'T30 {kal["referenz_anker"]["T30"]} · T50 {kal["referenz_anker"]["T50"]} '
       f'→ Code {kal["referenz_anker"]["im Code (FEELSAFE.Radstreifen)"]}')
     bs = kal['breitensatz']
-    A(f'Breitensatz Fahrbahn: {bs["Fahrbahn Pkt/m (T30/T50, ohne Parken)"]} Pkt/m '
-      f'= {bs["Fahrbahn Noten/m"]} Noten/m → Code 0,6')
-    A(f'Breitensatz baulich:  {bs["baulich Pkt/m"]} Pkt/m = {bs["baulich Noten/m"]} Noten/m → Code 0,35')
+    # Beide Sätze sind seit dem 10.08.2026 tempoabhängig — die Zeilen nennen darum je zwei
+    # Werte (T30/T50) und daneben, was im Code steht.
+    ic = bs['im Code (BREITE_SATZ)']
+    A(f'Breitensatz Fahrbahn: {bs["Fahrbahn Pkt/m (T30/T50, ohne Parken)"]} Pkt/m (T30/T50) '
+      f'= {bs["Fahrbahn Noten/m (T30/T50)"]} Noten/m → Code '
+      f'{ic["fahrbahn"]["ruhig"]} / {ic["fahrbahn"]["schnell"]}')
+    A(f'Breitensatz baulich:  {bs["baulich Pkt/m (T30/T50)"]} Pkt/m (T30/T50) '
+      f'= {bs["baulich Noten/m (T30/T50)"]} Noten/m → Code '
+      f'{ic["baulich"]["ruhig"]} / {ic["baulich"]["schnell"]}')
     po = kal['parken_offset']
     A(f'Parken-Offset T30 (3,5/2,0 m): {po["T30 bei 3,5 m / 2,0 m"]} Pkte '
       f'= {po["in Noten (3,5 m / 2,0 m, T30)"]} Noten · T50: {po["T50 bei 3,5 m / 2,0 m"]}')

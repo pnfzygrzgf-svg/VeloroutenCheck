@@ -95,11 +95,18 @@ Die stadtspezifischen Soll-Regeln und die zugrunde liegenden Dokumente stehen un
 
 ```
 DTV MIV \ km/h     ≤ 30           31–40         41–50               51–80
-< 2'000            Mischverkehr   Radstreifen   Radstreifen         Radweg
-2'000–5'000        Radstreifen    Radstreifen   Radweg              Radweg
+< 2'000            Mischverkehr   Radstreifen   Radstr./Radweg      Radweg
+2'000–5'000        Radstreifen    Radstreifen   Radstr./Radweg      Radweg
 5'000–10'000       Radstreifen oder Radweg (Übergang)               Radweg
 > 10'000           Radweg         Radweg        Radweg              Radweg
 ```
+
+Gelesen wird die Tabelle als **vier ineinander liegende Rechtecke** (Masterplan S. 11): Man landet
+im kleinsten, das den Abschnitt enthält — die **strengere der beiden Achsen** entscheidet. Das Band
+41–50 km/h ist im Schema durchgehend schraffiert («Radstreifen oder Radweg»), unabhängig vom
+DTV-Band. Die drei DTV-Grenzen folgen dem Fliesstext, nicht der Pixelkante: 2'000 ist **schon**
+Radstreifen («verkehrsarme Strassen (DTV < 2'000)»), 10'000 ist **noch** Übergang («stark belastete
+Strassen (DTV > 10'000)»), und zu 5'000 schweigt der Text — dort gilt die Bandgrenze des Schemas.
 
 ### 2. Führungsform-Note (Ist gegen Soll)
 
@@ -146,7 +153,7 @@ Die vier Klassen-Anteile summieren sich je Szene auf 100. *Beispiel:* antworten 
 #### Schritt für Schritt
 
 1. **Empfohlene Form bestimmen** aus DTV und Tempo. Beispiel:
-   DTV 3'000 / 50 km/h → Soll = *Radweg*.
+   DTV 12'000 / 50 km/h → Soll = *Radweg*.
 2. **Prüfen, ob die vorhandene Form ausreicht.** Die Formen bilden eine Rangfolge nach zunehmender Trennung vom Autoverkehr:
 
    ```
@@ -181,7 +188,7 @@ Zuordnung der Ist-Formen zu den Befragungsdaten:
 
 - **Mischverkehr** → keine Radverkehrsanlage.
 - **Radstreifen** → die **Referenzkonfiguration**: Sollbreite 2,5 m ohne Parkierung, linear aus den gemessenen 2,0/3,5-m-Zellen interpoliert (73,0 + 0,5 × 8,4 ≈ 77 · 68,1 + 0,5 × 10,1 ≈ 73). Bewusst NICHT das Mittel über alle Szenen: Breite und Parkierung werden unten separat abgezogen — ein gepoolter Anker zählte sie doppelt.
-- **Radweg** → baulich getrennt, robustes Poller-/Trennungs-Niveau (gemessen 90,9/90,9 — hinter der Trennung ist das Tempo egal). Dieser Wert gilt für **alle baulich getrennten Formen**: den *strassenbegleitenden Radweg / geschützten Radstreifen* (beide werden gleich behandelt) **und** den *abgesetzten Radweg* (Q3). *Hinweis:* In Berliner Daten liegen abgesetzte Seitenraum-Radwege tiefer (≈ 77, Konflikte mit Geschäften/Gastronomie im Seitenraum); dieser Abschlag wird **bewusst nicht** übernommen, da Berns abgesetzte Radwege deutlich weniger durch Seitenraum-Nutzungen geprägt sind. Q2 und Q3 unterscheiden sich daher nur in der Breitenvorgabe, nicht im feel-safe-Wert.
+- **Radweg** → baulich getrennt, robustes Poller-/Trennungs-Niveau (gemessen 90,9/90,9 — hinter der Trennung ist das Tempo egal). Dieser Wert gilt für **alle baulich getrennten Formen**: den *strassenbegleitenden Radweg / geschützten Radstreifen* (beide werden gleich behandelt) **und** den *abgesetzten Radweg* (Q3). *Hinweis:* Radwege im Seitenraum werden **tiefer** beurteilt — der Pool des Seitenraum-Experiments liegt bei 76,9 % über alle drei Kameras, bei 81,6 % im Velo-Schnitt. Das ist kein zweiter Datensatz, sondern derselben Erhebung ein zweiter Messort mit anderen Merkmalen (Gehweg, Geschäfte, Häuserfront statt Tempo und Verkehrsmenge). Der Anker bleibt trotzdem 91, weil er hier nur als **Zielwert** gelesen wird: Er beziffert, was ein gut gebauter Radweg leistet, nicht, was eine konkrete Anlage leistet. Q2 und Q3 tragen deshalb denselben Anker — sie *unterscheiden* sich messbar, aber der Anker beschreibt sie nicht, sondern das Ziel. <sub>Bis 10.08.2026 stand hier, in «Berliner Daten» lägen abgesetzte Radwege tiefer und der Abschlag werde für Bern nicht übernommen, weil Berns Seitenraum weniger von Geschäften geprägt sei. Beides war falsch: Die ganze Befragung ist Berlin (auch die Anker 91, 67/63, 22/13), und die Aussage über den Berner Bestand war eine Annahme — tatsächlich kommen beide Bauformen vor.</sub>
 
 #### Warum 14,4 Punkte pro Notenstufe?
 
@@ -202,10 +209,10 @@ Dieselbe Fehlentscheidung wiegt bei hohem Tempo schwerer:
 
 #### Durchgerechnetes Beispiel
 
-Abschnitt: **DTV 3'000 · 50 km/h · Ist = Radstreifen**
+Abschnitt: **DTV 12'000 · 50 km/h · Ist = Radstreifen**
 
 ```
-Soll      = fuehrungsart(3000, 50)             = Radweg        (DTV 2'000–5'000, V > 40)
+Soll      = fuehrungsart(12000, 50)            = Radweg        (DTV > 10'000)
 Ist < Soll (Radstreifen < Radweg)              → Abzug
 Tempo     = schnell                            (50 > 30)
 Zielscore = feel-safe(Radweg, schnell)         = 91
@@ -256,40 +263,48 @@ Mischverkehr                 Q6     –         –      (keine Breitenvorgabe)
 ```
 Sollbreite   = Optimal (Velohauptroute) bzw. Minimal (Veloroute)
 Defizit_m    = max(0, Sollbreite − Ist-Breite)
-Breitenabzug = Defizit_m × Satz der feel-safe-Klasse:
-                 0,6  auf der Fahrbahn      (Radstreifen, Einbahn mit Markierung)
-                 0,35 hinter baulicher Trennung (Radwege, Fuss-/Radwege)
-                 0,9  Fahrgassen-Bänder     (Velostrasse, Umweltspur; normativ)
+Breitenabzug = Defizit_m × Satz der feel-safe-Klasse UND des Tempos:
+                                              ≤ 30 km/h   > 30 km/h
+                 auf der Fahrbahn                 0,58        0,70    (Radstreifen, Einbahn mit Markierung)
+                 hinter baulicher Trennung        0,35        0,38    (Radwege, Fuss-/Radwege)
+                 Fahrgassen-Bänder                0,9         0,9     (Velostrasse, Umweltspur; normativ)
 Endnote      = runde_0,5( Führungsform-Note − Breitenabzug , begrenzt 1…6 )
 ```
 
 ##### Herleitung der Breitensätze
 
-Die Sätze skalieren **linear** aus dem gemessenen Breiten-Effekt — verglichen werden Szenen, die sich **nur in der Breite** unterscheiden (gleiche Parkierung, gleiches Tempo; `tools/verify_06.py`, §5):
+Die Sätze skalieren **linear** aus dem gemessenen Breiten-Effekt — verglichen werden Szenen, die sich **nur in der Breite** unterscheiden (gleiche Parkierung, gleiches Tempo; `tools/verify_06.py`, §4):
 
 ```
-Fahrbahn (markierter Radstreifen, ohne Parken): 8,4–10,1 Pkt/m  ÷ 14,4  ≈ 0,6 Noten/m
-hinter baulicher Trennung:                       ≈ 5 Pkt/m       ÷ 14,4  ≈ 0,35 Noten/m
+Fahrbahn (markierter Radstreifen, ohne Parken)  T30:  8,4 Pkt/m ÷ 14,4 ≈ 0,58 Noten/m
+                                                T50: 10,1 Pkt/m ÷ 14,4 ≈ 0,70
+hinter baulicher Trennung                       T30:  5,0 Pkt/m ÷ 14,4 ≈ 0,35
+                                                T50:  5,4 Pkt/m ÷ 14,4 ≈ 0,38
 ```
 
-Hinter der Trennung schützt die **Trennung**, nicht die Breite — Breite ist dort Komfort. Ein einziger gepoolter Satz (früher 0,9, aus «alle 2,0-m- gegen alle 3,5-m-Szenen») mischte die Parkierungswirkung in den Breiteneffekt; die sauber geschnittenen Sätze trennen beides.
+Zwei Befunde stecken darin. Erstens: Hinter der Trennung schützt die **Trennung**, nicht die Breite — Breite ist dort Komfort. Zweitens: **Tempo wirkt umso stärker, je weniger Schutz da ist.** Auf der Fahrbahn kostet der fehlende Meter an einer schnellen Strasse rund ein Fünftel mehr; hinter dem Randstein fällt der Unterschied fast weg. Das ist dieselbe Logik, nach der auch die feel-safe-Anker tempoabhängig sind — und beides stammt aus derselben Geraden: Der Anker ist ihr Wert bei der Sollbreite, der Satz ihre Steigung.
+
+Ein einziger gepoolter Satz (früher 0,9, aus «alle 2,0-m- gegen alle 3,5-m-Szenen») mischte die Parkierungswirkung in den Breiteneffekt; die sauber geschnittenen Sätze trennen beides.
 
 **Vorbehalte:**
 
 - **Scheingenauigkeit:** Die Daten liefern nur **zwei** Breiten-Stützpunkte (2,0 und 3,5 m). Der Effekt über diese 1,5 m ist belegt, die Linearität auf Zentimeter-Ebene ist eine Modellannahme (Interpolation).
-- **Rundung relativiert kleine Defizite:** Da die Endnote auf 0,5 gerundet wird, kippt ein kleines Defizit die Stufe nur nahe einer Rundungsgrenze; sicher eine Stufe kostet beim Satz 0,6 erst ein Defizit ab ≈ 0,84 m.
+- **Rundung relativiert kleine Defizite:** Da die Endnote auf 0,5 gerundet wird, kippt ein kleines Defizit die Stufe nur nahe einer Rundungsgrenze; sicher eine Stufe kostet beim Satz 0,58 erst ein Defizit ab ≈ 0,86 m, beim Satz 0,70 ab ≈ 0,72 m.
+- **Bis zum 10.08.2026 galt je Klasse ein einzelner Satz** (0,6 / 0,35). Nachgerechnet waren das die Tempo-30-Werte, ohne dass das dokumentiert war — die Kette war damit in sich widersprüchlich, weil ihr Anker schon tempoabhängig war. Die Umstellung macht Anker und Satz wieder konsistent.
 
 Tunbar über `BREITE_SATZ`.
 
-**Beispiel** (Fortsetzung: DTV 3'000 / 50 km/h / Ist Radstreifen → Form-Note ungerundet 4,75):
+**Beispiel** (Fortsetzung: DTV 12'000 / 50 km/h / Ist Radstreifen → Form-Note ungerundet 4,75):
 
 ```
 Velohauptroute, Radstreifen, Breite 1,80 m
   Sollbreite   = Optimal 2,50 m
   Defizit      = 2,50 − 1,80 = 0,70 m
-  Breitenabzug = 0,70 × 0,6 = 0,42
-  Endnote      = 4,75 − 0,42 = 4,33 → 4,5
+  Breitenabzug = 0,70 × 0,70 = 0,49      (50 km/h → Fahrbahn-Satz «schnell»)
+  Endnote      = 4,75 − 0,49 = 4,26 → 4,5
 ```
+
+Derselbe Streifen an einer Tempo-30-Strasse käme mit `0,70 × 0,58 = 0,41` auf einen kleineren Abzug — das Tempo steckt hier zweimal in der Note: einmal im feel-safe-Anker der Führungsform, einmal im Breitensatz.
 
 Bei erfüllter Breite (Ist ≥ Vorgabe) gibt es keinen Abzug.
 
@@ -559,7 +574,7 @@ auf der Einstiegsseite.
 - **Parken × Breite** — der Effekt ist gemessen (0,6 Noten bei 3,5 m, 2,0 bei 2,0 m), aber **nicht umgesetzt**: Die Befragung kennt nur diese zwei Breiten, der reale Bestand liegt fast vollständig darunter, und ein dritter Messpunkt (Mischverkehr ≈ 0,15) widerspricht der Verlängerung nach unten. Es braucht Szenen unter 2,0 m Streifenbreite; bis dahin gilt die Pauschale −1,0 (Stand 09.08.2026, siehe Kapitel «Parkierung rechts»). Die Breitensätze selbst bleiben parken-bereinigt geschnitten (0,6/0,35).
 - **«Velo rechts vom Parken»** als eigene, bessere Parken-Lage aufnehmen (empirisch ≈ 92, aber nur 6 Szenen → erst mit besserer Datenlage).
 - **Velostrasse «zu breit»:** der Abzug über der Maximalbreite (6,50 m) ist normativ gesetzt (gleicher Satz wie «zu schmal») — bei Bedarf eigener Satz/Schwelle.
-- **«Radweg abgesetzt» (Q3):** In Berliner Daten tiefer (Seitenraum ≈ 77) als Poller-Niveau (≈ 91). Dieser Abschlag wird **bewusst nicht** angewandt (Berns Seitenraum ist weniger durch Geschäfte/Gastronomie geprägt als Berlins); Q3 trägt denselben feel-safe-Wert wie Q2 und unterscheidet sich nur in der Minimalbreite (1,50 m). Bei künftigen Berner Auswertungen überprüfen.
+- **«Radweg abgesetzt» (Q3) — nicht der Anker, sondern die Feel-Safe-Anzeige prüfen:** Im Seitenraum wird dieselbe Bauform tiefer beurteilt (76,9 % über alle Kameras, 81,6 % im Velo-Schnitt) als auf Poller-Niveau (≈ 91). Für die **Note** ist das folgenlos: Der Anker wirkt dort nur als Zielwert, und ein Radweg erfüllt jedes Soll, bevor ein Anker gelesen wird. Zu prüfen wäre die **Feel-Safe-Anzeige**, die den Anker als Ist-Wert liest und für Seitenraum-Formen rund 9 Punkte zu hoch ausfällt. <sub>Formulierung korrigiert am 10.08.2026: Zuvor stand hier ein «Berliner Abschlag», den man für Bern nicht übernehme — es gibt keine getrennte Berliner Quelle, die ganze Befragung ist Berlin, und die Begründung über den Berner Bestand war eine Annahme.</sub>
 - **Einfärbung des Belags:** empirisch ein eigener, positiver Effekt (farbig vs. grau ≈ +7 feel-safe-Punkte; im Paper signifikant, Tab. 2) — bisher **nicht** im Modell. Könnte als eigener, datengestützter Faktor aufgenommen werden (analog zum Tram-Malus). Siehe [docs/08](docs/08_Studie_Subjektive_Sicherheit_2022.md).
 - **Mindestmasse (Untergrenzen) im ganzen Rechner:** Heute gibt es nur eine Soll-Regelbreite je Führungsform/Routentyp; eine Unterschreitung wirkt linear über den Breiten-Abzug. Velostandards-Dokumente definieren zusätzlich **absolute Minimalmasse, die nicht unterschritten werden dürfen**. Deren Unterschreitung müsste die Note härter kappen (eigene Schwelle/Deckelung) statt nur linear abzuziehen. Stadtübergreifend zu konzipieren.
 - Velostrassen sind Mischverkehr, was zur feelClass: 'Mischverkehr' passt. Im Code ist die Basisnote bei Tempo 30 aber aktuell 6 (Form akzeptiert), nicht die Mischverkehr-Bewertung. Soll das so bleiben? Die Note ändert sich aktuelle wenn die breiten nicht eingehalten werden oder wenn es parkierung gibt.

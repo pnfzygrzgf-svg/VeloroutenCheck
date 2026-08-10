@@ -24,12 +24,21 @@
       "code": "SCORE_PRO_NOTE"
     },
     "breiteSatz": {
-      "fahrbahn": 0.6,
-      "baulich": 0.35,
-      "fahrgasse": 0.9,
-      "einheit": "Notenstufen Abzug pro fehlendem Meter Breite, je feel-safe-Klasse",
-      "herleitung": "Szenen, die sich NUR in der Breite unterscheiden (Velo-Foto-Bewertungen): auf der Fahrbahn 8,4–10,1 Pkt/m ≈ 0,6 Noten/m; hinter baulicher Trennung 5,0 Pkt/m ≈ 0,35. Fahrgassen-Bänder (Velostrasse, Umweltspur; feel-safe-Klasse Mischverkehr) normativ 0,9.",
-      "code": "BREITE_SATZ[feelClass]"
+      "fahrbahn": {
+        "ruhig": 0.58,
+        "schnell": 0.7
+      },
+      "baulich": {
+        "ruhig": 0.35,
+        "schnell": 0.38
+      },
+      "fahrgasse": {
+        "ruhig": 0.9,
+        "schnell": 0.9
+      },
+      "einheit": "Notenstufen Abzug pro fehlendem Meter Breite, je feel-safe-Klasse und Tempo (ruhig ≤ 30, schnell > 30)",
+      "herleitung": "Szenen, die sich NUR in der Breite unterscheiden (Velo-Foto-Bewertungen), je Tempo getrennt: auf der Fahrbahn 8,4 Pkt/m bei Tempo 30 ≈ 0,58 Noten/m und 10,1 bei Tempo 50 ≈ 0,70; hinter baulicher Trennung 5,0 bzw. 5,4 Pkt/m ≈ 0,35 / 0,38. Tempoabhängig seit 10.08.2026 — bis dahin stand je Klasse ein einzelner Wert (die Tempo-30-Steigung), obwohl der feel-safe-Anker derselben Kette schon tempoabhängig war. Fahrgassen-Bänder (Velostrasse, Umweltspur; feel-safe-Klasse Mischverkehr) bleiben normativ bei 0,9 für beide Tempi — die Befragung liefert dafür keinen Gradienten.",
+      "code": "BREITE_SATZ[feelClass][tempoKey(v)]"
     },
     "parkenRechtsAbzug": {
       "wert": 1.0,
@@ -274,8 +283,8 @@
       },
       "sollTabelle": {
         "typ": "dtvXvMatrix",
-        "quelle": "DTV_KMH_Fuehrungsform.csv (Bern); Masterplan Bericht S. 11",
-        "hinweis": "DTV-Untergrenze inklusive, Obergrenze exklusive. v in km/h. Implementiert in fuehrungsart() (fuehrungsform.ts).",
+        "quelle": "DTV_KMH_Fuehrungsform.csv (Bern); Masterplan Bericht S. 11 (vier ineinander liegende Rechtecke — die strengere der beiden Achsen entscheidet)",
+        "hinweis": "v in km/h. GRENZEN: Untergrenze inklusive; die Obergrenze 2'000 ist exklusive, die Obergrenzen 5'000 und 10'000 sind INKLUSIVE — so steht es im Fliesstext des Masterplans («verkehrsarme Strassen (DTV < 2'000)», «stark belastete Strassen (DTV > 10'000)»); zu 5'000 schweigt der Text, dort gilt die Bandgrenze des Schemas. Das Band 41–50 km/h ist durchgehend «Radstreifen oder Radweg» (waagrechter Schenkel der Schraffur), unabhängig vom DTV-Band. Implementiert in fuehrungsart() (fuehrungsform.ts); deckungsgleich mit soll_bern() des lokalen Rechners seit 10.08.2026.",
         "regeln": [
           {
             "dtvMin": 0,
@@ -296,7 +305,7 @@
             "dtvMax": 2000,
             "vMin": 41,
             "vMax": 50,
-            "form": "Radstreifen"
+            "form": "Radstreifen oder Radweg"
           },
           {
             "dtvMin": 0,
@@ -324,7 +333,7 @@
             "dtvMax": 5000,
             "vMin": 41,
             "vMax": 50,
-            "form": "Radweg"
+            "form": "Radstreifen oder Radweg"
           },
           {
             "dtvMin": 2000,

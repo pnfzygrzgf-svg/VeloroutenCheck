@@ -31,16 +31,45 @@ export type Strassentyp = 'verkehrsorientiert' | 'siedlungsorientiert'
 //
 // Bern (Masterplan, Default/Fallback):
 //   DTV MIV \ km/h     ≤30          31–40        41–50              51–80
-//   < 2'000            Mischverkehr Radstreifen  Radstreifen        Radweg
-//   2'000–5'000        Radstreifen  Radstreifen  Radweg             Radweg
+//   < 2'000            Mischverkehr Radstreifen  Radstr./Radweg     Radweg
+//   2'000–5'000        Radstreifen  Radstreifen  Radstr./Radweg     Radweg
 //   5'000–10'000       Radstr./Radweg (Übergang) …                  Radweg
 //   > 10'000           Radweg       Radweg       Radweg             Radweg
 //
+// QUELLE: die schematische Darstellung im Masterplan Veloinfrastruktur Standards, SEITE 11
+// («Anwendungshilfe Querschnitte/Strecken»). Sie zeigt VIER INEINANDER LIEGENDE RECHTECKE, je
+// eines über Tempo und DTV. Man landet im kleinsten, das einen enthält — also entscheidet die
+// STRENGERE der beiden Achsen. Genau das stehen unten die vier gleich gebauten Zeilen:
+//
+//     Mischverkehr             Tempo ≤ 30  ·  DTV < 2'000
+//     Radstreifen              Tempo ≤ 40  ·  DTV ≤ 5'000
+//     Radstreifen oder Radweg  Tempo ≤ 50  ·  DTV ≤ 10'000    ← im Schema L-förmig schraffiert
+//     Radweg                   Tempo > 50  ·  DTV > 10'000
+//
+// ANGEGLICHEN AM 10.08.2026. Bis dahin fehlte hier der WAAGRECHTE SCHENKEL der Schraffur: Diese
+// Funktion entschied im Band 41–50 km/h nach DTV-Band statt nach Schema und lieferte dort unter
+// DTV 2'000 «Radstreifen», zwischen 2'000 und 5'000 «Radweg» — im Schema steht beides als
+// «Radstreifen oder Radweg». Der lokale Rechner (soll_ist_analyse.py, soll_bern) wurde am
+// 06.08.2026 korrigiert; erschöpfend gerastert waren es 18 abweichende Zellen (8 im Band
+// 41–50 km/h, 4 an der Grenze DTV 5'000, 6 an der Grenze DTV 10'000). Beide Rechner tragen
+// jetzt dieselbe Tabelle — ein Rastervergleich über das ganze Gitter meldet 0 Abweichungen.
+//
+// DIE DREI DTV-GRENZEN folgen dem Fliesstext derselben Seite, nicht der Pixelkante der Grafik:
+//   • «verkehrsarme Strassen (DTV < 2'000)» → 2'000 ist SCHON Radstreifen, darum `>= 2000` und
+//     nicht `> 2000`. Die eine Zeile, die aus dem Muster fällt — bewusst, nicht vertippt.
+//   • «stark belastete Strassen (DTV > 10'000 Fz.)» → 10'000 ist NOCH «Radstreifen oder Radweg».
+//   • Zu 5'000 schweigt der Text; dort gilt die Bandgrenze des Schemas (5'000 noch Radstreifen).
+//
+// TEMPO 50 ist der einzige wirksame Randfall, und dort widerspricht sich der Masterplan selbst:
+// «Kernfahrbahnen … bis max. Tempo 50 … geprüft werden» setzt dort Radstreifen voraus, «bei hohen
+// Geschwindigkeiten (≥ 50 km/h) ist eine bauliche Separation nötig» verlangt einen Radweg. Wo der
+// Text sich selbst widerspricht, bricht die Grafik den Gleichstand: die Schraffur reicht bis und
+// mit 50, das Grün beginnt darüber. Deshalb `v > 50`.
 function fuehrungsartBern(dtv: number, v: number): Fuehrungsart {
-  if (v > 50 || dtv >= 10000) return 'Radweg'
-  if (dtv >= 5000)            return 'Radstreifen oder Radweg'
-  if (dtv >= 2000)            return v <= 40 ? 'Radstreifen' : 'Radweg'
-  return v <= 30 ? 'Mischverkehr' : 'Radstreifen'
+  if (v > 50 || dtv >  10000) return 'Radweg'
+  if (v > 40 || dtv >   5000) return 'Radstreifen oder Radweg'
+  if (v > 30 || dtv >=  2000) return 'Radstreifen'
+  return 'Mischverkehr'
 }
 
 // Zürich (Velostandards, Abb. 1 S. 14): je Routentyp eine eigene Matrix.
@@ -373,20 +402,28 @@ export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
   'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 2.5, minimal: 2.0 },
 }
 
-// Notenstufen-Abzug pro fehlendem Meter Breite — je feel-safe-Klasse verschieden, weil die
-// Befragung den Meter unterschiedlich bewertet (Szenen, die sich NUR in der Breite
-// unterscheiden; Velo-Foto-Bewertungen, tools/verify_06.py):
-//   • auf der Fahrbahn (Radstreifen-Klasse): 8,4–10,1 feel-safe-Punkte/m ≈ 0,6 Noten/m —
-//     hinter der Markierung schützt vor allem die Breite.
-//   • hinter baulicher Trennung (Radweg-Klasse): 5,0 Punkte/m ≈ 0,35 Noten/m — dort schützt
-//     die Trennung, Breite ist Komfort.
-//   • Mischverkehr-Klasse (Velostrasse-Fahrgassenband, Umweltspur): normativ 0,9 Noten/m —
-//     hier ist «Breite» die Fahrbahn/Spur, nicht ein Velostreifen; die Befragung liefert
-//     dafür keinen eigenen Gradienten. Tunbare Parameter.
-export const BREITE_SATZ: Record<FeelClass, number> = {
-  'Mischverkehr': 0.9,
-  'Radstreifen':  0.6,
-  'Radweg':       0.35,
+// Notenstufen-Abzug pro fehlendem Meter Breite — je feel-safe-Klasse UND TEMPO verschieden,
+// weil die Befragung den Meter unterschiedlich bewertet (Szenen, die sich NUR in der Breite
+// unterscheiden; Velo-Foto-Bewertungen, tools/verify_06.py §4):
+//   • auf der Fahrbahn (Radstreifen-Klasse): 8,4 Punkte/m bei Tempo 30 ≈ 0,58 Noten/m,
+//     10,1 bei Tempo 50 ≈ 0,70 — hinter der Markierung schützt vor allem die Breite,
+//     und je schneller der Verkehr, desto mehr.
+//   • hinter baulicher Trennung (Radweg-Klasse): 5,0 bzw. 5,4 Punkte/m ≈ 0,35 / 0,38 —
+//     dort schützt die Trennung, Breite ist Komfort; der Tempo-Unterschied fällt fast weg.
+//   • Mischverkehr-Klasse (Velostrasse-Fahrgassenband, Umweltspur): normativ 0,9 Noten/m,
+//     für beide Tempi gleich — hier ist «Breite» die Fahrbahn/Spur, nicht ein Velostreifen;
+//     die Befragung liefert dafür keinen eigenen Gradienten. Tunbare Parameter.
+//
+// TEMPOABHÄNGIG seit dem 10.08.2026. Bis dahin stand je Klasse ein einzelner Wert (0,6 / 0,35);
+// nachgerechnet waren das die Tempo-30-Werte, ohne dass das irgendwo stand. Die Kette war damit
+// in sich widersprüchlich: ihr ANKER ist tempoabhängig (FEELSAFE), ihr SATZ war es nicht,
+// obwohl beide aus derselben Geraden stammen — der Anker ist ihr Wert bei der Sollbreite, der
+// Satz ihre Steigung. Der lokale Rechner (soll_ist_analyse.py, BREITE_SATZ_FEIN_*) trägt
+// dieselben vier Werte; ein Wächter dort rechnet sie bei jedem Lauf gegen die Roh-Bewertungen.
+export const BREITE_SATZ: Record<FeelClass, { ruhig: number; schnell: number }> = {
+  'Mischverkehr': { ruhig: 0.9,  schnell: 0.9  },
+  'Radstreifen':  { ruhig: 0.58, schnell: 0.70 },
+  'Radweg':       { ruhig: 0.35, schnell: 0.38 },
 }
 
 // Abzug, wenn rechts (Bordsteinseite) längs geparkt wird — Dooring-Lage, Velo zwischen
@@ -619,7 +656,7 @@ export function fuehrungsformNote(
     breitenDefizit = zuSchmal + zuBreit
     breitenStatus = breitenDefizit === 0 ? 'erfuellt' : (zuSchmal > 0 ? 'zu schmal' : 'zu breit')
   }
-  const breitenabzug = breitenDefizit * BREITE_SATZ[meta.feelClass]
+  const breitenabzug = breitenDefizit * BREITE_SATZ[meta.feelClass][tempoKey(v)]
   const breiteErfuellt = breitenStatus === 'erfuellt' || breitenStatus === 'keine'
 
   // ── Parkierung rechts (Dooring) bei fahrbahnnahen Formen (PARKEN_RELEVANT). Ein Sicherheitsstreifen
@@ -671,7 +708,8 @@ export function fuehrungsformNote(
   // die Eingabefelder, Typ und Breite blieben aber im Zustand und der Abzug unsichtbar in der Note.
   if (oevAngebot !== 'keine' && hsBreitenSoll != null && haltestelleBreite != null && haltestelleBreite > 0) {
     const d = Math.max(0, hsBreitenSoll - haltestelleBreite)
-    hsBreitenabzug = d * BREITE_SATZ['Radstreifen']   // markierte Velofläche auf Fahrbahnniveau
+    // Markierte Velofläche auf Fahrbahnniveau → Radstreifen-Satz, und wie dort tempoabhängig.
+    hsBreitenabzug = d * BREITE_SATZ['Radstreifen'][tempoKey(v)]
     hsBreiteStatus = d === 0 ? 'erfuellt' : 'zu schmal'
   }
 

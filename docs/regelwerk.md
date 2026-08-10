@@ -22,7 +22,7 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 | Parameter | Wert | Einheit | Herleitung |
 |---|---|---|---|
 | feelSafeProNote | 14.4 | feel-safe-Punkte pro Notenstufe | 72 feel-safe-Punkte Lücke = das volle Notenband 6→1 (72 ÷ 5 = 14,4). Grösste heute mögliche Lücke (Radweg−Mischverkehr schnell: 91−13 = 78) läuft in den Notenboden 1. |
-| breiteSatz |  | Notenstufen Abzug pro fehlendem Meter Breite, je feel-safe-Klasse | Szenen, die sich NUR in der Breite unterscheiden (Velo-Foto-Bewertungen): auf der Fahrbahn 8,4–10,1 Pkt/m ≈ 0,6 Noten/m; hinter baulicher Trennung 5,0 Pkt/m ≈ 0,35. Fahrgassen-Bänder (Velostrasse, Umweltspur; feel-safe-Klasse Mischverkehr) normativ 0,9. |
+| breiteSatz |  | Notenstufen Abzug pro fehlendem Meter Breite, je feel-safe-Klasse und Tempo (ruhig ≤ 30, schnell > 30) | Szenen, die sich NUR in der Breite unterscheiden (Velo-Foto-Bewertungen), je Tempo getrennt: auf der Fahrbahn 8,4 Pkt/m bei Tempo 30 ≈ 0,58 Noten/m und 10,1 bei Tempo 50 ≈ 0,70; hinter baulicher Trennung 5,0 bzw. 5,4 Pkt/m ≈ 0,35 / 0,38. Tempoabhängig seit 10.08.2026 — bis dahin stand je Klasse ein einzelner Wert (die Tempo-30-Steigung), obwohl der feel-safe-Anker derselben Kette schon tempoabhängig war. Fahrgassen-Bänder (Velostrasse, Umweltspur; feel-safe-Klasse Mischverkehr) bleiben normativ bei 0,9 für beide Tempi — die Befragung liefert dafür keinen Gradienten. |
 | parkenRechtsAbzug | 1.0 | Notenstufen, pauschal | Pauschal für jede Führungsform und jede Breite. OFFENER PUNKT: Bis zum 09.08.2026 galt eine breitenabhängige Formel 0,6 + 0,9 × (3,5 − Streifenbreite). Der Befund bleibt gültig (Parken-Offset bei gleicher Breite/Tempo, Velo-Foto-Bewertungen: 3,5 m ≈ 8,5–9,6 Pkt = 0,6 Noten, 2,0 m ≈ 28,8–29,7 Pkt = 2,0 Noten), die Skala trägt den Bestand aber nicht: Die Befragung kennt nur diese zwei Breiten, der breiteste real erfasste Radstreifen misst 2,50 m, und 282 von 340 sind schmaler als der kleinste Messpunkt — dort war die Formel reine Verlängerung (1,50 m ergäbe −2,40, mehr als je gemessen). Ein dritter Messpunkt widerspricht ihr zudem: im Mischverkehr kostet die Parkierung nur ≈ 0,15 Noten. Es fehlen Szenen unter 2,0 m Streifenbreite. Ausnahme unverändert: Sicherheitsstreifen gegenüber den Parkplätzen (SN 640 060) → KEIN Abzug (stadtübergreifend, Norm). |
 | haltestelleAbzug | 1.0 | Notenstufen | Normativ: Soll verlangt Separate Velofläche, Ist-Typ aber Mischverkehr-Familie. |
 | fusswegBasis | 4 | Note (Maximum) | Fussweg Velo gestattet (Mischfläche) höchstens «genügend». Normativ. |
@@ -98,14 +98,14 @@ Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fue
 
 ### Soll-Führungsform (DTV × Tempo)
 
-*Quelle:* DTV_KMH_Fuehrungsform.csv (Bern); Masterplan Bericht S. 11
+*Quelle:* DTV_KMH_Fuehrungsform.csv (Bern); Masterplan Bericht S. 11 (vier ineinander liegende Rechtecke — die strengere der beiden Achsen entscheidet)
 
-*Hinweis:* DTV-Untergrenze inklusive, Obergrenze exklusive. v in km/h. Implementiert in fuehrungsart() (fuehrungsform.ts).
+*Hinweis:* v in km/h. GRENZEN: Untergrenze inklusive; die Obergrenze 2'000 ist exklusive, die Obergrenzen 5'000 und 10'000 sind INKLUSIVE — so steht es im Fliesstext des Masterplans («verkehrsarme Strassen (DTV < 2'000)», «stark belastete Strassen (DTV > 10'000)»); zu 5'000 schweigt der Text, dort gilt die Bandgrenze des Schemas. Das Band 41–50 km/h ist durchgehend «Radstreifen oder Radweg» (waagrechter Schenkel der Schraffur), unabhängig vom DTV-Band. Implementiert in fuehrungsart() (fuehrungsform.ts); deckungsgleich mit soll_bern() des lokalen Rechners seit 10.08.2026.
 
 | DTV MIV \ km/h | ≤ 30 | 31–40 | 41–50 | 51–80 |
 |---|---|---|---|---|
-| < 2'000 | Mischverkehr | Radstreifen | Radstreifen | Radweg |
-| 2'000–5'000 | Radstreifen | Radstreifen | Radweg | Radweg |
+| < 2'000 | Mischverkehr | Radstreifen | Radstreifen oder Radweg | Radweg |
+| 2'000–5'000 | Radstreifen | Radstreifen | Radstreifen oder Radweg | Radweg |
 | 5'000–10'000 | Radstreifen oder Radweg | Radstreifen oder Radweg | Radstreifen oder Radweg | Radweg |
 | ≥ 10'000 | Radweg | Radweg | Radweg | Radweg |
 
