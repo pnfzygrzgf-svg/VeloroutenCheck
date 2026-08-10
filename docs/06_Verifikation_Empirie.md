@@ -136,5 +136,5 @@ Referenz-Anker Radstreifen (2,5 m ohne Parken, interpoliert): T30 77.2 · T50 73
 Breitensatz Fahrbahn: (8.3, 10.1) Pkt/m = (0.58, 0.7) Noten/m → Code 0,6
 Breitensatz baulich:  5.3 Pkt/m = 0.37 Noten/m → Code 0,35
 Parken-Offset T30 (3,5/2,0 m): (8.5, 28.8) Pkte = (0.59, 2.0) Noten · T50: (9.6, 29.6)
-→ Code: 0,6 + 0,9 × max(0, 3,5 − Breite); ohne Breite 1,0
+→ Code: pauschal 1,0 (PARKEN_ABZUG) — breitenabhängige Formel zurückgenommen, offener Punkt
 ```

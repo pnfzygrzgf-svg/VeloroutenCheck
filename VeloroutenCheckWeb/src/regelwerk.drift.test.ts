@@ -17,8 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import regelwerk from '../../docs/regelwerk.json'
 import {
-  BREITE_SATZ, FEELSAFE, FUSSWEG_BASIS, HALTESTELLE_ABZUG,
-  PARKEN_ABZUG_BASIS, PARKEN_ABZUG_JE_M, PARKEN_ABZUG_OHNE_BREITE, PARKEN_ABZUG_REF,
+  BREITE_SATZ, FEELSAFE, FUSSWEG_BASIS, HALTESTELLE_ABZUG, PARKEN_ABZUG,
   PARKEN_RELEVANT, SCORE_PRO_NOTE, TRAM_MALUS, UMWELTSPUR_DECKE, UMWELTSPUR_TAKT,
 } from './fuehrungsform'
 
@@ -33,11 +32,12 @@ describe('regelwerk.json spiegelt die Code-Konstanten (Parameter)', () => {
     expect(param.breiteSatz.baulich).toBe(BREITE_SATZ.Radweg)
     expect(param.breiteSatz.fahrgasse).toBe(BREITE_SATZ.Mischverkehr)
   })
-  it('parkenAbzug (Formel-Parameter) = PARKEN_ABZUG_*', () => {
-    expect(param.parkenAbzug.basis).toBe(PARKEN_ABZUG_BASIS)
-    expect(param.parkenAbzug.jeMeterUnterRef).toBe(PARKEN_ABZUG_JE_M)
-    expect(param.parkenAbzug.referenzBreite).toBe(PARKEN_ABZUG_REF)
-    expect(param.parkenAbzug.ohneBreite).toBe(PARKEN_ABZUG_OHNE_BREITE)
+  // 09.08.2026: aus den vier Formel-Parametern ist ein Skalar geworden (offener Punkt, s.
+  // fuehrungsform.ts). Der JSON-Schlüssel heisst jetzt `parkenRechtsAbzug` — so, wie ihn
+  // tools/generiere_stadt_pdf.py schon immer erwartet hat; unter dem alten Namen blieb die
+  // Parameter-Zeile im Grundlagen-PDF leer.
+  it('parkenRechtsAbzug = PARKEN_ABZUG', () => {
+    expect(param.parkenRechtsAbzug.wert).toBe(PARKEN_ABZUG)
   })
   it('haltestelleAbzug = HALTESTELLE_ABZUG', () => {
     expect(param.haltestelleAbzug.wert).toBe(HALTESTELLE_ABZUG)

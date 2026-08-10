@@ -31,14 +31,11 @@
       "herleitung": "Szenen, die sich NUR in der Breite unterscheiden (Velo-Foto-Bewertungen): auf der Fahrbahn 8,4–10,1 Pkt/m ≈ 0,6 Noten/m; hinter baulicher Trennung 5,0 Pkt/m ≈ 0,35. Fahrgassen-Bänder (Velostrasse, Umweltspur; feel-safe-Klasse Mischverkehr) normativ 0,9.",
       "code": "BREITE_SATZ[feelClass]"
     },
-    "parkenAbzug": {
-      "basis": 0.6,
-      "jeMeterUnterRef": 0.9,
-      "referenzBreite": 3.5,
-      "ohneBreite": 1.0,
-      "einheit": "Notenstufen; Formel basis + jeMeterUnterRef × max(0, referenzBreite − Streifenbreite)",
-      "herleitung": "Parken-Offset bei gleicher Breite/Tempo (Velo-Foto-Bewertungen): 3,5 m ≈ 8,5–9,6 Pkt (0,6 Noten), 2,0 m ≈ 28,8–29,7 Pkt (2,0 Noten) → linear 0,6 + 0,9 je Meter unter 3,5 m. Ohne bekannte Streifenbreite (Mischverkehr, Velostrasse, Umweltspur, Radstreifen ohne Mass) Pauschale 1,0. Ausnahme: Sicherheitsstreifen gegenüber den Parkplätzen (SN 640 060) → KEIN Abzug (stadtübergreifend, Norm).",
-      "code": "PARKEN_ABZUG_BASIS/JE_M/REF/OHNE_BREITE; Ausnahme via parkenSicherheitsstreifen"
+    "parkenRechtsAbzug": {
+      "wert": 1.0,
+      "einheit": "Notenstufen, pauschal",
+      "herleitung": "Pauschal für jede Führungsform und jede Breite. OFFENER PUNKT: Bis zum 09.08.2026 galt eine breitenabhängige Formel 0,6 + 0,9 × (3,5 − Streifenbreite). Der Befund bleibt gültig (Parken-Offset bei gleicher Breite/Tempo, Velo-Foto-Bewertungen: 3,5 m ≈ 8,5–9,6 Pkt = 0,6 Noten, 2,0 m ≈ 28,8–29,7 Pkt = 2,0 Noten), die Skala trägt den Bestand aber nicht: Die Befragung kennt nur diese zwei Breiten, der breiteste real erfasste Radstreifen misst 2,50 m, und 282 von 340 sind schmaler als der kleinste Messpunkt — dort war die Formel reine Verlängerung (1,50 m ergäbe −2,40, mehr als je gemessen). Ein dritter Messpunkt widerspricht ihr zudem: im Mischverkehr kostet die Parkierung nur ≈ 0,15 Noten. Es fehlen Szenen unter 2,0 m Streifenbreite. Ausnahme unverändert: Sicherheitsstreifen gegenüber den Parkplätzen (SN 640 060) → KEIN Abzug (stadtübergreifend, Norm).",
+      "code": "PARKEN_ABZUG; Ausnahme via parkenSicherheitsstreifen"
     },
     "haltestelleAbzug": {
       "wert": 1.0,

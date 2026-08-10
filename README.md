@@ -297,22 +297,21 @@ Bei erfüllter Breite (Ist ≥ Vorgabe) gibt es keinen Abzug.
 
 Wo das Velo **auf der Fahrbahn neben möglichem Längsparken** fährt, kann angegeben werden, ob rechts längs geparkt wird (Dooring-Lage). Das betrifft die Fahrbahn-Führungsformen **Mischverkehr, Radstreifen, Velostrasse, Umweltspur und Einbahn mit Velogegenverkehr (markiert)** (Konstante `PARKEN_RELEVANT` in [`VeloroutenCheckWeb/src/fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)); bei baulich abgesetzten Radwegen und beim Fussweg greift der Dooring-Mechanismus nicht, dort wird das Feld nicht angezeigt. Auswahl **Ja / Nein / Egal**:
 
-- **Ja** → Abzug **0,6 + 0,9 × (3,5 − Streifenbreite)** Notenstufen (nie unter 0,6); ohne bekannte Streifenbreite (Mischverkehr, Velostrasse, Umweltspur, Radstreifen ohne Mass) pauschal **−1,0**. In jedem Fall keine Note 6, sobald Parken rechts vorhanden ist.
+- **Ja** → Abzug **1,0 Notenstufe**, pauschal für jede Führungsform und jede Breite. In jedem Fall keine Note 6, sobald Parken rechts vorhanden ist.
 - **Nein / Egal** → kein Abzug.
 
 Bei **Ja** kann zusätzlich angegeben werden, ob ein **Sicherheitsstreifen gegenüber den Parkplätzen** (SN 640 060; im Basler Standard-Papier genannt) vorhanden ist. Ist er vorhanden, entschärft er die Dooring-Gefahr → **kein Abzug**. Da SN 640 060 eine CH-Norm ist, gilt das in allen Stadt-Rechnern.
 
-**Herleitung der Formel** (Radstreifen, ungeschützt, tram-bereinigt; Vergleich bei **gleicher Breite und gleichem Tempo**, `tools/verify_06.py` §5):
+**Offener Punkt: der Schaden ist gemessen breitenabhängig — die Skala trägt aber nicht.** Bis zum 09.08.2026 rechnete der Abzug `0,6 + 0,9 × (3,5 − Streifenbreite)`. Der Befund dahinter bleibt gültig (Radstreifen, ungeschützt, tram-bereinigt; Vergleich bei **gleicher Breite und gleichem Tempo**, `tools/verify_06.py` §5):
 
 ```
 Parken-Offset bei 3,5 m Streifen:    8,5–9,6 Pkte  ≈ 0,6 Noten   (man kann der Türzone ausweichen)
 Parken-Offset bei 2,0 m Streifen:  28,8–29,6 Pkte  ≈ 2,0 Noten   (man fährt zwangsläufig darin)
-linear:  Abzug = 0,6 + 0,9 × (3,5 − Breite)
 ```
 
-**Wichtig:** Die Formel ist **am Radstreifen** kalibriert. Für Fahrbahn-Führungsformen ohne Streifenbreite (Mischverkehr, Velostrasse, Umweltspur) gilt die Pauschale −1,0 — die Befragung liefert dort keinen eigenen Wert, und im Mischverkehr fährt man faktisch in der Türzone.
+Zurückgenommen wurde die Formel, weil die Befragung **genau diese zwei Streifenbreiten** kennt und der reale Bestand fast vollständig darunter liegt: Der breiteste in Bern erfasste Radstreifen misst **2,50 m**, und **282 von 340** sind schmaler als der *kleinste* Messpunkt — dort war die Formel reine Verlängerung (1,50 m ergäbe −2,40 Noten, mehr als je gemessen). Ein dritter, vorhandener Messpunkt widerspricht ihr zudem: Im **Mischverkehr** kostet die Parkierung nur ≈ 0,15 Noten, weil dort keine Markierung den Platz in die Türzone weist — der Schaden hat sein Maximum bei ≈ 2,0 m und fällt zu beiden Seiten ab. Was fehlt, sind Szenen mit Streifenbreiten **unter 2,0 m**; solange sie fehlen, ist die Pauschale die ehrlichere Zahl.
 
-Zum Vergleich: liegt das Velo **rechts vom Parken** (Parken schirmt vom Verkehr ab), steigt der Wert auf ≈ 92 %; diese günstige Lage ist im Datensatz aber nur schwach belegt (6 Szenen) und derzeit nicht als eigene Option umgesetzt. Parameter `PARKEN_ABZUG_BASIS/JE_M/REF/OHNE_BREITE`, tunbar.
+Zum Vergleich: liegt das Velo **rechts vom Parken** (Parken schirmt vom Verkehr ab), steigt der Wert auf ≈ 92 %; diese günstige Lage ist im Datensatz aber nur schwach belegt (6 Szenen) und derzeit nicht als eigene Option umgesetzt. Parameter `PARKEN_ABZUG`, tunbar.
 
 #### Tram in der Fahrbahn
 
@@ -557,7 +556,7 @@ auf der Einstiegsseite.
 
 ## Offene Punkte
 
-- ~~Parken × Breite verfeinern~~ — umgesetzt: der Parken-Abzug ist breitenabhängig (0,6 + 0,9 je Meter unter 3,5 m), die Breitensätze sind parken-bereinigt geschnitten (0,6/0,35).
+- **Parken × Breite** — der Effekt ist gemessen (0,6 Noten bei 3,5 m, 2,0 bei 2,0 m), aber **nicht umgesetzt**: Die Befragung kennt nur diese zwei Breiten, der reale Bestand liegt fast vollständig darunter, und ein dritter Messpunkt (Mischverkehr ≈ 0,15) widerspricht der Verlängerung nach unten. Es braucht Szenen unter 2,0 m Streifenbreite; bis dahin gilt die Pauschale −1,0 (Stand 09.08.2026, siehe Kapitel «Parkierung rechts»). Die Breitensätze selbst bleiben parken-bereinigt geschnitten (0,6/0,35).
 - **«Velo rechts vom Parken»** als eigene, bessere Parken-Lage aufnehmen (empirisch ≈ 92, aber nur 6 Szenen → erst mit besserer Datenlage).
 - **Velostrasse «zu breit»:** der Abzug über der Maximalbreite (6,50 m) ist normativ gesetzt (gleicher Satz wie «zu schmal») — bei Bedarf eigener Satz/Schwelle.
 - **«Radweg abgesetzt» (Q3):** In Berliner Daten tiefer (Seitenraum ≈ 77) als Poller-Niveau (≈ 91). Dieser Abschlag wird **bewusst nicht** angewandt (Berns Seitenraum ist weniger durch Geschäfte/Gastronomie geprägt als Berlins); Q3 trägt denselben feel-safe-Wert wie Q2 und unterscheidet sich nur in der Minimalbreite (1,50 m). Bei künftigen Berner Auswertungen überprüfen.

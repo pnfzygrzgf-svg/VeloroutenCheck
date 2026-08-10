@@ -390,18 +390,24 @@ export const BREITE_SATZ: Record<FeelClass, number> = {
 }
 
 // Abzug, wenn rechts (Bordsteinseite) längs geparkt wird — Dooring-Lage, Velo zwischen
-// Fahrspur und Parken. Der Schaden ist BREITENABHÄNGIG (gleiche Zelle, nur Parken
-// verschieden; Velo-Foto-Bewertungen, tools/verify_06.py): bei 3,5 m Streifen ≈ 8,5–9,6
-// Punkte (0,6 Noten — man kann der Türzone ausweichen), bei 2,0 m ≈ 28,8–29,7 (2,0 Noten —
-// man fährt zwangsläufig darin). Linear:
-//   Abzug = 0,6 + 0,9 × (3,5 − Streifenbreite), nie unter 0,6.
-// Ohne bekannte Streifenbreite (Mischverkehr, Velostrasse, Umweltspur, Radstreifen ohne
-// Mass) bleibt der Pauschalwert 1,0 — die Befragung liefert dort keinen eigenen Wert, und
-// im Mischverkehr fährt man faktisch in der Türzone. Tunbare Parameter.
-export const PARKEN_ABZUG_BASIS = 0.6
-export const PARKEN_ABZUG_JE_M = 0.9
-export const PARKEN_ABZUG_REF = 3.5
-export const PARKEN_ABZUG_OHNE_BREITE = 1.0
+// Fahrspur und Parken. PAUSCHAL 1,0 Notenstufen, für jede Führungsform und jede Breite.
+//
+// OFFENER PUNKT (seit 09.08.2026). Bis dahin stand hier eine breitenabhängige Formel
+// 0,6 + 0,9 × (3,5 − Streifenbreite). Der Befund dahinter ist gut belegt und bleibt gültig
+// (tools/verify_06.py §5): dieselbe Szene ohne/mit Parkierung verliert bei 3,5 m Streifen
+// ≈ 8,5–9,6 Punkte (0,6 Noten — man weicht der Türzone aus), bei 2,0 m ≈ 28,8–29,7
+// (2,0 Noten — man fährt zwangsläufig darin). Nur trägt die Skala den Bestand nicht:
+//   • Die Befragung kennt GENAU ZWEI Streifenbreiten: 2,0 und 3,5 m.
+//   • Der breiteste real erfasste Radstreifen (Bern) misst 2,50 m; 282 von 340 sind schmaler
+//     als der KLEINSTE Messpunkt. Für sie war die Formel reine Verlängerung — 1,50 m ergäbe
+//     −2,40 Noten, mehr als der höchste je gemessene Wert.
+//   • Ein dritter, vorhandener Messpunkt widerspricht der Verlängerung: im Mischverkehr
+//     (Streifenbreite 0) kostet die Parkierung nur ≈ 0,15 Noten. Der Schaden hat sein
+//     Maximum bei ≈ 2,0 m und fällt zu BEIDEN Seiten ab — ohne Markierung fährt man weiter
+//     links, erst die Markierung weist den Platz in die Türzone.
+// Was es bräuchte: Szenen mit Streifenbreiten unter 2,0 m. Solange die fehlen, ist jede
+// Formel dort Modell und nicht Messung — die Pauschale ist die ehrlichere Zahl.
+export const PARKEN_ABZUG = 1.0
 
 // Tram in der Fahrbahn (Schienen) — Malus NUR bei Mischverkehr, tempo-abhängig. Empirisch aus den
 // radwege-Daten (Velo-Foto-Bewertungen): Mischverkehr mit vs. ohne Tram, Verlust ÷ 14,4.
@@ -618,13 +624,11 @@ export function fuehrungsformNote(
 
   // ── Parkierung rechts (Dooring) bei fahrbahnnahen Formen (PARKEN_RELEVANT). Ein Sicherheitsstreifen
   // gegenüber den Parkplätzen (SN 640 060) entschärft die Dooring-Gefahr → dann kein Abzug.
-  // Breitenabhängige Formel nur, wo die eingegebene Breite ein VELOSTREIFEN ist (Radstreifen-
-  // Klasse); bei Fahrgassen-Breiten (Mischverkehr, Velostrasse, Umweltspur) Pauschale 1,0.
+  // Sonst pauschal PARKEN_ABZUG — die Breite spielt seit dem 09.08.2026 keine Rolle mehr
+  // (offener Punkt, Begründung bei der Konstante).
   const parkenAbzug =
     (PARKEN_RELEVANT.includes(ist) && parkenRechts === 'ja' && !parkenSicherheitsstreifen)
-      ? ((meta.feelClass === 'Radstreifen' && breite != null && breite > 0)
-          ? PARKEN_ABZUG_BASIS + PARKEN_ABZUG_JE_M * Math.max(0, PARKEN_ABZUG_REF - breite)
-          : PARKEN_ABZUG_OHNE_BREITE)
+      ? PARKEN_ABZUG
       : 0
 
   // ── Tram in der Fahrbahn (Schienen): Malus nur bei Mischverkehr, tempo-abhängig (siehe TRAM_MALUS).

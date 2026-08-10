@@ -402,18 +402,24 @@ describe('Sicherheitsstreifen (SN 640 060) hebt den Dooring-Abzug auf', () => {
     fuehrungsformNote(1000, 30, 'Radstreifen', breite, 'Velohauptroute',
       'ja', undefined, 'keine', 'keine', undefined, false, undefined, stadt, undefined, streifen)
 
-  it('Bern: ohne Streifen → Dooring-Abzug 1,5 (Formel: 0,6 + 0,9 × (3,5 − 2,5))', () => {
+  // 09.08.2026: Der Abzug ist pauschal 1,0 — vorher 1,5 aus der breitenabhängigen Formel
+  // 0,6 + 0,9 × (3,5 − 2,5). Die Formel ist zurückgenommen (offener Punkt, s. fuehrungsform.ts).
+  it('Bern: ohne Streifen → Dooring-Abzug 1,0 (pauschal, breitenunabhängig)', () => {
     const r = rs('bern', false)
-    expect(r.parkenAbzug).toBeCloseTo(1.5)
+    expect(r.parkenAbzug).toBeCloseTo(1.0)
   })
-  it('Bern: mit Streifen → kein Abzug, Note 1,5 Stufen höher', () => {
+  it('Bern: der Abzug hängt NICHT mehr an der Streifenbreite', () => {
+    expect(rs('bern', false, 1.5).parkenAbzug).toBeCloseTo(1.0)
+    expect(rs('bern', false, 3.5).parkenAbzug).toBeCloseTo(1.0)
+  })
+  it('Bern: mit Streifen → kein Abzug, Note 1,0 Stufen höher', () => {
     const ohne = rs('bern', false).note
     const mit = rs('bern', true)
     expect(mit.parkenAbzug).toBe(0)
-    expect(mit.note).toBe(ohne + 1.5)
+    expect(mit.note).toBe(ohne + 1.0)
   })
   it('stadtunabhängig: Zürich verhält sich gleich', () => {
-    expect(rs('zurich', false).parkenAbzug).toBeCloseTo(1.5)
+    expect(rs('zurich', false).parkenAbzug).toBeCloseTo(1.0)
     expect(rs('zurich', true).parkenAbzug).toBe(0)
   })
   it('wirkungslos, wenn Parkierung rechts ≠ ja', () => {

@@ -422,7 +422,11 @@ def main():
         'T50 bei 3,5 m / 2,0 m': (off(3.5, '50'), off(2.0, '50')),
         'in Noten (3,5 m / 2,0 m, T30)': (round(off(3.5, '30') / SCORE_PRO_NOTE, 2),
                                           round(off(2.0, '30') / SCORE_PRO_NOTE, 2)),
-        'im Code (Formel)': '0,6 + 0,9 × max(0, 3,5 − Breite); ohne Breite 1,0',
+        # Der BEFUND ist breitenabhängig, der Code ist es seit dem 09.08.2026 nicht mehr:
+        # Die Befragung kennt nur 2,0 und 3,5 m, der reale Bestand liegt fast vollständig
+        # darunter, und im Mischverkehr (Breite 0) kostet die Parkierung nur ≈ 0,15 Noten —
+        # der Schaden fällt unterhalb 2,0 m wieder ab. Siehe README «Parkierung rechts».
+        'im Code': 'pauschal 1,0 (PARKEN_ABZUG) — breitenabhängige Formel zurückgenommen, offener Punkt',
     }
     out['sections']['kalibrierung'] = kal
 
@@ -637,7 +641,7 @@ def write_md(out):
     po = kal['parken_offset']
     A(f'Parken-Offset T30 (3,5/2,0 m): {po["T30 bei 3,5 m / 2,0 m"]} Pkte '
       f'= {po["in Noten (3,5 m / 2,0 m, T30)"]} Noten · T50: {po["T50 bei 3,5 m / 2,0 m"]}')
-    A(f'→ Code: {po["im Code (Formel)"]}')
+    A(f'→ Code: {po["im Code"]}')
     A('```\n')
 
     open(MD_SNAPSHOT, 'w').write('\n'.join(L))
