@@ -337,6 +337,11 @@ GRUND_PARAMETER = [
     ("parkenRechtsAbzug", "Abzug Parkierung rechts (Dooring)"),
     ("haltestelleAbzug", "Abzug Haltestelle (Soll «Separate Velofläche», Ist Mischverkehr-Typ)"),
     ("fusswegBasis", "Fussweg Velo gestattet: höchstens Note (Decke)"),
+    # 14.08.2026: Tram ist vom tempoabhängigen Malus auf einen Deckel umgestellt und um die
+    # Kap-Regel ergänzt (Angleichung an den lokalen Berner Rechner). Beides sind gewöhnliche
+    # {wert, einheit, herleitung}-Parameter — der frühere Sonderfall unten entfällt.
+    ("tramDeckel", "Schienen in der Fahrbahn: höchstens Note (nur Mischverkehr)"),
+    ("kapNote", "Kaphaltestelle an Tram-Haltestelle ohne bauliche Trennung: feste Note"),
 ]
 
 
@@ -365,10 +370,6 @@ def render_grund_parameter(data):
     for key, label in GRUND_PARAMETER:
         e = p.get(key, {})
         rows.append([label, _numde(e.get("wert", "")), e.get("einheit", ""), e.get("herleitung", "")])
-    tm = p.get("tramMalus", {})
-    rows.append(["Abzug Tram in der Fahrbahn (nur Mischverkehr)",
-                 f"{_numde(tm.get('ruhig'))} (ruhig) / {_numde(tm.get('schnell'))} (schnell)",
-                 tm.get("einheit", ""), tm.get("herleitung", "")])
     pr = p.get("parkenRelevant", {})
     rows.append(["Führungsformen mit Dooring-Relevanz", ", ".join(pr.get("formen", [])),
                  "—", pr.get("hinweis", "")])

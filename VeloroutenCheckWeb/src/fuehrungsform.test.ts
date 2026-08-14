@@ -214,13 +214,15 @@ describe('Umweltspur — stadtspezifischer Takt (Stufe Bern, Rampe ZH/LU, Basel 
 describe('fuehrungsformNote — Bern Beispiel aus README', () => {
   // 10.08.2026: DTV 3'000 → 12'000. Bei 50 km/h ist 3'000 seit der Angleichung an den lokalen
   // Rechner «Radstreifen oder Radweg»; mit 12'000 bleibt das Soll «Radweg» und die ganze
-  // Beispielrechnung unverändert (91 − 73 = 18 → 4,75). Nur die Grundlage der Soll-Wahl wechselt
+  // Beispielrechnung unverändert. Nur die Grundlage der Soll-Wahl wechselt
   // vom DTV-Band 2'000–5'000 auf «> 10'000».
-  it('DTV 12000 / 50 / Radstreifen / 1,8 m / Velohauptroute → 4.5', () => {
-    // Form 6 − (91−73)/14,4 = 4,75 · Breite −0,7 m × 0,70 = −0,49 → 4,26 → 4,5
+  it('DTV 12000 / 50 / Radstreifen / 1,8 m / Velohauptroute → 3.5', () => {
+    // Radweg-Anker 84 + Kurs 14,2 seit 13.08.2026 (P11-A/P13): Form 6 − (84−58)/14,2 = 4,17 ·
+    // Breite −0,7 m × 0,74 = −0,52 → 3,65 → 3,5. (Chronik: gestrichelt unter 14,4 → 3,0;
+    // grau 3,74 → 3,5; gepoolt 4,26 → 4,5.)
     const r = fuehrungsformNote(12000, 50, 'Radstreifen', 1.8, 'Velohauptroute')
     expect(r.soll).toBe('Radweg')
-    expect(r.note).toBe(4.5)
+    expect(r.note).toBe(3.5)
   })
   it('Ist = Soll (Radweg) → Note 6', () => {
     const r = fuehrungsformNote(12000, 50, 'Radweg strassenbegleitend / Geschützter Radstreifen', 2.5, 'Velohauptroute')
@@ -261,19 +263,27 @@ describe('Breitensatz — tempoabhängig (BREITE_SATZ, seit 10.08.2026)', () => 
     // Radstreifen 2,0 m an einer Velohauptroute (Soll 2,5) → 0,5 m Defizit.
     const langsam = fuehrungsformNote(6000, 30, 'Radstreifen', 2.0, 'Velohauptroute')
     const schnell = fuehrungsformNote(6000, 50, 'Radstreifen', 2.0, 'Velohauptroute')
-    expect(langsam.breitenabzug).toBeCloseTo(0.29)   // 0,5 × 0,58
-    expect(schnell.breitenabzug).toBeCloseTo(0.35)   // 0,5 × 0,70
+    expect(langsam.breitenabzug).toBeCloseTo(0.325)  // 0,5 × 0,65 (gestrichelt ÷ Kurs 14,2)
+    expect(schnell.breitenabzug).toBeCloseTo(0.37)   // 0,5 × 0,74
     expect(schnell.breitenabzug).toBeGreaterThan(langsam.breitenabzug)
   })
-  it('hinter baulicher Trennung fällt der Tempo-Unterschied fast weg', () => {
+  it('hinter baulicher Trennung ist der Abzug deutlich kleiner als auf der Fahrbahn', () => {
     const langsam = fuehrungsformNote(6000, 30, 'Radweg abgesetzt', 2.0, 'Velohauptroute')
     const schnell = fuehrungsformNote(6000, 50, 'Radweg abgesetzt', 2.0, 'Velohauptroute')
-    expect(langsam.breitenabzug).toBeCloseTo(0.175)  // 0,5 × 0,35
+    expect(langsam.breitenabzug).toBeCloseTo(0.12)   // 0,5 × 0,24 (Poller-only ÷ Kurs 14,2, P14)
     expect(schnell.breitenabzug).toBeCloseTo(0.19)   // 0,5 × 0,38
-    // Der Sprung ist auf der Fahrbahn ein Vielfaches dessen hinter der Trennung.
+    // ABGESCHWÄCHT seit dem 12.08.2026 (P10-U): Im Grau-Schnitt war die Fahrbahn die
+    // steilere Klasse (Tempo-Spanne 0,16 gegen 0,12); im geltenden Stand ist ihre Spanne
+    // kleiner (0,74 − 0,65 = 0,09 < 0,14 baulich Poller-only, P14) — dokumentierter Preis
+    // der Übernahme (lokales Regelwerk 15.7, P10/P14-Kästen). Geblieben: in JEDER Klasse
+    // ist schnell teurer als ruhig, und der Abzug je Meter liegt hinter der Trennung in
+    // beiden Tempi tiefer.
     const spanneFahrbahn = BREITE_SATZ.Radstreifen.schnell - BREITE_SATZ.Radstreifen.ruhig
     const spanneBaulich = BREITE_SATZ.Radweg.schnell - BREITE_SATZ.Radweg.ruhig
-    expect(spanneFahrbahn).toBeGreaterThan(spanneBaulich * 3)
+    expect(spanneFahrbahn).toBeGreaterThan(0)
+    expect(spanneBaulich).toBeGreaterThan(0)
+    expect(BREITE_SATZ.Radweg.ruhig).toBeLessThan(BREITE_SATZ.Radstreifen.ruhig)
+    expect(BREITE_SATZ.Radweg.schnell).toBeLessThan(BREITE_SATZ.Radstreifen.schnell)
   })
   it('Fahrgassen-Band (Mischverkehr-Klasse) bleibt tempo-unabhängig bei 0,9', () => {
     // Normativ, kein Gradient aus der Befragung ableitbar — hier darf das Tempo nichts ändern.
@@ -438,8 +448,8 @@ describe('Kombinierter Fuss-/Radweg (Q11)', () => {
     expect(r.note).toBe(6)
   })
   it('zu schmal → Abzug, aber weiterhin > 4 (Bern 2,50 m statt 3,50)', () => {
-    // Satz baulich 0,35: 1,0 m Defizit → 6 − 0,35 = 5,65 → 5,5. (Ein 0,5-m-Defizit
-    // verschwände beim 0,35er-Satz in der Rundung — darum hier das grössere.)
+    // Satz baulich «schnell» 0,38 (P14): 1,0 m Defizit → 6 − 0,38 = 5,62 → 5,5. (Ein
+    // 0,5-m-Defizit verschwände beim 0,38er-Satz in der Rundung — darum hier das grössere.)
     const r = fuehrungsformNote(5000, 50, 'Kombinierter Fuss-/Radweg', 2.5, 'Velohauptroute')
     expect(r.note).toBeGreaterThan(4)
     expect(r.note).toBeLessThan(6)
@@ -530,20 +540,78 @@ describe('Q7 — Einbahn mit Velogegenverkehr (dreistufig)', () => {
 // Grenzen, Haltestellen-Abzug/-Breite, Erfüllungsskala, Breitenpflicht.
 // ════════════════════════════════════════════════════════════════════════════
 
-describe('Tram in der Fahrbahn (TRAM_MALUS)', () => {
-  it('Mischverkehr T30: 6,0 → 5,0 (Malus 1,2; 4,8 rundet auf 5,0)', () => {
+// Tram: seit dem 14.08.2026 ein DECKEL (Note ≤ 3) statt des früheren tempoabhängigen Malus
+// (1,2/0,7) — Angleichung an den lokalen Berner Rechner auf Nutzerentscheid. Der Unterschied
+// ist nicht bloss die Höhe: Ein Deckel kappt gute Noten hart und lässt schlechte in Ruhe.
+describe('Tram in der Fahrbahn (TRAM_DECKEL)', () => {
+  it('Mischverkehr T30: 6,0 → 3,0 (Deckel statt Abzug)', () => {
     const ohne = fuehrungsformNote(1000, 30, 'Mischverkehr')
     const mit = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
       'egal', undefined, 'keine', 'keine', undefined, true)
     expect(ohne.note).toBe(6)
-    expect(mit.tramAbzug).toBeCloseTo(1.2)
-    expect(mit.note).toBe(5)
+    expect(mit.tramDeckel).toBe(3)
+    expect(mit.note).toBe(3)
   })
-  it('kein Malus bei Radstreifen (nur Mischverkehr betroffen)', () => {
+  it('tempo-unabhängig: bei Tempo 50 derselbe Deckel 3 (früher nur −0,7)', () => {
+    // Bei T50 ist Mischverkehr fast nie konform, die Rohnote liegt schon unter 3 — geprüft wird
+    // darum die Regel selbst: Deckel gesetzt, und die Note ist gekappt statt tempo-abhängig
+    // abgezogen (kein Unterschied zwischen T30- und T50-Wirkung mehr).
+    const ohne = fuehrungsformNote(1000, 50, 'Mischverkehr', undefined, 'Veloroute')
+    const mit = fuehrungsformNote(1000, 50, 'Mischverkehr', undefined, 'Veloroute',
+      'egal', undefined, 'keine', 'keine', undefined, true)
+    expect(mit.tramDeckel).toBe(3)
+    expect(mit.note).toBe(Math.min(ohne.note, 3))
+  })
+  it('der Deckel drückt eine ohnehin schlechte Note NICHT weiter (Kernunterschied zum Malus)', () => {
+    // Mischverkehr, wo ein Radweg gefordert ist: Rohnote deutlich unter 3 — der Deckel greift
+    // nicht mehr, ein Malus hätte weiter abgezogen.
+    const ohne = fuehrungsformNote(12000, 50, 'Mischverkehr')
+    const mit = fuehrungsformNote(12000, 50, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'keine', 'keine', undefined, true)
+    expect(ohne.note).toBeLessThan(3)
+    expect(mit.note).toBe(ohne.note)
+  })
+  it('kein Deckel bei Radstreifen (nur Mischverkehr betroffen)', () => {
     const r = fuehrungsformNote(3000, 30, 'Radstreifen', 2.5, 'Velohauptroute',
       'egal', undefined, 'keine', 'keine', undefined, true)
-    expect(r.tramAbzug).toBe(0)
+    expect(r.tramDeckel).toBeUndefined()
     expect(r.note).toBe(6)
+  })
+})
+
+// Kaphaltestelle an einer Tram-Haltestelle ohne bauliche Trennung → Note 1 (KAP_NOTE),
+// überschreibt alles. Ebenfalls seit dem 14.08.2026, aus dem lokalen Rechner übernommen;
+// online lösen ZWEI Eingaben aus (Schienen ODER ÖV-Angebot Tram), lokal das eine Datenfeld.
+describe('Kaphaltestelle an Tram (KAP_NOTE)', () => {
+  it('Mischverkehr + Schienen + Kaphaltestelle → Note 1', () => {
+    const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'tram', 'Kaphaltestelle', undefined, true)
+    expect(r.kapTramNote1).toBe(true)
+    expect(r.note).toBe(1)
+  })
+  it('ÖV-Angebot «tram» genügt auch ohne gesetztes Schienen-Häkchen', () => {
+    const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'tram', 'Kaphaltestelle', undefined, false)
+    expect(r.kapTramNote1).toBe(true)
+    expect(r.note).toBe(1)
+  })
+  it('mit baulicher Trennung greift die Regel NICHT (Radweg fährt an der Haltekante vorbei)', () => {
+    const r = fuehrungsformNote(1000, 30, 'Radweg abgesetzt', 2.5, 'Velohauptroute',
+      'egal', undefined, 'tram', 'Kaphaltestelle', undefined, true)
+    expect(r.kapTramNote1).toBe(false)
+    expect(r.note).toBeGreaterThan(1)
+  })
+  it('Kaphaltestelle ohne Tram (Bus): kein Force, nur die bisherige Haltestellen-Logik', () => {
+    const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'bus_unter5', 'Kaphaltestelle', undefined, false)
+    expect(r.kapTramNote1).toBe(false)
+    expect(r.note).toBeGreaterThan(1)
+  })
+  it('gilt in allen Städten — Probe Zürich', () => {
+    const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'tram', 'Kaphaltestelle', undefined, true,
+      undefined, 'zurich')
+    expect(r.note).toBe(1)
   })
 })
 
@@ -562,12 +630,17 @@ describe('Velostrasse — Grenzen', () => {
 })
 
 describe('Haltestelle — Abzug und Breite (Bern)', () => {
+  // Bis zum 14.08.2026 stand hier der Typ «Kaphaltestelle» — genau der Fall, den seither die
+  // Kap-Regel auf Note 1 setzt (s. describe «Kaphaltestelle an Tram»). Damit die ursprüngliche
+  // Aussage dieses Tests — der reine Haltestellen-Abzug −1 — weiter geprüft wird, nutzt er
+  // jetzt einen anderen Typ derselben Mischverkehr-Familie.
   it('Separate gefordert (Tram, Velohauptroute), Mischverkehr-Typ → Abzug 1,0', () => {
     const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
-      'egal', undefined, 'tram', 'Kaphaltestelle')
+      'egal', undefined, 'tram', 'Fahrbahnhaltestelle Bus')
     expect(r.sollHaltestelle).toBe('Separate Velofläche')
     expect(r.haltestelleStatus).toBe('inkompatibel')
     expect(r.haltestelleAbzug).toBe(1)
+    expect(r.kapTramNote1).toBe(false)
     expect(r.note).toBe(5)
   })
   it('Übergang (Bus 5–15, Velohauptroute): Mischverkehr-Typ kompatibel, kein Abzug — und in der Typenliste', () => {
@@ -585,19 +658,19 @@ describe('Haltestelle — Abzug und Breite (Bern)', () => {
       'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
     expect(r.hsBreitenSoll).toBe(1.8)
     expect(r.hsBreiteStatus).toBe('zu schmal')
-    expect(r.hsBreitenabzug).toBeCloseTo(0.29)
-    expect(r.note).toBe(5.5)   // 6 − 0,5 × 0,58 = 5,71 → 5,5
+    expect(r.hsBreitenabzug).toBeCloseTo(0.325)      // 0,5 × 0,65 (gestrichelt ÷ Kurs 14,2)
+    expect(r.note).toBe(5.5)   // 6 − 0,5 × 0,65 = 5,675 → 5,5
   })
   it('Haltestellen-Breite: der Abzug folgt dem Tempo wie auf der Strecke', () => {
     // Dieselbe zu schmale Haltestelle, nur an einer schnelleren Strasse: 0,5 m fehlen
-    // × 0,70 statt × 0,58. Die Haltestellen-Breite nutzt bewusst den Radstreifen-Satz
+    // × 0,73 statt × 0,65. Die Haltestellen-Breite nutzt bewusst den Radstreifen-Satz
     // (markierte Velofläche auf Fahrbahnniveau) — dann muss sie auch dessen Tempo-Logik
     // erben, sonst driftet sie gegen die Strecke.
     const langsam = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
       'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
     const schnell = fuehrungsformNote(1000, 50, 'Mischverkehr', undefined, 'Velohauptroute',
       'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
-    expect(schnell.hsBreitenabzug).toBeCloseTo(0.35)
+    expect(schnell.hsBreitenabzug).toBeCloseTo(0.37)   // 0,5 × 0,74 (gestrichelt ÷ 14,2)
     expect(schnell.hsBreitenabzug).toBeGreaterThan(langsam.hsBreitenabzug)
   })
 })
@@ -682,12 +755,13 @@ describe('roundToHalf — kaufmännisch auf halbe Noten (half-up)', () => {
 })
 
 describe('Übergangs-Soll «Radstreifen oder Radweg» — Zielwert ist der Mittelwert', () => {
-  it('Ist Radstreifen bei Soll «Radstreifen oder Radweg» → exakt 5,5', () => {
-    // Bern DTV 6000/T30 → Soll «Radstreifen oder Radweg» (Ziel = Mittel aus 74 und 92 = 83).
-    // Radstreifen 74 → Defizit 9 Pkt = 0,625 Noten → 5,375 → gerundet 5,5.
+  it('Ist Radstreifen bei Soll «Radstreifen oder Radweg» → 5,0', () => {
+    // Bern DTV 6000/T30 → Soll «Radstreifen oder Radweg» (Ziel = Mittel aus 65 und 91 = 78).
+    // Radstreifen 65 → Defizit 13 Pkt = 0,903 Noten → 5,097 → gerundet 5,0.
+    // (Gestrichelt-Anker seit 12.08.2026; grau 71 ergab 5,5, gepoolt 77 ebenfalls 5,5.)
     const r = fuehrungsformNote(6000, 30, 'Radstreifen', 2.5, 'Velohauptroute')
     expect(r.soll).toBe('Radstreifen oder Radweg')
-    expect(r.note).toBe(5.5)
+    expect(r.note).toBe(5.0)
   })
 })
 

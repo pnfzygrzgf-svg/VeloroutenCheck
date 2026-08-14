@@ -992,10 +992,16 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                   <strong>Parkierung rechts (Dooring):</strong> Sicherheitsstreifen (SN 640 060) vorhanden → kein Abzug
                 </div>
               )}
-              {bewertung.tramAbzug > 0 && (
+              {bewertung.tramDeckel != null && (
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
-                  <strong>Tram in der Fahrbahn:</strong> Abzug{' '}
-                  {numDE(bewertung.tramAbzug, 2)} Note (Schienen im Mischverkehr)
+                  <strong>Tram in der Fahrbahn:</strong> Note höchstens{' '}
+                  {numDE(bewertung.tramDeckel, 0)} (Schienen im Mischverkehr)
+                </div>
+              )}
+              {bewertung.kapTramNote1 && (
+                <div style={{ marginTop: 6, opacity: 0.9 }}>
+                  <strong>Kaphaltestelle an Tram-Haltestelle:</strong> Note 1 — Schiene im schmalen
+                  Abstand zur hohen Haltekante, ohne bauliche Trennung (überschreibt alle anderen Regeln)
                 </div>
               )}
               {bewertung.sollHaltestelle && (

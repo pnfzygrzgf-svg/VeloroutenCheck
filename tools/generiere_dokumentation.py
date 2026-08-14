@@ -154,10 +154,10 @@ def render_haltestellen(hs):
 def render_parameter(parameter):
     rows = []
     for key, p in parameter.items():
-        if key == "tramMalus":
-            rows.append(["tramMalus (ruhig)", p["ruhig"], p["einheit"], p.get("herleitung", "")])
-            rows.append(["tramMalus (schnell)", p["schnell"], "", ""])
-        elif key == "parkenRelevant":
+        # 14.08.2026: `tramMalus` (Paar ruhig/schnell) brauchte hier einen Sonderfall. Der
+        # Nachfolger `tramDeckel` und die neue `kapNote` sind gewöhnliche {wert, einheit,
+        # herleitung}-Parameter und laufen über den else-Zweig.
+        if key == "parkenRelevant":
             rows.append(["parkenRelevant", ", ".join(p["formen"]), "Führungsformen", p.get("hinweis", "")])
         else:
             rows.append([key, p.get("wert", ""), p.get("einheit", ""), p.get("herleitung", "")])

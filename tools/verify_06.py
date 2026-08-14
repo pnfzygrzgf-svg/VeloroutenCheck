@@ -127,6 +127,7 @@ def load_scenes():
             width=w, protected=prot, tram=tram, fsart=r['FS-Art'],
             speed=spd, volume=vol,
             marking=r['Tr_li-Markierung'],
+            trennung=r['Tr_li-baulTrennung'],   # Art der baulichen Trennung (P14: Poller-only)
             parking=(r['Parken'] not in ('-', 'nein', '', None)),
             surface=r['RVA-Oberfläche'],
         )
@@ -347,9 +348,13 @@ def main():
     # ── §2 Tram-Effekt: Schienen in der Fahrbahn, mit vs. ohne Tram ──────────
     # Hier NICHT tram-bereinigt (recs statt nontram) — der Vergleich IST ja der Effekt.
     # Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Tramschienen (positiv = schlechter).
-    # Malus (Notenstufen) = Δ / SCORE_PRO_NOTE, analog zu Breite/Parken; SCORE_PRO_NOTE = 14,4
-    # spiegelt die Konstante in src/fuehrungsform.ts (feel-safe-Punkte pro Notenstufe).
+    # Malus (Notenstufen) = Δ / Kurs, analog zu Breite/Parken. SCORE_PRO_NOTE = 14,4 ist der
+    # HISTORISCHE Herleitungs-Kurs (alle dokumentierten Erst-/Zwischenfassungen und der
+    # normativ fixierte Tram-Malus); die GELTENDEN Code-Konstanten sind seit der Neu-Eichung
+    # P13 (13.08.2026) mit dem eigenen Kurs der Kette hergeleitet: 14,2 = (84 − 13) ÷ 5 —
+    # spiegelt SCORE_PRO_NOTE in src/fuehrungsform.ts.
     SCORE_PRO_NOTE = 14.4
+    SCORE_PRO_NOTE_FEIN = 14.2
 
     def tram_cell(cond):
         # Tram-Szenen existieren nur mit Aufkommen «wenig» — die Vergleichszellen darum auch,
@@ -366,9 +371,17 @@ def main():
                 'Tempo 30': tram_cell(dict(fuehrungsform=ff, speed='30')),
                 'Tempo 50': tram_cell(dict(fuehrungsform=ff, speed='50'))}
 
+    # 14.08.2026: Die Δ-Spalte bleibt der empirische Befund; die daraus gezogene Regel ist
+    # seither ein DECKEL (TRAM_DECKEL = 3) statt des tempoabhängigen Malus 1,2/0,7 — Angleichung
+    # an den lokalen Berner Rechner (TRAM_NOTE = 3.0). Die «malus»-Spalte je Zelle bleibt als
+    # Grössenordnung stehen und trägt die abgelöste Fassung im Feld `abgeloest`.
     out['sections']['tram_effekt'] = {
-        'hinweis': 'Δ = feel-safe(ohne) − feel-safe(mit); Malus = Δ / %.1f Notenstufen' % SCORE_PRO_NOTE,
-        'angewandt': {'Tempo<=30': 1.2, 'Tempo>30': 0.7, 'gilt_fuer': 'nur Mischverkehr'},
+        'hinweis': 'Δ = feel-safe(ohne) − feel-safe(mit); Δ/%.1f = Δ in Notenstufen' % SCORE_PRO_NOTE,
+        'angewandt': {'Deckel': 3.0, 'gilt_fuer': 'nur Mischverkehr',
+                      'kapNote': 1.0, 'kap_gilt_fuer': 'Kaphaltestelle an Tram ohne bauliche Trennung',
+                      'code': 'TRAM_DECKEL / KAP_NOTE in src/fuehrungsform.ts'},
+        'abgeloest': {'bis': '13.08.2026', 'art': 'tempoabhängiger Malus',
+                      'Tempo<=30': 1.2, 'Tempo>30': 0.7},
         'Mischverkehr': tram_form('Mischverkehr'),
         'Radstreifen': tram_form('Radstreifen'),   # Referenz: bei eigener RVA kaum Effekt
     }
@@ -423,13 +436,75 @@ def main():
         'baulich Pkt/m (T30/T50)': (bst['30'], bst['50']),
         'baulich Noten/m (T30/T50)': (round(bst['30'] / SCORE_PRO_NOTE, 2),
                                       round(bst['50'] / SCORE_PRO_NOTE, 2)),
-        'im Code (BREITE_SATZ)': {'fahrbahn': {'ruhig': 0.58, 'schnell': 0.70},
-                                  'baulich':  {'ruhig': 0.35, 'schnell': 0.38}},
+        'hinweis': 'gepoolte Erstherleitung — der Code rechnet auf der Fahrbahn GESTRICHELT '
+                   '(P10-U, 12.08.2026) und baulich POLLER-ONLY grau (P14, 13.08.2026; unten)',
+    }
+    # ── GRAU-SCHNITT (12.08.2026, Übernahme P1–P3 des lokalen Entscheidungskatalogs 15.7):
+    # Die Code-Konstanten stammen seit diesem Datum aus den NUR-GRAUEN Zellen — in Bern ist
+    # keine Veloinfrastruktur eingefärbt, und 56 % der gepoolten Radstreifen-Bewertungen
+    # zeigten grüne Beläge. Dieselben Filter wie oben, plus surface != farbig.
+    GRAU = lambda s: s not in ('Asphalt-Farbig', 'Asphalt-Farbig Schraffur')
+    def grau_rs(breite, tempo):
+        return share(sel(nontram, fuehrungsform='Radstreifen', width=breite, parking=False,
+                         speed=tempo, fsart='Kfz', surface=GRAU))
+    def grau_gb(breite, tempo):
+        return share(sel(nontram, fuehrungsform='geschützt', width=breite,
+                         speed=tempo, fsart='Kfz', surface=GRAU))
+    # ── POLLER-ONLY (P14, 13.08.2026): Der bauliche Satz stammt seither aus den grauen
+    # Sperrpfosten-Zellen OHNE die Blumenkasten-Fotos (8 statt 10 je Zelle) — derselbe
+    # Szenen-Pool wie der Radweg-Anker (P11-A). Anlass: Anker- und Satz-Pool derselben
+    # Klasse waren nicht mehr identisch (lokales Regelwerk 15.7, P14-Kasten).
+    POLLER = ('Sperrpfosten-niedrig', 'Sperrpfosten-hoch')
+    def poller_gb(breite, tempo):
+        return share(sel(nontram, fuehrungsform='geschützt', width=breite,
+                         speed=tempo, fsart='Kfz', surface=GRAU,
+                         trennung=lambda t: t in POLLER))
+    # Noten/m aus der UNGERUNDETEN Steigung — erst runden, dann teilen ergäbe 0,76 statt 0,75.
+    gst_roh = {tt: (grau_rs(3.5, tt)[0] - grau_rs(2.0, tt)[0]) / 1.5 for tt in ('30', '50')}
+    gbst_roh = {tt: (grau_gb(3.5, tt)[0] - grau_gb(2.0, tt)[0]) / 1.5 for tt in ('30', '50')}
+    gst = {tt: round(v, 1) for tt, v in gst_roh.items()}
+    gbst = {tt: round(v, 1) for tt, v in gbst_roh.items()}
+    # ── GESTRICHELT-SCHNITT (P10-U, 12.08.2026): Fahrbahn-Anker und -Satz stammen seither
+    # aus den grauen Zellen mit schmaler GESTRICHELTER Führungslinie (Berner Markierungsbild;
+    # «unterbrochen» kommt in den Daten nur mit 0,25 m vor, der Markierungs-Filter genügt).
+    # 2 Fotos je Zelle — bewusster Preis (lokales Regelwerk 15.7, P10-Kasten).
+    def gestr_rs(breite, tempo):
+        return share(sel(nontram, fuehrungsform='Radstreifen', width=breite, parking=False,
+                         speed=tempo, fsart='Kfz', surface=GRAU, marking='unterbrochen'))
+    xst_roh = {tt: (gestr_rs(3.5, tt)[0] - gestr_rs(2.0, tt)[0]) / 1.5 for tt in ('30', '50')}
+    xst = {tt: round(v, 1) for tt, v in xst_roh.items()}
+    pbst_roh = {tt: (poller_gb(3.5, tt)[0] - poller_gb(2.0, tt)[0]) / 1.5 for tt in ('30', '50')}
+    pbst = {tt: round(v, 1) for tt, v in pbst_roh.items()}
+    kal['breitensatz_grau'] = {
+        'Fahrbahn Pkt/m (T30/T50, grau)': (gst['30'], gst['50']),
+        'Fahrbahn Noten/m (T30/T50)': (round(gst_roh['30'] / SCORE_PRO_NOTE, 2),
+                                       round(gst_roh['50'] / SCORE_PRO_NOTE, 2)),
+        'Fahrbahn Pkt/m (T30/T50, gestrichelt — gilt)': (xst['30'], xst['50']),
+        'Fahrbahn Noten/m (T30/T50, gestrichelt ÷ Kurs 14,2)': (
+            round(xst_roh['30'] / SCORE_PRO_NOTE_FEIN, 2),
+            round(xst_roh['50'] / SCORE_PRO_NOTE_FEIN, 2)),
+        'baulich Pkt/m (T30/T50, grau)': (gbst['30'], gbst['50']),
+        'baulich Noten/m (T30/T50)': (round(gbst_roh['30'] / SCORE_PRO_NOTE, 2),
+                                      round(gbst_roh['50'] / SCORE_PRO_NOTE, 2)),
+        'baulich Noten/m (T30/T50, grau ÷ Kurs 14,2 — Zwischenfassung P3)': (
+            round(gbst_roh['30'] / SCORE_PRO_NOTE_FEIN, 2),
+            round(gbst_roh['50'] / SCORE_PRO_NOTE_FEIN, 2)),
+        'baulich Pkt/m (T30/T50, Poller-only — gilt seit 13.08.2026, P14)': (
+            pbst['30'], pbst['50']),
+        'baulich Noten/m (T30/T50, Poller-only ÷ Kurs 14,2)': (
+            round(pbst_roh['30'] / SCORE_PRO_NOTE_FEIN, 2),
+            round(pbst_roh['50'] / SCORE_PRO_NOTE_FEIN, 2)),
+        'im Code (BREITE_SATZ)': {'fahrbahn': {'ruhig': 0.65, 'schnell': 0.74},
+                                  'baulich':  {'ruhig': 0.24, 'schnell': 0.38}},
     }
     kal['referenz_anker'] = {
-        'T30': round(w('RS 2.0 m · ohne Parken · T30') + 0.5 * st30, 1),
-        'T50': round(w('RS 2.0 m · ohne Parken · T50') + 0.5 * st50, 1),
-        'im Code (FEELSAFE.Radstreifen)': {'ruhig': 77, 'schnell': 73},
+        'T30 gepoolt (Erstherleitung)': round(w('RS 2.0 m · ohne Parken · T30') + 0.5 * st30, 1),
+        'T50 gepoolt (Erstherleitung)': round(w('RS 2.0 m · ohne Parken · T50') + 0.5 * st50, 1),
+        'T30 grau (Zwischenfassung 12.08.2026)': round(grau_rs(2.0, '30')[0] + 0.5 * gst_roh['30'], 1),
+        'T50 grau (Zwischenfassung 12.08.2026)': round(grau_rs(2.0, '50')[0] + 0.5 * gst_roh['50'], 1),
+        'T30 gestrichelt (gilt seit 12.08.2026)': round(gestr_rs(2.0, '30')[0] + 0.5 * xst_roh['30'], 1),
+        'T50 gestrichelt (gilt seit 12.08.2026)': round(gestr_rs(2.0, '50')[0] + 0.5 * xst_roh['50'], 1),
+        'im Code (FEELSAFE.Radstreifen)': {'ruhig': 65, 'schnell': 58},
     }
     off = lambda b, t: round(w(f'RS {b} m · ohne Parken · T{t}') - w(f'RS {b} m · mit Parken · T{t}'), 1)
     kal['parken_offset'] = {
@@ -616,21 +691,29 @@ def write_md(out):
     te = out['sections']['tram_effekt']
     A('## §2 Tram in der Fahrbahn — feel-safe % (N) mit vs. ohne Tram\n')
     A('Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Schienen in der Fahrbahn. '
-      'Malus [Notenstufen] = Δ / 14,4 (feel-safe-Punkte pro Note, wie in `fuehrungsform.ts`).\n')
+      'Δ [Notenstufen] = Δ / 14,4 (feel-safe-Punkte pro Note, wie in `fuehrungsform.ts`) — '
+      'eine Grössenangabe, seit 14.08.2026 nicht mehr die Regel selbst.\n')
     for form in ('Mischverkehr', 'Radstreifen'):
         A(f'**{form}**' + ('  _(Referenz: eigene RVA → kaum Effekt)_' if form == 'Radstreifen' else ''))
         A('```')
-        A(f'{"Kontext":<12}{"mit (N)":>14}{"ohne (N)":>14}{"Δ":>7}{"Malus":>7}')
+        A(f'{"Kontext":<12}{"mit (N)":>14}{"ohne (N)":>14}{"Δ":>7}{"Δ/14,4":>7}')
         for ctx in ('Gesamt', 'Tempo 30', 'Tempo 50'):
             c = te[form][ctx]
             mv, mn = c['mit']; ov, on = c['ohne']
             A(f'{ctx:<12}{f"{mv} ({mn})":>14}{f"{ov} ({on})":>14}'
               f'{str(c["delta"]):>7}{str(c["malus"]):>7}')
         A('```')
-    A(f'\n**Im Tool verdrahtet** (nur Mischverkehr): −{te["angewandt"]["Tempo<=30"]} bei Tempo ≤ 30, '
-      f'−{te["angewandt"]["Tempo>30"]} bei Tempo > 30 — gerundete Tempo-Werte aus obiger Tabelle. '
-      'Der „Gesamt"-Malus ist durch die Tempo-Mischung leicht überzeichnet; massgebend sind die '
-      'tempo-kontrollierten Zeilen.\n')
+    ab = te['abgeloest']
+    A(f'\n**Im Tool verdrahtet** (nur Mischverkehr): Die Note ist auf höchstens '
+      f'**{te["angewandt"]["Deckel"]:.0f}** gedeckelt (`TRAM_DECKEL`), unabhängig vom Tempo — auf '
+      'dem gemessenen Niveau (9,4 % bzw. 5,4 % feel-safe) ist keine bessere Note zu '
+      'rechtfertigen. Ein Deckel kappt nur nach oben; eine ohnehin schlechtere Note bleibt. '
+      f'Dazu: Kaphaltestelle an einer Tram-Haltestelle ohne bauliche Trennung → Note '
+      f'**{te["angewandt"]["kapNote"]:.0f}** (`KAP_NOTE`).\n')
+    A(f'_Abgelöst am 14.08.2026_ (bis {ab["bis"]}): {ab["art"]} von −{ab["Tempo<=30"]:.1f} bei '
+      f'Tempo ≤ 30 und −{ab["Tempo>30"]:.1f} bei Tempo > 30 — die gerundeten Tempo-Werte aus obiger '
+      'Tabelle. Die Umstellung gleicht den Online-Rechner an den lokalen Berner Rechner an; '
+      'der Befund selbst ist unverändert.\n')
 
     # §5 Kalibrierung
     kal = out['sections']['kalibrierung']
@@ -646,18 +729,34 @@ def write_md(out):
     for k, (v, n) in kal['anker_gepoolt'].items():
         A(f'  {k:<20}{str(v):>7} %  (N={n})')
     A('')
+    ra = kal['referenz_anker']
     A(f'Referenz-Anker Radstreifen (2,5 m ohne Parken, interpoliert): '
-      f'T30 {kal["referenz_anker"]["T30"]} · T50 {kal["referenz_anker"]["T50"]} '
-      f'→ Code {kal["referenz_anker"]["im Code (FEELSAFE.Radstreifen)"]}')
+      f'gepoolt T30 {ra["T30 gepoolt (Erstherleitung)"]} · T50 {ra["T50 gepoolt (Erstherleitung)"]} '
+      f'· grau (Zwischenfassung) T30 {ra["T30 grau (Zwischenfassung 12.08.2026)"]} '
+      f'· T50 {ra["T50 grau (Zwischenfassung 12.08.2026)"]} '
+      f'· GESTRICHELT (gilt seit 12.08.2026, P10-U) '
+      f'T30 {ra["T30 gestrichelt (gilt seit 12.08.2026)"]} '
+      f'· T50 {ra["T50 gestrichelt (gilt seit 12.08.2026)"]} '
+      f'→ Code {ra["im Code (FEELSAFE.Radstreifen)"]}')
     bs = kal['breitensatz']
-    # Beide Sätze sind seit dem 10.08.2026 tempoabhängig — die Zeilen nennen darum je zwei
-    # Werte (T30/T50) und daneben, was im Code steht.
-    ic = bs['im Code (BREITE_SATZ)']
-    A(f'Breitensatz Fahrbahn: {bs["Fahrbahn Pkt/m (T30/T50, ohne Parken)"]} Pkt/m (T30/T50) '
-      f'= {bs["Fahrbahn Noten/m (T30/T50)"]} Noten/m → Code '
-      f'{ic["fahrbahn"]["ruhig"]} / {ic["fahrbahn"]["schnell"]}')
-    A(f'Breitensatz baulich:  {bs["baulich Pkt/m (T30/T50)"]} Pkt/m (T30/T50) '
-      f'= {bs["baulich Noten/m (T30/T50)"]} Noten/m → Code '
+    bg = kal['breitensatz_grau']
+    # Beide Sätze sind seit dem 10.08.2026 tempoabhängig; der Fahrbahn-Satz ist seit dem
+    # 12.08.2026 GESTRICHELT geschnitten (P10-U), der bauliche seit dem 13.08.2026
+    # POLLER-ONLY grau (P14) — die Zeilen nennen gepoolt (Erstherleitung), die
+    # Zwischenfassungen und den Code-Stand.
+    ic = bg['im Code (BREITE_SATZ)']
+    A(f'Breitensatz Fahrbahn: gepoolt {bs["Fahrbahn Noten/m (T30/T50)"]} · '
+      f'grau {bg["Fahrbahn Noten/m (T30/T50)"]} · '
+      f'GESTRICHELT ÷ 14,2 {bg["Fahrbahn Noten/m (T30/T50, gestrichelt ÷ Kurs 14,2)"]} '
+      f'Noten/m (T30/T50) → Code '
+      f'{ic["fahrbahn"]["ruhig"]} / {ic["fahrbahn"]["schnell"]} '
+      f'(T30 liegt hier auf der Rundungskante ≈ 0,655: die massgebende lokale Herleitung '
+      f'misst 9,3 Pkt/m → 0,65 — kontrolle_6a.py; Differenz = Pipeline-Rundung)')
+    A(f'Breitensatz baulich:  gepoolt {bs["baulich Noten/m (T30/T50)"]} · '
+      f'grau ÷ 14,2 {bg["baulich Noten/m (T30/T50, grau ÷ Kurs 14,2 — Zwischenfassung P3)"]} · '
+      f'POLLER-ONLY ÷ 14,2 {bg["baulich Noten/m (T30/T50, Poller-only ÷ Kurs 14,2)"]} '
+      f'Noten/m (T30/T50; gilt seit 13.08.2026, P14 — derselbe Sperrpfosten-Pool wie der '
+      f'Radweg-Anker) → Code '
       f'{ic["baulich"]["ruhig"]} / {ic["baulich"]["schnell"]}')
     po = kal['parken_offset']
     A(f'Parken-Offset T30 (3,5/2,0 m): {po["T30 bei 3,5 m / 2,0 m"]} Pkte '

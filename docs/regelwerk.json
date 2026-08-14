@@ -1,1276 +1,1281 @@
 {
-  "version": "1.0",
-  "meta": {
-    "titel": "VeloroutenCheck — Regelwerk (konsolidierte Datenquelle)",
-    "erstellt": "2026-06-29",
-    "hinweis": "Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fuehrungsform.ts, Stadt-Adapter) bleibt unverändert die massgebliche Implementierung. Diese Datei fasst die Grundlagen-CSVs und die im Code hinterlegten Anker/Parameter an einem Ort zusammen.",
-    "quellen": [
-      "Masterplan Veloinfrastruktur Stadt Bern (Okt. 2025) — Bericht & Standards (Q-Blätter)",
-      "Velostandards Stadt Zürich (Tab. 1, S. 16/17; S. 7 Netzkategorien)",
-      "Standards Fuss- und Veloverkehrsinfrastruktur Kanton Basel-Stadt (2024), Tab. 4 S. 20",
-      "Standards Veloverkehr Stadt Luzern (Q-Blätter S. 30–57)",
-      "Arbeitshilfe Haltestellen mit Veloinfrastruktur",
-      "radwege-check.de / FixMyCity (subjektive Sicherheit, feel-safe %)",
-      "Grundlagen/*.csv (DTV_KMH_Fuehrungsform, Fueherungsform_Breiten_Staedte, Routentypologie_Staedte, Haltestelle_Typen_Breiten_*, Haltestellen_Typen_Bezeichnung_Staedte, Haltestellen_veloverkehrsloesung)",
-      "VeloroutenCheckWeb/src/fuehrungsform.ts (Parameter, feel-safe-Anker)"
-    ],
-    "aktualisiert": "2026-08-08"
+ "version": "1.0",
+ "meta": {
+  "titel": "VeloroutenCheck — Regelwerk (konsolidierte Datenquelle)",
+  "erstellt": "2026-06-29",
+  "hinweis": "Parallel-Dokumentation. Wird (noch) NICHT von der App geladen; der App-Code (fuehrungsform.ts, Stadt-Adapter) bleibt unverändert die massgebliche Implementierung. Diese Datei fasst die Grundlagen-CSVs und die im Code hinterlegten Anker/Parameter an einem Ort zusammen.",
+  "quellen": [
+   "Masterplan Veloinfrastruktur Stadt Bern (Okt. 2025) — Bericht & Standards (Q-Blätter)",
+   "Velostandards Stadt Zürich (Tab. 1, S. 16/17; S. 7 Netzkategorien)",
+   "Standards Fuss- und Veloverkehrsinfrastruktur Kanton Basel-Stadt (2024), Tab. 4 S. 20",
+   "Standards Veloverkehr Stadt Luzern (Q-Blätter S. 30–57)",
+   "Arbeitshilfe Haltestellen mit Veloinfrastruktur",
+   "radwege-check.de / FixMyCity (subjektive Sicherheit, feel-safe %)",
+   "Grundlagen/*.csv (DTV_KMH_Fuehrungsform, Fueherungsform_Breiten_Staedte, Routentypologie_Staedte, Haltestelle_Typen_Breiten_*, Haltestellen_Typen_Bezeichnung_Staedte, Haltestellen_veloverkehrsloesung)",
+   "VeloroutenCheckWeb/src/fuehrungsform.ts (Parameter, feel-safe-Anker)"
+  ],
+  "aktualisiert": "2026-08-08"
+ },
+ "parameter": {
+  "feelSafeProNote": {
+   "wert": 14.2,
+   "einheit": "feel-safe-Punkte pro Notenstufe",
+   "herleitung": "NEU GEEICHT 13.08.2026 (P13): Spanne = eigene Maximal-Lücke der Kette (Radweg−Mischverkehr schnell: 84−13 = 71 Punkte) ÷ 5 Stufen = 14,2 — der schlimmste Fall landet exakt auf Note 1,0; der Boden ist nur noch Reserve für Pauschalen-Kumulation. Einmalig geeicht, wieder eingefroren; die Basis des lokalen Rechners behält die Ersteichung 72 ÷ 5 = 14,4.",
+   "code": "SCORE_PRO_NOTE"
   },
-  "parameter": {
-    "feelSafeProNote": {
-      "wert": 14.4,
-      "einheit": "feel-safe-Punkte pro Notenstufe",
-      "herleitung": "72 feel-safe-Punkte Lücke = das volle Notenband 6→1 (72 ÷ 5 = 14,4). Grösste heute mögliche Lücke (Radweg−Mischverkehr schnell: 91−13 = 78) läuft in den Notenboden 1.",
-      "code": "SCORE_PRO_NOTE"
-    },
-    "breiteSatz": {
-      "fahrbahn": {
-        "ruhig": 0.58,
-        "schnell": 0.7
-      },
-      "baulich": {
-        "ruhig": 0.35,
-        "schnell": 0.38
-      },
-      "fahrgasse": {
-        "ruhig": 0.9,
-        "schnell": 0.9
-      },
-      "einheit": "Notenstufen Abzug pro fehlendem Meter Breite, je feel-safe-Klasse und Tempo (ruhig ≤ 30, schnell > 30)",
-      "herleitung": "Szenen, die sich NUR in der Breite unterscheiden (Velo-Foto-Bewertungen), je Tempo getrennt: auf der Fahrbahn 8,4 Pkt/m bei Tempo 30 ≈ 0,58 Noten/m und 10,1 bei Tempo 50 ≈ 0,70; hinter baulicher Trennung 5,0 bzw. 5,4 Pkt/m ≈ 0,35 / 0,38. Tempoabhängig seit 10.08.2026 — bis dahin stand je Klasse ein einzelner Wert (die Tempo-30-Steigung), obwohl der feel-safe-Anker derselben Kette schon tempoabhängig war. Fahrgassen-Bänder (Velostrasse, Umweltspur; feel-safe-Klasse Mischverkehr) bleiben normativ bei 0,9 für beide Tempi — die Befragung liefert dafür keinen Gradienten.",
-      "code": "BREITE_SATZ[feelClass][tempoKey(v)]"
-    },
-    "parkenRechtsAbzug": {
-      "wert": 1.0,
-      "einheit": "Notenstufen, pauschal",
-      "herleitung": "Pauschal für jede Führungsform und jede Breite. OFFENER PUNKT: Bis zum 09.08.2026 galt eine breitenabhängige Formel 0,6 + 0,9 × (3,5 − Streifenbreite). Der Befund bleibt gültig (Parken-Offset bei gleicher Breite/Tempo, Velo-Foto-Bewertungen: 3,5 m ≈ 8,5–9,6 Pkt = 0,6 Noten, 2,0 m ≈ 28,8–29,7 Pkt = 2,0 Noten), die Skala trägt den Bestand aber nicht: Die Befragung kennt nur diese zwei Breiten, der breiteste real erfasste Radstreifen misst 2,50 m, und 282 von 340 sind schmaler als der kleinste Messpunkt — dort war die Formel reine Verlängerung (1,50 m ergäbe −2,40, mehr als je gemessen). Ein dritter Messpunkt widerspricht ihr zudem: im Mischverkehr kostet die Parkierung nur ≈ 0,15 Noten. Es fehlen Szenen unter 2,0 m Streifenbreite. Ausnahme unverändert: Sicherheitsstreifen gegenüber den Parkplätzen (SN 640 060) → KEIN Abzug (stadtübergreifend, Norm).",
-      "code": "PARKEN_ABZUG; Ausnahme via parkenSicherheitsstreifen"
-    },
-    "haltestelleAbzug": {
-      "wert": 1.0,
-      "einheit": "Notenstufen",
-      "herleitung": "Normativ: Soll verlangt Separate Velofläche, Ist-Typ aber Mischverkehr-Familie.",
-      "code": "HALTESTELLE_ABZUG"
-    },
-    "fusswegBasis": {
-      "wert": 4,
-      "einheit": "Note (Maximum)",
-      "herleitung": "Fussweg Velo gestattet (Mischfläche) höchstens «genügend». Normativ.",
-      "code": "FUSSWEG_BASIS"
-    },
-    "tramMalus": {
-      "ruhig": 1.2,
-      "schnell": 0.7,
-      "einheit": "Notenstufen (nur Mischverkehr)",
-      "herleitung": "Mischverkehr mit vs. ohne Tram (Velo-Foto-Bewertungen): T30 (27,1−9,4)/14,4 ≈ 1,2; T50 (15,2−5,4)/14,4 ≈ 0,7. Auf dem Radstreifen gemessen ≈ 0 → kein Malus.",
-      "code": "TRAM_MALUS"
-    },
-    "parkenRelevant": {
-      "formen": [
-        "Mischverkehr",
-        "Radstreifen",
-        "Velostrasse",
-        "Umweltspur",
-        "Einbahn Velogegenverkehr mit Markierung"
-      ],
-      "hinweis": "Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken). Bei «Parkierung rechts = ja» kann zusätzlich ein Sicherheitsstreifen ggü. den Parkplätzen (SN 640 060) angegeben werden; ist er vorhanden, entfällt der Abzug.",
-      "code": "PARKEN_RELEVANT"
-    }
+  "breiteSatz": {
+   "fahrbahn": {
+    "ruhig": 0.65,
+    "schnell": 0.74
+   },
+   "baulich": {
+    "ruhig": 0.24,
+    "schnell": 0.38
+   },
+   "fahrgasse": {
+    "ruhig": 0.9,
+    "schnell": 0.9
+   },
+   "einheit": "Notenstufen Abzug pro fehlendem Meter Breite, je feel-safe-Klasse und Tempo (ruhig ≤ 30, schnell > 30)",
+   "herleitung": "Szenen, die sich NUR in der Breite unterscheiden (Velo-Foto-Bewertungen), je Tempo getrennt. Fahrbahn seit dem 12.08.2026 im GESTRICHELT-Schnitt (P10-U: nur graue Szenen mit schmaler gestrichelter Führungslinie, das Berner Markierungsbild; 2 Fotos je Zelle — bewusster Preis): 9,3 Pkt/m bei Tempo 30 und 10,5 bei Tempo 50, seit 13.08.2026 ÷ eigenen Kurs 14,2 (P13) ≈ 0,65/0,74 Noten/m (unter 14,4: 0,65/0,73; Grau-Zwischenfassung 0,59/0,75). Hinter baulicher Trennung seit dem 13.08.2026 im POLLER-ONLY-Grau-Schnitt (P14: nur Sperrpfosten-Szenen, keine Blumenkästen — derselbe Pool wie der Radweg-Anker aus P11-A; ebenfalls ÷ 14,2): 3,4 bzw. 5,3 Pkt/m ≈ 0,24 / 0,38 (Zwischenfassung grau alle Trennungsarten, P3: 4,4/6,1 ≈ 0,31/0,43; gepoolte Zwischenfassung bis 11.08.2026: 0,58/0,70 und 0,35/0,38). Tempoabhängig seit 10.08.2026; die Fahrbahn-Tempo-Spanne (0,09) ist kleiner als die bauliche (0,14). Fahrgassen-Bänder (Velostrasse, Umweltspur; feel-safe-Klasse Mischverkehr) bleiben normativ bei 0,9 für beide Tempi — die Befragung liefert dafür keinen Gradienten.",
+   "code": "BREITE_SATZ[feelClass][tempoKey(v)]"
   },
-  "feelSafe": {
-    "hinweis": "radwege-check / FixMyCity, tram-bereinigt. Gezählt wird jede Bewertung der VELO-FOTO-Szenen (Kamera C), unabhängig von der Befragtengruppe — massgebend ist, was das Foto zeigt. Radstreifen-Anker = Referenzkonfiguration (Sollbreite 2,5 m ohne Parkierung, interpoliert aus den 2,0/3,5-Zellen); Breite und Parkierung werden separat abgezogen. Reproduktion: tools/verify_06.py. ruhig = V ≤ 30, schnell = V > 30.",
-    "code": "FEELSAFE",
-    "werte": {
-      "Mischverkehr": {
-        "ruhig": 22,
-        "schnell": 13,
-        "verifiziert": "T30 22.3 / T50 12.8"
-      },
-      "Radstreifen": {
-        "ruhig": 77,
-        "schnell": 73,
-        "verifiziert": "Referenz: 73.0+0.5×8.4=77.2 / 68.1+0.5×10.1=73.2"
-      },
-      "Radweg": {
-        "ruhig": 91,
-        "schnell": 91,
-        "verifiziert": "T30 90.9 / T50 90.9 — Tempo hinter der Trennung egal"
-      }
-    }
+  "parkenRechtsAbzug": {
+   "wert": 1.0,
+   "einheit": "Notenstufen, pauschal",
+   "herleitung": "Pauschal für jede Führungsform und jede Breite. OFFENER PUNKT: Bis zum 09.08.2026 galt eine breitenabhängige Formel 0,6 + 0,9 × (3,5 − Streifenbreite). Der Befund bleibt gültig (Parken-Offset bei gleicher Breite/Tempo, Velo-Foto-Bewertungen: 3,5 m ≈ 8,5–9,6 Pkt = 0,6 Noten, 2,0 m ≈ 28,8–29,7 Pkt = 2,0 Noten), die Skala trägt den Bestand aber nicht: Die Befragung kennt nur diese zwei Breiten, der breiteste real erfasste Radstreifen misst 2,50 m, und 282 von 340 sind schmaler als der kleinste Messpunkt — dort war die Formel reine Verlängerung (1,50 m ergäbe −2,40, mehr als je gemessen). Ein dritter Messpunkt widerspricht ihr zudem: im Mischverkehr kostet die Parkierung nur ≈ 0,15 Noten. Es fehlen Szenen unter 2,0 m Streifenbreite. Ausnahme unverändert: Sicherheitsstreifen gegenüber den Parkplätzen (SN 640 060) → KEIN Abzug (stadtübergreifend, Norm).",
+   "code": "PARKEN_ABZUG; Ausnahme via parkenSicherheitsstreifen"
   },
-  "velostrassen": {
-    "quelle": "Grundlagen/Velostrassen_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Velostrasse'], Sonderfall-Logik)",
-    "querschnitt": "Q9",
-    "regelnAlleStaedte": {
-      "nurTempo30": true,
-      "feelClass": "Mischverkehr",
-      "hinweisTempo": "Nur bei Tempo 30 zulässig; bei v > 30 → Note 1.",
-      "hinweisMischverkehr": "Velostrasse zählt als Mischverkehr (feel-safe-Klasse Mischverkehr).",
-      "dooringRelevant": true,
-      "code": "nurT30, feelClass='Mischverkehr', PARKEN_RELEVANT enthält 'Velostrasse'"
-    },
-    "proStadt": {
-      "Bern": {
-        "breiteMin": 4.5,
-        "breiteMax": 6.5,
-        "breiteBeiParkierung": null,
-        "routentyp": "Velohauptroute",
-        "maxDtv": null,
-        "hinweis": "Breitenrange 4,50–6,50 m.",
-        "einsatzbereich": "Nebenstrasse mit übergeordneter Velobedeutung, viel Veloverkehr, wenig MIV und ohne ÖV."
-      },
-      "Basel": {
-        "breiteMin": 4.5,
-        "breiteMax": null,
-        "breiteBeiParkierung": 7.0,
-        "routentyp": "Velovorzugsroute",
-        "maxDtv": 2500,
-        "hinweis": "Nettobreite 4,50 m (Vorzugsroute) / 4,30 m (Pendler-Basis); bei Parkierung 7,00 m; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel 2'500 nur Vorzugsroute (Hinweis).",
-        "einsatzbereich": "Nicht verkehrsorientierte (siedlungsorientierte) Tempo-30-Strasse (Tab. 3, S. 15): auf Vorzugsrouten einzige vorgesehene Form (≤ 2'500 DWV); auf Pendler-/Basisrouten mögliche Form zusätzlich zum Mischverkehr (kein DWV-Deckel). Auf verkehrsorientierten Strassen nicht vorgesehen."
-      },
-      "Zürich": {
-        "breiteMin": null,
-        "breiteMax": null,
-        "breiteBeiParkierung": null,
-        "routentyp": null,
-        "maxDtv": null,
-        "hinweis": "Im relevanten Dokument steht nichts dazu.",
-        "einsatzbereich": "Im Zürcher Grundlagenpapier nicht vorgesehen."
-      },
-      "Luzern": {
-        "breiteMin": 4.5,
-        "breiteMax": 4.5,
-        "breiteBeiParkierung": null,
-        "routentyp": null,
-        "maxDtv": null,
-        "hinweis": "Breite 4,50 m.",
-        "einsatzbereich": "Bei gebündelter Velonutzung auf Quartierstrassen in Tempo-30-Zonen; bei geringer MIV-Belastung und hohem Veloanteil (> 50 %)."
-      }
-    }
+  "haltestelleAbzug": {
+   "wert": 1.0,
+   "einheit": "Notenstufen",
+   "herleitung": "Normativ: Soll verlangt Separate Velofläche, Ist-Typ aber Mischverkehr-Familie.",
+   "code": "HALTESTELLE_ABZUG"
   },
-  "umweltspuren": {
-    "quelle": "Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_TAKT/UMWELTSPUR_DECKE, umweltspurBasis())",
-    "querschnitt": "Q4",
-    "regelnAlleStaedte": {
-      "dtvTempoMassgebend": false,
-      "massgebend": "Bus-Takt (stadtspezifische Schwellen)",
-      "feelClass": "Mischverkehr",
-      "dooringRelevant": true,
-      "hinweisTakt": "DTV/Tempo nicht massgebend, sondern der Bus-Takt. Die Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerem Takt); die Decke (Maximum) ist stadtabhängig: Bern Note 5 («weitgehend»), Zürich/Luzern/Basel Note 4 («genügend»). Schwellen stadtspezifisch, siehe Tabelle.",
-      "code": "UMWELTSPUR_BASIS=4, UMWELTSPUR_TAKT (Anker pro Stadt), umweltspurBasis() (lineare Rampe), feelClass='Mischverkehr', PARKEN_RELEVANT enthält 'Umweltspur'"
-    },
-    "proStadt": {
-      "Bern": {
-        "breiteOptimal": 4.5,
-        "breiteMinimal": 3.75,
-        "taktNote1": null,
-        "taktOk": null,
-        "taktModell": "Stufen: Takt < 7,5 Min → Note 2 (mit Warnung «nicht zulässig»), 7,5–15 Min → Note 4, ≥ 15 Min → Note 5 (Decke).",
-        "breiteHerkunft": "stadt",
-        "taktHerkunft": "stadt",
-        "hinweis": "Tiefe–mittlere Busfrequenz (max. 7,5-Min-Takt) als Schwellwert; darunter nennt der Standard die Umweltspur als unzulässig — Warnung neben der Note, kein Zwang auf Note 1. Dreistufige Tabelle wie im lokalen Batch-Rechner.",
-        "decke": 5,
-        "baender": [
-          [
-            0,
-            2
-          ],
-          [
-            7.5,
-            4
-          ],
-          [
-            15,
-            5
-          ]
-        ],
-        "warnAb": 7.5
-      },
-      "Luzern": {
-        "breiteOptimal": 4.5,
-        "breiteMinimal": 3.75,
-        "taktNote1": 5,
-        "taktOk": 15,
-        "taktModell": "Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen (gleiche Anker wie Zürich).",
-        "breiteHerkunft": "bern",
-        "taktHerkunft": "stadt",
-        "hinweis": "Breiten aus Bern übernommen. Eigene Takt-Bewertung 1–5: Takt < 5 → Bewertung 1, ≥ 15 → Bewertung 3 (= Umweltspur-Decke); normiert fällt Bewertung 1↔3 auf Note 1↔4 → Rampe 5↔15.",
-        "decke": 4
-      },
-      "Zürich": {
-        "breiteOptimal": 4.8,
-        "breiteMinimal": 4.5,
-        "taktNote1": 5,
-        "taktOk": 15,
-        "taktModell": "Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen.",
-        "breiteHerkunft": "stadt",
-        "taktHerkunft": "stadt",
-        "hinweis": "≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt: < 5 Min keine Anwendung, < 15 Min kritisch → Rampe 5↔15.",
-        "decke": 4
-      },
-      "Basel": {
-        "breiteOptimal": 4.5,
-        "breiteMinimal": 3.0,
-        "taktNote1": null,
-        "taktOk": null,
-        "taktModell": "Keine Takt-Abhängigkeit (qualitativ).",
-        "breiteHerkunft": "stadt",
-        "taktHerkunft": null,
-        "hinweis": "Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Kein Takt-Schwellwert: Eignung qualitativ (Busspur-Breite, Anzahl Buslinien, Taktdichte, Velofrequenz) → Note rein breitengetrieben.",
-        "decke": 4
-      }
-    }
+  "fusswegBasis": {
+   "wert": 4,
+   "einheit": "Note (Maximum)",
+   "herleitung": "Fussweg Velo gestattet (Mischfläche) höchstens «genügend». Normativ.",
+   "code": "FUSSWEG_BASIS"
   },
-  "haltestellenTypMapping": {
-    "hinweis": "Stadtübergreifende Zuordnung der Haltestellen-Bezeichnungen (Quelle: Haltestellen_Typen_Bezeichnung_Staedte.csv).",
-    "spalten": [
-      "Haltestelle mit Veloumfahrung",
-      "Kaphaltestelle mit Veloüberfahrt",
-      "Kaphaltestelle",
-      "Haltestelle mit rückwärtigem Radweg",
-      "Inselhaltestelle (Umfahrung für MIV und Velo)",
-      "Fahrbahnhaltestelle Bus",
-      "Busbucht"
-    ],
-    "zeilen": {
-      "Bern": [
-        "B HS 1",
-        "B HS 2",
-        "B HS 3",
-        "B HS 4",
-        "B HS 5",
-        "B HS 6",
-        "B HS 7"
-      ],
-      "Luzern": [
-        "L HS 1",
-        null,
-        null,
-        "L HS 2",
-        null,
-        "L HS 3 und L HS 4",
-        "L HS 5"
-      ],
-      "Zürich": [
-        "Z HS1",
-        "Z HS2",
-        "Z HS3",
-        null,
-        null,
-        null,
-        null
-      ],
-      "Basel": [
-        "BS HS 2",
-        "BS HS 3",
-        "BS HS  1",
-        "BS HS 2",
-        "BS HS 4",
-        null,
-        null
-      ]
-    }
+  "tramDeckel": {
+   "wert": 3,
+   "einheit": "Notendeckel (nur Mischverkehr)",
+   "herleitung": "Schienen in der Fahrbahn deckeln die Note auf höchstens 3 — seit 14.08.2026 in Angleichung an den lokalen Berner Rechner (TRAM_NOTE), vorher ein tempoabhängiger Malus von 1,2 (≤30) bzw. 0,7 (>30). Die Messung bleibt gültig: Mischverkehr mit vs. ohne Tram (Velo-Foto-Bewertungen) T30 27,1 → 9,4 %, T50 15,2 → 5,4 %; auf dem Radstreifen ≈ 0 → dort kein Deckel. Neu ist die Regelform: Der Deckel kappt gute Noten (6 → 3), drückt eine schlechte aber nicht weiter.",
+   "code": "TRAM_DECKEL"
   },
-  "staedte": {
-    "Bern": {
-      "routentypen": [
-        "Velohauptroute",
-        "Veloroute"
-      ],
-      "routentypMapping": {
-        "Velohauptroute": "Velohauptroute",
-        "Veloroute": "Veloroute"
-      },
-      "sollTabelle": {
-        "typ": "dtvXvMatrix",
-        "quelle": "DTV_KMH_Fuehrungsform.csv (Bern); Masterplan Bericht S. 11 (vier ineinander liegende Rechtecke — die strengere der beiden Achsen entscheidet)",
-        "hinweis": "v in km/h. GRENZEN: Untergrenze inklusive; die Obergrenze 2'000 ist exklusive, die Obergrenzen 5'000 und 10'000 sind INKLUSIVE — so steht es im Fliesstext des Masterplans («verkehrsarme Strassen (DTV < 2'000)», «stark belastete Strassen (DTV > 10'000)»); zu 5'000 schweigt der Text, dort gilt die Bandgrenze des Schemas. Das Band 41–50 km/h ist durchgehend «Radstreifen oder Radweg» (waagrechter Schenkel der Schraffur), unabhängig vom DTV-Band. Implementiert in fuehrungsart() (fuehrungsform.ts); deckungsgleich mit soll_bern() des lokalen Rechners seit 10.08.2026.",
-        "regeln": [
-          {
-            "dtvMin": 0,
-            "dtvMax": 2000,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Mischverkehr"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2000,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2000,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2000,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 2000,
-            "dtvMax": 5000,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 2000,
-            "dtvMax": 5000,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 2000,
-            "dtvMax": 5000,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 2000,
-            "dtvMax": 5000,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 10000,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 10000,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 10000,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 10000,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 10000,
-            "dtvMax": null,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 10000,
-            "dtvMax": null,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 10000,
-            "dtvMax": null,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 10000,
-            "dtvMax": null,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          }
-        ]
-      },
-      "breiten": {
-        "quelle": "Fueherungsform_Breiten_Staedte.csv (Bern); Masterplan Standards Q-Blätter ab S. 12",
-        "hinweis": "optimal = Velohauptroute, minimal = Veloroute, minimum = absolute Untergrenze (nicht für die Note).",
-        "werte": {
-          "Q1 Radstreifen": {
-            "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": 1.5
-          },
-          "Q2a Radweg strassenbegl. A": {
-            "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": 1.8
-          },
-          "Q2b Radweg strassenbegl. B": {
-            "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": 1.8
-          },
-          "Q3 Radweg abgesetzt": {
-            "optimal": 2.5,
-            "minimal": 1.5,
-            "minimum": 1.5
-          },
-          "Q4 Umweltspur (Bus+Velo)": {
-            "optimal": 4.5,
-            "minimal": 3.75,
-            "minimum": 3.0
-          },
-          "Q5 Kernfahrbahn": {
-            "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": 1.5
-          },
-          "Q6 Mischverkehr Hauptachse": {
-            "optimal": null,
-            "minimal": null,
-            "minimum": null
-          },
-          "Q7 Einbahn Velogegenverkehr": {
-            "optimal": 2.0,
-            "minimal": 1.8,
-            "minimum": 1.8
-          },
-          "Q8 Quartierstrasse T30/T20": {
-            "optimal": null,
-            "minimal": null,
-            "minimum": null
-          },
-          "Q9 Velostrasse": {
-            "optimal": 4.5,
-            "minimal": 4.5,
-            "maximal": 6.5,
-            "hinweis": "Band 4,50–6,50 m, nur Tempo 30"
-          },
-          "Q10 Zweirichtungsradweg": {
-            "optimal": 4.5,
-            "minimal": 3.2,
-            "minimum": 3.2
-          },
-          "Q12 Fussweg Velo gestattet": {
-            "optimal": 3.5,
-            "minimal": 3.5,
-            "minimum": 3.5
-          },
-          "Q11 Kombinierter Fuss-/Radweg": {
-            "optimal": 3.5,
-            "minimal": 3.5,
-            "minimum": null
-          }
-        }
-      },
-      "haltestellen": {
-        "quelle": "Haltestelle_Typen_Breiten_Bern.csv; Haltestellen_veloverkehrsloesung.csv",
-        "typen": {
-          "Haltestelle mit Veloumfahrung": {
-            "code": "HS1",
-            "familie": "Separate",
-            "optimal": 1.8,
-            "minimal": 1.6,
-            "minimum": 1.6
-          },
-          "Kaphaltestelle mit Veloüberfahrt": {
-            "code": "HS2",
-            "familie": "Separate",
-            "optimal": 1.8,
-            "minimal": 1.5,
-            "minimum": 1.5
-          },
-          "Kaphaltestelle": {
-            "code": "HS3",
-            "familie": "Mischverkehr"
-          },
-          "Haltestelle mit rückwärtigem Radweg": {
-            "code": "HS4",
-            "familie": "Separate",
-            "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": 1.6
-          },
-          "Inselhaltestelle": {
-            "code": "HS5",
-            "familie": "Separate",
-            "optimal": 2.5,
-            "minimal": 1.5,
-            "minimum": 1.5
-          },
-          "Fahrbahnhaltestelle Bus": {
-            "code": "HS6",
-            "familie": "Mischverkehr"
-          },
-          "Busbucht": {
-            "code": "HS7",
-            "familie": "Mischverkehr"
-          }
-        },
-        "sollLoesung": {
-          "typ": "taktXRoute",
-          "matrix": {
-            "tram": {
-              "Veloroute": "Separate Velofläche",
-              "Velohauptroute": "Separate Velofläche"
-            },
-            "bus_unter5": {
-              "Veloroute": "Übergang",
-              "Velohauptroute": "Separate Velofläche"
-            },
-            "bus_5_15": {
-              "Veloroute": "Mischverkehr",
-              "Velohauptroute": "Übergang"
-            },
-            "bus_ab15": {
-              "Veloroute": "Mischverkehr",
-              "Velohauptroute": "Mischverkehr"
-            }
-          },
-          "scoring": {
-            "hinweis": "ÖV (Tram 3 / Bus<5 2 / Bus5–15 1 / Bus≥15 0) + Route (Velohauptroute 1 / Veloroute 0). ≥3 Separate, =2 Übergang, ≤1 Mischverkehr.",
-            "oevPunkte": {
-              "tram": 3,
-              "bus_unter5": 2,
-              "bus_5_15": 1,
-              "bus_ab15": 0
-            },
-            "routeBonus": {
-              "Velohauptroute": 1,
-              "Veloroute": 0
-            },
-            "schwellen": {
-              "separate": 3,
-              "uebergang": 2
-            }
-          }
-        }
-      }
-    },
-    "Zürich": {
-      "routentypen": [
-        "Velovorzugsroute",
-        "Hauptroute"
-      ],
-      "routentypMapping": {
-        "Velovorzugsroute": "Velohauptroute",
-        "Hauptroute": "Veloroute",
-        "Basisnetz": null
-      },
-      "sollTabelle": {
-        "typ": "nachRoutentyp",
-        "quelle": "DTV_KMH_Fuehrungsform.csv (Zürich)",
-        "hinweis": "Je Routentyp eigene Matrix (Velostandards Abb. 1, S. 14). Mischverkehr nur ≤30 km/h und unter DWV-Deckel: Velovorzugsroute <2'500, Hauptroute <5'000.",
-        "Velovorzugsroute": [
-          {
-            "dtvMin": 0,
-            "dtvMax": 2500,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Mischverkehr"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2500,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2500,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2500,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 2500,
-            "dtvMax": 5000,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 2500,
-            "dtvMax": 5000,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 2500,
-            "dtvMax": 5000,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 2500,
-            "dtvMax": 5000,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 7500,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 7500,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 7500,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 7500,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 7500,
-            "dtvMax": null,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 7500,
-            "dtvMax": null,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 7500,
-            "dtvMax": null,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 7500,
-            "dtvMax": null,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          }
-        ],
-        "Hauptroute": [
-          {
-            "dtvMin": 0,
-            "dtvMax": 2500,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Mischverkehr"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2500,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2500,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2500,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 2500,
-            "dtvMax": 5000,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Mischverkehr"
-          },
-          {
-            "dtvMin": 2500,
-            "dtvMax": 5000,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 2500,
-            "dtvMax": 5000,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 2500,
-            "dtvMax": 5000,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 7500,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 7500,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 7500,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 7500,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 7500,
-            "dtvMax": null,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 7500,
-            "dtvMax": null,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 7500,
-            "dtvMax": null,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "dtvMin": 7500,
-            "dtvMax": null,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          }
-        ]
-      },
-      "breiten": {
-        "quelle": "Fueherungsform_Breiten_Staedte.csv (Zürich); Velostandards Stadt Zürich Tab. 1 S. 16/17",
-        "hinweis": "optimal = Velovorzugsroute, minimal = Hauptroute, minimum = Minimalmass. Wo leer → Bern-Fallback (im Code).",
-        "werte": {
-          "Q1 Radstreifen": {
-            "optimal": 2.5,
-            "minimal": 2.2,
-            "minimum": 1.8
-          },
-          "Q2a Radweg strassenbegl. A": {
-            "optimal": 2.5,
-            "minimal": 2.2,
-            "minimum": 1.8
-          },
-          "Q2b Radweg strassenbegl. B": {
-            "optimal": 2.5,
-            "minimal": 2.2,
-            "minimum": 1.8
-          },
-          "Q3 Radweg abgesetzt": {
-            "optimal": 2.5,
-            "minimal": 2.2,
-            "minimum": 1.8
-          },
-          "Q4 Umweltspur (Bus+Velo)": {
-            "optimal": 4.8,
-            "minimal": 4.5,
-            "minimum": null
-          },
-          "Q10 Zweirichtungsradweg": {
-            "optimal": 4.8,
-            "minimal": 3.5,
-            "minimum": 3.0
-          },
-          "Q11 Kombinierter Fuss-/Radweg": {
-            "optimal": 3.5,
-            "minimal": 3.5,
-            "minimum": 3.5
-          }
-        }
-      },
-      "haltestellen": {
-        "quelle": "Haltestelle_Typen_Breiten_Zuerich.csv (Velostandards S. 80, anderes Prinzip als Bern)",
-        "typen": {
-          "Fahrbahnhaltestelle mit Veloumfahrung": {
-            "code": "Z HS1",
-            "optimal": 1.8,
-            "minimal": 1.5,
-            "minimum": 1.5
-          },
-          "Fahrbahnhaltestelle mit Veloüberfahrt": {
-            "code": "Z HS2",
-            "optimal": 1.8,
-            "minimal": 1.5,
-            "minimum": 1.5
-          },
-          "Fahrbahnhaltestelle mit Veloführung auf Fahrbahn": {
-            "code": "Z HS3"
-          }
-        },
-        "sollLoesung": {
-          "typ": "kriterienbasiert",
-          "hinweis": "Massgebliche Kriterien: städtebauliches Umfeld, Platzangebot, Bedeutung Fuss-/Veloverkehr, ÖV-Frequenzen. Kein Takt×Route-Schema wie Bern (Velostandards S. 80)."
-        }
-      }
-    },
-    "Basel": {
-      "routentypen": [
-        "Vorzugsroute",
-        "Pendler-/Basisrouten"
-      ],
-      "routentypMapping": {
-        "Vorzugsroute": "Velohauptroute",
-        "Pendler-/Basisrouten": "Veloroute"
-      },
-      "sollTabelle": {
-        "typ": "nachStrassentyp",
-        "quelle": "DTV_KMH_Fuehrungsform.csv (Basel). Strasseneinteilung: data.bs.ch/explore/assets/100250. DWV als DTV verwenden.",
-        "hinweis": "Kein DTV-Bänder-System, sondern Strassentyp × Tempo × Netzhierarchie (Tab. 3, S. 15). Auf nicht verkehrsorientierten (siedlungsorientierten) Tempo-30-Strassen: Vorzugsroute → Velostrasse (DWV ≤ 2'500); Pendler-/Basisrouten → Mischverkehr (DWV ≤ 5'000) ODER Velostrasse (kein DWV-Deckel). Auf verkehrsorientierten Strassen gibt es keine Velostrasse; empfohlen sind dort Vorzugsroute → Radstreifen oder Radweg, Pendler-/Basisrouten → Radstreifen (die «Radspur» der Tabelle wird der Einfachheit halber als breiter Radstreifen behandelt, keine eigene Form). Jede nicht vorgesehene Form → Note max. 4. DWV-Deckel bleibt Hinweis ohne Notenabzug. Velostrasse: bei DWV < 1'000 reduzierte Breite 4,00 m zulässig.",
-        "Vorzugsroute": [
-          {
-            "strassentyp": "nicht verkehrsorientierte Strasse",
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Velostrasse",
-            "hinweis": "einzige vorgesehene Form; Hinweis ab DWV 2500; bei DWV < 1000 Breite 4,00 m möglich"
-          },
-          {
-            "strassentyp": "verkehrsorientierte Strasse",
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen oder Radweg"
-          },
-          {
-            "strassentyp": "verkehrsorientierte Strasse",
-            "vMin": 31,
-            "vMax": 50,
-            "form": "Radstreifen oder Radweg"
-          }
-        ],
-        "Pendler-/Basisrouten": [
-          {
-            "strassentyp": "nicht verkehrsorientierte Strasse",
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Mischverkehr",
-            "hinweis": "empfohlen ≤ DWV 5000; zusätzlich Velostrasse als mögliche Form (ohne DWV-Deckel)"
-          },
-          {
-            "strassentyp": "verkehrsorientierte Strasse",
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen"
-          },
-          {
-            "strassentyp": "verkehrsorientierte Strasse",
-            "vMin": 31,
-            "vMax": 50,
-            "form": "Radstreifen"
-          }
-        ]
-      },
-      "breiten": {
-        "quelle": "Fueherungsform_Breiten_Staedte.csv (Basel); Standards FVV Basel-Stadt (2024) Tab. 4 S. 20",
-        "hinweis": "optimal = Vorzugsroute (Standardmass), minimal = Pendler-/Basisrouten (reduziert), minimum = Minimalmass. Wo leer → Bern-Fallback (im Code).",
-        "werte": {
-          "Q1 Radstreifen": {
-            "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": 1.6
-          },
-          "Q2a Radweg strassenbegl. A": {
-            "optimal": 2.5,
-            "minimal": 2.2,
-            "minimum": null
-          },
-          "Q2b Radweg strassenbegl. B": {
-            "optimal": 2.5,
-            "minimal": 2.2,
-            "minimum": null
-          },
-          "Q3 Radweg abgesetzt": {
-            "optimal": 2.5,
-            "minimal": 2.2,
-            "minimum": null
-          },
-          "Q4 Umweltspur (Bus+Velo)": {
-            "optimal": 4.5,
-            "minimal": 3.0,
-            "minimum": null
-          },
-          "Q5 Kernfahrbahn": {
-            "optimal": 1.8,
-            "minimal": 1.8,
-            "minimum": 1.8
-          },
-          "Q9 Velostrasse": {
-            "optimal": 4.5,
-            "minimal": 4.3,
-            "minimum": null,
-            "hinweis": "Nur auf nicht verkehrsorientierten (siedlungsorientierten) Strassen: Vorzugsroute einzige Form, Pendler-/Basis mögliche Form (neben Mischverkehr). Nettobreite der Fahrbahn (ohne Parkierung + Sicherheitsabstand): optimal 4,50 / minimal 4,30; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel (Vorzugsroute 2'500) bleibt Hinweis."
-          },
-          "Q10 Zweirichtungsradweg": {
-            "optimal": 4.0,
-            "minimal": 3.4,
-            "minimum": 2.8
-          },
-          "Q11 Kombinierter Fuss-/Radweg": {
-            "optimal": 6.0,
-            "minimal": 4.8,
-            "minimum": null
-          }
-        }
-      },
-      "haltestellen": {
-        "quelle": "Haltestelle_Typen_Breiten_Basel.csv (Arbeitshilfe Haltestellen mit Veloinfrastruktur)",
-        "typen": {
-          "Kap": {
-            "code": "BS HS 1"
-          },
-          "Velobypass": {
-            "code": "BS HS 2",
-            "optimal": 1.6,
-            "minimal": 1.2,
-            "minimum": 1.2
-          },
-          "Velo-Zeitinsel": {
-            "code": "BS HS 3",
-            "optimal": 2.05,
-            "minimal": 1.65,
-            "minimum": 1.65
-          },
-          "Inselhaltestelle": {
-            "code": "BS HS 4",
-            "optimal": 1.8,
-            "minimal": 1.6,
-            "minimum": 1.6
-          }
-        }
-      }
-    },
-    "Luzern": {
-      "routentypen": [
-        "Velohauptroute",
-        "Veloroute"
-      ],
-      "routentypMapping": {
-        "Velohauptroute": "Velohauptroute",
-        "Hauptroute": "Veloroute",
-        "Nebenroute": null,
-        "keine Velonetz-Route": null,
-        "unbekannt": null
-      },
-      "sollTabelle": {
-        "typ": "dtvXvMatrix",
-        "quelle": "DTV_KMH_Fuehrungsform.csv (Luzern)",
-        "hinweis": "Drei Zonen (Mischverkehr / Markierung / bauliche Trennung), auf die Berner Logik vereinfacht — Markierung = Radstreifen. DTV-Obergrenze exklusive.",
-        "regeln": [
-          {
-            "dtvMin": 0,
-            "dtvMax": 2000,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Mischverkehr"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2000,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Mischverkehr"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2000,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 0,
-            "dtvMax": 2000,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 2000,
-            "dtvMax": 5000,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Mischverkehr"
-          },
-          {
-            "dtvMin": 2000,
-            "dtvMax": 5000,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 2000,
-            "dtvMax": 5000,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 2000,
-            "dtvMax": 5000,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 10000,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 10000,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 10000,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 5000,
-            "dtvMax": 10000,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 10000,
-            "dtvMax": 15000,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 10000,
-            "dtvMax": 15000,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radstreifen"
-          },
-          {
-            "dtvMin": 10000,
-            "dtvMax": 15000,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 10000,
-            "dtvMax": 15000,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 15000,
-            "dtvMax": null,
-            "vMin": 0,
-            "vMax": 30,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 15000,
-            "dtvMax": null,
-            "vMin": 31,
-            "vMax": 40,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 15000,
-            "dtvMax": null,
-            "vMin": 41,
-            "vMax": 50,
-            "form": "Radweg"
-          },
-          {
-            "dtvMin": 15000,
-            "dtvMax": null,
-            "vMin": 51,
-            "vMax": 80,
-            "form": "Radweg"
-          }
-        ]
-      },
-      "breiten": {
-        "quelle": "Fueherungsform_Breiten_Staedte.csv (Luzern); Standards Veloverkehr Stadt Luzern Q-Blätter S. 30–57",
-        "hinweis": "optimal = Optimalfall (Velohauptroute), minimal = Minimalfall (Veloroute), minimum = absolute Untergrenze.",
-        "werte": {
-          "Q1 Radstreifen": {
-            "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": null
-          },
-          "Q2a Radweg strassenbegl. A": {
-            "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": null
-          },
-          "Q2b Radweg strassenbegl. B": {
-            "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": null
-          },
-          "Q3 Radweg abgesetzt": {
-            "optimal": 2.5,
-            "minimal": 1.8,
-            "minimum": 1.6
-          },
-          "Q4 Umweltspur (Bus+Velo)": {
-            "optimal": 4.5,
-            "minimal": 3.75,
-            "minimum": null,
-            "hinweis": "Breiten aus Bern übernommen (kein eigener Luzerner Standardwert).",
-            "herkunft": "bern"
-          },
-          "Q5 Kernfahrbahn": {
-            "optimal": 1.8,
-            "minimal": 1.5,
-            "minimum": null
-          },
-          "Q7 Einbahn Velogegenverkehr": {
-            "optimal": 2.5,
-            "minimal": 2.0,
-            "minimum": 1.8
-          },
-          "Q9 Velostrasse": {
-            "optimal": 4.5,
-            "minimal": 4.5,
-            "minimum": null
-          },
-          "Q10 Zweirichtungsradweg": {
-            "optimal": 4.5,
-            "minimal": 3.2,
-            "minimum": 3.2
-          },
-          "Q12 Fussweg Velo gestattet": {
-            "optimal": 3.5,
-            "minimal": 3.5,
-            "minimum": 3.5
-          },
-          "Q11 Kombinierter Fuss-/Radweg": {
-            "optimal": 3.5,
-            "minimal": 3.5,
-            "minimum": null
-          }
-        }
-      },
-      "haltestellen": {
-        "quelle": "Haltestelle_Typen_Breiten_Luzern.csv; Haltestellen_veloverkehrsloesung.csv",
-        "typen": {
-          "Haltestelle mit Veloumfahrung": {
-            "code": "L HS 1",
-            "familie": "Separate",
-            "optimal": 1.8,
-            "minimal": 1.5,
-            "minimum": 1.5
-          },
-          "Haltestelle mit rückwärtigem Radweg": {
-            "code": "L HS 2",
-            "familie": "Separate",
-            "optimal": 2.5,
-            "minimal": 1.6,
-            "minimum": 1.6
-          },
-          "Fahrbahnhaltestelle": {
-            "code": "L HS 3",
-            "familie": "Mischverkehr"
-          },
-          "Fahrbahnhaltestelle in der Umweltspur": {
-            "code": "L HS 4",
-            "familie": "Mischverkehr"
-          },
-          "Busbucht": {
-            "code": "L HS 5",
-            "familie": "Mischverkehr"
-          }
-        },
-        "sollLoesung": {
-          "typ": "taktXRoute",
-          "matrix": {
-            "bus_unter5": {
-              "Veloroute": "Mischverkehr oder separate Velofläche",
-              "Velohauptroute": "separate Velofläche"
-            },
-            "bus_5_15": {
-              "Veloroute": "Mischverkehr",
-              "Velohauptroute": "Mischverkehr oder separate Velofläche"
-            },
-            "bus_ab15": {
-              "Veloroute": "Mischverkehr",
-              "Velohauptroute": "Mischverkehr"
-            }
-          },
-          "hinweis": "Separate Velofläche = Veloumfahrung, Haltestelle mit rückwärtigem Radweg. Mischverkehr = Fahrbahnhaltestelle, Fahrbahnhaltestelle in der Umweltspur, Busbucht."
-        }
-      }
-    }
+  "kapNote": {
+   "wert": 1,
+   "einheit": "fixe Note (überschreibt alles)",
+   "herleitung": "Kaphaltestelle an einer Tram-Haltestelle ohne bauliche Trennung (Separationsrang < 2) → Note 1: Schiene im schmalen Abstand zur hohen Haltekante; dort ist eine separate Velofläche zwingend. Seit 14.08.2026, aus dem lokalen Rechner übernommen (KAP_NOTE/KAP_TRENNUNG_AB). Auslöser online: Schienen in der Fahrbahn ODER ÖV-Angebot «tram».",
+   "code": "KAP_NOTE, KAP_TRENNUNG_AB"
+  },
+  "parkenRelevant": {
+   "formen": [
+    "Mischverkehr",
+    "Radstreifen",
+    "Velostrasse",
+    "Umweltspur",
+    "Einbahn Velogegenverkehr mit Markierung"
+   ],
+   "hinweis": "Führungsformen, bei denen Parken rechts (Dooring) relevant ist (Velo auf Fahrbahn neben Längsparken). Bei «Parkierung rechts = ja» kann zusätzlich ein Sicherheitsstreifen ggü. den Parkplätzen (SN 640 060) angegeben werden; ist er vorhanden, entfällt der Abzug.",
+   "code": "PARKEN_RELEVANT"
   }
+ },
+ "feelSafe": {
+  "hinweis": "radwege-check / FixMyCity, tram-bereinigt. Gezählt wird jede Bewertung der VELO-FOTO-Szenen (Kamera C), unabhängig von der Befragtengruppe — massgebend ist, was das Foto zeigt. Radstreifen-Anker = Referenzkonfiguration (Sollbreite 2,5 m ohne Parkierung, interpoliert aus den 2,0/3,5-Zellen — seit 12.08.2026 NUR GRAUE Szenen, P1; Mischverkehr-Anker seit demselben Tag parkbereinigt, P4; gepoolte Zwischenfassung: 77/73 und 22); Breite und Parkierung werden separat abgezogen. Reproduktion: tools/verify_06.py. ruhig = V ≤ 30, schnell = V > 30.",
+  "code": "FEELSAFE",
+  "werte": {
+   "Mischverkehr": {
+    "ruhig": 24,
+    "schnell": 13,
+    "verifiziert": "T30 22.3 / T50 12.8"
+   },
+   "Radstreifen": {
+    "ruhig": 65,
+    "schnell": 58,
+    "verifiziert": "Referenz gestrichelt (P10-U): 60.8+0.5×9.3=65.5 / 52.4+0.5×10.5=57.6"
+   },
+   "Radweg": {
+    "ruhig": 90,
+    "schnell": 84,
+    "verifiziert": "P11-A (13.08.2026), Berner Radweg-Gruppe: G1 Poller-grau 90.2/89.7; schnell gewichtet mit G3 Seitenraum-ohne-Geschäfte 83.7 → 83.9"
+   }
+  }
+ },
+ "velostrassen": {
+  "quelle": "Grundlagen/Velostrassen_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Velostrasse'], Sonderfall-Logik)",
+  "querschnitt": "Q9",
+  "regelnAlleStaedte": {
+   "nurTempo30": true,
+   "feelClass": "Mischverkehr",
+   "hinweisTempo": "Nur bei Tempo 30 zulässig; bei v > 30 → Note 1.",
+   "hinweisMischverkehr": "Velostrasse zählt als Mischverkehr (feel-safe-Klasse Mischverkehr).",
+   "dooringRelevant": true,
+   "code": "nurT30, feelClass='Mischverkehr', PARKEN_RELEVANT enthält 'Velostrasse'"
+  },
+  "proStadt": {
+   "Bern": {
+    "breiteMin": 4.5,
+    "breiteMax": 6.5,
+    "breiteBeiParkierung": null,
+    "routentyp": "Velohauptroute",
+    "maxDtv": null,
+    "hinweis": "Breitenrange 4,50–6,50 m.",
+    "einsatzbereich": "Nebenstrasse mit übergeordneter Velobedeutung, viel Veloverkehr, wenig MIV und ohne ÖV."
+   },
+   "Basel": {
+    "breiteMin": 4.5,
+    "breiteMax": null,
+    "breiteBeiParkierung": 7.0,
+    "routentyp": "Velovorzugsroute",
+    "maxDtv": 2500,
+    "hinweis": "Nettobreite 4,50 m (Vorzugsroute) / 4,30 m (Pendler-Basis); bei Parkierung 7,00 m; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel 2'500 nur Vorzugsroute (Hinweis).",
+    "einsatzbereich": "Nicht verkehrsorientierte (siedlungsorientierte) Tempo-30-Strasse (Tab. 3, S. 15): auf Vorzugsrouten einzige vorgesehene Form (≤ 2'500 DWV); auf Pendler-/Basisrouten mögliche Form zusätzlich zum Mischverkehr (kein DWV-Deckel). Auf verkehrsorientierten Strassen nicht vorgesehen."
+   },
+   "Zürich": {
+    "breiteMin": null,
+    "breiteMax": null,
+    "breiteBeiParkierung": null,
+    "routentyp": null,
+    "maxDtv": null,
+    "hinweis": "Im relevanten Dokument steht nichts dazu.",
+    "einsatzbereich": "Im Zürcher Grundlagenpapier nicht vorgesehen."
+   },
+   "Luzern": {
+    "breiteMin": 4.5,
+    "breiteMax": 4.5,
+    "breiteBeiParkierung": null,
+    "routentyp": null,
+    "maxDtv": null,
+    "hinweis": "Breite 4,50 m.",
+    "einsatzbereich": "Bei gebündelter Velonutzung auf Quartierstrassen in Tempo-30-Zonen; bei geringer MIV-Belastung und hohem Veloanteil (> 50 %)."
+   }
+  }
+ },
+ "umweltspuren": {
+  "quelle": "Grundlagen/Umweltspuren_Staedte.csv; VeloroutenCheckWeb/src/fuehrungsform.ts (IST['Umweltspur'], Sonderfall-Logik, UMWELTSPUR_TAKT/UMWELTSPUR_DECKE, umweltspurBasis())",
+  "querschnitt": "Q4",
+  "regelnAlleStaedte": {
+   "dtvTempoMassgebend": false,
+   "massgebend": "Bus-Takt (stadtspezifische Schwellen)",
+   "feelClass": "Mischverkehr",
+   "dooringRelevant": true,
+   "hinweisTakt": "DTV/Tempo nicht massgebend, sondern der Bus-Takt. Die Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerem Takt); die Decke (Maximum) ist stadtabhängig: Bern Note 5 («weitgehend»), Zürich/Luzern/Basel Note 4 («genügend»). Schwellen stadtspezifisch, siehe Tabelle.",
+   "code": "UMWELTSPUR_BASIS=4, UMWELTSPUR_TAKT (Anker pro Stadt), umweltspurBasis() (lineare Rampe), feelClass='Mischverkehr', PARKEN_RELEVANT enthält 'Umweltspur'"
+  },
+  "proStadt": {
+   "Bern": {
+    "breiteOptimal": 4.5,
+    "breiteMinimal": 3.75,
+    "taktNote1": null,
+    "taktOk": null,
+    "taktModell": "Stufen: Takt < 7,5 Min → Note 2 (mit Warnung «nicht zulässig»), 7,5–15 Min → Note 4, ≥ 15 Min → Note 5 (Decke).",
+    "breiteHerkunft": "stadt",
+    "taktHerkunft": "stadt",
+    "hinweis": "Tiefe–mittlere Busfrequenz (max. 7,5-Min-Takt) als Schwellwert; darunter nennt der Standard die Umweltspur als unzulässig — Warnung neben der Note, kein Zwang auf Note 1. Dreistufige Tabelle wie im lokalen Batch-Rechner.",
+    "decke": 5,
+    "baender": [
+     [
+      0,
+      2
+     ],
+     [
+      7.5,
+      4
+     ],
+     [
+      15,
+      5
+     ]
+    ],
+    "warnAb": 7.5
+   },
+   "Luzern": {
+    "breiteOptimal": 4.5,
+    "breiteMinimal": 3.75,
+    "taktNote1": 5,
+    "taktOk": 15,
+    "taktModell": "Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen (gleiche Anker wie Zürich).",
+    "breiteHerkunft": "bern",
+    "taktHerkunft": "stadt",
+    "hinweis": "Breiten aus Bern übernommen. Eigene Takt-Bewertung 1–5: Takt < 5 → Bewertung 1, ≥ 15 → Bewertung 3 (= Umweltspur-Decke); normiert fällt Bewertung 1↔3 auf Note 1↔4 → Rampe 5↔15.",
+    "decke": 4
+   },
+   "Zürich": {
+    "breiteOptimal": 4.8,
+    "breiteMinimal": 4.5,
+    "taktNote1": 5,
+    "taktOk": 15,
+    "taktModell": "Rampe: Takt ≤ 5 Min → Note 1, ≥ 15 Min → Decke 4, linear dazwischen.",
+    "breiteHerkunft": "stadt",
+    "taktHerkunft": "stadt",
+    "hinweis": "≥ 4,80 m auf Velovorzugsrouten; ≥ 4,50 m auf Hauptnetz. Takt: < 5 Min keine Anwendung, < 15 Min kritisch → Rampe 5↔15.",
+    "decke": 4
+   },
+   "Basel": {
+    "breiteOptimal": 4.5,
+    "breiteMinimal": 3.0,
+    "taktNote1": null,
+    "taktOk": null,
+    "taktModell": "Keine Takt-Abhängigkeit (qualitativ).",
+    "breiteHerkunft": "stadt",
+    "taktHerkunft": null,
+    "hinweis": "Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Kein Takt-Schwellwert: Eignung qualitativ (Busspur-Breite, Anzahl Buslinien, Taktdichte, Velofrequenz) → Note rein breitengetrieben.",
+    "decke": 4
+   }
+  }
+ },
+ "haltestellenTypMapping": {
+  "hinweis": "Stadtübergreifende Zuordnung der Haltestellen-Bezeichnungen (Quelle: Haltestellen_Typen_Bezeichnung_Staedte.csv).",
+  "spalten": [
+   "Haltestelle mit Veloumfahrung",
+   "Kaphaltestelle mit Veloüberfahrt",
+   "Kaphaltestelle",
+   "Haltestelle mit rückwärtigem Radweg",
+   "Inselhaltestelle (Umfahrung für MIV und Velo)",
+   "Fahrbahnhaltestelle Bus",
+   "Busbucht"
+  ],
+  "zeilen": {
+   "Bern": [
+    "B HS 1",
+    "B HS 2",
+    "B HS 3",
+    "B HS 4",
+    "B HS 5",
+    "B HS 6",
+    "B HS 7"
+   ],
+   "Luzern": [
+    "L HS 1",
+    null,
+    null,
+    "L HS 2",
+    null,
+    "L HS 3 und L HS 4",
+    "L HS 5"
+   ],
+   "Zürich": [
+    "Z HS1",
+    "Z HS2",
+    "Z HS3",
+    null,
+    null,
+    null,
+    null
+   ],
+   "Basel": [
+    "BS HS 2",
+    "BS HS 3",
+    "BS HS  1",
+    "BS HS 2",
+    "BS HS 4",
+    null,
+    null
+   ]
+  }
+ },
+ "staedte": {
+  "Bern": {
+   "routentypen": [
+    "Velohauptroute",
+    "Veloroute"
+   ],
+   "routentypMapping": {
+    "Velohauptroute": "Velohauptroute",
+    "Veloroute": "Veloroute"
+   },
+   "sollTabelle": {
+    "typ": "dtvXvMatrix",
+    "quelle": "DTV_KMH_Fuehrungsform.csv (Bern); Masterplan Bericht S. 11 (vier ineinander liegende Rechtecke — die strengere der beiden Achsen entscheidet)",
+    "hinweis": "v in km/h. GRENZEN: Untergrenze inklusive; die Obergrenze 2'000 ist exklusive, die Obergrenzen 5'000 und 10'000 sind INKLUSIVE — so steht es im Fliesstext des Masterplans («verkehrsarme Strassen (DTV < 2'000)», «stark belastete Strassen (DTV > 10'000)»); zu 5'000 schweigt der Text, dort gilt die Bandgrenze des Schemas. Das Band 41–50 km/h ist durchgehend «Radstreifen oder Radweg» (waagrechter Schenkel der Schraffur), unabhängig vom DTV-Band. Implementiert in fuehrungsart() (fuehrungsform.ts); deckungsgleich mit soll_bern() des lokalen Rechners seit 10.08.2026.",
+    "regeln": [
+     {
+      "dtvMin": 0,
+      "dtvMax": 2000,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Mischverkehr"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2000,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2000,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2000,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 2000,
+      "dtvMax": 5000,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 2000,
+      "dtvMax": 5000,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 2000,
+      "dtvMax": 5000,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 2000,
+      "dtvMax": 5000,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 10000,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 10000,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 10000,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 10000,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 10000,
+      "dtvMax": null,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 10000,
+      "dtvMax": null,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 10000,
+      "dtvMax": null,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 10000,
+      "dtvMax": null,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     }
+    ]
+   },
+   "breiten": {
+    "quelle": "Fueherungsform_Breiten_Staedte.csv (Bern); Masterplan Standards Q-Blätter ab S. 12",
+    "hinweis": "optimal = Velohauptroute, minimal = Veloroute, minimum = absolute Untergrenze (nicht für die Note).",
+    "werte": {
+     "Q1 Radstreifen": {
+      "optimal": 2.5,
+      "minimal": 1.8,
+      "minimum": 1.5
+     },
+     "Q2a Radweg strassenbegl. A": {
+      "optimal": 2.5,
+      "minimal": 1.8,
+      "minimum": 1.8
+     },
+     "Q2b Radweg strassenbegl. B": {
+      "optimal": 2.5,
+      "minimal": 1.8,
+      "minimum": 1.8
+     },
+     "Q3 Radweg abgesetzt": {
+      "optimal": 2.5,
+      "minimal": 1.5,
+      "minimum": 1.5
+     },
+     "Q4 Umweltspur (Bus+Velo)": {
+      "optimal": 4.5,
+      "minimal": 3.75,
+      "minimum": 3.0
+     },
+     "Q5 Kernfahrbahn": {
+      "optimal": 2.5,
+      "minimal": 1.8,
+      "minimum": 1.5
+     },
+     "Q6 Mischverkehr Hauptachse": {
+      "optimal": null,
+      "minimal": null,
+      "minimum": null
+     },
+     "Q7 Einbahn Velogegenverkehr": {
+      "optimal": 2.0,
+      "minimal": 1.8,
+      "minimum": 1.8
+     },
+     "Q8 Quartierstrasse T30/T20": {
+      "optimal": null,
+      "minimal": null,
+      "minimum": null
+     },
+     "Q9 Velostrasse": {
+      "optimal": 4.5,
+      "minimal": 4.5,
+      "maximal": 6.5,
+      "hinweis": "Band 4,50–6,50 m, nur Tempo 30"
+     },
+     "Q10 Zweirichtungsradweg": {
+      "optimal": 4.5,
+      "minimal": 3.2,
+      "minimum": 3.2
+     },
+     "Q12 Fussweg Velo gestattet": {
+      "optimal": 3.5,
+      "minimal": 3.5,
+      "minimum": 3.5
+     },
+     "Q11 Kombinierter Fuss-/Radweg": {
+      "optimal": 3.5,
+      "minimal": 3.5,
+      "minimum": null
+     }
+    }
+   },
+   "haltestellen": {
+    "quelle": "Haltestelle_Typen_Breiten_Bern.csv; Haltestellen_veloverkehrsloesung.csv",
+    "typen": {
+     "Haltestelle mit Veloumfahrung": {
+      "code": "HS1",
+      "familie": "Separate",
+      "optimal": 1.8,
+      "minimal": 1.6,
+      "minimum": 1.6
+     },
+     "Kaphaltestelle mit Veloüberfahrt": {
+      "code": "HS2",
+      "familie": "Separate",
+      "optimal": 1.8,
+      "minimal": 1.5,
+      "minimum": 1.5
+     },
+     "Kaphaltestelle": {
+      "code": "HS3",
+      "familie": "Mischverkehr"
+     },
+     "Haltestelle mit rückwärtigem Radweg": {
+      "code": "HS4",
+      "familie": "Separate",
+      "optimal": 2.5,
+      "minimal": 1.8,
+      "minimum": 1.6
+     },
+     "Inselhaltestelle": {
+      "code": "HS5",
+      "familie": "Separate",
+      "optimal": 2.5,
+      "minimal": 1.5,
+      "minimum": 1.5
+     },
+     "Fahrbahnhaltestelle Bus": {
+      "code": "HS6",
+      "familie": "Mischverkehr"
+     },
+     "Busbucht": {
+      "code": "HS7",
+      "familie": "Mischverkehr"
+     }
+    },
+    "sollLoesung": {
+     "typ": "taktXRoute",
+     "matrix": {
+      "tram": {
+       "Veloroute": "Separate Velofläche",
+       "Velohauptroute": "Separate Velofläche"
+      },
+      "bus_unter5": {
+       "Veloroute": "Übergang",
+       "Velohauptroute": "Separate Velofläche"
+      },
+      "bus_5_15": {
+       "Veloroute": "Mischverkehr",
+       "Velohauptroute": "Übergang"
+      },
+      "bus_ab15": {
+       "Veloroute": "Mischverkehr",
+       "Velohauptroute": "Mischverkehr"
+      }
+     },
+     "scoring": {
+      "hinweis": "ÖV (Tram 3 / Bus<5 2 / Bus5–15 1 / Bus≥15 0) + Route (Velohauptroute 1 / Veloroute 0). ≥3 Separate, =2 Übergang, ≤1 Mischverkehr.",
+      "oevPunkte": {
+       "tram": 3,
+       "bus_unter5": 2,
+       "bus_5_15": 1,
+       "bus_ab15": 0
+      },
+      "routeBonus": {
+       "Velohauptroute": 1,
+       "Veloroute": 0
+      },
+      "schwellen": {
+       "separate": 3,
+       "uebergang": 2
+      }
+     }
+    }
+   }
+  },
+  "Zürich": {
+   "routentypen": [
+    "Velovorzugsroute",
+    "Hauptroute"
+   ],
+   "routentypMapping": {
+    "Velovorzugsroute": "Velohauptroute",
+    "Hauptroute": "Veloroute",
+    "Basisnetz": null
+   },
+   "sollTabelle": {
+    "typ": "nachRoutentyp",
+    "quelle": "DTV_KMH_Fuehrungsform.csv (Zürich)",
+    "hinweis": "Je Routentyp eigene Matrix (Velostandards Abb. 1, S. 14). Mischverkehr nur ≤30 km/h und unter DWV-Deckel: Velovorzugsroute <2'500, Hauptroute <5'000.",
+    "Velovorzugsroute": [
+     {
+      "dtvMin": 0,
+      "dtvMax": 2500,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Mischverkehr"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2500,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2500,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2500,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 2500,
+      "dtvMax": 5000,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 2500,
+      "dtvMax": 5000,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 2500,
+      "dtvMax": 5000,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 2500,
+      "dtvMax": 5000,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 7500,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 7500,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 7500,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 7500,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 7500,
+      "dtvMax": null,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 7500,
+      "dtvMax": null,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 7500,
+      "dtvMax": null,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 7500,
+      "dtvMax": null,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     }
+    ],
+    "Hauptroute": [
+     {
+      "dtvMin": 0,
+      "dtvMax": 2500,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Mischverkehr"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2500,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2500,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2500,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 2500,
+      "dtvMax": 5000,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Mischverkehr"
+     },
+     {
+      "dtvMin": 2500,
+      "dtvMax": 5000,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 2500,
+      "dtvMax": 5000,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 2500,
+      "dtvMax": 5000,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 7500,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 7500,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 7500,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 7500,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 7500,
+      "dtvMax": null,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 7500,
+      "dtvMax": null,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 7500,
+      "dtvMax": null,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "dtvMin": 7500,
+      "dtvMax": null,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     }
+    ]
+   },
+   "breiten": {
+    "quelle": "Fueherungsform_Breiten_Staedte.csv (Zürich); Velostandards Stadt Zürich Tab. 1 S. 16/17",
+    "hinweis": "optimal = Velovorzugsroute, minimal = Hauptroute, minimum = Minimalmass. Wo leer → Bern-Fallback (im Code).",
+    "werte": {
+     "Q1 Radstreifen": {
+      "optimal": 2.5,
+      "minimal": 2.2,
+      "minimum": 1.8
+     },
+     "Q2a Radweg strassenbegl. A": {
+      "optimal": 2.5,
+      "minimal": 2.2,
+      "minimum": 1.8
+     },
+     "Q2b Radweg strassenbegl. B": {
+      "optimal": 2.5,
+      "minimal": 2.2,
+      "minimum": 1.8
+     },
+     "Q3 Radweg abgesetzt": {
+      "optimal": 2.5,
+      "minimal": 2.2,
+      "minimum": 1.8
+     },
+     "Q4 Umweltspur (Bus+Velo)": {
+      "optimal": 4.8,
+      "minimal": 4.5,
+      "minimum": null
+     },
+     "Q10 Zweirichtungsradweg": {
+      "optimal": 4.8,
+      "minimal": 3.5,
+      "minimum": 3.0
+     },
+     "Q11 Kombinierter Fuss-/Radweg": {
+      "optimal": 3.5,
+      "minimal": 3.5,
+      "minimum": 3.5
+     }
+    }
+   },
+   "haltestellen": {
+    "quelle": "Haltestelle_Typen_Breiten_Zuerich.csv (Velostandards S. 80, anderes Prinzip als Bern)",
+    "typen": {
+     "Fahrbahnhaltestelle mit Veloumfahrung": {
+      "code": "Z HS1",
+      "optimal": 1.8,
+      "minimal": 1.5,
+      "minimum": 1.5
+     },
+     "Fahrbahnhaltestelle mit Veloüberfahrt": {
+      "code": "Z HS2",
+      "optimal": 1.8,
+      "minimal": 1.5,
+      "minimum": 1.5
+     },
+     "Fahrbahnhaltestelle mit Veloführung auf Fahrbahn": {
+      "code": "Z HS3"
+     }
+    },
+    "sollLoesung": {
+     "typ": "kriterienbasiert",
+     "hinweis": "Massgebliche Kriterien: städtebauliches Umfeld, Platzangebot, Bedeutung Fuss-/Veloverkehr, ÖV-Frequenzen. Kein Takt×Route-Schema wie Bern (Velostandards S. 80)."
+    }
+   }
+  },
+  "Basel": {
+   "routentypen": [
+    "Vorzugsroute",
+    "Pendler-/Basisrouten"
+   ],
+   "routentypMapping": {
+    "Vorzugsroute": "Velohauptroute",
+    "Pendler-/Basisrouten": "Veloroute"
+   },
+   "sollTabelle": {
+    "typ": "nachStrassentyp",
+    "quelle": "DTV_KMH_Fuehrungsform.csv (Basel). Strasseneinteilung: data.bs.ch/explore/assets/100250. DWV als DTV verwenden.",
+    "hinweis": "Kein DTV-Bänder-System, sondern Strassentyp × Tempo × Netzhierarchie (Tab. 3, S. 15). Auf nicht verkehrsorientierten (siedlungsorientierten) Tempo-30-Strassen: Vorzugsroute → Velostrasse (DWV ≤ 2'500); Pendler-/Basisrouten → Mischverkehr (DWV ≤ 5'000) ODER Velostrasse (kein DWV-Deckel). Auf verkehrsorientierten Strassen gibt es keine Velostrasse; empfohlen sind dort Vorzugsroute → Radstreifen oder Radweg, Pendler-/Basisrouten → Radstreifen (die «Radspur» der Tabelle wird der Einfachheit halber als breiter Radstreifen behandelt, keine eigene Form). Jede nicht vorgesehene Form → Note max. 4. DWV-Deckel bleibt Hinweis ohne Notenabzug. Velostrasse: bei DWV < 1'000 reduzierte Breite 4,00 m zulässig.",
+    "Vorzugsroute": [
+     {
+      "strassentyp": "nicht verkehrsorientierte Strasse",
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Velostrasse",
+      "hinweis": "einzige vorgesehene Form; Hinweis ab DWV 2500; bei DWV < 1000 Breite 4,00 m möglich"
+     },
+     {
+      "strassentyp": "verkehrsorientierte Strasse",
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen oder Radweg"
+     },
+     {
+      "strassentyp": "verkehrsorientierte Strasse",
+      "vMin": 31,
+      "vMax": 50,
+      "form": "Radstreifen oder Radweg"
+     }
+    ],
+    "Pendler-/Basisrouten": [
+     {
+      "strassentyp": "nicht verkehrsorientierte Strasse",
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Mischverkehr",
+      "hinweis": "empfohlen ≤ DWV 5000; zusätzlich Velostrasse als mögliche Form (ohne DWV-Deckel)"
+     },
+     {
+      "strassentyp": "verkehrsorientierte Strasse",
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen"
+     },
+     {
+      "strassentyp": "verkehrsorientierte Strasse",
+      "vMin": 31,
+      "vMax": 50,
+      "form": "Radstreifen"
+     }
+    ]
+   },
+   "breiten": {
+    "quelle": "Fueherungsform_Breiten_Staedte.csv (Basel); Standards FVV Basel-Stadt (2024) Tab. 4 S. 20",
+    "hinweis": "optimal = Vorzugsroute (Standardmass), minimal = Pendler-/Basisrouten (reduziert), minimum = Minimalmass. Wo leer → Bern-Fallback (im Code).",
+    "werte": {
+     "Q1 Radstreifen": {
+      "optimal": 2.5,
+      "minimal": 1.8,
+      "minimum": 1.6
+     },
+     "Q2a Radweg strassenbegl. A": {
+      "optimal": 2.5,
+      "minimal": 2.2,
+      "minimum": null
+     },
+     "Q2b Radweg strassenbegl. B": {
+      "optimal": 2.5,
+      "minimal": 2.2,
+      "minimum": null
+     },
+     "Q3 Radweg abgesetzt": {
+      "optimal": 2.5,
+      "minimal": 2.2,
+      "minimum": null
+     },
+     "Q4 Umweltspur (Bus+Velo)": {
+      "optimal": 4.5,
+      "minimal": 3.0,
+      "minimum": null
+     },
+     "Q5 Kernfahrbahn": {
+      "optimal": 1.8,
+      "minimal": 1.8,
+      "minimum": 1.8
+     },
+     "Q9 Velostrasse": {
+      "optimal": 4.5,
+      "minimal": 4.3,
+      "minimum": null,
+      "hinweis": "Nur auf nicht verkehrsorientierten (siedlungsorientierten) Strassen: Vorzugsroute einzige Form, Pendler-/Basis mögliche Form (neben Mischverkehr). Nettobreite der Fahrbahn (ohne Parkierung + Sicherheitsabstand): optimal 4,50 / minimal 4,30; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel (Vorzugsroute 2'500) bleibt Hinweis."
+     },
+     "Q10 Zweirichtungsradweg": {
+      "optimal": 4.0,
+      "minimal": 3.4,
+      "minimum": 2.8
+     },
+     "Q11 Kombinierter Fuss-/Radweg": {
+      "optimal": 6.0,
+      "minimal": 4.8,
+      "minimum": null
+     }
+    }
+   },
+   "haltestellen": {
+    "quelle": "Haltestelle_Typen_Breiten_Basel.csv (Arbeitshilfe Haltestellen mit Veloinfrastruktur)",
+    "typen": {
+     "Kap": {
+      "code": "BS HS 1"
+     },
+     "Velobypass": {
+      "code": "BS HS 2",
+      "optimal": 1.6,
+      "minimal": 1.2,
+      "minimum": 1.2
+     },
+     "Velo-Zeitinsel": {
+      "code": "BS HS 3",
+      "optimal": 2.05,
+      "minimal": 1.65,
+      "minimum": 1.65
+     },
+     "Inselhaltestelle": {
+      "code": "BS HS 4",
+      "optimal": 1.8,
+      "minimal": 1.6,
+      "minimum": 1.6
+     }
+    }
+   }
+  },
+  "Luzern": {
+   "routentypen": [
+    "Velohauptroute",
+    "Veloroute"
+   ],
+   "routentypMapping": {
+    "Velohauptroute": "Velohauptroute",
+    "Hauptroute": "Veloroute",
+    "Nebenroute": null,
+    "keine Velonetz-Route": null,
+    "unbekannt": null
+   },
+   "sollTabelle": {
+    "typ": "dtvXvMatrix",
+    "quelle": "DTV_KMH_Fuehrungsform.csv (Luzern)",
+    "hinweis": "Drei Zonen (Mischverkehr / Markierung / bauliche Trennung), auf die Berner Logik vereinfacht — Markierung = Radstreifen. DTV-Obergrenze exklusive.",
+    "regeln": [
+     {
+      "dtvMin": 0,
+      "dtvMax": 2000,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Mischverkehr"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2000,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Mischverkehr"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2000,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 0,
+      "dtvMax": 2000,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 2000,
+      "dtvMax": 5000,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Mischverkehr"
+     },
+     {
+      "dtvMin": 2000,
+      "dtvMax": 5000,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 2000,
+      "dtvMax": 5000,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 2000,
+      "dtvMax": 5000,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 10000,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 10000,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 10000,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 5000,
+      "dtvMax": 10000,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 10000,
+      "dtvMax": 15000,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 10000,
+      "dtvMax": 15000,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radstreifen"
+     },
+     {
+      "dtvMin": 10000,
+      "dtvMax": 15000,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 10000,
+      "dtvMax": 15000,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 15000,
+      "dtvMax": null,
+      "vMin": 0,
+      "vMax": 30,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 15000,
+      "dtvMax": null,
+      "vMin": 31,
+      "vMax": 40,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 15000,
+      "dtvMax": null,
+      "vMin": 41,
+      "vMax": 50,
+      "form": "Radweg"
+     },
+     {
+      "dtvMin": 15000,
+      "dtvMax": null,
+      "vMin": 51,
+      "vMax": 80,
+      "form": "Radweg"
+     }
+    ]
+   },
+   "breiten": {
+    "quelle": "Fueherungsform_Breiten_Staedte.csv (Luzern); Standards Veloverkehr Stadt Luzern Q-Blätter S. 30–57",
+    "hinweis": "optimal = Optimalfall (Velohauptroute), minimal = Minimalfall (Veloroute), minimum = absolute Untergrenze.",
+    "werte": {
+     "Q1 Radstreifen": {
+      "optimal": 2.5,
+      "minimal": 1.8,
+      "minimum": null
+     },
+     "Q2a Radweg strassenbegl. A": {
+      "optimal": 2.5,
+      "minimal": 1.8,
+      "minimum": null
+     },
+     "Q2b Radweg strassenbegl. B": {
+      "optimal": 2.5,
+      "minimal": 1.8,
+      "minimum": null
+     },
+     "Q3 Radweg abgesetzt": {
+      "optimal": 2.5,
+      "minimal": 1.8,
+      "minimum": 1.6
+     },
+     "Q4 Umweltspur (Bus+Velo)": {
+      "optimal": 4.5,
+      "minimal": 3.75,
+      "minimum": null,
+      "hinweis": "Breiten aus Bern übernommen (kein eigener Luzerner Standardwert).",
+      "herkunft": "bern"
+     },
+     "Q5 Kernfahrbahn": {
+      "optimal": 1.8,
+      "minimal": 1.5,
+      "minimum": null
+     },
+     "Q7 Einbahn Velogegenverkehr": {
+      "optimal": 2.5,
+      "minimal": 2.0,
+      "minimum": 1.8
+     },
+     "Q9 Velostrasse": {
+      "optimal": 4.5,
+      "minimal": 4.5,
+      "minimum": null
+     },
+     "Q10 Zweirichtungsradweg": {
+      "optimal": 4.5,
+      "minimal": 3.2,
+      "minimum": 3.2
+     },
+     "Q12 Fussweg Velo gestattet": {
+      "optimal": 3.5,
+      "minimal": 3.5,
+      "minimum": 3.5
+     },
+     "Q11 Kombinierter Fuss-/Radweg": {
+      "optimal": 3.5,
+      "minimal": 3.5,
+      "minimum": null
+     }
+    }
+   },
+   "haltestellen": {
+    "quelle": "Haltestelle_Typen_Breiten_Luzern.csv; Haltestellen_veloverkehrsloesung.csv",
+    "typen": {
+     "Haltestelle mit Veloumfahrung": {
+      "code": "L HS 1",
+      "familie": "Separate",
+      "optimal": 1.8,
+      "minimal": 1.5,
+      "minimum": 1.5
+     },
+     "Haltestelle mit rückwärtigem Radweg": {
+      "code": "L HS 2",
+      "familie": "Separate",
+      "optimal": 2.5,
+      "minimal": 1.6,
+      "minimum": 1.6
+     },
+     "Fahrbahnhaltestelle": {
+      "code": "L HS 3",
+      "familie": "Mischverkehr"
+     },
+     "Fahrbahnhaltestelle in der Umweltspur": {
+      "code": "L HS 4",
+      "familie": "Mischverkehr"
+     },
+     "Busbucht": {
+      "code": "L HS 5",
+      "familie": "Mischverkehr"
+     }
+    },
+    "sollLoesung": {
+     "typ": "taktXRoute",
+     "matrix": {
+      "bus_unter5": {
+       "Veloroute": "Mischverkehr oder separate Velofläche",
+       "Velohauptroute": "separate Velofläche"
+      },
+      "bus_5_15": {
+       "Veloroute": "Mischverkehr",
+       "Velohauptroute": "Mischverkehr oder separate Velofläche"
+      },
+      "bus_ab15": {
+       "Veloroute": "Mischverkehr",
+       "Velohauptroute": "Mischverkehr"
+      }
+     },
+     "hinweis": "Separate Velofläche = Veloumfahrung, Haltestelle mit rückwärtigem Radweg. Mischverkehr = Fahrbahnhaltestelle, Fahrbahnhaltestelle in der Umweltspur, Busbucht."
+    }
+   }
+  }
+ }
 }

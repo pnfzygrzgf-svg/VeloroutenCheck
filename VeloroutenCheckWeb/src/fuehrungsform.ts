@@ -405,11 +405,19 @@ export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
 // Notenstufen-Abzug pro fehlendem Meter Breite — je feel-safe-Klasse UND TEMPO verschieden,
 // weil die Befragung den Meter unterschiedlich bewertet (Szenen, die sich NUR in der Breite
 // unterscheiden; Velo-Foto-Bewertungen, tools/verify_06.py §4):
-//   • auf der Fahrbahn (Radstreifen-Klasse): 8,4 Punkte/m bei Tempo 30 ≈ 0,58 Noten/m,
-//     10,1 bei Tempo 50 ≈ 0,70 — hinter der Markierung schützt vor allem die Breite,
-//     und je schneller der Verkehr, desto mehr.
-//   • hinter baulicher Trennung (Radweg-Klasse): 5,0 bzw. 5,4 Punkte/m ≈ 0,35 / 0,38 —
-//     dort schützt die Trennung, Breite ist Komfort; der Tempo-Unterschied fällt fast weg.
+//   • auf der Fahrbahn (Radstreifen-Klasse), GESTRICHELT geschnitten (P10-U, 12.08.2026 —
+//     graue Szenen mit schmaler gestrichelter Führungslinie, das Berner Markierungsbild):
+//     9,3 Punkte/m bei Tempo 30 ≈ 0,65 Noten/m, 10,5 bei Tempo 50 ≈ 0,74 (÷ Kurs 14,2) —
+//     hinter der Markierung schützt vor allem die Breite. Die Tempo-Spanne ist in diesem
+//     Schnitt klein (0,09 < baulich 0,14); der A9.8-Befund «Fahrbahn-Spanne > bauliche»
+//     gilt nur noch abgeschwächt.
+//     (Grau-Zwischenfassung vom selben Tag: 0,59/0,75; 2 Fotos je Zelle — bewusster Preis,
+//     lokales Regelwerk 15.7, P10-Kasten.)
+//   • hinter baulicher Trennung (Radweg-Klasse), POLLER-ONLY grau (P14, 13.08.2026 —
+//     nur Sperrpfosten-Szenen, derselbe Pool wie der Radweg-Anker aus P11-A):
+//     3,4 bzw. 5,3 Punkte/m ≈ 0,24 / 0,38 — dort schützt die Trennung, Breite ist Komfort.
+//     (Zwischenfassung grau alle Trennungsarten, P3: 4,4/6,1 ≈ 0,31/0,43, unter Kurs 14,4
+//     0,30/0,42; gepoolte Zwischenfassung bis 11.08.2026: 0,58/0,70 und 0,35/0,38.)
 //   • Mischverkehr-Klasse (Velostrasse-Fahrgassenband, Umweltspur): normativ 0,9 Noten/m,
 //     für beide Tempi gleich — hier ist «Breite» die Fahrbahn/Spur, nicht ein Velostreifen;
 //     die Befragung liefert dafür keinen eigenen Gradienten. Tunbare Parameter.
@@ -422,8 +430,8 @@ export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
 // dieselben vier Werte; ein Wächter dort rechnet sie bei jedem Lauf gegen die Roh-Bewertungen.
 export const BREITE_SATZ: Record<FeelClass, { ruhig: number; schnell: number }> = {
   'Mischverkehr': { ruhig: 0.9,  schnell: 0.9  },
-  'Radstreifen':  { ruhig: 0.58, schnell: 0.70 },
-  'Radweg':       { ruhig: 0.35, schnell: 0.38 },
+  'Radstreifen':  { ruhig: 0.65, schnell: 0.74 },  // Gestrichelt-Steigungen 9,3/10,5 Pkt/m ÷ Kurs 14,2 (P13, 13.08.2026; unter 14,4: 0.65/0.73)
+  'Radweg':       { ruhig: 0.24, schnell: 0.38 },  // Poller-only-Grau-Steigungen 3,4/5,3 Pkt/m ÷ Kurs 14,2 (P14 + P13; Zwischenfassung grau alle Trennungen: 0.31/0.43)
 }
 
 // Abzug, wenn rechts (Bordsteinseite) längs geparkt wird — Dooring-Lage, Velo zwischen
@@ -446,12 +454,29 @@ export const BREITE_SATZ: Record<FeelClass, { ruhig: number; schnell: number }> 
 // Formel dort Modell und nicht Messung — die Pauschale ist die ehrlichere Zahl.
 export const PARKEN_ABZUG = 1.0
 
-// Tram in der Fahrbahn (Schienen) — Malus NUR bei Mischverkehr, tempo-abhängig. Empirisch aus den
-// radwege-Daten (Velo-Foto-Bewertungen): Mischverkehr mit vs. ohne Tram, Verlust ÷ 14,4.
-// Tempo 30: (27,1−9,4)/14,4 ≈ 1,23 → 1,2 · Tempo 50: (15,2−5,4)/14,4 ≈ 0,68 → 0,7.
-// Bei eigener Radverkehrsanlage (Radstreifen) empirisch ~0 → dort kein Malus.
+// Tram in der Fahrbahn (Schienen) — DECKEL: die Note ist höchstens 3, NUR bei Mischverkehr.
+// Bei eigener Radverkehrsanlage (Radstreifen) misst die Befragung ~0 Effekt → dort kein Deckel.
+//
+// SEIT 14.08.2026 ein Deckel (vorher ein tempoabhängiger MALUS von 1,2 bei ≤ 30 / 0,7 darüber).
+// Grund: Angleichung an den lokalen Berner Rechner (soll_ist_analyse.py, TRAM_NOTE), der die
+// Schiene seit je als Deckel führt — der Unterschied war der letzte Regel-Unterschied zwischen
+// den beiden Rechnern und ist auf Nutzerentscheid ausgeräumt.
+// Die MESSUNG dahinter bleibt unverändert gültig (Velo-Foto-Bewertungen: Mischverkehr mit vs.
+// ohne Tram, 27,1 → 9,4 % bei T30 bzw. 15,2 → 5,4 % bei T50; ÷ 14,4 ergäbe 1,2 bzw. 0,7) —
+// neu ist allein die REGELFORM: Ein Deckel kappt gute Noten hart (6 → 3), drückt aber eine
+// ohnehin schlechte Note nicht weiter (2,5 bleibt 2,5; der Malus hätte 1,3 daraus gemacht).
 // Herleitung/Reproduktion: tools/verify_06.py (§2) bzw. docs/07_Tram_in_der_Fahrbahn.md. Tunbar.
-export const TRAM_MALUS: Record<'ruhig' | 'schnell', number> = { ruhig: 1.2, schnell: 0.7 }
+export const TRAM_DECKEL = 3
+
+// Kaphaltestelle an einer TRAM-Haltestelle ohne bauliche Trennung → Note IMMER 1.
+// Schiene im schmalen Abstand zur hohen Haltekante; an Tram-Haltestellen ist eine separate
+// Velofläche zwingend, fehlt sie, ist das der schlechteste Fall. Überschreibt alles (auch
+// Deckel und fixe Noten anderer Sonderfälle) — wie lokal (KAP_NOTE, KAP_TRENNUNG_AB).
+// «Ohne bauliche Trennung» = Separationsrang < 2 (Mischverkehr, Radstreifen, Velostrasse,
+// Umweltspur, Einbahn ohne/mit Markierung); auf Radweg & Co. führt die Velofläche an der
+// Haltekante vorbei, dort greift höchstens der Haltestellen-Abzug −1.
+export const KAP_NOTE = 1
+export const KAP_TRENNUNG_AB = 2   // ab diesem Rang (bauliche Trennung) greift die Regel NICHT
 
 // Umweltspur (Bus+Velo): Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerer Takt)
 // und ist nach oben gedeckelt — DTV/Tempo sind nicht massgebend.
@@ -511,17 +536,27 @@ export const FUSSWEG_BASIS = 4
 // Der Radstreifen-Anker ist die REFERENZKONFIGURATION (Sollbreite 2,5 m, ohne Parkierung,
 // interpoliert aus den 2,0/3,5-Zellen) — nicht das Mittel über alle Szenen: Breite und
 // Parkierung werden unten separat abgezogen, ein gepoolter Anker zählte sie doppelt.
+// GRAU- UND MARKIERUNGS-SCHNITT seit dem 12.08.2026 (Übernahmen P1/P4 und P10-U, lokales
+// Regelwerk 15.2/15.7): Der Radstreifen-Anker rechnet nur mit GRAUEN Szenen mit schmaler
+// GESTRICHELTER Führungslinie — dem Berner Markierungsbild (keine Einfärbung im Netz, kaum
+// breite Trennlinien); der Mischverkehr-Anker ist parkbereinigt. Fassungs-Kette Radstreifen:
+// gepoolt 77/73 (bis 11.08.) → grau 71/66 (P1, Zwischenfassung) → gestrichelt 65/58 (P10-U).
 export const FEELSAFE: Record<FeelClass, { ruhig: number; schnell: number }> = {
-  'Mischverkehr': { ruhig: 22, schnell: 13 },  // gemessen: T30 22.3 / T50 12.8
-  'Radstreifen':  { ruhig: 77, schnell: 73 },  // Referenz 2,5 m ohne Parken: 73.0+0.5×8.4=77.2 / 68.1+0.5×10.1=73.2
-  'Radweg':       { ruhig: 91, schnell: 91 },  // baulich getrennt (Poller-Niveau): 90.9 / 90.9 — Tempo egal
+  'Mischverkehr': { ruhig: 24, schnell: 13 },  // parkbereinigt (P4): ohne Park-Szenen 23.7 → 24; T50 bleibt 13
+  'Radstreifen':  { ruhig: 65, schnell: 58 },  // Referenz 2,5 m ohne Parken, gestrichelt (P10-U): 60.8+0.5×9.3=65.5 / 52.4+0.5×10.5=57.6
+  'Radweg':       { ruhig: 90, schnell: 84 },  // Berner Radweg-Gruppe, Klassen-Mittel (P11-A, 13.08.2026): G1 Poller-grau 90,2; schnell mit G3 Seitenraum-ohne-Geschäfte 83,9 (vorher 91/91 gepoolt)
 }
 
-// feel-safe-Punkte pro Notenstufe: 72 Punkte Lücke = das volle Notenband 6→1 (72 ÷ 5 = 14,4).
-// Alle Abzüge und Sätze skalieren über diese Konstante. Die grösste heute mögliche Lücke
-// (Soll Radweg, Ist Mischverkehr, schnell: 91 − 13 = 78) ergäbe rechnerisch 0,58 — der
-// Notenboden 1 fängt sie ab. Tunbarer Parameter.
-export const SCORE_PRO_NOTE = 14.4
+// feel-safe-Punkte pro Notenstufe. NEU GEEICHT am 13.08.2026 (lokales Regelwerk A4 + 15.7
+// P13): Spanne = die eigene Maximal-Lücke der Kette (Soll Radweg, Ist Mischverkehr, schnell:
+// 84 − 13 = 71 Punkte) ÷ 5 Stufen = 14,2 — der schlimmste Fall landet damit EXAKT auf Note
+// 1,0 (71 ÷ 14,2 = 5,0); der Notenboden ist nur noch Reserve für Pauschalen-Kumulation.
+// Einmalig geeicht und wieder eingefroren (zieht bei künftigen Anker-Änderungen nicht mit).
+// Die BASIS des lokalen Rechners behält ihre Ersteichung 14,4 — dieser Online-Rechner bildet
+// die verfeinerte Kette ab und trägt darum den fein-Kurs. Alle Form-Abzüge und die
+// gemessenen Breitensätze skalieren über diese Konstante; normative Noten-Werte
+// (PARKEN_ABZUG, Haltestellen, Tram) bleiben in Noten. Tunbarer Parameter.
+export const SCORE_PRO_NOTE = 14.2
 
 const tempoKey = (v: number): 'ruhig' | 'schnell' => (v <= 30 ? 'ruhig' : 'schnell')
 
@@ -594,7 +629,8 @@ export interface NotenErgebnis {
   parkenSicherheitsstreifen: boolean  // Sicherheitsstreifen ggü. Parkplätzen (SN 640 060) vorhanden
   parkenAbzug: number    // Notenabzug aus Parkierung rechts (0 wenn nein/egal/Sicherheitsstreifen/nicht relevant)
   tramInFahrbahn: boolean // Tram (Schienen) in der Fahrbahn im Abschnitt
-  tramAbzug: number      // Notenabzug aus Tram in der Fahrbahn (nur Mischverkehr, tempo-abhängig)
+  tramDeckel?: number    // Notendeckel aus Tram in der Fahrbahn (nur Mischverkehr): 3, sonst undefined
+  kapTramNote1: boolean  // Kaphaltestelle an Tram ohne bauliche Trennung → Note fix 1 (überschreibt alles)
   // Haltestelle (ÖV):
   oevAngebot: OevAngebot
   haltestellentyp: Haltestellentyp
@@ -668,8 +704,17 @@ export function fuehrungsformNote(
       ? PARKEN_ABZUG
       : 0
 
-  // ── Tram in der Fahrbahn (Schienen): Malus nur bei Mischverkehr, tempo-abhängig (siehe TRAM_MALUS).
-  const tramAbzug = (tramInFahrbahn && ist === 'Mischverkehr') ? TRAM_MALUS[tempoKey(v)] : 0
+  // ── Tram in der Fahrbahn (Schienen): DECKEL Note ≤ 3, nur bei Mischverkehr (siehe TRAM_DECKEL).
+  const tramDeckel = (tramInFahrbahn && ist === 'Mischverkehr') ? TRAM_DECKEL : undefined
+
+  // ── Kaphaltestelle an einer Tram-Haltestelle ohne bauliche Trennung → Note fix 1 (KAP_NOTE).
+  // Auslöser ist EINES der beiden Tram-Merkmale: die Schienen-Angabe oder das ÖV-Angebot «Tram»
+  // (Nutzerentscheid 14.08.2026) — lokal steht dafür ein einziges Datenfeld `tram=ja`, online
+  // sind es zwei getrennte Eingaben, und eine vom Tram bediente Kaphaltestelle hat die Schiene
+  // per Definition an der Haltekante.
+  const kapTramNote1 = haltestellentyp === 'Kaphaltestelle'
+    && (tramInFahrbahn || oevAngebot === 'tram')
+    && IST[ist].rank < KAP_TRENNUNG_AB
 
   // ── Haltestelle: Soll-Lösung aus Route × ÖV (stadtabhängig); Abzug nur, wenn Separate Velofläche
   // gefordert ist, der vorhandene Typ aber aus der Mischverkehr-Familie stammt (Über-Erfüllung = ok).
@@ -733,14 +778,19 @@ export function fuehrungsformNote(
     basisnote: number, erfuellt: boolean, defizit: number,
     opts: { hinweis?: string; warnung?: string; maxNote?: number; forceNote?: number } = {},
   ): NotenErgebnis => {
-    const maxNote = opts.maxNote ?? 6
-    const roh = basisnote - breitenabzug - parkenAbzug - tramAbzug - haltestelleAbzug - hsBreitenabzug
-    const note = opts.forceNote != null ? opts.forceNote
+    // Tram-Deckel wirkt wie ein maxNote und verträgt sich mit den Deckeln der Sonderfälle
+    // (Basel 4, Q12 4) — es gilt der jeweils strengere. Die Kap-Regel überschreibt ALLES,
+    // auch forceNote und jeden Deckel (lokal steht sie als erstes `return` in situativ()).
+    const maxNote = Math.min(opts.maxNote ?? 6, tramDeckel ?? 6)
+    const roh = basisnote - breitenabzug - parkenAbzug - haltestelleAbzug - hsBreitenabzug
+    const note = kapTramNote1 ? KAP_NOTE
+      : opts.forceNote != null ? opts.forceNote
       : roundToHalf(Math.min(maxNote, Math.max(1, roh)))
     return {
       soll, ist, q: meta.q, basisnote, erfuellt, defizit, note,
       routentyp, sollbreite, maxbreite, breite, breitenDefizit, breitenabzug,
-      breiteErfuellt, breitenStatus, parkenRechts, parkenSicherheitsstreifen, parkenAbzug, tramInFahrbahn, tramAbzug,
+      breiteErfuellt, breitenStatus, parkenRechts, parkenSicherheitsstreifen, parkenAbzug,
+      tramInFahrbahn, tramDeckel, kapTramNote1,
       oevAngebot, haltestellentyp, sollHaltestelle, kompatibleHaltestellen,
       haltestelleStatus, haltestelleAbzug,
       haltestelleBreite, hsBreitenSoll, hsBreitenabzug, hsBreiteStatus,

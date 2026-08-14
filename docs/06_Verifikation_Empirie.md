@@ -90,24 +90,26 @@ T50 mit Parken        37.8    6459    72.8    9339     +35.0
 
 ## §2 Tram in der Fahrbahn — feel-safe % (N) mit vs. ohne Tram
 
-Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Schienen in der Fahrbahn. Malus [Notenstufen] = Δ / 14,4 (feel-safe-Punkte pro Note, wie in `fuehrungsform.ts`).
+Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Schienen in der Fahrbahn. Δ [Notenstufen] = Δ / 14,4 (feel-safe-Punkte pro Note, wie in `fuehrungsform.ts`) — eine Grössenangabe, seit 14.08.2026 nicht mehr die Regel selbst.
 
 **Mischverkehr**
 ```
-Kontext            mit (N)      ohne (N)      Δ  Malus
+Kontext            mit (N)      ohne (N)      Δ Δ/14,4
 Gesamt          7.5 (1635)   21.3 (1575)   13.8   0.96
 Tempo 30         9.4 (839)    27.1 (801)   17.7   1.23
 Tempo 50         5.4 (796)    15.2 (774)    9.8   0.68
 ```
 **Radstreifen**  _(Referenz: eigene RVA → kaum Effekt)_
 ```
-Kontext            mit (N)      ohne (N)      Δ  Malus
+Kontext            mit (N)      ohne (N)      Δ Δ/14,4
 Gesamt        67.0 (14775)  66.4 (14678)   -0.6  -0.04
 Tempo 30       68.5 (7437)   68.6 (7366)    0.1   0.01
 Tempo 50       65.5 (7338)   64.1 (7312)   -1.4   -0.1
 ```
 
-**Im Tool verdrahtet** (nur Mischverkehr): −1.2 bei Tempo ≤ 30, −0.7 bei Tempo > 30 — gerundete Tempo-Werte aus obiger Tabelle. Der „Gesamt"-Malus ist durch die Tempo-Mischung leicht überzeichnet; massgebend sind die tempo-kontrollierten Zeilen.
+**Im Tool verdrahtet** (nur Mischverkehr): Die Note ist auf höchstens **3** gedeckelt (`TRAM_DECKEL`), unabhängig vom Tempo — auf dem gemessenen Niveau (9,4 % bzw. 5,4 % feel-safe) ist keine bessere Note zu rechtfertigen. Ein Deckel kappt nur nach oben; eine ohnehin schlechtere Note bleibt. Dazu: Kaphaltestelle an einer Tram-Haltestelle ohne bauliche Trennung → Note **1** (`KAP_NOTE`).
+
+_Abgelöst am 14.08.2026_ (bis 13.08.2026): tempoabhängiger Malus von −1.2 bei Tempo ≤ 30 und −0.7 bei Tempo > 30 — die gerundeten Tempo-Werte aus obiger Tabelle. Die Umstellung gleicht den Online-Rechner an den lokalen Berner Rechner an; der Befund selbst ist unverändert.
 
 
 ## §5 Kalibrierung der Notenkette — jede Konstante aus `fuehrungsform.ts`
@@ -132,9 +134,9 @@ Anker gepoolt (Klassen-Mittel, wie FEELSAFE Mischverkehr/Radweg):
   geschützt T30          90.9 %  (N=7469)
   geschützt T50          90.9 %  (N=7517)
 
-Referenz-Anker Radstreifen (2,5 m ohne Parken, interpoliert): T30 77.2 · T50 73.1 → Code {'ruhig': 77, 'schnell': 73}
-Breitensatz Fahrbahn: (8.3, 10.1) Pkt/m (T30/T50) = (0.58, 0.7) Noten/m → Code 0.58 / 0.7
-Breitensatz baulich:  (5.0, 5.5) Pkt/m (T30/T50) = (0.35, 0.38) Noten/m → Code 0.35 / 0.38
+Referenz-Anker Radstreifen (2,5 m ohne Parken, interpoliert): gepoolt T30 77.2 · T50 73.1 · grau (Zwischenfassung) T30 71.4 · T50 65.9 · GESTRICHELT (gilt seit 12.08.2026, P10-U) T30 65.5 · T50 57.7 → Code {'ruhig': 65, 'schnell': 58}
+Breitensatz Fahrbahn: gepoolt (0.58, 0.7) · grau (0.59, 0.75) · GESTRICHELT ÷ 14,2 (0.66, 0.74) Noten/m (T30/T50) → Code 0.65 / 0.74 (T30 liegt hier auf der Rundungskante ≈ 0,655: die massgebende lokale Herleitung misst 9,3 Pkt/m → 0,65 — kontrolle_6a.py; Differenz = Pipeline-Rundung)
+Breitensatz baulich:  gepoolt (0.35, 0.38) · grau ÷ 14,2 (0.31, 0.43) · POLLER-ONLY ÷ 14,2 (0.24, 0.38) Noten/m (T30/T50; gilt seit 13.08.2026, P14 — derselbe Sperrpfosten-Pool wie der Radweg-Anker) → Code 0.24 / 0.38
 Parken-Offset T30 (3,5/2,0 m): (8.5, 28.8) Pkte = (0.59, 2.0) Noten · T50: (9.6, 29.6)
 → Code: pauschal 1,0 (PARKEN_ABZUG) — breitenabhängige Formel zurückgenommen, offener Punkt
 ```

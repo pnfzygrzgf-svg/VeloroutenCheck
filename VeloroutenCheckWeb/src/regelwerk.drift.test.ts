@@ -17,8 +17,8 @@
 import { describe, expect, it } from 'vitest'
 import regelwerk from '../../docs/regelwerk.json'
 import {
-  BREITE_SATZ, FEELSAFE, FUSSWEG_BASIS, HALTESTELLE_ABZUG, PARKEN_ABZUG,
-  PARKEN_RELEVANT, SCORE_PRO_NOTE, TRAM_MALUS, UMWELTSPUR_DECKE, UMWELTSPUR_TAKT,
+  BREITE_SATZ, FEELSAFE, FUSSWEG_BASIS, HALTESTELLE_ABZUG, KAP_NOTE, PARKEN_ABZUG,
+  PARKEN_RELEVANT, SCORE_PRO_NOTE, TRAM_DECKEL, UMWELTSPUR_DECKE, UMWELTSPUR_TAKT,
 } from './fuehrungsform'
 
 const param = regelwerk.parameter
@@ -48,9 +48,14 @@ describe('regelwerk.json spiegelt die Code-Konstanten (Parameter)', () => {
   it('fusswegBasis = FUSSWEG_BASIS', () => {
     expect(param.fusswegBasis.wert).toBe(FUSSWEG_BASIS)
   })
-  it('tramMalus (ruhig/schnell) = TRAM_MALUS', () => {
-    expect(param.tramMalus.ruhig).toBe(TRAM_MALUS.ruhig)
-    expect(param.tramMalus.schnell).toBe(TRAM_MALUS.schnell)
+  // 14.08.2026: Aus dem tempoabhängigen Malus {ruhig 1,2 / schnell 0,7} ist ein Deckel
+  // geworden, und die bisher nur lokale Kap-Regel gilt jetzt auch online (Angleichung an
+  // den Berner Rechner). Zwei Parameter statt einem — beide müssen mitgeführt werden.
+  it('tramDeckel = TRAM_DECKEL', () => {
+    expect(param.tramDeckel.wert).toBe(TRAM_DECKEL)
+  })
+  it('kapNote = KAP_NOTE', () => {
+    expect(param.kapNote.wert).toBe(KAP_NOTE)
   })
   it('parkenRelevant.formen = PARKEN_RELEVANT (gleiche Menge)', () => {
     expect([...param.parkenRelevant.formen].sort()).toEqual([...PARKEN_RELEVANT].sort())
