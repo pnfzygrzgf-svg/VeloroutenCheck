@@ -670,8 +670,9 @@ export function fuehrungsformNote(
   const meta = IST[ist]
 
   // ── Breite: Untergrenze je Routentyp (+ optionale Obergrenze, nur Velostrasse-Band). Abzug
-  // (linear) = Abweichung ausserhalb des Bereichs × BREITE_SATZ der feel-safe-Klasse (0,6 auf
-  // der Fahrbahn, 0,35 hinter baulicher Trennung, 0,9 normativ für Fahrgassen-Bänder).
+  // (linear) = Abweichung ausserhalb des Bereichs × BREITE_SATZ der feel-safe-Klasse UND des
+  // Tempos (0,65/0,74 auf der Fahrbahn, 0,24/0,38 hinter baulicher Trennung, 0,9 normativ für
+  // Fahrgassen-Bänder; Kommentar nachgezogen 07.09.2026, vorher stand hier noch 0,6/0,35).
   // «Zu schmal» stützt sich auf den feel-safe-Gradienten; «zu breit» (nur Velostrasse) ist
   // normativ, gleicher Satz.
   // Breiten-Sollwerte: stadtspezifischer Override je Feld, sonst Berner Wert (IST).

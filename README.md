@@ -65,15 +65,19 @@ Mit „In Strecke übernehmen" werden die gewählten Segmente entlang der Strass
 - **Geoportal** (zum Beispiel Geoinformation Stadt Bern, blau),
 - **OSM** (OpenStreetMap, grau),
 - **opentransportdata** (Fahrplan, für den Bus-Takt, grün),
+- **Markierung** (nur Bern, nur lokal: Velostreifen-Snapshot, siehe [`velostreifen.ts`](VeloroutenCheckWeb/src/velostreifen.ts)),
+- **angenommen ≤ 2000** (nur Bern: DTV-Annahme, siehe [Bern](#bern)),
 - kein Chip, sobald das Feld manuell geändert wurde.
 
 Leere Pflichtfelder zeigen „Eingabe nötig".
 
 **Karten-Hilfen.** Mehrere Abschnitte sind auf der Karte **nummeriert** (passend zu „Abschnitt 1/2/3" im Rechner). Beim Überfahren einer Abschnittskarte mit der Maus werden die zugehörigen Segmente hervorgehoben — so lassen sich automatisch befüllte Werte gezielt pro Abschnitt prüfen und korrigieren. ÖV-Haltestellen erscheinen als Marker. Die Linienfarben zeigen die Ist-Führungsform (aus OSM).
 
-**Wann erscheint die Note?** Erst wenn die nötigen Felder gefüllt sind: **DTV, Tempo, Führungsform und Breite** — ausser bei **Mischverkehr**, da diese Führungsform keine Breiten-Vorgabe hat. Bis dahin steht „Eingabe nötig". Solange ein Abschnitt unvollständig ist, bleibt auch die Strecken-Note offen.
+**Wann erscheint die Note?** Erst wenn die nötigen Felder gefüllt sind (`sectionComplete` in [`App.tsx`](VeloroutenCheckWeb/src/App.tsx)): die **Führungsform** immer; **DTV und Tempo** bei allen Formen ausser Umweltspur und Fussweg Velo gestattet (`brauchtDtvTempo`); die **Breite** bei allen Formen mit Breitenvorgabe — nicht bei Mischverkehr und nicht bei «Einbahn Velogegenverkehr ohne Markierung» (`brauchtBreite`). Stadtspezifisch: In **Bern** gilt ein fehlender DTV bei bekanntem Tempo als ≤ 2'000 (siehe [Bern](#bern)); in **Basel** ist der DTV nie Pflicht, dafür der **Strassentyp**. Bis dahin steht „Eingabe nötig". Solange ein Abschnitt unvollständig ist, bleibt auch die Strecken-Note offen.
 
 **Strecken-Note.** Die Strecke erhält die Note ihres **schlechtesten Abschnitts**. Angezeigt werden jede Abschnitts-Note einzeln, die Strecken-Note und der massgebende (schlechteste) Abschnitt.
+
+**Andere Standards.** Unter der Note steht dieselbe Bewertung nach den Standards der drei anderen Städte (Kürzel + Note, `vergleichsNoten` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)); ein aufklappbares „Warum?" nennt die Treiber einer Abweichung (andere Soll-Führungsform, andere Soll-Breite, andere Haltestellen-Regel). Reine Zusatzinformation. Fehlt der Basler Strassentyp, wird er aus dem Verkehr geschätzt (`baselStrassentypAusVerkehr`: Tempo > 30 oder DTV ≥ 5'000 → verkehrsorientiert), was in der Zeile ausgewiesen wird.
 
 **CSV-Export.** „Als CSV exportieren" lädt alle Abschnitte mit Eingaben, Herkunft, Soll-Führungsform, Note und den OpenBikeSensor-Überholabständen als `.csv` herunter.
 
@@ -86,8 +90,8 @@ Leere Pflichtfelder zeigen „Eingabe nötig".
 Welche Führungsform ist vorgesehen? **Jede Stadt hat ihre eigene Soll-Tabelle** — sie folgt dem jeweiligen Standard-Dokument und wird über `fuehrungsart(dtv, v, stadt, route, strassentyp)` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts) ausgewählt. Die Eingangsgrössen unterscheiden sich je Stadt:
 
 - **Bern & Luzern** — DTV MIV × Tempo (Luzern vereinfacht auf drei Zonen: Mischverkehr / Markierung / bauliche Trennung).
-- **Zürich** — je **Routentyp** (Vorzugsroute / Hauptnetz), nicht DTV-basiert.
-- **Basel** — **strassentyp**-basiert (verkehrs- vs. siedlungsorientiert) × Routentyp (Tab. 3, S. 15).
+- **Zürich** — je **Routentyp** (Vorzugsroute / Hauptnetz) eine eigene Matrix aus DTV × Tempo (`fuehrungsartZuerich`).
+- **Basel** — **strassentyp**-basiert (verkehrs- vs. siedlungsorientiert) × Routentyp (Tab. 3, S. 15); DTV und Tempo spielen für die Soll-Wahl keine Rolle.
 
 Die stadtspezifischen Soll-Regeln und die zugrunde liegenden Dokumente stehen unter [Datenherkunft je Stadt](#datenherkunft-je-stadt). Die **feel-safe-Anker und die Note-Mechanik** (Kap. 2–3) sind dagegen **stadtübergreifend** identisch.
 
@@ -107,6 +111,22 @@ im kleinsten, das den Abschnitt enthält — die **strengere der beiden Achsen**
 DTV-Band. Die drei DTV-Grenzen folgen dem Fliesstext, nicht der Pixelkante: 2'000 ist **schon**
 Radstreifen («verkehrsarme Strassen (DTV < 2'000)»), 10'000 ist **noch** Übergang («stark belastete
 Strassen (DTV > 10'000)»), und zu 5'000 schweigt der Text — dort gilt die Bandgrenze des Schemas.
+
+*Zürich* (Velostandards, Abb. 1 S. 14) — je Routentyp; Tempo > 50 immer Radweg:
+
+```
+Velovorzugsroute (→ Velohauptroute)      ≤ 30 km/h                 31–50 km/h
+  DTV < 2'500                            Mischverkehr              Radstr./Radweg
+  DTV 2'500–7'500                        Radstr./Radweg            Radstr./Radweg
+  DTV ≥ 7'500                            Radstr./Radweg            Radweg
+Hauptnetz (→ Veloroute)
+  DTV < 5'000                            Mischverkehr              Radstr./Radweg
+  DTV ≥ 5'000                            Radstr./Radweg            Radstr./Radweg
+```
+
+*Luzern* (Anwendungshilfe S. 29, auf die Berner Formen vereinfacht: Markierung = Radstreifen) — Radweg ab DTV ≥ 15'000, bei 41–50 km/h schon ab 10'000 und immer bei > 50 km/h; Mischverkehr nur bei ≤ 30 km/h und DTV < 5'000 bzw. bei 31–40 km/h und DTV < 2'000; dazwischen Radstreifen (`fuehrungsartLuzern`).
+
+*Basel* — siehe [Basel](#basel) (`fuehrungsartBasel`).
 
 ### 2. Führungsform-Note (Ist gegen Soll)
 
@@ -226,19 +246,21 @@ Bei Tempo > 30 (schnell):
 
 ```
 Soll \ Ist                Mischverkehr   Radstreifen   Radweg
-Radstreifen                   2.0            6.0         6.0
-Radstreifen oder Radweg       1.0            5.5         6.0
-Radweg                        1.0            5.0         6.0
+Radstreifen                   3.0            6.0         6.0
+Radstreifen oder Radweg       2.0            5.0         6.0
+Radweg                        1.0            4.0         6.0
 ```
 
 Bei Tempo ≤ 30 (ruhig) fallen dieselben Abweichungen milder aus:
 
 ```
 Soll \ Ist                Mischverkehr   Radstreifen   Radweg
-Radstreifen                   2.0            6.0         6.0
-Radstreifen oder Radweg       1.5            5.5         6.0
-Radweg                        1.0            5.0         6.0
+Radstreifen                   3.0            6.0         6.0
+Radstreifen oder Radweg       2.0            5.0         6.0
+Radweg                        1.5            4.0         6.0
 ```
+
+<sub>Nachgerechnet am 07.09.2026 mit den Ankern 24/13 · 65/58 · 90/84 und Kurs 14,2 (Übergang = Mittel 77,5 / 71); vor Breiten-, Parkierungs- und Haltestellen-Abzügen. Die bis dahin abgedruckten Tabellen stammten noch aus der Kette 77/73 mit Kurs 14,4.</sub>
 
 ### 3. Breiten-Abzug und Parkierung
 
@@ -252,7 +274,9 @@ Radstreifen                  Q1     2.50      1.80
 Radweg strassenbegl. / Gesch. Radstreifen  Q2  2.50   1.80
 Radweg abgesetzt                           Q3  2.50   1.50
 Umweltspur (Bus+Velo)        Q4     4.50      3.75   (DTV/Tempo n.r.; siehe Bus-Takt)
+Einbahn mit Velogegenverkehr Q7     2.00      1.80   (mit Markierung bzw. baulicher Trennung; ohne Markierung keine Breite)
 Velostrasse                  Q9     Band 4.50–6.50 m (Min u. Max, beide Routentypen; nur Tempo 30)
+Zweirichtungsradweg          Q10    4.50      3.20   (baulich getrennt, beide Richtungen; Rang wie Radweg)
 Kombinierter Fuss-/Radweg    Q11    3.50      3.50   (Bern/Luzern; Basel 6.00/4.80; KEIN Note-4-Deckel)
 Fussweg Velo gestattet       Q12    3.50      3.50   (DTV/Tempo n.r.; Mischfläche, max. Note 4)
 Mischverkehr                 Q6     –         –      (keine Breitenvorgabe)
@@ -266,7 +290,7 @@ Defizit_m    = max(0, Sollbreite − Ist-Breite)
 Breitenabzug = Defizit_m × Satz der feel-safe-Klasse UND des Tempos:
                                               ≤ 30 km/h   > 30 km/h
                  auf der Fahrbahn                 0,65        0,74    (Radstreifen, Einbahn mit Markierung)
-                 hinter baulicher Trennung        0,24        0,38    (Radwege, Fuss-/Radwege)
+                 hinter baulicher Trennung        0,24        0,38    (Radwege, Zweirichtungsradweg, Fuss-/Radwege, Einbahn mit baulicher Trennung)
                  Fahrgassen-Bänder                0,9         0,9     (Velostrasse, Umweltspur; normativ)
 Endnote      = runde_0,5( Führungsform-Note − Breitenabzug , begrenzt 1…6 )
 ```
@@ -344,7 +368,7 @@ Tempo 50                  15,2 %                5,4 %          9,8     ≈ 0,7
 (N je Zelle ≈ 800–2'900; Vergleich bei gleichem Aufkommen)
 ```
 
-→ **Deckel: höchstens Note 3**, nur Mischverkehr, tempo-unabhängig. Konstante `TRAM_DECKEL`, tunbar. Auf einem Niveau von 9,4 % bzw. 5,4 % feel-safe lässt sich keine bessere Note begründen — und ein Deckel kappt nur nach oben, statt eine ohnehin schlechte Note weiter zu drücken. Dazu: **Kaphaltestelle an einer Tram-Haltestelle** ohne bauliche Trennung → **Note 1** (`KAP_NOTE`), weil das Velo dort über die Schienen an die Haltekante gedrängt wird, während Fahrgäste ein- und aussteigen.
+→ **Deckel: höchstens Note 3**, nur Mischverkehr, tempo-unabhängig. Konstante `TRAM_DECKEL`, tunbar. Auf einem Niveau von 9,4 % bzw. 5,4 % feel-safe lässt sich keine bessere Note begründen — und ein Deckel kappt nur nach oben, statt eine ohnehin schlechte Note weiter zu drücken. Dazu: **Kaphaltestelle an einer Tram-Haltestelle** ohne bauliche Trennung → **Note 1** (`KAP_NOTE`), weil das Velo dort über die Schienen an die Haltekante gedrängt wird, während Fahrgäste ein- und aussteigen. Auslöser ist der Berner Typ «Kaphaltestelle» (HS3) zusammen mit **einem** der beiden Tram-Merkmale, «Tram in der Fahrbahn» oder ÖV-Angebot «Tram»; der Basler Typ «Kap» löst die Regel nicht aus.
 
 > _Seit 14.08.2026._ Vorher wirkte der Befund als tempoabhängiger Abzug (−1,2 / −0,7, `TRAM_MALUS`). Die Umstellung gleicht den Online-Rechner an den lokalen Berner Rechner an; der Befund selbst ist unverändert. Vollständiger Rechenweg und Reproduktion: `tools/verify_06.py` (§2) bzw. `docs/07_Tram_in_der_Fahrbahn.md`.
 
@@ -352,7 +376,7 @@ Tempo 50                  15,2 %                5,4 %          9,8     ≈ 0,7
 
 #### Umweltspur (Q4, Bus+Velo)
 
-DTV und Tempo sind **nicht massgebend**, sondern der **Bus-Takt** (zusätzliches Feld öV-Takt [Min]) und die Breite. Die Eignung sinkt mit steigender Busfrequenz (kürzerem Takt) und ist nach oben gedeckelt, davon der Breiten-Abzug (× 0,9). **Decke und Takt-Modell sind stadtspezifisch** (Konstanten `UMWELTSPUR_DECKE` und `UMWELTSPUR_TAKT`): Bern rechnet mit **Stufen**, Zürich und Luzern mit einer **Rampe** (`umweltspurBasis()`) — Note 1 bei Takt ≤ `taktNote1`, die Decke ab Takt ≥ `taktOk`, linear dazwischen. Ohne Takt-Angabe gilt die Decke — ein eingetragener Takt kann die Note nur senken.
+DTV und Tempo sind **nicht massgebend**, sondern der **Bus-Takt** (zusätzliches Feld öV-Takt [Min]) und die Breite. Die Eignung sinkt mit steigender Busfrequenz (kürzerem Takt) und ist nach oben gedeckelt, davon der Breiten-Abzug (× 0,9). **Decke und Takt-Modell sind stadtspezifisch** (Konstanten `UMWELTSPUR_DECKE` und `UMWELTSPUR_TAKT`): Bern rechnet mit **Stufen**, Zürich und Luzern mit einer **Rampe** (`umweltspurBasis()`) — Note 1 bei Takt ≤ `taktNote1`, die Decke ab Takt ≥ `taktOk`, linear dazwischen. Ohne Takt-Angabe gilt die Decke — ein eingetragener Takt kann die Note nur senken; ein Takt ≤ 0 zählt als «nicht erfasst».
 
 | Stadt | Takt-Modell | Quelle / Herleitung |
 |---|---|---|
@@ -379,11 +403,26 @@ Gemeinsam genutzter, baulich **vom MIV abgesetzter** Geh-/Radweg (OSM: `path`/`f
 
 Mischfläche Fuss/Velo, Kompromiss-/Restlösung → höchstens **Note 4 («genügend»)**, davon Breiten-Abzug (Vorgabe ≥ 3,50 m, beide Routentypen). Die situativen **Voraussetzungen** werden als Hinweis-Checkliste angezeigt (kein Noteneinfluss): erhöhtes Schutzbedürfnis Velo (z. B. Schulwege), geringe Fuss-/Velofrequenz, Steigung oder kein Gefälle, etablierte/konfliktarme Situation, ausreichende Breite (≥ 3,50 m), fehlende Alternativen; zusätzlich der Hinweis: **bei Gefälle besondere Vorsicht** (hohe Differenzgeschwindigkeit Velo ↔ Fuss). Normativ (keine FixMyCity-Daten für Mischflächen verwendet).
 
+#### Einbahn mit Velogegenverkehr (Q7)
+
+Dreistufig, je nach Sicherung der Gegenrichtung (`GEGENVERKEHR_FORMEN`): **ohne Markierung** = Rang wie Mischverkehr, keine Breitenvorgabe; **mit Markierung** = Rang wie Radstreifen (Fahrbahn-Satz); **mit baulicher Trennung** = Rang wie Radweg. Regelbreiten Bern 2,00 / 1,80 m, Stadt-Überschreibungen: Zürich 1,80 / 1,80, Basel 2,50 / 1,80, Luzern 2,50 / 2,00. Wird **nicht** automatisch aus OSM erkannt (ein Contraflow-Streifen fällt auf die zugrunde liegende Anlage zurück), sondern im Dropdown von Hand gewählt; Vorgabe «mit Markierung».
+
+#### Zweirichtungsradweg (Q10)
+
+Baulich vom MIV getrennt und in beiden Richtungen befahrbar → höchste Separation (Rang wie Radweg), erfüllt jedes Soll; die Note steuert allein die Breite, 4,50 (Velohauptroute) / 3,20 m (Veloroute). Aus OSM nur bei ausdrücklichem `oneway=no` bzw. `oneway:bicycle=no` an einem `cycleway` erkannt; ein `cycleway` ohne Angabe bleibt «Radweg abgesetzt».
+
 ### 5. Haltestellen (ÖV)
 
 Zum Abschnitt gehört der Umgang mit **ÖV-Haltestellen**. Eingabe **ÖV-Angebot**: keine Haltestelle / Bus ≥ 15 Min / Bus 5–15 Min / Bus < 5 Min / Tram; bei vorhandener Haltestelle zusätzlich der **Haltestellentyp**.
 
-Die Haltestellen-Logik unten (Soll-Lösung, Typologie, Abzüge) folgt dem **Berner** Masterplan. Stadtspezifisch: **Bern/Luzern** mit automatischer Soll-Lösung (Takt × Route, Luzern ohne Tram), **Zürich/Basel** ohne automatischen Abzug — dort nur Typ-Auswahl + Breite.
+Die Haltestellen-Logik unten (Soll-Lösung, Typologie, Abzüge) folgt dem **Berner** Masterplan. Stadtspezifisch: **Bern/Luzern** mit automatischer Soll-Lösung (Takt × Route, Luzern ohne Tram), **Zürich/Basel** ohne automatischen Abzug — dort nur Typ-Auswahl + Breite. Jede Stadt hat ihre **eigene Typenliste** (`HALTESTELLEN`), mit Einsatzfamilie und Breitenvorgabe (Optimal / Minimal):
+
+| Stadt | Separate Velofläche (mit Breite) | Mischverkehr-Familie |
+|---|---|---|
+| **Bern** | HS1 Veloumfahrung 1,8/1,6 · HS2 Kap mit Veloüberfahrt 1,8/1,5 · HS4 rückwärtiger Radweg 2,5/1,6 · HS5 Inselhaltestelle 2,5/1,5 | HS3 Kaphaltestelle · HS6 Fahrbahnhaltestelle Bus · HS7 Busbucht |
+| **Zürich** | Fahrbahnhaltestelle mit Veloumfahrung 1,8/1,5 · mit Veloüberfahrt 1,8/1,5 | Fahrbahnhaltestelle mit Veloführung auf Fahrbahn |
+| **Basel** | Velobypass 1,6/1,2 · Velo-Zeitinsel 2,05/1,65 · Inselhaltestelle 1,8/1,6 | Kap |
+| **Luzern** | Veloumfahrung 1,8/1,5 · rückwärtiger Radweg 2,5/1,6 | Fahrbahnhaltestelle · Fahrbahnhaltestelle in der Umweltspur · Busbucht |
 
 **Soll-Veloverkehrslösung** (Bern, aus dem Masterplan-Diagramm, S. 63):
 
@@ -413,13 +452,13 @@ HS7  Busbucht                            Mischverkehr         –         –
 **Noteneinfluss (zwei unabhängige Abzüge):**
 
 - **Einsatzbereich:** Abzug **−1,0**, wenn die Soll-Lösung *Separate Velofläche* verlangt, der vorhandene Typ aber aus der **Mischverkehr-Familie** (HS3/HS6/HS7) stammt. Über-Erfüllung und der Übergangsbereich geben keinen Abzug.
-- **Breite der Veloführung an der Haltestelle:** nur bei HS1/HS2/HS4/HS5. Zu schmal → Abzug
-  `Defizit_m × 0,6` (Satz der markierten Velofläche auf Fahrbahnniveau). Der Masterplan nennt für
+- **Breite der Veloführung an der Haltestelle:** nur bei Typen mit Breitenvorgabe (Bern: HS1/HS2/HS4/HS5) und nur, solange ein ÖV-Angebot gewählt ist. Zu schmal → Abzug
+  `Defizit_m × Fahrbahn-Satz` (markierte Velofläche auf Fahrbahnniveau → Radstreifen-Satz `BREITE_SATZ`, tempoabhängig **0,65** bei ≤ 30 km/h, **0,74** bei > 30 km/h). Der Masterplan nennt für
   HS1/HS4 den Bereich 1,8–2,5 m; der Rechner rechnet mit einem konkreten Sollwert je Typ
   (HS1: 1,8 · HS4: 2,5 — `HALTESTELLEN` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)).
 
 > Normativ: zu Haltestellen gibt es keine FixMyCity-Daten → Schwellen aus dem Masterplan bzw.
-> gesetzt. Parameter `HALTESTELLE_ABZUG` und `NOTE_PRO_METER`, tunbar.
+> gesetzt. Parameter `HALTESTELLE_ABZUG` (1,0) und `BREITE_SATZ`, tunbar.
 
 ---
 
@@ -466,13 +505,15 @@ DTV = round(16 × Nt + 8 × Nn)
 
 Empirisch per Least-Squares-Regression gegen einen GeoPackage-Export hergeleitet (1186 Segmente, max. Abweichung 1,2 Fahrzeuge, Mittel 0,42) und cross-validiert gegen die Jahresauswertung der Messstelle Thunstrasse 100 (gemessen 17'191, Formel 17'190). DTV ist **partiell** — er greift nur auf Strassen mit DTV > 2'000 Mfz/Tag bzw. im Stadtteil 1 (Altstadt); die Werte sind „nur eine Grössenordnung, keine verbindlichen Zählresultate".
 
-**ÖV: Tram und Bus-Takt.** Der Layer **Haltestellen** liefert die Marker, **OeV_Linien** den Modus entlang des Segments (`Verkehrsmittel_typ`). Verläuft eine **Tram**-Linie entlang und liegt eine Haltestelle im Abschnitt, wird das ÖV-Angebot automatisch auf „Tram" gesetzt. Für **Bus** kommt der **Takt** aus dem GTFS-Snapshot (`oev_takt_bern.json`, flach `{ BPUIC → Bus-Fahrten/h }`, via [`tools/oev_takt.py`](tools/oev_takt.py)): Bus-Abfahrten in der Abendspitze 17:00–18:00 an einem Werktag (Di), in der stärksten Einzelrichtung; Join über die Haltestellen-`Id_opendata` (= BPUIC). Frequenzband: ≤ 4/h → `bus_ab15`, 5–12/h → `bus_5_15`, > 12/h → `bus_unter5`. OSM kennt zwar Linien und Haltestellen, aber keinen Takt — daher der Fahrplan.
+**DTV-Annahme.** Weil der Layer alle Strassen mit DTV > 2'000 und alle Altstadt-Strassen führt, gilt **kein Eintrag** bei bekanntem Tempo als **DTV ≤ 2'000**: Der Rechner rechnet dann mit dem Repräsentanten `DTV_ANGENOMMEN = 1000` (jeder Wert < 2'000 ergibt dasselbe Soll) und zeigt den Chip „angenommen ≤ 2000". Das gilt nur, wenn der Verkehrsdaten-Layer beim Anreichern erreichbar war (`bernDtvLayerOk`); bei einem Ausfall bleibt das Feld leer.
+
+**ÖV: Tram und Bus-Takt.** Der Layer **Haltestellen** liefert die Marker, **OeV_Linien** den Modus entlang des Segments (`Verkehrsmittel_typ`). Verläuft eine **Tram**-Linie entlang und liegt eine Haltestelle im Abschnitt (nächste Haltestelle ≤ 30 m vom Segment, `STOP_DIST_M`), wird das ÖV-Angebot automatisch auf „Tram" gesetzt. Für **Bus** kommt der **Takt** aus dem GTFS-Snapshot (`oev_takt_bern.json`, flach `{ BPUIC → Bus-Fahrten/h }`, via [`tools/oev_takt.py`](tools/oev_takt.py)): Bus-Abfahrten in der Abendspitze 17:00–18:00 an einem Werktag (Di), in der stärksten Einzelrichtung; Join über die Haltestellen-`Id_opendata` (= BPUIC). Frequenzband: ≤ 4/h → `bus_ab15`, 5–12/h → `bus_5_15`, > 12/h → `bus_unter5`. OSM kennt zwar Linien und Haltestellen, aber keinen Takt — daher der Fahrplan.
 
 ### Zürich
 
 Quellen je Feld siehe [Matrix](#datenherkunft-je-stadt): **Routentyp** live aus der **Velonetzplanung** (WFS `ogd.stadt-zuerich.ch`, `view_velonetz`); **DTV** live aus den **Verkehrsmessstellen** des Kantons ZH (OGD-WFS `ogd-0223_..._verkehrsmessstellen_p`, Feld `dtv`, partiell); Tempo/Ist-Führungsform/Breite aus OSM (Breite nur bei seltenem `cycleway:*:width`-Tag); Tram/Haltestelle aus OSM; **Bus-Takt** aus dem georeferenzierten GTFS-Snapshot (`oev_takt_zurich.json`, der OSM-Haltestelle per nächstem Punkt ≤ 80 m zugeordnet).
 
-**Routentyp-Mapping Zürich → Masterplan.** Der Zürcher Velonetzplan kennt drei Netzkategorien (Velostandards Stadt Zürich, S. 7); sie werden auf die beiden Masterplan-Routentypen übersetzt, weil der Routentyp im Modell nur die massgebliche Breiten-Untergrenze (Optimal/Minimal) und die Haltestellen-Soll-Lösung steuert:
+**Routentyp-Mapping Zürich → Masterplan.** Der Zürcher Velonetzplan kennt drei Netzkategorien (Velostandards Stadt Zürich, S. 7); sie werden auf die beiden Masterplan-Routentypen übersetzt; der Routentyp steuert in Zürich die Soll-Führungsform (eigene Matrix je Routentyp, siehe [Soll-Führungsform](#1-soll-führungsform)), die massgebliche Breiten-Untergrenze (Optimal/Minimal) und die Haltestellen-Typenliste:
 
 | Zürich `kategorie` | → Routentyp |
 |---|---|
@@ -486,8 +527,10 @@ Quellen je Feld siehe [Matrix](#datenherkunft-je-stadt): **Routentyp** live aus 
 |---|---|---|
 | Radstreifen · Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 2,20 m |
 | Umweltspur | 4,80 m | 4,50 m |
+| Kombinierter Fuss-/Radweg | 3,50 m | 3,50 m |
+| Einbahn mit Velogegenverkehr (markiert / baulich) | 1,80 m | 1,80 m |
 
-Wo Zürich keine eigene Vorgabe hat (Velostrasse-Band 4,50–6,50 m, Fussweg Velo gestattet, Mischverkehr), gelten weiterhin die **Berner Werte** (Fallback je Feld). Implementiert als `BREITEN_ZUERICH` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts), übergeben über den `breiten`-Eintrag der Stadt-Registry. Die **Soll-Führungsform** folgt der **Zürcher** Tabelle (je Routentyp, `fuehrungsartZuerich`); die feel-safe-Logik bleibt stadtübergreifend.
+Wo Zürich keine eigene Vorgabe hat (Velostrasse-Band 4,50–6,50 m, Zweirichtungsradweg, Fussweg Velo gestattet, Mischverkehr), gelten weiterhin die **Berner Werte** (Fallback je Feld). Implementiert als `BREITEN_ZUERICH` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts), übergeben über den `breiten`-Eintrag der Stadt-Registry. Die **Soll-Führungsform** folgt der **Zürcher** Tabelle (je Routentyp eine DTV × Tempo-Matrix, `fuehrungsartZuerich`); die feel-safe-Logik bleibt stadtübergreifend.
 
 
 
@@ -505,13 +548,16 @@ Routentyp live aus dem **Teilrichtplan Velo** (WFS `wfs.geo.bs.ch`, Bestandsnetz
 
 Gemäss Velokonzept Basel-Stadt sind Basis- und Pendlerrouten **nicht** hierarchisiert (verschiedene Nutzergruppen, gleiche Stufe) → beide werden zur **Veloroute**. Die qualitativ höherwertigen **Velovorzugsrouten** (= Velohauptroute) sind weder im WFS/WMS noch auf data.bs.ch als Geodaten publiziert und können daher nicht automatisch gesetzt werden.
 
-**Breiten-Sollwerte (Basel).** Standards Fuss- und Veloverkehrsinfrastruktur Basel-Stadt (2024), Tab. 4 — Standardmass (→ Velohauptroute) / reduziertes Standardmass (→ Veloroute); Velostrasse-Band und Fussweg → Bern-Fallback (`BREITEN_BASEL` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)):
+**Breiten-Sollwerte (Basel).** Standards Fuss- und Veloverkehrsinfrastruktur Basel-Stadt (2024), Tab. 4 — Standardmass (→ Velohauptroute) / reduziertes Standardmass (→ Veloroute); Fussweg, Zweirichtungsradweg und das Velostrassen-Maximum 6,50 m → Bern-Fallback (`BREITEN_BASEL` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)):
 
 | Führungsform | Velohauptroute | Veloroute |
 |---|---|---|
 | Radstreifen | 2,50 m | 1,80 m |
 | Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 2,20 m |
 | Umweltspur | 4,50 m | 3,00 m |
+| Kombinierter Fuss-/Radweg | 6,00 m | 4,80 m |
+| Velostrasse (Nettobreite Fahrgasse) | 4,50 m | 4,30 m |
+| Einbahn mit Velogegenverkehr (markiert / baulich) | 2,50 m | 1,80 m |
 
 ### Luzern
 
@@ -533,7 +579,9 @@ Das OGD-Feld `VELO_ROUTENTYP` (Stadt Luzern) hat drei Werte; sie werden auf die 
 | Radstreifen · Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 1,80 m |
 | Umweltspur | 4,50 m | 3,75 m |
 | Velostrasse | 4,50 m | 4,50 m |
+| Kombinierter Fuss-/Radweg | 3,50 m | 3,50 m |
 | Fussweg Velo gestattet | 3,50 m | 3,50 m |
+| Einbahn mit Velogegenverkehr (markiert / baulich) | 2,50 m | 2,00 m |
 
 ### OpenBikeSensor (gemessene Überholabstände)
 
@@ -558,9 +606,11 @@ Die Überholabstände sind **reine Zusatzinformation** und fliessen **nicht** in
 | **Velonetz Stadt Luzern** | Routentyp (Luzern) | OGD Stadt Luzern, ArcGIS REST `map.stadtluzern.ch` (live) | **Open Government Data** — Quellenangabe: „Geodaten Stadt Luzern" |
 | **GTFS Fahrplan** | Bus-Takt (Abendspitze) → ÖV-Angebot-Band | [opentransportdata.swiss](https://opentransportdata.swiss/), Snapshots `VeloroutenCheckWeb/public/oev_takt_{bern,zurich,basel,luzern}.json` (via `tools/oev_takt.py`) | Open data — opentransportdata.swiss |
 | **OpenBikeSensor** | Gemessene Überholabstände (Info, nicht in der Note) | Portal-Export, Snapshots `VeloroutenCheckWeb/public/obs_bern.json`, `obs_zurich.json` | „© OpenBikeSensor-Mitwirkende" |
-| **CyclOSM** | Kartenhintergrund | Tile-Server (live) | © OpenStreetMap-Mitwirkende · Stil: CyclOSM |
+| **CyclOSM** | Kartenhintergrund (Standard) | Tile-Server (live) | © OpenStreetMap-Mitwirkende · Stil: CyclOSM |
+| **swisstopo SWISSIMAGE** | Kartenhintergrund „Orthofoto" (wählbar) | WMTS `wmts.geo.admin.ch` (live) | © swisstopo |
+| **CARTO Positron** | Kartenhintergrund „Hell" (wählbar) | `basemaps.cartocdn.com` (live) | © OpenStreetMap-Mitwirkende · © CARTO |
 
-Die Pflicht-Attributionen werden in der App angezeigt: die Karten-Attribution (OSM/CyclOSM) unten rechts auf der Karte, die Herkunft der übrigen Werte über die Feld-Chips und die Status-/Lade-Meldung.
+Die Pflicht-Attributionen werden in der App angezeigt: die Karten-Attribution des gewählten Hintergrunds unten rechts auf der Karte, die Herkunft der übrigen Werte über die Feld-Chips und die Status-/Lade-Meldung.
 
 ### Nutzungsstatistik (GoatCounter)
 
@@ -576,7 +626,7 @@ auf der Einstiegsseite.
 
 ## Offene Punkte
 
-- **Parken × Breite** — der Effekt ist gemessen (0,6 Noten bei 3,5 m, 2,0 bei 2,0 m), aber **nicht umgesetzt**: Die Befragung kennt nur diese zwei Breiten, der reale Bestand liegt fast vollständig darunter, und ein dritter Messpunkt (Mischverkehr ≈ 0,15) widerspricht der Verlängerung nach unten. Es braucht Szenen unter 2,0 m Streifenbreite; bis dahin gilt die Pauschale −1,0 (Stand 09.08.2026, siehe Kapitel «Parkierung rechts»). Die Breitensätze selbst bleiben parken-bereinigt geschnitten (0,6/0,35).
+- **Parken × Breite** — der Effekt ist gemessen (0,6 Noten bei 3,5 m, 2,0 bei 2,0 m), aber **nicht umgesetzt**: Die Befragung kennt nur diese zwei Breiten, der reale Bestand liegt fast vollständig darunter, und ein dritter Messpunkt (Mischverkehr ≈ 0,15) widerspricht der Verlängerung nach unten. Es braucht Szenen unter 2,0 m Streifenbreite; bis dahin gilt die Pauschale −1,0 (Stand 09.08.2026, siehe Kapitel «Parkierung rechts»). Die Breitensätze selbst bleiben parken-bereinigt geschnitten (0,65/0,74 auf der Fahrbahn, 0,24/0,38 hinter baulicher Trennung).
 - **«Velo rechts vom Parken»** als eigene, bessere Parken-Lage aufnehmen (empirisch ≈ 92, aber nur 6 Szenen → erst mit besserer Datenlage).
 - **Velostrasse «zu breit»:** der Abzug über der Maximalbreite (6,50 m) ist normativ gesetzt (gleicher Satz wie «zu schmal») — bei Bedarf eigener Satz/Schwelle.
 - **«Radweg abgesetzt» (Q3) — nicht der Anker, sondern die Feel-Safe-Anzeige prüfen:** Im Seitenraum wird dieselbe Bauform tiefer beurteilt (76,9 % über alle Kameras, 81,6 % im Velo-Schnitt) als auf Poller-Niveau (≈ 90). Für die **Note** ist das folgenlos: Der Anker wirkt dort nur als Zielwert, und ein Radweg erfüllt jedes Soll, bevor ein Anker gelesen wird. Seit P11-A (13.08.2026) enthält der «schnell»-Anker (84) den Seitenraum bereits — die **Feel-Safe-Anzeige** liest für Seitenraum-Formen bei «ruhig» (90) weiterhin einen eher zu hohen Ist-Wert. <sub>Formulierung korrigiert am 10.08.2026: Zuvor stand hier ein «Berliner Abschlag», den man für Bern nicht übernehme — es gibt keine getrennte Berliner Quelle, die ganze Befragung ist Berlin, und die Begründung über den Berner Bestand war eine Annahme.</sub>
@@ -612,14 +662,14 @@ Stack: React 18, Vite 5, TypeScript (strict).
 | [`VeloroutenCheckWeb/src/obs.ts`](VeloroutenCheckWeb/src/obs.ts) | OpenBikeSensor-Überholabstände |
 | [`VeloroutenCheckWeb/src/velostreifen.ts`](VeloroutenCheckWeb/src/velostreifen.ts) | Bern: lokaler Velostreifen-Snapshot (`public/velostreifen_bern.json`, **gitignored**) → Ist-Führungsform + Breite mit Chip **„Markierung"**. Fehlt die Datei (öffentlicher Build/Prod), ist die Quelle stumm — Dev und Prod können sich hier unterscheiden |
 | [`VeloroutenCheckWeb/src/geo.ts`](VeloroutenCheckWeb/src/geo.ts) | Geometrie-Helfer (Überlappungs-Matching) |
-| [`VeloroutenCheckWeb/src/fuehrungsform.test.ts`](VeloroutenCheckWeb/src/fuehrungsform.test.ts) | Vitest-Tests der Bewertungslogik (`npm test`) |
+| [`VeloroutenCheckWeb/src/fuehrungsform.test.ts`](VeloroutenCheckWeb/src/fuehrungsform.test.ts) | Vitest-Tests der Bewertungslogik (`npm test`; Stand 07.09.2026: 177 Tests in drei Dateien) |
 | [`VeloroutenCheckWeb/src/geo.test.ts`](VeloroutenCheckWeb/src/geo.test.ts) | Vitest-Tests der Geometrie-Helfer (Matching, Überlappung) |
 | [`VeloroutenCheckWeb/src/regelwerk.drift.test.ts`](VeloroutenCheckWeb/src/regelwerk.drift.test.ts) | Drift-Wächter: `docs/regelwerk.json` gegen die Code-Konstanten — bricht `npm test`, bis die Doku nachgezogen und neu generiert ist |
 | [`tools/oev_takt.py`](tools/oev_takt.py) | GTFS → `oev_takt_{bern,zurich,basel,luzern}.json` (Bus-Takt, offline; Bern flach `{BPUIC→n}`, übrige georeferenziert `[{lat,lon,n,name}]`) |
 | [`tools/dtv_basel.py`](tools/dtv_basel.py) | data.bs.ch Stundenwerte → Werktags-Mittel-DTV je Zählstelle → `VeloroutenCheckWeb/public/dtv_basel.json` |
 | [`tools/verify_06.py`](tools/verify_06.py) | Nachrechnung der feel-safe-Anker (Reproduzierbarkeit, siehe unten) |
 | [`tools/generiere_dokumentation.py`](tools/generiere_dokumentation.py) | Generiert `docs/regelwerk.json` + `docs/regelwerk.md` aus den exportierten Konstanten (Regelwerk-Snapshot) |
-| [`tools/generiere_stadt_pdf.py`](tools/generiere_stadt_pdf.py) | Generiert die 5 Stadt-Regelwerk-PDFs aus `docs/regelwerk.json` (benötigt `weasyprint`) |
+| [`tools/generiere_stadt_pdf.py`](tools/generiere_stadt_pdf.py) | Generiert die vier Stadt-Regelwerk-PDFs und ein stadtübergreifendes Grundlagen-PDF aus `docs/regelwerk.json` (benötigt `weasyprint`) |
 
 > **Reproduzierbarkeit der feel-safe-Anker.** `tools/verify_06.py` rechnet die feel-safe-Werte aus
 > den Rohdaten nach. Es liest aus `FixMyCity_Daten/` (im Repo-Root): `SurveyResults_200414.json`
