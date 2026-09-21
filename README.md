@@ -13,6 +13,8 @@ Bewertet wird eine **Strecke**, die aus einem oder mehreren **Abschnitten** best
 
 **Web-VeloroutenCheck** https://pnfzygrzgf-svg.github.io/VeloroutenCheck/
 
+**Ergebnisbericht Bildumfrage Bern 2026** — [docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Ergebnisbericht.md](docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Ergebnisbericht.md). 5 900 Bewertungen von 51 Bildern aus 14 Berner Strassenabschnitten: Feel-Safe-Anker, Breiteneffekte und was daraus für die Werte im Rechner folgt.
+
 > **Beta** — Resultate mit Vorsicht verwenden und durch eine Fachperson prüfen lassen.
 
 Vibecoding. Don't trust, verify!
@@ -23,7 +25,7 @@ Vibecoding. Don't trust, verify!
 |---|---|
 | [`VeloroutenCheckWeb/`](VeloroutenCheckWeb/) | Die Web-App (React + Vite + TypeScript). |
 | [`tools/`](tools/) | Offline-Skripte: `oev_takt.py` (GTFS → Bus-Takt-Snapshots je Stadt), `dtv_basel.py` (DTV-Snapshot Basel), `verify_06.py` (Nachrechnung der feel-safe-Anker), `visualisierung_template.html`. |
-| [`docs/`](docs/) | Methodik-Notizen, Herleitungen und das Regelwerk (`regelwerk.json`/`.md`). Die zugrunde liegenden Rohdaten liegen lokal und sind nicht im Repo. |
+| [`docs/`](docs/) | Methodik-Notizen, Herleitungen, das Regelwerk (`regelwerk.json`/`.md`) und der [Ergebnisbericht der Berner Bildumfrage 2026](docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Ergebnisbericht.md). Die zugrunde liegenden Rohdaten liegen lokal und sind nicht im Repo. |
 
 ---
 

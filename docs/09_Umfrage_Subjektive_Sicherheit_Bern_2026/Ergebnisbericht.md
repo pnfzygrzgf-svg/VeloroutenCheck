@@ -1,4 +1,4 @@
-<sub>Erzeugt am 21.09.2026 aus dem Umfrage-Stand mit 5 900 Bewertungen (`umfrage_export.py`). Diese Datei wird beim nächsten Export überschrieben — Änderungen gehören in die Quelle.</sub>
+<sub>Stand: 21.09.2026 · 5 900 Bewertungen</sub>
 
 # Subjektive Sicherheit auf Berner Velorouten. Ergebnisse einer Bildumfrage mit 5 900 Bewertungen
 
