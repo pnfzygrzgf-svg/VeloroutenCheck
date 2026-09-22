@@ -698,6 +698,8 @@ erscheint dann unter `https://pnfzygrzgf-svg.github.io/VeloroutenCheck/`.
 ## Lizenz
 
 Code und eigene Inhalte dieses Projekts: **[CC BY-NC 4.0](LICENSE)** (Namensnennung,
-nicht-kommerziell). Die eingebundenen **Dritt-Daten** behalten ihre eigenen Lizenzen und
+nicht-kommerziell). Ausgenommen ist der [Ergebnisbericht der Berner Bildumfrage 2026](docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/):
+Text, PDF und Bilder stehen unter **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.de)**
+(Namensnennung, auch kommerziell). Die eingebundenen **Dritt-Daten** behalten ihre eigenen Lizenzen und
 Quellenangaben — siehe [Datenlizenzen und Quellenangaben](#datenlizenzen-und-quellenangaben)
 (Geodaten Stadt Bern, OpenStreetMap/ODbL, opentransportdata.swiss, OpenBikeSensor).

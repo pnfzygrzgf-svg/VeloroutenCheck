@@ -1198,12 +1198,33 @@ function Landing({ onStart }: { onStart: () => void }) {
       <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
         Entspricht die vorhandene Führungsform nicht dem vorgesehenen Soll-Zustand, wird
         berücksichtigt, wie stark sich dies auf das subjektive Sicherheitsgefühl auswirkt. Grundlage
-        dafür sind Erkenntnisse aus der{' '}
+        dafür sind die Feel-Safe-Werte aus der{' '}
         <a href="https://radwege-check.de/auswertung/"
            target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
           radwege-check-/FixMyCity-Befragung
-        </a>.
+        </a>{' '}in Berlin.
       </p>
+      <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
+        Eine eigene Bildumfrage mit 5&nbsp;900 Bewertungen zu 51 Berner Szenen hat diese Werte
+        überprüft: Die Rangfolge der Führungsformen bestätigt sich, und breitere Radstreifen werden
+        als sicherer bewertet.
+      </p>
+
+      {/* Ergebnisbericht der Berner Bildumfrage (22.09.2026) */}
+      <a href="https://github.com/pnfzygrzgf-svg/VeloroutenCheck/blob/main/docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Subjektive_Sicherheit_auf_Berner_Velorouten.pdf"
+         target="_blank" rel="noopener noreferrer"
+         style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 22, textDecoration: 'none',
+                  background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 10,
+                  padding: '12px 16px', color: 'var(--text)' }}>
+        <img src={import.meta.env.BASE_URL + 'umfrage.jpg'} alt="" width={56} height={56}
+             style={{ flexShrink: 0, borderRadius: 8 }} />
+        <span>
+          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>Subjektive Sicherheit auf Berner Velorouten</span><br />
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            Ergebnisbericht der Bildumfrage 2026 (PDF).
+          </span>
+        </span>
+      </a>
 
       {/* Querverweis auf KnotenCheck */}
       <a href="https://pnfzygrzgf-svg.github.io/KnotenCheck/" target="_blank" rel="noopener noreferrer"
