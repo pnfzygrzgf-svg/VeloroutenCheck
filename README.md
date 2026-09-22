@@ -266,7 +266,7 @@ Radweg                        1.5            4.0         6.0
 
 ### 3. Breiten-Abzug und Parkierung
 
-Nach der Führungsform-Note wird die **Breite** der Anlage gegen die **Soll-Regelbreiten der jeweiligen Stadt** geprüft (Fallback je Feld: Bern-Regelbreiten). Massgeblich ist je nach Routentyp **Optimal** (Velohauptroute) oder **Minimal** (Veloroute). Der Abzug-Mechanismus (unten) ist stadtübergreifend; nur die Sollwerte unterscheiden sich — die stadtspezifischen Tabellen stehen unter [Datenherkunft je Stadt](#datenherkunft-je-stadt).
+Nach der Führungsform-Note wird die **Breite** der Anlage gegen die **Soll-Regelbreiten der jeweiligen Stadt** geprüft (Fallback je Feld: Bern-Regelbreiten). Massgeblich ist je nach Routentyp **Optimal** (Velohauptroute) oder **Minimal** (Veloroute). Der Abzug-Mechanismus ist stadtübergreifend; nur die Sollwerte unterscheiden sich — die stadtspezifischen Tabellen stehen unter [Datenherkunft je Stadt](#datenherkunft-je-stadt).
 
 *Bern-Regelbreiten (zugleich Fallback für nicht abgedeckte Felder):*
 
@@ -284,45 +284,38 @@ Fussweg Velo gestattet       Q12    3.50      3.50   (DTV/Tempo n.r.; Mischfläc
 Mischverkehr                 Q6     –         –      (keine Breitenvorgabe)
 ```
 
-**Abzug (Variante A, linear, datengestützt):**
-
 ```
 Sollbreite   = Optimal (Velohauptroute) bzw. Minimal (Veloroute)
 Defizit_m    = max(0, Sollbreite − Ist-Breite)
-Breitenabzug = Defizit_m × Satz der feel-safe-Klasse UND des Tempos:
+Breitenabzug = Defizit_m × Satz der feel-safe-Klasse:
                                               ≤ 30 km/h   > 30 km/h
-                 auf der Fahrbahn                 1,0         1,0     (Radstreifen, Einbahn mit Markierung — vorläufige Kalibrierung, s. u.)
+                 auf der Fahrbahn                 1,0         1,0     (Radstreifen, Einbahn mit Markierung)
                  hinter baulicher Trennung        0,24        0,38    (Radwege, Zweirichtungsradweg, Fuss-/Radwege, Einbahn mit baulicher Trennung)
-                 Fahrgassen-Bänder                0,9         0,9     (Velostrasse, Umweltspur; normativ)
+                 Fahrgassen-Bänder                0,9         0,9     (Velostrasse, Umweltspur)
 Endnote      = runde_0,5( Führungsform-Note − Breitenabzug , begrenzt 1…6 )
 ```
 
-##### Herleitung der Breitensätze
+##### Woher die drei Sätze kommen
 
-**Fahrbahn-Satz seit dem 22.09.2026: vorläufige Kalibrierung 1,0 Notenstufen je Meter, für beide Tempi.** Die [Berner Bildumfrage 2026](docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Ergebnisbericht.md) (Kapitel 5.5) misst den Breiteneffekt genau im Bereich, in dem der Rechner abzieht (1,5–2,0 m), und liefert 1,33 (1,5 → 1,8 m) bzw. 1,49 (1,5 → 2,0 m) Noten/m — deutlich über den Berliner Messwerten 0,65/0,74, die zwischen 2,0 und 3,5 m gemessen und nach unten extrapoliert waren. 1,0 ist der gerundete Durchschnitt der vier Schätzwerte und liegt zugleich im Fenster 0,74–1,05, das mit allen vier Vertrauensbereichen verträglich ist. Keine Tempo-Spanne mehr: die Berner Umfrage unterscheidet Verkehrsmenge, nicht Tempo. Eine begründete Modellentscheidung, kein eindeutig aus den Daten bestimmter Wert.
-
-Die **gemessenen** Sätze darunter skalieren **linear** aus dem Breiten-Effekt — verglichen werden Szenen, die sich **nur in der Breite** unterscheiden (gleiche Parkierung, gleiches Tempo; `tools/verify_06.py`, §4):
+**Fahrbahn: 1,0 Notenstufen je Meter — vorläufige Kalibrierung aus zwei Erhebungen** (seit 22.09.2026). Zwei Befragungen haben gemessen, wie viel Feel-Safe-Punkte ein Meter Radstreifenbreite bringt, in unterschiedlichen Breitenbereichen:
 
 ```
-Fahrbahn (markierter Radstreifen, ohne Parken,  T30:  9,3 Pkt/m ÷ 14,2 ≈ 0,65 Noten/m
-          grau + gestrichelte Führungslinie —   T50: 10,5 Pkt/m ÷ 14,2 ≈ 0,74
-          Berlin, P10-U; im Code seit dem       (im Code abgelöst durch die Kalibrierung 1,0)
-          22.09.2026 durch 1,0 ersetzt)
-hinter baulicher Trennung (Poller-only grau —   T30:  3,4 Pkt/m ÷ 14,2 ≈ 0,24
-          nur Sperrpfosten-Szenen, derselbe     T50:  5,3 Pkt/m ÷ 14,2 ≈ 0,38
-          Pool wie der Radweg-Anker; seit
-          13.08.2026, P14)
+Berliner Strassencheck   2,0 → 3,5 m:   9,3 Pkt/m (T30) · 10,5 (T50)   ≈ 0,65 / 0,74 Noten/m
+Berner Bildumfrage 2026  1,5 → 1,8 m:  18,9 Pkt/m                      ≈ 1,33 Noten/m (0,50…2,20)
+                         1,5 → 2,0 m:  21,2 Pkt/m                      ≈ 1,49 Noten/m (0,74…2,25)
 ```
 
-Zwei Befunde stecken darin. Erstens: Hinter der Trennung schützt die **Trennung**, nicht die Breite — Breite ist dort Komfort. Zweitens: **Tempo wirkt umso stärker, je weniger Schutz da ist.** Auf der Fahrbahn kostet der fehlende Meter an einer schnellen Strasse rund ein Viertel mehr; hinter der Trennung bleibt der Satz in beiden Tempi klar tiefer. Das ist dieselbe Logik, nach der auch die feel-safe-Anker tempoabhängig sind — und beides stammt aus derselben Geraden: Der Anker ist ihr Wert bei der Sollbreite, der Satz ihre Steigung.
+Der Rechner zieht fast ausschliesslich **unterhalb von 2,0 m** ab (1,5 statt 1,8 m auf Velorouten, Abweichungen von 2,5 m auf Velohauptrouten) — also genau dort, wo die Berner Umfrage misst und die Berliner Werte nur extrapoliert sind. Beide Berner Schätzwerte liegen deutlich über den Berliner. Als Satz gilt **1,0**: der gerundete Durchschnitt der vier Schätzwerte, zugleich im Fenster **0,74–1,05**, das mit allen vier Vertrauensbereichen verträglich ist. **Für beide Tempoklassen derselbe Wert**, weil die Berner Umfrage nach Verkehrsmenge statt Tempo unterscheidet und darum keine Tempo-Differenzierung stützt. Eine begründete Modellentscheidung, kein eindeutig aus den Daten bestimmter Wert — Herleitung und Einordnung im [Ergebnisbericht](docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Ergebnisbericht.md), Kapitel 5.4/5.5.
 
-Ein einziger gepoolter Satz (früher 0,9, aus «alle 2,0-m- gegen alle 3,5-m-Szenen») mischte die Parkierungswirkung in den Breiteneffekt; die sauber geschnittenen Sätze trennen beides.
+**Hinter baulicher Trennung: 0,24 / 0,38 — gemessen** (Berliner Poller-Szenen, derselbe Pool wie der Radweg-Anker; `tools/verify_06.py` §4/§5). Der Satz ist ein Bruchteil des Fahrbahn-Satzes: Hinter der Trennung schützt die **Trennung**, Breite ist dort Komfort. Er bleibt tempoabhängig — Tempo wirkt umso stärker, je weniger Schutz da ist.
+
+**Fahrgassen-Bänder: 0,9 — normativ.** Für Velostrasse und Umweltspur ist die «Breite» die Fahrbahn bzw. Spur, nicht ein Velostreifen; keine der Befragungen liefert dafür einen Gradienten.
 
 **Vorbehalte:**
 
-- **Scheingenauigkeit:** Die Daten liefern nur **zwei** Breiten-Stützpunkte (2,0 und 3,5 m). Der Effekt über diese 1,5 m ist belegt, die Linearität auf Zentimeter-Ebene ist eine Modellannahme (Interpolation).
-- **Rundung relativiert kleine Defizite:** Da die Endnote auf 0,5 gerundet wird, kippt ein kleines Defizit die Stufe nur nahe einer Rundungsgrenze; sicher eine Stufe kostet beim Satz 0,65 erst ein Defizit ab ≈ 0,77 m, beim Satz 0,74 ab ≈ 0,68 m.
-- **Bis zum 10.08.2026 galt je Klasse ein einzelner Satz** (0,6 / 0,35). Nachgerechnet waren das die Tempo-30-Werte, ohne dass das dokumentiert war — die Kette war damit in sich widersprüchlich, weil ihr Anker schon tempoabhängig war. Die Umstellung macht Anker und Satz wieder konsistent.
+- **Linearität ist eine Modellannahme.** Gemessen sind Breiten*schritte* (Berlin 1,5 m, Bern 0,3 und 0,5 m); der Abzug auf Zentimeter-Ebene ist Interpolation. Für Streifen deutlich unter 1,5 m ist auch die Berner Grundlage nicht mehr gedeckt.
+- **Die Kalibrierung mischt zwei Erhebungen** mit unterschiedlichen Breitenbereichen, und die beiden Berner Schätzwerte teilen sich einen Teil der Bewertungen — der Durchschnitt ist eine Orientierung, kein statistisch zusammengeführter Wert.
+- **Rundung relativiert kleine Defizite:** Sicher eine halbe Notenstufe kostet ein Defizit erst ab 0,5 m (Fahrbahn), ab ≈ 1,3–2,1 m (baulich); darunter kippt die Stufe nur nahe einer Rundungsgrenze.
 
 Tunbar über `BREITE_SATZ`.
 
@@ -332,13 +325,13 @@ Tunbar über `BREITE_SATZ`.
 Velohauptroute, Radstreifen, Breite 1,80 m
   Sollbreite   = Optimal 2,50 m
   Defizit      = 2,50 − 1,80 = 0,70 m
-  Breitenabzug = 0,70 × 1,0 = 0,70       (Fahrbahn-Satz, beide Tempi)
+  Breitenabzug = 0,70 × 1,0 = 0,70
   Endnote      = 4,17 − 0,70 = 3,47 → 3,5
 ```
 
-Derselbe Streifen an einer Tempo-30-Strasse käme auf denselben Breitenabzug (Satz 1,0 einheitlich), aber mit dem Radweg-Anker 90 auf eine andere Form-Note — das Tempo steckt weiterhin im Anker in der Note: einmal im feel-safe-Anker der Führungsform, einmal im Breitensatz.
+Das Tempo steckt weiterhin in der Note — über die feel-safe-Anker der Führungsform und, hinter baulicher Trennung, über den Satz. Bei erfüllter Breite (Ist ≥ Vorgabe) gibt es keinen Abzug.
 
-Bei erfüllter Breite (Ist ≥ Vorgabe) gibt es keinen Abzug.
+**Chronik des Fahrbahn-Satzes:** bis 10.08.2026 ein einzelner gepoolter Wert (0,6; mischte die Parkierungswirkung in den Breiteneffekt), dann tempoabhängig aus dem sauber geschnittenen Berliner Gestrichelt-Pool (0,65/0,74, P10-U/P13), seit 22.09.2026 die Kalibrierung 1,0 unter Einbezug der Berner Bildumfrage.
 
 #### Parkierung rechts (Dooring)
 
