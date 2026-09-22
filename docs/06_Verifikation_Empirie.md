@@ -135,7 +135,7 @@ Anker gepoolt (Klassen-Mittel, wie FEELSAFE Mischverkehr/Radweg):
   geschützt T50          90.9 %  (N=7517)
 
 Referenz-Anker Radstreifen (2,5 m ohne Parken, interpoliert): gepoolt T30 77.2 · T50 73.1 · grau (Zwischenfassung) T30 71.4 · T50 65.9 · GESTRICHELT (gilt seit 12.08.2026, P10-U) T30 65.5 · T50 57.7 → Code {'ruhig': 65, 'schnell': 58}
-Breitensatz Fahrbahn: gepoolt (0.58, 0.7) · grau (0.59, 0.75) · GESTRICHELT ÷ 14,2 (0.66, 0.74) Noten/m (T30/T50) → Code 0.65 / 0.74 (T30 liegt hier auf der Rundungskante ≈ 0,655: die massgebende lokale Herleitung misst 9,3 Pkt/m → 0,65 — kontrolle_6a.py; Differenz = Pipeline-Rundung)
+Breitensatz Fahrbahn: gepoolt (0.58, 0.7) · grau (0.59, 0.75) · GESTRICHELT ÷ 14,2 (0.66, 0.74) Noten/m (T30/T50) → Code 1.0 / 1.0 (seit 22.09.2026 VORLÄUFIGE KALIBRIERUNG aus der Berner Bildumfrage, docs/09 Kap. 5.5 — bewusst über der Berliner Messung 0,65/0,74, die hier weiterhin nachgerechnet wird)
 Breitensatz baulich:  gepoolt (0.35, 0.38) · grau ÷ 14,2 (0.31, 0.43) · POLLER-ONLY ÷ 14,2 (0.24, 0.38) Noten/m (T30/T50; gilt seit 13.08.2026, P14 — derselbe Sperrpfosten-Pool wie der Radweg-Anker) → Code 0.24 / 0.38
 Parken-Offset T30 (3,5/2,0 m): (8.5, 28.8) Pkte = (0.59, 2.0) Noten · T50: (9.6, 29.6)
 → Code: pauschal 1,0 (PARKEN_ABZUG) — breitenabhängige Formel zurückgenommen, offener Punkt

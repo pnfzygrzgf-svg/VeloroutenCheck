@@ -494,7 +494,7 @@ def main():
         'baulich Noten/m (T30/T50, Poller-only ÷ Kurs 14,2)': (
             round(pbst_roh['30'] / SCORE_PRO_NOTE_FEIN, 2),
             round(pbst_roh['50'] / SCORE_PRO_NOTE_FEIN, 2)),
-        'im Code (BREITE_SATZ)': {'fahrbahn': {'ruhig': 0.65, 'schnell': 0.74},
+        'im Code (BREITE_SATZ)': {'fahrbahn': {'ruhig': 1.0, 'schnell': 1.0},   # vorläufige Kalibrierung 22.09.2026 (docs/09, Kap. 5.5)
                                   'baulich':  {'ruhig': 0.24, 'schnell': 0.38}},
     }
     kal['referenz_anker'] = {
@@ -750,8 +750,8 @@ def write_md(out):
       f'GESTRICHELT ÷ 14,2 {bg["Fahrbahn Noten/m (T30/T50, gestrichelt ÷ Kurs 14,2)"]} '
       f'Noten/m (T30/T50) → Code '
       f'{ic["fahrbahn"]["ruhig"]} / {ic["fahrbahn"]["schnell"]} '
-      f'(T30 liegt hier auf der Rundungskante ≈ 0,655: die massgebende lokale Herleitung '
-      f'misst 9,3 Pkt/m → 0,65 — kontrolle_6a.py; Differenz = Pipeline-Rundung)')
+      f'(seit 22.09.2026 VORLÄUFIGE KALIBRIERUNG aus der Berner Bildumfrage, docs/09 Kap. 5.5 — '
+      f'bewusst über der Berliner Messung 0,65/0,74, die hier weiterhin nachgerechnet wird)')
     A(f'Breitensatz baulich:  gepoolt {bs["baulich Noten/m (T30/T50)"]} · '
       f'grau ÷ 14,2 {bg["baulich Noten/m (T30/T50, grau ÷ Kurs 14,2 — Zwischenfassung P3)"]} · '
       f'POLLER-ONLY ÷ 14,2 {bg["baulich Noten/m (T30/T50, Poller-only ÷ Kurs 14,2)"]} '

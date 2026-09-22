@@ -218,8 +218,8 @@ describe('fuehrungsformNote — Bern Beispiel aus README', () => {
   // vom DTV-Band 2'000–5'000 auf «> 10'000».
   it('DTV 12000 / 50 / Radstreifen / 1,8 m / Velohauptroute → 3.5', () => {
     // Radweg-Anker 84 + Kurs 14,2 seit 13.08.2026 (P11-A/P13): Form 6 − (84−58)/14,2 = 4,17 ·
-    // Breite −0,7 m × 0,74 = −0,52 → 3,65 → 3,5. (Chronik: gestrichelt unter 14,4 → 3,0;
-    // grau 3,74 → 3,5; gepoolt 4,26 → 4,5.)
+    // Breite −0,7 m × 1,0 (Kalibrierung 22.09.2026) = −0,70 → 3,47 → 3,5. (Chronik: mit dem
+    // Berliner Satz 0,74 → 3,65 → 3,5; gestrichelt unter 14,4 → 3,0; grau 3,74 → 3,5; gepoolt 4,26 → 4,5.)
     const r = fuehrungsformNote(12000, 50, 'Radstreifen', 1.8, 'Velohauptroute')
     expect(r.soll).toBe('Radweg')
     expect(r.note).toBe(3.5)
@@ -253,34 +253,31 @@ describe('Zweirichtungsradweg (Q10) — baulich getrennt, Breite entscheidet', (
   })
 })
 
-describe('Breitensatz — tempoabhängig (BREITE_SATZ, seit 10.08.2026)', () => {
-  // Der Satz stammt aus derselben Geraden wie der feel-safe-Anker: der Anker ist ihr Wert
-  // bei der Sollbreite, der Satz ihre Steigung. Die Steigung ist bei Tempo 50 spürbar
-  // steiler als bei Tempo 30 — hinter baulicher Trennung dagegen kaum. Bis zum 10.08.2026
-  // stand je Klasse ein einzelner Wert (die Tempo-30-Steigung), ohne dass das irgendwo
-  // vermerkt war; diese Tests halten die Tempo-Abhängigkeit fest.
-  it('Fahrbahn: derselbe Streifen wird an der schnellen Strasse härter abgezogen', () => {
+describe('Breitensatz (BREITE_SATZ; Fahrbahn seit 22.09.2026 einheitlich, baulich tempoabhängig)', () => {
+  // Der bauliche Satz stammt aus derselben Geraden wie der feel-safe-Anker: der Anker ist ihr
+  // Wert bei der Sollbreite, der Satz ihre Steigung (bei Tempo 50 steiler als bei Tempo 30).
+  // Der FAHRBAHN-Satz ist seit dem 22.09.2026 die vorläufige Kalibrierung 1,0 für beide Tempi
+  // aus der Berner Bildumfrage (docs/09, Kapitel 5.5): die Umfrage stützt einen höheren Abzug
+  // im Bereich 1,5–2,0 m, liefert aber keine Tempo-Differenzierung (Verkehrsmenge statt Tempo).
+  it('Fahrbahn: einheitliche Kalibrierung 1,0 — beide Tempi gleich', () => {
     // Radstreifen 2,0 m an einer Velohauptroute (Soll 2,5) → 0,5 m Defizit.
     const langsam = fuehrungsformNote(6000, 30, 'Radstreifen', 2.0, 'Velohauptroute')
     const schnell = fuehrungsformNote(6000, 50, 'Radstreifen', 2.0, 'Velohauptroute')
-    expect(langsam.breitenabzug).toBeCloseTo(0.325)  // 0,5 × 0,65 (gestrichelt ÷ Kurs 14,2)
-    expect(schnell.breitenabzug).toBeCloseTo(0.37)   // 0,5 × 0,74
-    expect(schnell.breitenabzug).toBeGreaterThan(langsam.breitenabzug)
+    expect(langsam.breitenabzug).toBeCloseTo(0.5)    // 0,5 × 1,0 (Kalibrierung 22.09.2026)
+    expect(schnell.breitenabzug).toBeCloseTo(0.5)    // 0,5 × 1,0 — bewusst ohne Tempo-Spanne
+    expect(schnell.breitenabzug).toBeCloseTo(langsam.breitenabzug)
   })
   it('hinter baulicher Trennung ist der Abzug deutlich kleiner als auf der Fahrbahn', () => {
     const langsam = fuehrungsformNote(6000, 30, 'Radweg abgesetzt', 2.0, 'Velohauptroute')
     const schnell = fuehrungsformNote(6000, 50, 'Radweg abgesetzt', 2.0, 'Velohauptroute')
     expect(langsam.breitenabzug).toBeCloseTo(0.12)   // 0,5 × 0,24 (Poller-only ÷ Kurs 14,2, P14)
     expect(schnell.breitenabzug).toBeCloseTo(0.19)   // 0,5 × 0,38
-    // ABGESCHWÄCHT seit dem 12.08.2026 (P10-U): Im Grau-Schnitt war die Fahrbahn die
-    // steilere Klasse (Tempo-Spanne 0,16 gegen 0,12); im geltenden Stand ist ihre Spanne
-    // kleiner (0,74 − 0,65 = 0,09 < 0,14 baulich Poller-only, P14) — dokumentierter Preis
-    // der Übernahme (lokales Regelwerk 15.7, P10/P14-Kästen). Geblieben: in JEDER Klasse
-    // ist schnell teurer als ruhig, und der Abzug je Meter liegt hinter der Trennung in
-    // beiden Tempi tiefer.
+    // Seit dem 22.09.2026 trägt nur noch der BAULICHE Satz eine Tempo-Spanne (0,14); der
+    // Fahrbahn-Satz ist die flache Kalibrierung 1,0. Geblieben: der Abzug je Meter liegt
+    // hinter der Trennung in beiden Tempi deutlich tiefer als auf der Fahrbahn.
     const spanneFahrbahn = BREITE_SATZ.Radstreifen.schnell - BREITE_SATZ.Radstreifen.ruhig
     const spanneBaulich = BREITE_SATZ.Radweg.schnell - BREITE_SATZ.Radweg.ruhig
-    expect(spanneFahrbahn).toBeGreaterThan(0)
+    expect(spanneFahrbahn).toBe(0)                   // Kalibrierung 22.09.2026: bewusst flach
     expect(spanneBaulich).toBeGreaterThan(0)
     expect(BREITE_SATZ.Radweg.ruhig).toBeLessThan(BREITE_SATZ.Radstreifen.ruhig)
     expect(BREITE_SATZ.Radweg.schnell).toBeLessThan(BREITE_SATZ.Radstreifen.schnell)
@@ -658,20 +655,19 @@ describe('Haltestelle — Abzug und Breite (Bern)', () => {
       'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
     expect(r.hsBreitenSoll).toBe(1.8)
     expect(r.hsBreiteStatus).toBe('zu schmal')
-    expect(r.hsBreitenabzug).toBeCloseTo(0.325)      // 0,5 × 0,65 (gestrichelt ÷ Kurs 14,2)
-    expect(r.note).toBe(5.5)   // 6 − 0,5 × 0,65 = 5,675 → 5,5
+    expect(r.hsBreitenabzug).toBeCloseTo(0.5)        // 0,5 × 1,0 (Kalibrierung 22.09.2026)
+    expect(r.note).toBe(5.5)   // 6 − 0,5 × 1,0 = 5,5 → 5,5
   })
-  it('Haltestellen-Breite: der Abzug folgt dem Tempo wie auf der Strecke', () => {
-    // Dieselbe zu schmale Haltestelle, nur an einer schnelleren Strasse: 0,5 m fehlen
-    // × 0,73 statt × 0,65. Die Haltestellen-Breite nutzt bewusst den Radstreifen-Satz
-    // (markierte Velofläche auf Fahrbahnniveau) — dann muss sie auch dessen Tempo-Logik
-    // erben, sonst driftet sie gegen die Strecke.
+  it('Haltestellen-Breite: der Abzug folgt dem Strecken-Satz (seit 22.09.2026 einheitlich 1,0)', () => {
+    // Die Haltestellen-Breite nutzt bewusst den Radstreifen-Satz (markierte Velofläche auf
+    // Fahrbahnniveau) — dann muss sie auch dessen Kalibrierung erben, sonst driftet sie
+    // gegen die Strecke. Mit dem einheitlichen Satz 1,0 sind beide Tempi gleich.
     const langsam = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
       'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
     const schnell = fuehrungsformNote(1000, 50, 'Mischverkehr', undefined, 'Velohauptroute',
       'egal', undefined, 'tram', 'Haltestelle mit Veloumfahrung', 1.3)
-    expect(schnell.hsBreitenabzug).toBeCloseTo(0.37)   // 0,5 × 0,74 (gestrichelt ÷ 14,2)
-    expect(schnell.hsBreitenabzug).toBeGreaterThan(langsam.hsBreitenabzug)
+    expect(schnell.hsBreitenabzug).toBeCloseTo(0.5)    // 0,5 × 1,0 (Kalibrierung 22.09.2026)
+    expect(schnell.hsBreitenabzug).toBeCloseTo(langsam.hsBreitenabzug)
   })
 })
 

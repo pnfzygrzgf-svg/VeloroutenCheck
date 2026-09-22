@@ -407,7 +407,8 @@ export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
 // unterscheiden; Velo-Foto-Bewertungen, tools/verify_06.py §4):
 //   • auf der Fahrbahn (Radstreifen-Klasse), GESTRICHELT geschnitten (P10-U, 12.08.2026 —
 //     graue Szenen mit schmaler gestrichelter Führungslinie, das Berner Markierungsbild):
-//     9,3 Punkte/m bei Tempo 30 ≈ 0,65 Noten/m, 10,5 bei Tempo 50 ≈ 0,74 (÷ Kurs 14,2) —
+//     9,3 Punkte/m bei Tempo 30 ≈ 0,65 Noten/m, 10,5 bei Tempo 50 ≈ 0,74 (÷ Kurs 14,2);
+//     SEIT 22.09.2026 gilt stattdessen die vorläufige Kalibrierung 1,0 (s. BREITE_SATZ) —
 //     hinter der Markierung schützt vor allem die Breite. Die Tempo-Spanne ist in diesem
 //     Schnitt klein (0,09 < baulich 0,14); der A9.8-Befund «Fahrbahn-Spanne > bauliche»
 //     gilt nur noch abgeschwächt.
@@ -430,7 +431,14 @@ export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
 // dieselben vier Werte; ein Wächter dort rechnet sie bei jedem Lauf gegen die Roh-Bewertungen.
 export const BREITE_SATZ: Record<FeelClass, { ruhig: number; schnell: number }> = {
   'Mischverkehr': { ruhig: 0.9,  schnell: 0.9  },
-  'Radstreifen':  { ruhig: 0.65, schnell: 0.74 },  // Gestrichelt-Steigungen 9,3/10,5 Pkt/m ÷ Kurs 14,2 (P13, 13.08.2026; unter 14,4: 0.65/0.73)
+  // 22.09.2026 (Nutzerentscheid): VORLÄUFIGE KALIBRIERUNG 1,0 für beide Tempi — aus der Berner
+  // Bildumfrage (docs/09, Kapitel 5.5): Berner Schätzwerte 1,33 (1,5→1,8 m) und 1,49 (1,5→2,0 m)
+  // Noten/m liegen über den Berliner Messwerten 0,65/0,74 (gemessen 2,0→3,5 m, hier extrapoliert);
+  // 1,0 = gerundeter Durchschnitt der vier Werte, zugleich im Fenster 0,74–1,05, das mit allen vier
+  // Vertrauensbereichen verträglich ist. Eine Tempo-Differenzierung gibt die Berner Umfrage nicht
+  // her (sie fragt Verkehrsmenge, nicht Tempo) — darum EIN Wert. Berliner Messwerte davor:
+  // { ruhig: 0.65, schnell: 0.74 } (Gestrichelt-Steigungen 9,3/10,5 Pkt/m ÷ Kurs 14,2, P13).
+  'Radstreifen':  { ruhig: 1.0, schnell: 1.0 },
   'Radweg':       { ruhig: 0.24, schnell: 0.38 },  // Poller-only-Grau-Steigungen 3,4/5,3 Pkt/m ÷ Kurs 14,2 (P14 + P13; Zwischenfassung grau alle Trennungen: 0.31/0.43)
 }
 
@@ -671,8 +679,8 @@ export function fuehrungsformNote(
 
   // ── Breite: Untergrenze je Routentyp (+ optionale Obergrenze, nur Velostrasse-Band). Abzug
   // (linear) = Abweichung ausserhalb des Bereichs × BREITE_SATZ der feel-safe-Klasse UND des
-  // Tempos (0,65/0,74 auf der Fahrbahn, 0,24/0,38 hinter baulicher Trennung, 0,9 normativ für
-  // Fahrgassen-Bänder; Kommentar nachgezogen 07.09.2026, vorher stand hier noch 0,6/0,35).
+  // Tempos (1,0 auf der Fahrbahn — vorläufige Kalibrierung 22.09.2026, s. BREITE_SATZ —,
+  // 0,24/0,38 hinter baulicher Trennung, 0,9 normativ für Fahrgassen-Bänder).
   // «Zu schmal» stützt sich auf den feel-safe-Gradienten; «zu breit» (nur Velostrasse) ist
   // normativ, gleicher Satz.
   // Breiten-Sollwerte: stadtspezifischer Override je Feld, sonst Berner Wert (IST).

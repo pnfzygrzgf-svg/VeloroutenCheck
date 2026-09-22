@@ -25,8 +25,8 @@
   },
   "breiteSatz": {
    "fahrbahn": {
-    "ruhig": 0.65,
-    "schnell": 0.74
+    "ruhig": 1.0,
+    "schnell": 1.0
    },
    "baulich": {
     "ruhig": 0.24,
@@ -37,7 +37,7 @@
     "schnell": 0.9
    },
    "einheit": "Notenstufen Abzug pro fehlendem Meter Breite, je feel-safe-Klasse und Tempo (ruhig ≤ 30, schnell > 30)",
-   "herleitung": "Szenen, die sich NUR in der Breite unterscheiden (Velo-Foto-Bewertungen), je Tempo getrennt. Fahrbahn seit dem 12.08.2026 im GESTRICHELT-Schnitt (P10-U: nur graue Szenen mit schmaler gestrichelter Führungslinie, das Berner Markierungsbild; 2 Fotos je Zelle — bewusster Preis): 9,3 Pkt/m bei Tempo 30 und 10,5 bei Tempo 50, seit 13.08.2026 ÷ eigenen Kurs 14,2 (P13) ≈ 0,65/0,74 Noten/m (unter 14,4: 0,65/0,73; Grau-Zwischenfassung 0,59/0,75). Hinter baulicher Trennung seit dem 13.08.2026 im POLLER-ONLY-Grau-Schnitt (P14: nur Sperrpfosten-Szenen, keine Blumenkästen — derselbe Pool wie der Radweg-Anker aus P11-A; ebenfalls ÷ 14,2): 3,4 bzw. 5,3 Pkt/m ≈ 0,24 / 0,38 (Zwischenfassung grau alle Trennungsarten, P3: 4,4/6,1 ≈ 0,31/0,43; gepoolte Zwischenfassung bis 11.08.2026: 0,58/0,70 und 0,35/0,38). Tempoabhängig seit 10.08.2026; die Fahrbahn-Tempo-Spanne (0,09) ist kleiner als die bauliche (0,14). Fahrgassen-Bänder (Velostrasse, Umweltspur; feel-safe-Klasse Mischverkehr) bleiben normativ bei 0,9 für beide Tempi — die Befragung liefert dafür keinen Gradienten.",
+   "herleitung": "Fahrbahn seit dem 22.09.2026: VORLÄUFIGE KALIBRIERUNG 1,0 für beide Tempi (Nutzerentscheid), aus der Berner Bildumfrage 2026 (docs/09, Kapitel 5.5). Die Berner Schätzwerte 1,33 (1,5 auf 1,8 m) und 1,49 (1,5 auf 2,0 m) Noten/m liegen über den Berliner Messwerten 0,65/0,74, die zwischen 2,0 und 3,5 m gemessen und auf schmalere Streifen extrapoliert waren; 1,0 ist der gerundete Durchschnitt der vier Werte und liegt im Fenster 0,74 bis 1,05, das mit allen vier Vertrauensbereichen verträglich ist. KEINE Tempo-Spanne mehr auf der Fahrbahn: die Berner Umfrage unterscheidet Verkehrsmenge, nicht Tempo. Berliner Herleitung davor (12./13.08.2026, P10-U/P13): GESTRICHELT-Schnitt 9,3 bzw. 10,5 Pkt/m durch Kurs 14,2 = 0,65/0,74. Hinter baulicher Trennung unverändert seit dem 13.08.2026 im POLLER-ONLY-Grau-Schnitt (P14, derselbe Pool wie der Radweg-Anker): 3,4 bzw. 5,3 Pkt/m = 0,24/0,38, tempoabhängig. Fahrgassen-Bänder (Velostrasse, Umweltspur) bleiben normativ bei 0,9 für beide Tempi.",
    "code": "BREITE_SATZ[feelClass][tempoKey(v)]"
   },
   "parkenRechtsAbzug": {

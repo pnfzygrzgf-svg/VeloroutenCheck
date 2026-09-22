@@ -291,7 +291,7 @@ Sollbreite   = Optimal (Velohauptroute) bzw. Minimal (Veloroute)
 Defizit_m    = max(0, Sollbreite − Ist-Breite)
 Breitenabzug = Defizit_m × Satz der feel-safe-Klasse UND des Tempos:
                                               ≤ 30 km/h   > 30 km/h
-                 auf der Fahrbahn                 0,65        0,74    (Radstreifen, Einbahn mit Markierung)
+                 auf der Fahrbahn                 1,0         1,0     (Radstreifen, Einbahn mit Markierung — vorläufige Kalibrierung, s. u.)
                  hinter baulicher Trennung        0,24        0,38    (Radwege, Zweirichtungsradweg, Fuss-/Radwege, Einbahn mit baulicher Trennung)
                  Fahrgassen-Bänder                0,9         0,9     (Velostrasse, Umweltspur; normativ)
 Endnote      = runde_0,5( Führungsform-Note − Breitenabzug , begrenzt 1…6 )
@@ -299,12 +299,15 @@ Endnote      = runde_0,5( Führungsform-Note − Breitenabzug , begrenzt 1…6 )
 
 ##### Herleitung der Breitensätze
 
-Die Sätze skalieren **linear** aus dem gemessenen Breiten-Effekt — verglichen werden Szenen, die sich **nur in der Breite** unterscheiden (gleiche Parkierung, gleiches Tempo; `tools/verify_06.py`, §4):
+**Fahrbahn-Satz seit dem 22.09.2026: vorläufige Kalibrierung 1,0 Notenstufen je Meter, für beide Tempi.** Die [Berner Bildumfrage 2026](docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Ergebnisbericht.md) (Kapitel 5.5) misst den Breiteneffekt genau im Bereich, in dem der Rechner abzieht (1,5–2,0 m), und liefert 1,33 (1,5 → 1,8 m) bzw. 1,49 (1,5 → 2,0 m) Noten/m — deutlich über den Berliner Messwerten 0,65/0,74, die zwischen 2,0 und 3,5 m gemessen und nach unten extrapoliert waren. 1,0 ist der gerundete Durchschnitt der vier Schätzwerte und liegt zugleich im Fenster 0,74–1,05, das mit allen vier Vertrauensbereichen verträglich ist. Keine Tempo-Spanne mehr: die Berner Umfrage unterscheidet Verkehrsmenge, nicht Tempo. Eine begründete Modellentscheidung, kein eindeutig aus den Daten bestimmter Wert.
+
+Die **gemessenen** Sätze darunter skalieren **linear** aus dem Breiten-Effekt — verglichen werden Szenen, die sich **nur in der Breite** unterscheiden (gleiche Parkierung, gleiches Tempo; `tools/verify_06.py`, §4):
 
 ```
 Fahrbahn (markierter Radstreifen, ohne Parken,  T30:  9,3 Pkt/m ÷ 14,2 ≈ 0,65 Noten/m
           grau + gestrichelte Führungslinie —   T50: 10,5 Pkt/m ÷ 14,2 ≈ 0,74
-          seit 12.08.2026, P10-U)
+          Berlin, P10-U; im Code seit dem       (im Code abgelöst durch die Kalibrierung 1,0)
+          22.09.2026 durch 1,0 ersetzt)
 hinter baulicher Trennung (Poller-only grau —   T30:  3,4 Pkt/m ÷ 14,2 ≈ 0,24
           nur Sperrpfosten-Szenen, derselbe     T50:  5,3 Pkt/m ÷ 14,2 ≈ 0,38
           Pool wie der Radweg-Anker; seit
@@ -329,11 +332,11 @@ Tunbar über `BREITE_SATZ`.
 Velohauptroute, Radstreifen, Breite 1,80 m
   Sollbreite   = Optimal 2,50 m
   Defizit      = 2,50 − 1,80 = 0,70 m
-  Breitenabzug = 0,70 × 0,74 = 0,52      (50 km/h → Fahrbahn-Satz «schnell»)
-  Endnote      = 4,17 − 0,52 = 3,65 → 3,5
+  Breitenabzug = 0,70 × 1,0 = 0,70       (Fahrbahn-Satz, beide Tempi)
+  Endnote      = 4,17 − 0,70 = 3,47 → 3,5
 ```
 
-Derselbe Streifen an einer Tempo-30-Strasse käme mit `0,70 × 0,65 = 0,46` (und dem Radweg-Anker 90) auf einen kleineren Abzug — das Tempo steckt hier zweimal in der Note: einmal im feel-safe-Anker der Führungsform, einmal im Breitensatz.
+Derselbe Streifen an einer Tempo-30-Strasse käme auf denselben Breitenabzug (Satz 1,0 einheitlich), aber mit dem Radweg-Anker 90 auf eine andere Form-Note — das Tempo steckt weiterhin im Anker in der Note: einmal im feel-safe-Anker der Führungsform, einmal im Breitensatz.
 
 Bei erfüllter Breite (Ist ≥ Vorgabe) gibt es keinen Abzug.
 
@@ -455,7 +458,7 @@ HS7  Busbucht                            Mischverkehr         –         –
 
 - **Einsatzbereich:** Abzug **−1,0**, wenn die Soll-Lösung *Separate Velofläche* verlangt, der vorhandene Typ aber aus der **Mischverkehr-Familie** (HS3/HS6/HS7) stammt. Über-Erfüllung und der Übergangsbereich geben keinen Abzug.
 - **Breite der Veloführung an der Haltestelle:** nur bei Typen mit Breitenvorgabe (Bern: HS1/HS2/HS4/HS5) und nur, solange ein ÖV-Angebot gewählt ist. Zu schmal → Abzug
-  `Defizit_m × Fahrbahn-Satz` (markierte Velofläche auf Fahrbahnniveau → Radstreifen-Satz `BREITE_SATZ`, tempoabhängig **0,65** bei ≤ 30 km/h, **0,74** bei > 30 km/h). Der Masterplan nennt für
+  `Defizit_m × Fahrbahn-Satz` (markierte Velofläche auf Fahrbahnniveau → Radstreifen-Satz `BREITE_SATZ`, seit dem 22.09.2026 einheitlich **1,0** bei > 30 km/h). Der Masterplan nennt für
   HS1/HS4 den Bereich 1,8–2,5 m; der Rechner rechnet mit einem konkreten Sollwert je Typ
   (HS1: 1,8 · HS4: 2,5 — `HALTESTELLEN` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)).
 

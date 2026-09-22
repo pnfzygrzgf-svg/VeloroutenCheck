@@ -1,4 +1,4 @@
-<sub>Stand: 21.09.2026 · 5 900 Bewertungen</sub>
+<sub>Stand: 22.09.2026 · 5 900 Bewertungen</sub>
 
 # Subjektive Sicherheit auf Berner Velorouten. Ergebnisse einer Bildumfrage mit 5 900 Bewertungen
 
@@ -54,7 +54,7 @@ Wie beeinflussen die Führungsform und die Breite eines Radstreifens das subjekt
 
 Den Teilnehmenden wurden zufällig neun bis elf Bilder zugeteilt und zur Bewertung angezeigt. Die Varianten waren so auf Bilder-Sets verteilt, dass jede Person höchstens eine Version desselben Strassenabschnitts sah.
 
-Die Online-Umfrage war 31 Tage aufgeschaltet und wurde über soziale Medien, persönliche Kontakte sowie einen Beitrag in einem Berner Fussballfan-Forum beworben.
+Die Online-Umfrage war 32 Tage aufgeschaltet und wurde über soziale Medien, persönliche Kontakte sowie einen Beitrag in einem Berner Fussballfan-Forum beworben.
 
 Wer an der Umfrage teilgenommen hat, lässt sich nicht feststellen, da lediglich die Häufigkeit der Velonutzung erfragt wurde. Auch lässt sich nicht ausschliessen, dass einzelne Personen mehrfach geantwortet haben. Die Ergebnisse beschreiben daher die eingegangenen Antworten und lassen sich nicht verallgemeinern. Sie liefern jedoch Anhaltspunkte dafür, wie die untersuchten Strassensituationen wahrgenommen und bewertet werden.
 
@@ -583,7 +583,7 @@ Unabhängig von diesen Ergebnissen spielt die Breite auch in meiner persönliche
 >
 > Diese Mittelung gewichtet die vier Schätzwerte gleich, ohne ihre unterschiedliche Unsicherheit zu berücksichtigen. Zudem verwenden die beiden Berner Auswertungen teilweise dieselben Bewertungen[^abhaengig]. Der Abzug von 1,0 ist deshalb als vorläufige Festlegung für den Rechner zu verstehen; ein statistisch abgesicherter gemeinsamer Wert lässt sich daraus nicht ableiten.
 >
-> Der Abzug bezieht sich weiterhin auf die am jeweiligen Ort geforderte Breite. Für einen Radstreifen mit 1,5 statt 1,8 m beträgt er damit 0,30 Notenstufen statt bisher 0,20 beziehungsweise 0,22; die Note eines sonst einwandfreien Abschnitts sinkt von 5,8 auf 5,7, gerundet von 6,0 auf 5,5, und bleibt im Erfüllungsgrad «Vollständig erfüllt». Die Berliner Feel-Safe-Anker und die Umrechnung mit 14,2 Punkten pro Notenstufe bleiben bestehen. Im Rechner ist dieser Wert noch nicht hinterlegt; er verwendet weiterhin 0,65 und 0,74 Notenstufen je Meter. Für Radstreifen, die deutlich schmaler sind als die untersuchten 1,5 m, ist auch diese lineare Regel nicht durch die vorliegenden Vergleiche abgesichert.
+> Der Abzug bezieht sich weiterhin auf die am jeweiligen Ort geforderte Breite. Für einen Radstreifen mit 1,5 statt 1,8 m beträgt er damit 0,30 Notenstufen statt bisher 0,20 beziehungsweise 0,22; die Note eines sonst einwandfreien Abschnitts sinkt von 5,8 auf 5,7, gerundet von 6,0 auf 5,5, und bleibt im Erfüllungsgrad «Vollständig erfüllt». Die Berliner Feel-Safe-Anker und die Umrechnung mit 14,2 Punkten pro Notenstufe bleiben bestehen. Im Online-Rechner ist dieser Wert seit dem 22.09.2026 hinterlegt. Für Radstreifen, die deutlich schmaler sind als die untersuchten 1,5 m, ist auch diese lineare Regel nicht durch die vorliegenden Vergleiche abgesichert.
 >
 > **Der vorläufige Abzug gilt für beide Tempoklassen.** Die Berner Umfrage unterscheidet nach Verkehrsmenge und nicht nach Tempo; sie liefert deshalb keine Grundlage für getrennte Abzüge. Weiter zu untersuchen ist, wie stark die Verkehrsmenge den Breiteneffekt beeinflusst und ob der Abzug je Meter bei schmalen Streifen höher anzusetzen ist als bei breiten. Dafür wären zusätzliche Bildpaare bei viel Verkehr und an denselben Orten auch für Breiten über 2,0 m sowie Befragungen vor und nach realen Verbreiterungen sinnvoll.
 >
