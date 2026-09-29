@@ -151,16 +151,44 @@ def render_haltestellen(hs):
     return "\n\n".join(parts)
 
 
+# Paar-Parameter (z. B. `breiteSatz`) haben kein `wert`, sondern je feel-safe-Klasse ein
+# Unterobjekt {ruhig, schnell}. Gleiche Darstellung wie im Stadt-PDF (generiere_stadt_pdf.py).
+PAAR_LABEL = {"fahrbahn": "Fahrbahn", "baulich": "baulich getrennt", "fahrgasse": "Fahrgasse"}
+
+
+def _satzde(x):
+    """Satz mit Dezimalkomma und mindestens einer Nachkommastelle (1.0 → «1,0», 0.24 → «0,24»)."""
+    return repr(float(x)).replace(".", ",")
+
+
+def parameter_wert(key, p):
+    """Wert-Zelle eines Parameters: einfacher `wert` oder Paar-Objekte ruhig/schnell.
+
+    Einzeilig und ohne «|», damit die Markdown-Tabelle nicht bricht. Ein Parameter ohne
+    darstellbaren Wert bricht ab — eine still leere Zelle fiele niemandem auf.
+    """
+    if "wert" in p:
+        return p["wert"]
+    paare = [(k, v) for k, v in p.items()
+             if isinstance(v, dict) and "ruhig" in v and "schnell" in v]
+    if not paare:
+        raise SystemExit(f"FEHLER in {JSON_PFAD.relative_to(ROOT)}: Parameter «{key}» hat weder "
+                         "`wert` noch Paar-Objekte {ruhig, schnell}.")
+    teile = [f"{PAAR_LABEL.get(k, k)} {_satzde(v['ruhig'])} / {_satzde(v['schnell'])}"
+             for k, v in paare]
+    return " · ".join(teile) + " (Tempo ≤ 30 / > 30)"
+
+
 def render_parameter(parameter):
     rows = []
     for key, p in parameter.items():
         # 14.08.2026: `tramMalus` (Paar ruhig/schnell) brauchte hier einen Sonderfall. Der
         # Nachfolger `tramDeckel` und die neue `kapNote` sind gewöhnliche {wert, einheit,
-        # herleitung}-Parameter und laufen über den else-Zweig.
+        # herleitung}-Parameter. Paar-Parameter wie `breiteSatz` stellt parameter_wert dar.
         if key == "parkenRelevant":
             rows.append(["parkenRelevant", ", ".join(p["formen"]), "Führungsformen", p.get("hinweis", "")])
         else:
-            rows.append([key, p.get("wert", ""), p.get("einheit", ""), p.get("herleitung", "")])
+            rows.append([key, parameter_wert(key, p), p.get("einheit", ""), p.get("herleitung", "")])
     return md_table(["Parameter", "Wert", "Einheit", "Herleitung"], rows)
 
 
@@ -241,8 +269,8 @@ def render_typ_mapping(m):
     return "\n\n".join(out)
 
 
-def main():
-    data = json.loads(JSON_PFAD.read_text(encoding="utf-8"))
+def baue_markdown(data):
+    """Regelwerk-Daten → Zeilen des Markdown-Dokuments (ohne Schreibzugriff, für Trockenläufe)."""
     meta = data["meta"]
     L = []
     L.append(f"# {meta['titel']}")
@@ -251,7 +279,8 @@ def main():
              f"`tools/generiere_dokumentation.py`. Nicht von Hand bearbeiten — "
              f"stattdessen die JSON ändern und das Skript erneut ausführen.")
     L.append("")
-    L.append(f"Stand: {meta['erstellt']}")
+    # Stand = letzte Aktualisierung, sonst das Erstelldatum.
+    L.append(f"Stand: {meta.get('aktualisiert') or meta['erstellt']}")
     L.append("")
     L.append(meta["hinweis"])
     L.append("")
@@ -313,7 +342,12 @@ def main():
         L.append("")
         L.append(render_haltestellen(d["haltestellen"]))
         L.append("")
+    return L
 
+
+def main():
+    data = json.loads(JSON_PFAD.read_text(encoding="utf-8"))
+    L = baue_markdown(data)
     MD_PFAD.write_text("\n".join(L) + "\n", encoding="utf-8")
     print(f"Geschrieben: {MD_PFAD.relative_to(ROOT)} ({len(L)} Zeilen)")
 

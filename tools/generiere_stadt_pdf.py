@@ -153,6 +153,11 @@ def render_soll(soll):
                     rows.append([r["strassentyp"], vlabel, form])
                 parts.append(f"<h3>{escape(key)}</h3>")
                 parts.append(table(["Strassentyp", "Tempo", "Führungsform"], rows))
+    # Der Hinweis trägt Regeln, die nicht in den Tabellenzellen stehen (Bern: Bandgrenzen;
+    # Basel: «nicht vorgesehen → Note max. 4», DWV-Deckel, Einbahn ohne Markierung). Er fehlte
+    # bis zum 29.09.2026 in den Stadt-PDFs — die Basler Prüfliste nannte die Deckel-Regel nicht.
+    if soll.get("hinweis"):
+        parts.append(note(soll["hinweis"]))
     q = saubere_quelle(soll.get("quelle", ""))
     if q:
         parts.append(note(f"Quelle: {q}"))
@@ -329,11 +334,44 @@ def _numde(x):
     return str(x).replace(".", ",")
 
 
+def _satzde(x):
+    """Satz mit Dezimalkomma und mindestens einer Nachkommastelle (1.0 → «1,0», 0.24 → «0,24»)."""
+    return repr(float(x)).replace(".", ",")
+
+
+def stand(meta):
+    """Stand des Regelwerks: letzte Aktualisierung, sonst das Erstelldatum."""
+    return meta.get("aktualisiert") or meta.get("erstellt", "")
+
+
+def abbruch(text):
+    """Lücke im Regelwerk → mit klarer Meldung abbrechen statt eine leere Zeile zu drucken."""
+    sys.exit(f"FEHLER in {JSON_PFAD.relative_to(ROOT)}: {text}")
+
+
+# Paar-Parameter (z. B. `breiteSatz`) haben kein `wert`, sondern je feel-safe-Klasse ein
+# Unterobjekt {ruhig, schnell}. Beschriftung der Klassen für die Fachleserschaft:
+PAAR_LABEL = {"fahrbahn": "Fahrbahn", "baulich": "baulich getrennt", "fahrgasse": "Fahrgasse"}
+
+
+def parameter_wert(key, e):
+    """Wert eines Parameters als lesbarer Text: einfacher `wert` oder Paar-Objekte ruhig/schnell."""
+    if "wert" in e:
+        return _numde(e["wert"])
+    paare = [(k, v) for k, v in e.items()
+             if isinstance(v, dict) and "ruhig" in v and "schnell" in v]
+    if not paare:
+        abbruch(f"Parameter «{key}» hat weder `wert` noch Paar-Objekte {{ruhig, schnell}}.")
+    teile = [f"{PAAR_LABEL.get(k, k)} {_satzde(v['ruhig'])} / {_satzde(v['schnell'])}"
+             for k, v in paare]
+    return " · ".join(teile) + " (Tempo ≤ 30 / > 30)"
+
+
 # Stadtübergreifende Parameter (nur die wirklich städteunabhängigen; taktabhängige Umweltspur-
 # Schwellen sind stadtspezifisch und stehen im jeweiligen Stadt-Prüfdokument).
 GRUND_PARAMETER = [
     ("feelSafeProNote", "feel-safe-Punkte pro Notenstufe"),
-    ("noteProMeter", "Breiten-Abzug pro fehlendem Meter"),
+    ("breiteSatz", "Breiten-Abzug pro fehlendem Meter"),
     ("parkenRechtsAbzug", "Abzug Parkierung rechts (Dooring)"),
     ("haltestelleAbzug", "Abzug Haltestelle (Soll «Separate Velofläche», Ist Mischverkehr-Typ)"),
     ("fusswegBasis", "Fussweg Velo gestattet: höchstens Note (Decke)"),
@@ -347,6 +385,10 @@ GRUND_PARAMETER = [
 
 def render_feelsafe(data):
     fs = data["feelSafe"]
+    # Kurs aus dem Regelwerk lesen, nicht hartkodieren (seit P13, 13.08.2026: 14,2).
+    kurs = data["parameter"].get("feelSafeProNote", {}).get("wert")
+    if kurs is None:
+        abbruch("Parameter «feelSafeProNote» fehlt oder hat kein `wert`.")
     rows = [[form, f"{_numde(w['ruhig'])} %", f"{_numde(w['schnell'])} %", w.get("verifiziert", "")]
             for form, w in fs["werte"].items()]
     hinweis = fs.get("hinweis", "").replace(" (tools/verify_06.py)", "")
@@ -358,7 +400,7 @@ def render_feelsafe(data):
         table(["Führungsform", "ruhig (V ≤ 30)", "schnell (V > 30)", "Verifiziert (radwege-check)"], rows),
         note(hinweis),
         "<p>Die Note misst, wie nahe die vorhandene Führungsform an die feel-safe % der geforderten "
-        "Form herankommt: pro <b>14,4</b> fehlende feel-safe-Punkte sinkt die Note um eine ganze "
+        f"Form herankommt: pro <b>{escape(_numde(kurs))}</b> fehlende feel-safe-Punkte sinkt die Note um eine ganze "
         "Stufe (6 → 1). Baulich getrennte Formen (Radweg) erfüllen den Soll und erhalten die Bestnote.</p>",
     ]
     return "\n".join(parts)
@@ -368,9 +410,13 @@ def render_grund_parameter(data):
     p = data["parameter"]
     rows = []
     for key, label in GRUND_PARAMETER:
-        e = p.get(key, {})
-        rows.append([label, _numde(e.get("wert", "")), e.get("einheit", ""), e.get("herleitung", "")])
-    pr = p.get("parkenRelevant", {})
+        if key not in p:
+            abbruch(f"Parameter «{key}» («{label}») fehlt. Vorhanden: {', '.join(p)}.")
+        e = p[key]
+        rows.append([label, parameter_wert(key, e), e.get("einheit", ""), e.get("herleitung", "")])
+    pr = p.get("parkenRelevant")
+    if not pr or not pr.get("formen"):
+        abbruch("Parameter «parkenRelevant» fehlt oder hat keine `formen`.")
     rows.append(["Führungsformen mit Dooring-Relevanz", ", ".join(pr.get("formen", [])),
                  "—", pr.get("hinweis", "")])
     return table(["Parameter", "Wert", "Einheit", "Herleitung / Bemerkung"], rows)
@@ -391,7 +437,7 @@ def build_grundlagen_html(data):
         h2("Stadtübergreifende Bewertungsparameter"),
         render_grund_parameter(data),
         '<div class="foot">Subjektive Sicherheit (feel-safe %): radwege-check.de / FixMyCity. '
-        f'· Stand: {escape(meta.get("erstellt", ""))}</div>',
+        f'· Stand: {escape(stand(meta))}</div>',
     ]
     return f"<!doctype html><html><head><meta charset='utf-8'><style>{CSS}</style></head><body>" \
            + "\n".join(body) + "</body></html>"
@@ -440,7 +486,7 @@ def build_html(data, stadt):
     body.append('<div class="foot">Massgebende Grundlage: '
                 + escape(stadt_q)
                 + '. Subjektive Sicherheit (feel-safe %, stadtübergreifend): siehe Grundlagen-Dokument (radwege-check.de / FixMyCity).'
-                + f' · Stand: {escape(meta.get("erstellt", ""))}</div>')
+                + f' · Stand: {escape(stand(meta))}</div>')
 
     return f"<!doctype html><html><head><meta charset='utf-8'><style>{CSS}</style></head><body>" \
            + "\n".join(body) + "</body></html>"

@@ -14,7 +14,7 @@
    "Grundlagen/*.csv (DTV_KMH_Fuehrungsform, Fueherungsform_Breiten_Staedte, Routentypologie_Staedte, Haltestelle_Typen_Breiten_*, Haltestellen_Typen_Bezeichnung_Staedte, Haltestellen_veloverkehrsloesung)",
    "VeloroutenCheckWeb/src/fuehrungsform.ts (Parameter, feel-safe-Anker)"
   ],
-  "aktualisiert": "2026-08-08"
+  "aktualisiert": "2026-09-29"
  },
  "parameter": {
   "feelSafeProNote": {
@@ -289,7 +289,7 @@
    "sollTabelle": {
     "typ": "dtvXvMatrix",
     "quelle": "DTV_KMH_Fuehrungsform.csv (Bern); Masterplan Bericht S. 11 (vier ineinander liegende Rechtecke — die strengere der beiden Achsen entscheidet)",
-    "hinweis": "v in km/h. GRENZEN: Untergrenze inklusive; die Obergrenze 2'000 ist exklusive, die Obergrenzen 5'000 und 10'000 sind INKLUSIVE — so steht es im Fliesstext des Masterplans («verkehrsarme Strassen (DTV < 2'000)», «stark belastete Strassen (DTV > 10'000)»); zu 5'000 schweigt der Text, dort gilt die Bandgrenze des Schemas. Das Band 41–50 km/h ist durchgehend «Radstreifen oder Radweg» (waagrechter Schenkel der Schraffur), unabhängig vom DTV-Band. Implementiert in fuehrungsart() (fuehrungsform.ts); deckungsgleich mit soll_bern() des lokalen Rechners seit 10.08.2026.",
+    "hinweis": "v in km/h. GRENZEN: Genau 2'000 gehört schon zum Band 2'000–5'000 (Obergrenze des ersten Bands exklusive); genau 5'000 und genau 10'000 gehören noch zum jeweils UNTEREN Band (Obergrenzen inklusive, die Untergrenzen der Bänder 5'000–10'000 und > 10'000 also exklusive) — so steht es im Fliesstext des Masterplans («verkehrsarme Strassen (DTV < 2'000)», «stark belastete Strassen (DTV > 10'000)»); zu 5'000 schweigt der Text, dort gilt die Bandgrenze des Schemas. Das Band 41–50 km/h ist durchgehend «Radstreifen oder Radweg» (waagrechter Schenkel der Schraffur), unabhängig vom DTV-Band. Implementiert in fuehrungsart() (fuehrungsform.ts); deckungsgleich mit soll_bern() des lokalen Rechners seit 10.08.2026.",
     "regeln": [
      {
       "dtvMin": 0,
@@ -882,7 +882,7 @@
    "sollTabelle": {
     "typ": "nachStrassentyp",
     "quelle": "DTV_KMH_Fuehrungsform.csv (Basel). Strasseneinteilung: data.bs.ch/explore/assets/100250. DWV als DTV verwenden.",
-    "hinweis": "Kein DTV-Bänder-System, sondern Strassentyp × Tempo × Netzhierarchie (Tab. 3, S. 15). Auf nicht verkehrsorientierten (siedlungsorientierten) Tempo-30-Strassen: Vorzugsroute → Velostrasse (DWV ≤ 2'500); Pendler-/Basisrouten → Mischverkehr (DWV ≤ 5'000) ODER Velostrasse (kein DWV-Deckel). Auf verkehrsorientierten Strassen gibt es keine Velostrasse; empfohlen sind dort Vorzugsroute → Radstreifen oder Radweg, Pendler-/Basisrouten → Radstreifen (die «Radspur» der Tabelle wird der Einfachheit halber als breiter Radstreifen behandelt, keine eigene Form). Jede nicht vorgesehene Form → Note max. 4. DWV-Deckel bleibt Hinweis ohne Notenabzug. Velostrasse: bei DWV < 1'000 reduzierte Breite 4,00 m zulässig.",
+    "hinweis": "Kein DTV-Bänder-System, sondern Strassentyp × Tempo × Netzhierarchie (Tab. 3, S. 15). Auf nicht verkehrsorientierten (siedlungsorientierten) Tempo-30-Strassen: Vorzugsroute → Velostrasse (DWV ≤ 2'500); Pendler-/Basisrouten → Mischverkehr (DWV ≤ 5'000) ODER Velostrasse (kein DWV-Deckel). Auf verkehrsorientierten Strassen gibt es keine Velostrasse; empfohlen sind dort Vorzugsroute → Radstreifen oder Radweg, Pendler-/Basisrouten → Radstreifen (die «Radspur» der Tabelle wird der Einfachheit halber als breiter Radstreifen behandelt, keine eigene Form). «Einbahn Velogegenverkehr ohne Markierung» gilt auf Pendler-/Basisrouten wie Mischverkehr (zulässig, DWV-Deckel 5'000; seit 29.09.2026). Jede nicht vorgesehene Form → Note max. 4. DWV-Deckel bleibt Hinweis ohne Notenabzug. Velostrasse: bei DWV < 1'000 reduzierte Breite 4,00 m zulässig.",
     "Vorzugsroute": [
      {
       "strassentyp": "nicht verkehrsorientierte Strasse",

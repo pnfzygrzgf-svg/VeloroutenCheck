@@ -2,7 +2,7 @@
 
 Unabhängige Neuberechnung **aus den Einzelantworten** (`SurveyResults_200414.json`) ⋈ decodierte Szenen-Merkmale (`scenes_ms/cp/se.csv`). Gezählt wird jede Bewertung der **Velo-Foto-Szenen** (Kamera C) — unabhängig von der Befragtengruppe; massgebend ist, was das Foto zeigt. feel-safe % = Anteil Bewertungen mit `rating ≥ 2`; N = Anzahl Einzelbewertungen. Tram-Szenen ausgeschlossen.
 
-Velo-Bewertungen total: **261876** · tram-bereinigt: **240529** · nicht zuordenbar: 206494.
+Velo-Bewertungen total: **261876** · tram-bereinigt: **240529** · nicht ausgewertet (Fotos der anderen Kameras): 206494 · keiner Szene zuordenbar: 0.
 
 ## Kreuzvalidierung gegen radwege `voteScore`
 
@@ -10,10 +10,10 @@ JSON-feel-safe je Szene vs. offizieller `voteScore` (gleiche Szene). Geringe Dif
 
 ```
 verglichene Szenen : 1700
-mittlere |Differenz|: 1.76  Punkte
-Median  |Differenz|: 1.24  Punkte
-95%-Perzentil      : 4.92  Punkte
-max |Differenz|    : 10.83  Punkte
+mittlere |Differenz|: 0.0  Punkte
+Median  |Differenz|: 0.0  Punkte
+95%-Perzentil      : 0.01  Punkte
+max |Differenz|    : 0.01  Punkte
 ```
 
 ## §1 Kontextmatrix — feel-safe % (Velo gesamt) | MD-Wert | Δ | N
@@ -90,7 +90,7 @@ T50 mit Parken        37.8    6459    72.8    9339     +35.0
 
 ## §2 Tram in der Fahrbahn — feel-safe % (N) mit vs. ohne Tram
 
-Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Schienen in der Fahrbahn. Δ [Notenstufen] = Δ / 14,4 (feel-safe-Punkte pro Note, wie in `fuehrungsform.ts`) — eine Grössenangabe, seit 14.08.2026 nicht mehr die Regel selbst.
+Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Schienen in der Fahrbahn. Δ [Notenstufen] = Δ / 14,4 — der historische Herleitungs-Kurs (Ersteichung 72 ÷ 5 des lokalen Basis-Rechners), mit dem die abgelösten Malus-Werte 1,2/0,7 hergeleitet wurden; in `fuehrungsform.ts` gilt seit der Neu-Eichung P13 (13.08.2026) `SCORE_PRO_NOTE` = 14,2. Eine Grössenangabe, seit 14.08.2026 nicht mehr die Regel selbst.
 
 **Mischverkehr**
 ```

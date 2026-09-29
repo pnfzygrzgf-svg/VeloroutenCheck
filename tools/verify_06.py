@@ -105,11 +105,18 @@ def fnum(x):
 
 
 def load_scenes():
+    """→ (scenes, andere_kamera): Velo-Foto-Szenen mit Merkmalen + SceneIDs der übrigen Kameras.
+
+    andere_kamera dient nur der Abgrenzung in load_records: eine Bewertung einer A-/P-Foto-Szene
+    ist bewusst nicht ausgewertet, aber KEIN Join-Fehler.
+    """
     scenes = {}
+    andere_kamera = set()
 
     # MS — Führung auf der Fahrbahn (Mischverkehr / Radstreifen / geschützt)
-    for r in csv.DictReader(open(d('scenes_ms.csv'))):
+    for r in csv.DictReader(open(d('scenes_ms.csv'), encoding='utf-8', newline='')):
         if r['Kamera'] != 'C':
+            andere_kamera.add(r['SceneID'])
             continue          # nur Velo-Foto-Szenen (s. Kopf)
         w = fnum(r['RVA-Breite'])
         prot = r['Tr_li-baulTrennung'] not in ('-', '', None)
@@ -136,8 +143,9 @@ def load_scenes():
     # «Seitenraum» fasst das gesamte CP-Experiment: bauliche Trennung wirkt hier
     # empirisch kaum (Velo ist ohnehin von der Fahrbahn abgesetzt) → kein eigenes
     # «geschützt». «geschützt» bleibt damit der fahrbahn-seitige Poller-Streifen (MS).
-    for r in csv.DictReader(open(d('scenes_cp.csv'))):
+    for r in csv.DictReader(open(d('scenes_cp.csv'), encoding='utf-8', newline='')):
         if r['Kamera'] != 'C':
+            andere_kamera.add(r['SceneID'])
             continue          # nur Velo-Foto-Szenen (s. Kopf)
         w = fnum(r['RVA-Breite'])
         prot = r['Tr_li_baulTrennung'] not in ('-', '', None)
@@ -151,8 +159,9 @@ def load_scenes():
         )
 
     # SE — Nebenstrassen (Quartier/Velostrasse) — für §1 nicht zentral; mitgeführt.
-    for r in csv.DictReader(open(d('scenes_se.csv'))):
+    for r in csv.DictReader(open(d('scenes_se.csv'), encoding='utf-8', newline='')):
         if r['Kamera'] != 'C':
+            andere_kamera.add(r['SceneID'])
             continue          # nur Velo-Foto-Szenen (s. Kopf)
         scenes[r['SceneID']] = dict(
             exp='SE', fuehrungsform='Nebenstrasse', lage='Nebenstrasse',
@@ -160,17 +169,26 @@ def load_scenes():
             speed=None, volume=r.get('Verkehrsaufkommen'),
             marking=None, parking=(r['Parken'] != 'nein'), surface=None,
         )
-    return scenes
+    return scenes, andere_kamera
 
 
 # ── Einzelantworten mit Szenen-Merkmalen + Befragten-Typ verknüpfen ───────────
 # KEIN Personen-Filter: alle Befragtengruppen zählen (auch potenzielle Velofahrende,
 # Fussgänger, Autofahrende) — die Velo-Rolle steckt im Foto (Kamera-Filter in load_scenes;
 # A/P-Foto-Bewertungen fallen dort als «nicht zuordenbar» heraus).
-def load_records(scenes):
-    data = json.load(open(d('SurveyResults_200414.json')))
+#
+# Nebenprodukt `je_szene`: {scene_id: [feel-safe-Anzahl, N]} über genau dieselben Bewertungen
+# wie `recs` — die Kreuzvalidierung braucht die scene_id, die in `recs` nicht mitgeführt wird,
+# und soll denselben Filter (Foto-Kamera, alle Befragten) verwenden wie die Hauptrechnung.
+#
+# `miss` zählt ALLE nicht ausgewerteten Bewertungen (seit dem Kamera-Filter fast nur A-/P-Fotos);
+# `unbekannt` ist der echte Join-Fehler: scene_id, die in keiner scenes-CSV vorkommt.
+def load_records(scenes, andere_kamera):
+    data = json.load(open(d('SurveyResults_200414.json'), encoding='utf-8'))
     recs = []
     miss = 0
+    unbekannt = 0
+    je_szene = defaultdict(lambda: [0, 0])
     for s in data:
         prof = s.get('profile') or {}
         typ = dict(
@@ -184,6 +202,8 @@ def load_records(scenes):
             sc = scenes.get(rt['scene_id'])
             if sc is None:
                 miss += 1
+                if rt['scene_id'] not in andere_kamera:
+                    unbekannt += 1
                 continue
             rating = rt.get('rating')
             if rating is None:
@@ -192,7 +212,10 @@ def load_records(scenes):
             rec['feelsafe'] = 1 if int(rating) >= 2 else 0
             rec.update(typ)
             recs.append(rec)
-    return recs, miss
+            a = je_szene[rt['scene_id']]
+            a[0] += rec['feelsafe']
+            a[1] += 1
+    return recs, miss, unbekannt, dict(je_szene)
 
 
 # ── Aggregation ───────────────────────────────────────────────────────────────
@@ -253,14 +276,16 @@ def sel(recs, **cond):
 
 
 def main():
-    scenes = load_scenes()
-    recs, miss = load_records(scenes)
+    scenes, andere_kamera = load_scenes()
+    recs, miss, unbekannt, je_szene = load_records(scenes, andere_kamera)
     nontram = [r for r in recs if not r['tram']]
     print(f'Bewertungen (Velo-Fotos): {len(recs)}  | nicht zuordenbar/andere Kamera: {miss}  | tram-bereinigt: {len(nontram)}')
 
     out = {'meta': {}, 'sections': {}}
     out['meta'] = dict(
         n_ratings=len(recs), n_nontram=len(nontram), n_miss=miss,
+        # n_miss = n_andere_kamera + n_unbekannt; nur n_unbekannt wäre ein Join-Fehler.
+        n_andere_kamera=miss - unbekannt, n_unbekannt=unbekannt,
         agegroup=AGEGROUP, bicycleuse=BICYCLEUSE, usergroup=USERGROUP, freqbike=FREQBIKE,
     )
 
@@ -521,10 +546,11 @@ def main():
     out['sections']['kalibrierung'] = kal
 
     # ── Kreuzvalidierung: JSON-feel-safe je Konfiguration vs radwege voteScore ─
-    xval = crossvalidate(scenes, recs)
+    xval = crossvalidate(je_szene)
     out['sections']['kreuzvalidierung'] = xval
 
-    json.dump(out, open(lp('06_verifikation.json'), 'w'), ensure_ascii=False, indent=1)
+    json.dump(out, open(lp('06_verifikation.json'), 'w', encoding='utf-8'),
+              ensure_ascii=False, indent=1)
     write_md(out)
     write_html(out)
     print('geschrieben: docs/06_Verifikation_Empirie.md (Snapshot) , '
@@ -540,35 +566,23 @@ def write_html(out):
     open(lp('06_visualisierung.html'), 'w', encoding='utf-8').write(html)
 
 
-def crossvalidate(scenes, recs):
-    """JSON-feel-safe je SceneID gegen radwege voteScore (Join via sceneId, '01_' weg)."""
-    # JSON: feel-safe je scene_id
-    agg = defaultdict(lambda: [0, 0])
-    for r in recs:
-        pass  # recs lost scene_id; recompute from raw below
-    # Re-derive per scene_id directly from JSON (recs dropped the id)
-    data = json.load(open(d('SurveyResults_200414.json')))
-    for s in data:
-        if (s.get('profile') or {}).get('perspective') != 'C':
-            continue
-        for rt in (s.get('ratings') or []):
-            sid = rt['scene_id']
-            rating = rt.get('rating')
-            if rating is None:
-                continue
-            a = agg[sid]
-            a[0] += 1 if int(rating) >= 2 else 0
-            a[1] += 1
+def crossvalidate(je_szene):
+    """JSON-feel-safe je SceneID gegen radwege voteScore (Join via sceneId, '01_' weg).
+
+    je_szene stammt aus load_records — also derselbe Filter wie die Hauptrechnung: nur
+    Velo-Foto-Szenen (Kamera C), ALLE Befragtengruppen. Verglichen werden die Szenen, die
+    in radwege_hauptstrassen.csv vorkommen (MS + CP; Nebenstrassen sind dort nicht enthalten).
+    """
     # radwege voteScore je sceneId
     rw = {}
-    for row in csv.DictReader(open(d('radwege_hauptstrassen.csv'))):
+    for row in csv.DictReader(open(d('radwege_hauptstrassen.csv'), encoding='utf-8', newline='')):
         sid = row['sceneId']
         vs = fnum(row['voteScore'])
         if sid and vs is not None:
             rw[sid] = vs
     diffs = []
     matched = 0
-    for sid, (safe, n) in agg.items():
+    for sid, (safe, n) in je_szene.items():
         key = sid[3:] if sid.startswith('01_') else sid  # '01_MS_C_5' -> 'MS_C_5'
         if key in rw and n > 0:
             mine = 100 * safe / n
@@ -616,7 +630,8 @@ def write_md(out):
       'mit `rating ≥ 2`; N = Anzahl Einzelbewertungen. Tram-Szenen ausgeschlossen.\n')
     m = out['meta']
     A(f'Velo-Bewertungen total: **{m["n_ratings"]}** · tram-bereinigt: **{m["n_nontram"]}** · '
-      f'nicht zuordenbar: {m["n_miss"]}.\n')
+      f'nicht ausgewertet (Fotos der anderen Kameras): {m["n_andere_kamera"]} · '
+      f'keiner Szene zuordenbar: {m["n_unbekannt"]}.\n')
 
     xv = out['sections']['kreuzvalidierung']
     A('## Kreuzvalidierung gegen radwege `voteScore`\n')
@@ -691,8 +706,10 @@ def write_md(out):
     te = out['sections']['tram_effekt']
     A('## §2 Tram in der Fahrbahn — feel-safe % (N) mit vs. ohne Tram\n')
     A('Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Schienen in der Fahrbahn. '
-      'Δ [Notenstufen] = Δ / 14,4 (feel-safe-Punkte pro Note, wie in `fuehrungsform.ts`) — '
-      'eine Grössenangabe, seit 14.08.2026 nicht mehr die Regel selbst.\n')
+      'Δ [Notenstufen] = Δ / 14,4 — der historische Herleitungs-Kurs (Ersteichung 72 ÷ 5 des '
+      'lokalen Basis-Rechners), mit dem die abgelösten Malus-Werte 1,2/0,7 hergeleitet wurden; '
+      'in `fuehrungsform.ts` gilt seit der Neu-Eichung P13 (13.08.2026) `SCORE_PRO_NOTE` = 14,2. '
+      'Eine Grössenangabe, seit 14.08.2026 nicht mehr die Regel selbst.\n')
     for form in ('Mischverkehr', 'Radstreifen'):
         A(f'**{form}**' + ('  _(Referenz: eigene RVA → kaum Effekt)_' if form == 'Radstreifen' else ''))
         A('```')
@@ -764,7 +781,7 @@ def write_md(out):
     A(f'→ Code: {po["im Code"]}')
     A('```\n')
 
-    open(MD_SNAPSHOT, 'w').write('\n'.join(L))
+    open(MD_SNAPSHOT, 'w', encoding='utf-8').write('\n'.join(L))
 
 
 def print_summary(out):

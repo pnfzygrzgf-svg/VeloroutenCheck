@@ -89,9 +89,12 @@
       mittelt Wechselwirkungen weg — ihre Einzel-Koeffizienten (z. B. Tempo, Tram) sind dann
       irreführend. Deshalb hier robuste Subgruppen.</p>
     <p><b>Tram</b> wird standardmässig ausgeschlossen (eigener Effekt, ungleich verteilt; separat
-      unten). <b>Kreuzvalidierung:</b> der aus den Einzelantworten je Szene berechnete feel-safe
-      stimmt mit dem offiziellen <code>voteScore</code> überein (siehe Kasten oben) → Join und Metrik
-      sind korrekt.</p>
+      unten). <b>Filter:</b> gezählt wird jede Bewertung der Velo-Foto-Szenen (Kamera C) —
+      unabhängig von der Befragtengruppe; massgebend ist, was das Foto zeigt.
+      <b>Kreuzvalidierung:</b> mit genau diesem Filter wird der feel-safe je Szene aus den
+      Einzelantworten berechnet und dem offiziellen <code>voteScore</code> derselben Szene
+      gegenübergestellt (Hauptstrassen-Szenen MS + CP; Abweichung siehe Kasten oben). Eine
+      Abweichung im Rundungsrahmen heisst: Join, Filter und Metrik sind korrekt.</p>
     <p class="sub"><b>Vorbehalte:</b> Berliner Szenen (DE-Kontext), nur <i>subjektive</i> Sicherheit
       (nicht Unfallsicherheit), Szenen sind konkrete Konfigurationen (keine 1:1-CH-Führungsformen).</p>
   </div>
@@ -354,12 +357,21 @@ function fmtN(n){ return n.toLocaleString('de-CH'); }
 
 function renderMeta(){
   const m = DATA.meta;
+  const x = DATA.sections.kreuzvalidierung;
+  // n_miss zählt seit dem Kamera-Filter ALLE nicht ausgewerteten Bewertungen (A-/P-Fotos) —
+  // das ist kein Join-Fehler. Der echte Join-Fehler steht in n_unbekannt (ältere JSON-Stände
+  // kennen die Aufteilung nicht → dann nur die Summe nennen, ohne Join-Aussage).
+  const join = (m.n_unbekannt != null)
+    ? `Nicht ausgewertet: ${fmtN(m.n_andere_kamera)} Bewertungen von Szenen anderer Foto-Kameras `+
+      `(Auto-/Fuss-Perspektive) — bewusster Filter, kein Join-Fehler; keiner Szene zuordenbar `+
+      `waren ${fmtN(m.n_unbekannt)} Bewertungen. `
+    : `Nicht ausgewertet (andere Foto-Kamera oder nicht zuordenbar): ${fmtN(m.n_miss)} Bewertungen. `;
   document.getElementById('meta').innerHTML =
-    `<b>Datenbasis:</b> ${fmtN(m.n_ratings)} Velo-Bewertungen (tram-bereinigt ${fmtN(m.n_nontram)}), `+
-    `Join 100 % (0 nicht zuordenbar). <b>Kreuzvalidierung</b> gegen offiziellen <code>voteScore</code>: `+
-    `${DATA.sections.kreuzvalidierung.matched} Szenen, mittlere Abweichung `+
-    `${DATA.sections.kreuzvalidierung.mean_abs_diff} Punkte (Median `+
-    `${DATA.sections.kreuzvalidierung.median_abs_diff}).`;
+    `<b>Datenbasis:</b> ${fmtN(m.n_ratings)} Bewertungen der Velo-Foto-Szenen (Kamera C, alle `+
+    `Befragtengruppen; tram-bereinigt ${fmtN(m.n_nontram)}). `+ join +
+    `<b>Kreuzvalidierung</b> gegen offiziellen <code>voteScore</code> (gleicher Filter): `+
+    `${fmtN(x.matched)} Szenen, mittlere Abweichung ${x.mean_abs_diff} Punkte (Median `+
+    `${x.median_abs_diff}, Maximum ${x.max_abs_diff}).`;
 }
 
 function renderGlossary(){
@@ -532,18 +544,26 @@ function renderTram(){
   let h='';
   ['Mischverkehr','Radstreifen'].forEach(form=>{
     h+=`<p><b>${esc(form)}</b>${form==='Radstreifen'?' <span class="sub">(Referenz: eigene RVA → kaum Effekt)</span>':''}</p>`;
-    h+='<table><thead><tr><th>Kontext</th><th>mit Tram</th><th>ohne Tram</th><th>Δ feel-safe</th><th>Malus (Δ/14,4)</th></tr></thead><tbody>';
+    h+='<table><thead><tr><th>Kontext</th><th>mit Tram</th><th>ohne Tram</th><th>Δ feel-safe</th><th>Δ in Notenstufen (Δ/14,4)</th></tr></thead><tbody>';
     ['Gesamt','Tempo 30','Tempo 50'].forEach(ctx=>{
       const c=t[form][ctx];
       h+=`<tr><td>${ctx}</td><td>${cell(c)}</td><td>${cellO(c)}</td><td>${c.delta}</td><td>${c.malus}</td></tr>`;
     });
     h+='</tbody></table>';
   });
-  const a=t.angewandt;
+  // Seit 14.08.2026 gilt ein DECKEL statt des tempoabhängigen Malus: `angewandt` trägt
+  // Deckel/kapNote, die alten Malus-Werte liegen nur noch unter `abgeloest`.
+  const a=t.angewandt, ab=t.abgeloest;
   h+=`<p class="sub">Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Schienen in der Fahrbahn. `+
-     `<b>Im Tool verdrahtet (nur Mischverkehr):</b> −${a['Tempo<=30']} bei Tempo ≤ 30, −${a['Tempo>30']} bei Tempo > 30 `+
-     `(gerundete Tempo-Werte). Der «Gesamt»-Malus ist durch die Tempo-Mischung leicht überzeichnet; massgebend sind die tempo-kontrollierten Zeilen. `+
+     `Δ/14,4 rechnet den Verlust mit dem historischen Herleitungs-Kurs in Notenstufen um — eine Grössenangabe, nicht die Regel `+
+     `(im Rechner gilt der Kurs 14,2). Der «Gesamt»-Wert ist durch die Tempo-Mischung leicht überzeichnet; massgebend sind die tempo-kontrollierten Zeilen. `+
      `Bei eigener Radverkehrsanlage kaum Effekt — deshalb ist Tram in den übrigen Auswertungen ausgeschlossen.</p>`;
+  h+=`<p class="sub"><b>Im Tool verdrahtet (${esc(a.gilt_fuer)}):</b> Schienen in der Fahrbahn deckeln die Note auf `+
+     `höchstens ${a.Deckel}, unabhängig vom Tempo. Der Deckel kappt nur nach oben; eine ohnehin schlechtere Note bleibt. `+
+     `Dazu: ${esc(a.kap_gilt_fuer)} → Note ${a.kapNote}.`+
+     (ab ? ` <i>Abgelöst am 14.08.2026</i> (galt bis ${esc(ab.bis)}): ${esc(ab.art)} von −${ab['Tempo<=30']} bei Tempo ≤ 30 `+
+           `und −${ab['Tempo>30']} bei Tempo > 30.` : '')+
+     `</p>`;
   document.getElementById('tram').innerHTML=h;
 }
 
