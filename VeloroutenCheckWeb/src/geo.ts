@@ -7,6 +7,25 @@
 
 export type LL = { lat: number; lon: number }
 
+// LÜCKEN-MARKE für mehrteilige Linien (GeoJSON MultiLineString). Die Teile wurden bis zum
+// 29.09.2026 mit `.flat()` aneinandergehängt — zwischen dem Ende des einen und dem Anfang des
+// nächsten Teils entstand so eine PHANTOMKANTE, die es in den Daten nicht gibt. Ein Abschnitt
+// in einer 600-m-Lücke zwischen zwei Teilen einer Tramlinie lag damit «auf» der Linie
+// (overlapScore 1) und bekam «Tram in der Fahrbahn». Die Marke trennt die Teile; alle
+// Kanten-Schleifen unten überspringen Kanten, die an einer Marke beginnen oder enden.
+export const LUECKE: LL = { lat: NaN, lon: NaN }
+const istLuecke = (p: LL): boolean => Number.isNaN(p.lat) || Number.isNaN(p.lon)
+// Teile einer mehrteiligen Linie zu EINER Punktfolge mit Lücken-Marken verbinden.
+export function mehrteilig(teile: LL[][]): LL[] {
+  const out: LL[] = []
+  for (const t of teile) {
+    if (t.length < 2) continue
+    if (out.length) out.push(LUECKE)
+    out.push(...t)
+  }
+  return out
+}
+
 const KY = 111320  // m pro Breitengrad (planar-Näherung)
 
 // Haversine-Distanz [m] Punkt–Punkt.
@@ -48,7 +67,10 @@ function projDistPointSeg(p: LL, a: LL, b: LL, kx: number): number {
 }
 function distToLine(p: LL, line: LL[], kx: number): number {
   let best = Infinity
-  for (let i = 1; i < line.length; i++) best = Math.min(best, projDistPointSeg(p, line[i - 1], line[i], kx))
+  for (let i = 1; i < line.length; i++) {
+    if (istLuecke(line[i - 1]) || istLuecke(line[i])) continue   // keine Kante über die Lücke
+    best = Math.min(best, projDistPointSeg(p, line[i - 1], line[i], kx))
+  }
   return best
 }
 // (fracNear ohne Parallelitätsfilter ist am 07.08.2026 in fracNearParallel aufgegangen —
@@ -74,14 +96,16 @@ export function overlapScore(candGeom: LL[], line: LL[], maxDistM: number): numb
 // übereinstimmen (Richtungssinn egal). Kern des Quer-Filters von overlapScore.
 function fracNearParallel(points: LL[], line: LL[], kx: number, maxDistM: number): number {
   if (line.length < 2 || points.length < 2) return 0
-  let n = 0
+  let n = 0, echte = 0
   for (const p of points) {
-    if (distToLine(p, line, kx) > maxDistM) continue
+    if (istLuecke(p)) continue   // Lücken-Marke einer mehrteiligen Linie: kein Punkt
+    echte++
+    if (!(distToLine(p, line, kx) <= maxDistM)) continue
     const [fx, fy] = dirAt(p, line, kx)
     const [cx, cy] = dirAt(p, points, kx)
     if (Math.abs(fx * cx + fy * cy) >= COS_MAX_ANGLE) n++
   }
-  return n / points.length
+  return echte ? n / echte : 0
 }
 
 // Richtung (Einheitsvektor, planar) der zu p nächstgelegenen Kante von `line`.
@@ -89,6 +113,7 @@ function dirAt(p: LL, line: LL[], kx: number): [number, number] {
   let best = Infinity, dx = 1, dy = 0
   for (let i = 1; i < line.length; i++) {
     const a = line[i - 1], b = line[i]
+    if (istLuecke(a) || istLuecke(b)) continue
     const d = projDistPointSeg(p, a, b, kx)
     if (d < best) {
       best = d
@@ -122,20 +147,35 @@ export function majorityLineIndex(candGeom: LL[], lines: LL[][], maxDistM: numbe
 
 // Je Abschnitts-Punkt der Index der nächstgelegenen, LOKAL PARALLELEN Linie ≤ maxDistM
 // (sonst -1). Gemeinsamer Kern von majorityLineIndex und majorityValue.
-function naechsteLinieJePunkt(candGeom: LL[], lines: LL[][], maxDistM: number): number[] {
+//
+// Die Parallelität wird JE LINIE geprüft, bevor sie als «nächste» gilt (29.09.2026). Vorher
+// wurde zuerst die nächste Linie gewählt und erst dann geprüft, ob sie parallel läuft — war
+// die nächste eine QUERachse, gab es gar keine Stimme, obwohl die eigene Achse 3 m daneben
+// lag. Ein 20–30 m kurzes Stück zwischen zwei Querstrassen verlor so Tempo, DTV und Routentyp.
+export function naechsteLinieJePunkt(candGeom: LL[], lines: LL[][], maxDistM: number): number[] {
   const kx = KY * Math.cos((candGeom[0].lat * Math.PI) / 180)
   return candGeom.map(p => {
+    const [cx, cy] = dirAt(p, candGeom, kx)
     let bestD = maxDistM, bestI = -1
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].length < 2) continue
       const d = distToLine(p, lines[i], kx)
-      if (d <= bestD) { bestD = d; bestI = i }
+      if (!(d <= bestD)) continue
+      const [fx, fy] = dirAt(p, lines[i], kx)
+      if (Math.abs(fx * cx + fy * cy) < COS_MAX_ANGLE) continue   // quer → zählt nicht, verdeckt aber auch nichts
+      bestD = d; bestI = i
     }
-    if (bestI < 0) return -1
-    const [fx, fy] = dirAt(p, lines[bestI], kx)
-    const [cx, cy] = dirAt(p, candGeom, kx)
-    return Math.abs(fx * cx + fy * cy) < COS_MAX_ANGLE ? -1 : bestI   // quer → keine Stimme
+    return bestI
   })
+}
+
+// Anteil der Abschnitts-Punkte (0…1), an denen ÜBERHAUPT eine lokal parallele Linie ≤ maxDistM
+// liegt — unabhängig davon, welchen Wert sie trägt. Antwort auf die Frage «hat der Datensatz
+// hier einen Eintrag?» (Grundlage der Berner DTV-Annahme, siehe bern.ts).
+export function anteilAbgedeckt(candGeom: LL[], lines: LL[][], maxDistM: number): number {
+  if (candGeom.length === 0 || lines.length === 0) return 0
+  const treffer = naechsteLinieJePunkt(candGeom, lines, maxDistM).filter(i => i >= 0).length
+  return treffer / candGeom.length
 }
 
 // MEHRHEIT NACH WERT statt nach Linie — für Attribute, die sich VIELE Features TEILEN.
@@ -150,12 +190,21 @@ function naechsteLinieJePunkt(candGeom: LL[], lines: LL[][], maxDistM: number): 
 // (Bei echt unterschiedlichen Abschnittswerten — z. B. DTV 2470 vs. 2679 — entscheidet damit
 // die Mehrheit, statt gar nichts zu liefern.)
 //
-// Werte werden über `String(wert)` gruppiert; `null`/`undefined` stimmen nicht mit.
+// Werte werden über `String(wert)` gruppiert. Linien OHNE Wert (`null`/`undefined`) nehmen
+// an der Wahl gar nicht teil (29.09.2026): vorher konnte ein deckungsgleiches, aber nicht
+// klassiertes Feature (z. B. «Einbahn»-Hinweis auf einer Hauptroute) als nächste Linie
+// gewinnen und die Stimme schlucken — der Routentyp fehlte dann, obwohl er im Layer steht.
 export function majorityValue<T>(
-  candGeom: LL[], lines: LL[][], values: (T | null | undefined)[],
+  candGeom: LL[], linesAlle: LL[][], valuesAlle: (T | null | undefined)[],
   maxDistM: number, minFraction: number,
 ): T | undefined {
-  if (candGeom.length === 0 || lines.length === 0) return undefined
+  if (candGeom.length === 0 || linesAlle.length === 0) return undefined
+  const lines: LL[][] = [], values: T[] = []
+  for (let i = 0; i < linesAlle.length; i++) {
+    const v = valuesAlle[i]
+    if (v != null) { lines.push(linesAlle[i]); values.push(v) }
+  }
+  if (lines.length === 0) return undefined
   const votes = new Map<string, { n: number; wert: T }>()
   for (const i of naechsteLinieJePunkt(candGeom, lines, maxDistM)) {
     const v = i >= 0 ? values[i] : null
@@ -176,6 +225,28 @@ export function distPointToLineM(p: LL, line: LL[]): number {
   return distToLine(p, line, KY * Math.cos((p.lat * Math.PI) / 180))
 }
 
+// Wie distPointToLineM, zusätzlich `endeM`: wie weit liegt der Fusspunkt — entlang der Linie
+// gemessen — vom näheren ihrer beiden Enden entfernt? Ein Punkt, der eine Linie nur nahe ihrem
+// ENDE berührt, liegt in der Regel an der Querstrasse, in die sie mündet, nicht an ihr selbst
+// (siehe nearestDtv, cityShared.ts). Für einteilige Linien (Kandidaten) gedacht.
+export function fussAufLinie(p: LL, line: LL[]): { distM: number; endeM: number } {
+  let distM = Infinity, vomStart = 0, gesamt = 0
+  if (line.length < 2) return { distM, endeM: 0 }
+  const kx = KY * Math.cos((p.lat * Math.PI) / 180)
+  const px = p.lon * kx, py = p.lat * KY
+  for (let i = 1; i < line.length; i++) {
+    const a = line[i - 1], b = line[i]
+    if (istLuecke(a) || istLuecke(b)) continue
+    const ax = a.lon * kx, ay = a.lat * KY, dx = b.lon * kx - ax, dy = b.lat * KY - ay
+    const l2 = dx * dx + dy * dy, l = Math.sqrt(l2)
+    const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2))
+    const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+    if (d < distM) { distM = d; vomStart = gesamt + t * l }
+    gesamt += l
+  }
+  return { distM, endeM: Math.min(vomStart, gesamt - vomStart) }
+}
+
 // Bounding-Box einer Polylinie (für den billigen Vorfilter vor dem teuren overlapScore).
 export type BboxLL = { s: number; n: number; w: number; e: number }
 export function bboxOfLL(line: LL[]): BboxLL {
@@ -189,4 +260,11 @@ export function bboxOfLL(line: LL[]): BboxLL {
 // Überlappen sich zwei Bboxen (mit Puffer padDeg in Grad)?
 export function bboxOverlap(a: BboxLL, b: BboxLL, padDeg: number): boolean {
   return a.s - padDeg <= b.n && a.n + padDeg >= b.s && a.w - padDeg <= b.e && a.e + padDeg >= b.w
+}
+// Bbox um padM Meter nach allen Seiten erweitern (Längengrad-Schritt an der Bbox-Mitte gemessen).
+export function padBbox<B extends BboxLL>(b: B, padM: number): B {
+  if (!(b.s <= b.n)) return b   // leere Bbox (keine Punkte) unverändert lassen
+  const dLat = padM / KY
+  const dLon = padM / (KY * Math.cos((((b.s + b.n) / 2) * Math.PI) / 180))
+  return { ...b, s: b.s - dLat, n: b.n + dLat, w: b.w - dLon, e: b.e + dLon }
 }

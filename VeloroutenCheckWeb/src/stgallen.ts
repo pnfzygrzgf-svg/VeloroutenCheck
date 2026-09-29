@@ -20,9 +20,10 @@
 import type { Cand } from './VeloMap'
 import type { Routentyp } from './fuehrungsform'
 import { densify } from './geo'
+import { holeJson } from './netz'
 import {
-  bboxOf, bestOverlapValue, loadOevFromOsm, SAMPLE_M,
-  type Bbox, type GeoJsonFeature,
+  bboxOf, bestOverlapValue, istLinie, loadOevFromOsm, versuch, SAMPLE_M,
+  type Anreicherung, type Bbox, type GeoJsonFeature,
 } from './cityShared'
 
 // ÖV (Haltestelle) aus OSM — gemeinsamer Helfer (St. Gallen hat kein Tram → nur Haltestelle).
@@ -42,21 +43,20 @@ async function fetchVeloplan(b: Bbox): Promise<GeoJsonFeature[]> {
   // Opendatasoft-Geofilter: in_bbox(feld, latmin, lonmin, latmax, lonmax) → nur Kartenbereich.
   const params = new URLSearchParams({ where: `in_bbox(geo_shape, ${b.s}, ${b.w}, ${b.n}, ${b.e})` })
   // Timeout: ein hängender Server darf enrichAll/die UI nicht dauerhaft blockieren.
-  const res = await fetch(`${VELOPLAN}?${params}`, { signal: AbortSignal.timeout(15000) })
-  if (!res.ok) throw new Error(`Veloplan St. Gallen HTTP ${res.status}`)
-  const data: { features?: GeoJsonFeature[] } = await res.json()
-  return (data.features || []).filter(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString')
+  const data = await holeJson<{ features?: GeoJsonFeature[] }>(`${VELOPLAN}?${params}`, 15000)
+  return (data.features || []).filter(istLinie)
 }
 
-export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
-  if (cands.length === 0) return cands
-  const features = await fetchVeloplan(bboxOf(cands)).catch(() => [])
-  if (features.length === 0) return cands
-  return cands.map(c => {
+export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
+  const fehler: string[] = []
+  if (cands.length === 0) return { cands, fehler }
+  const features = await versuch('Veloplan (Routentyp)', fetchVeloplan(bboxOf(cands)), [], fehler)
+  if (features.length === 0) return { cands, fehler }
+  return { fehler, cands: cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
     // Votum pro WERT statt pro Feature (fein segmentierter Layer, siehe bestOverlapValue).
     const routentyp = bestOverlapValue(dense, features, f => artToRoutentyp(f.properties.art_text))
     if (!routentyp) return c
     return { ...c, bern: { ...c.bern, routentyp } }
-  })
+  }) }
 }

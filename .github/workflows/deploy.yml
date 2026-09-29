@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'VeloroutenCheckWeb/**'
+      # Der Drift-Wächter (regelwerk.drift.test.ts) liest diese Datei — ändert sie allein,
+      # soll das Test-Gate ebenfalls laufen, statt erst beim nächsten Web-Commit zu brechen.
+      - 'docs/regelwerk.json'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 

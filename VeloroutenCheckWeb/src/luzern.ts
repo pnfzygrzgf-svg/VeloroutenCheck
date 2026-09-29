@@ -22,9 +22,10 @@
 import type { Cand } from './VeloMap'
 import type { Routentyp } from './fuehrungsform'
 import { densify } from './geo'
+import { arcgisGeojson } from './netz'
 import {
-  bboxOf, bestOverlapValue, loadOevFromOsm, nearestDtv, SAMPLE_M,
-  type Bbox, type GeoJsonFeature, type DtvStation,
+  bboxOf, bestOverlapValue, istLinie, loadOevFromOsm, nearestDtv, versuch, SAMPLE_M,
+  type Anreicherung, type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
 
 // DTV je Zählstelle live aus der Stadt-Luzern-ArcGIS (OGD/verkehrszaehldaten, Feld `DTV_ANZAHL`).
@@ -32,16 +33,15 @@ import {
 let dtvCache: Promise<DtvStation[]> | undefined
 function fetchDtvStations(): Promise<DtvStation[]> {
   if (!dtvCache) {
-    dtvCache = fetch('https://map.stadtluzern.ch/server/rest/services/OGD/verkehrszaehldaten/MapServer/0/query'
-      + '?where=1%3D1&outFields=DTV_ANZAHL&returnGeometry=true&outSR=4326&f=geojson',
-      { signal: AbortSignal.timeout(8000) })
-      .then(r => (r.ok ? r.json() : { features: [] }))
-      .then((d: { features?: { geometry?: { coordinates: [number, number] }; properties?: { DTV_ANZAHL?: number } }[] }) =>
-        (d.features ?? []).flatMap(f => {
-          const c = f.geometry?.coordinates, dtv = f.properties?.DTV_ANZAHL
-          return c && dtv != null ? [{ lat: c[1], lon: c[0], dtv }] : []
-        }))
-      .catch(() => { dtvCache = undefined; return [] as DtvStation[] })   // Netzfehler nicht einfrieren
+    type Zaehlstelle = { geometry?: { coordinates: [number, number] }; properties?: { DTV_ANZAHL?: number | null } }
+    dtvCache = arcgisGeojson<Zaehlstelle>(
+      'https://map.stadtluzern.ch/server/rest/services/OGD/verkehrszaehldaten/MapServer/0/query',
+      { where: '1=1', outFields: 'DTV_ANZAHL', returnGeometry: 'true', outSR: '4326' }, 8000)
+      .then(features => features.flatMap(f => {
+        const c = f.geometry?.coordinates, dtv = f.properties?.DTV_ANZAHL
+        return c && typeof dtv === 'number' ? [{ lat: c[1], lon: c[0], dtv }] : []
+      }))
+    dtvCache.catch(() => { dtvCache = undefined })   // Fehlschlag (auch HTTP-/ArcGIS-Fehler) nicht einfrieren
   }
   return dtvCache
 }
@@ -59,26 +59,24 @@ function routentypFrom(v: unknown): Routentyp | undefined {
 }
 
 async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
-  // ArcGIS-Envelope: xmin,ymin,xmax,ymax = w,s,e,n (wie bern.ts).
-  const params = new URLSearchParams({
+  // ArcGIS-Envelope: xmin,ymin,xmax,ymax = w,s,e,n (wie bern.ts). Der Server kappt bei 2'000
+  // Features (das Velonetz hat 4'562) — arcgisGeojson lädt die fehlenden Seiten nach.
+  const features = await arcgisGeojson<GeoJsonFeature>(VELONETZ_LU, {
     geometry: `${bbox.w},${bbox.s},${bbox.e},${bbox.n}`,
     geometryType: 'esriGeometryEnvelope', inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
-    outFields: 'VELO_ROUTENTYP', outSR: '4326', f: 'geojson',
+    outFields: 'VELO_ROUTENTYP', outSR: '4326',
   })
-  // Timeout: ein hängender Server darf enrichAll/die UI nicht dauerhaft blockieren.
-  const res = await fetch(`${VELONETZ_LU}?${params}`, { signal: AbortSignal.timeout(15000) })
-  if (!res.ok) throw new Error(`Velonetz Luzern HTTP ${res.status}`)
-  const data: { features?: GeoJsonFeature[] } = await res.json()
-  return (data.features || []).filter(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString')
+  return features.filter(istLinie)
 }
 
-export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
-  if (cands.length === 0) return cands
+export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
+  const fehler: string[] = []
+  if (cands.length === 0) return { cands, fehler }
   const [features, stations] = await Promise.all([
-    fetchVelonetz(bboxOf(cands)).catch(() => []),
-    fetchDtvStations(),
+    versuch('Velonetz (Routentyp)', fetchVelonetz(bboxOf(cands)), [], fehler),
+    versuch('Verkehrszähldaten (DTV)', fetchDtvStations(), [], fehler),
   ])
-  return cands.map(c => {
+  return { fehler, cands: cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
     // Votum pro WERT statt pro Feature (fein segmentierter Layer, siehe bestOverlapValue).
     const routentyp = features.length
@@ -87,5 +85,5 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
     const dtv = nearestDtv(dense, stations)
     if (!routentyp && dtv == null) return c
     return { ...c, bern: { ...c.bern, ...(routentyp ? { routentyp } : {}), ...(dtv != null ? { dtv } : {}) } }
-  })
+  }) }
 }

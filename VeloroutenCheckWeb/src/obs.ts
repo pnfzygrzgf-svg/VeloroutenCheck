@@ -16,7 +16,8 @@
 // die Führungsform-Note ein (die folgt dem Masterplan).
 
 import type { Cand } from './VeloMap'
-import { densify, overlapScore, bboxOfLL, bboxOverlap, type LL } from './geo'
+import { densify, overlapScore, bboxOfLL, bboxOverlap, mehrteilig, type LL } from './geo'
+import { holeJson } from './netz'
 
 // Aggregierte Überhol-Statistik eines Segments.
 export interface ObsStats {
@@ -58,15 +59,16 @@ const caches = new Map<string, Promise<ObsFeat[]>>()
 function loadObs(file: string): Promise<ObsFeat[]> {
   let cache = caches.get(file)
   if (!cache) {
-    cache = fetch(import.meta.env.BASE_URL + file)
-      .then(r => { if (!r.ok) throw new Error('OBS HTTP ' + r.status); return r.json() })
-      .then((data: { features?: RawFeature[] }) => (data.features ?? []).map(f => {
+    cache = holeJson<{ features?: RawFeature[] }>(import.meta.env.BASE_URL + file, 60000)
+      .then(data => (data.features ?? []).map(f => {
         const p = f.properties
-        const raw = f.geometry?.type === 'LineString'
-          ? (f.geometry.coordinates as number[][])
-          : ((f.geometry?.coordinates as number[][][] | undefined) ?? []).flat()
+        const ll = (c: number[][]): LL[] => c.map(([lon, lat]) => ({ lat, lon }))
+        // Mehrteilige Linien behalten ihre Lücken (keine Phantomkante zwischen den Teilen, s. geo.ts).
+        const line = f.geometry?.type === 'LineString' ? ll(f.geometry.coordinates as number[][])
+          : f.geometry?.type === 'MultiLineString' ? mehrteilig((f.geometry.coordinates as number[][][]).map(ll))
+          : []
         return {
-          line: raw.map(([lon, lat]) => ({ lat, lon })),
+          line,
           arr: Array.isArray(p.distance_overtaker_array) ? p.distance_overtaker_array : [],
           count: p.overtaking_event_count ?? 0,
           below150: p.overtaking_events_below_150 ?? 0,
@@ -82,6 +84,11 @@ function loadObs(file: string): Promise<ObsFeat[]> {
 // Kandidaten → Map cand.id → ObsStats. Jedes OBS-Teilstück wird per Überlappung dem
 // am besten passenden OSM-Segment zugeordnet (genau einem → kein Doppelzählen) und die
 // Teilstücke je Segment zusammengeführt. Befahrungen ohne Überholung zählen zu `usage`.
+//
+// «Genau einem» gilt nur UNTER DEN ÜBERGEBENEN Kandidaten. Wer Segmente einzeln nachlädt
+// (Klick, Kartenausschnitt), muss deshalb ALLE geladenen Kandidaten übergeben, nicht nur die
+// neuen — sonst landet dasselbe Teilstück bei zwei Nachbarsegmenten und mergeObs zählt es
+// doppelt; das Ergebnis hinge vom Ladeweg ab (App.tsx, enrichAll).
 export async function enrichObs(cands: Cand[], file = 'obs_bern.json'): Promise<Map<number, ObsStats>> {
   const feats = await loadObs(file)
   if (cands.length === 0 || feats.length === 0) return new Map()

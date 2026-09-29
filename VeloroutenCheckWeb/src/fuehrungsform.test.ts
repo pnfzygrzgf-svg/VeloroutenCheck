@@ -121,7 +121,9 @@ describe('Basel — siedlungsorientiert: zulässige Formen je Routentyp (Tab. 3,
   it('Vorzugsroute: DWV > 2500 → Hinweis, Velostrasse bleibt Note 6 (kein Abzug)', () => {
     const r = bs('Velostrasse', 4.5, 'Velohauptroute', 3000)
     expect(r.note).toBe(6)
-    expect(r.hinweis).toContain('Höchstwert 2500')
+    // Seit 29.09.2026 eine WARNUNG (steht zusätzlich), kein hinweis (der die Erklärung ersetzt).
+    expect(r.warnung).toContain('Höchstwert 2500')
+    expect(r.hinweis).toBeUndefined()
   })
   it('Velostrasse, DWV < 1000: reduzierte Breite 4,00 m konform → Note 6', () => {
     const r = bs('Velostrasse', 4.0, 'Velohauptroute', 500)
@@ -139,13 +141,40 @@ describe('Basel — siedlungsorientiert: zulässige Formen je Routentyp (Tab. 3,
   it('Pendler/Basis: Velostrasse ist zulässig (mögliche Form) → Note 6', () =>
     expect(bs('Velostrasse', 4.3, 'Veloroute').note).toBe(6))
   it('Pendler/Basis: Velostrasse hat keinen DWV-Deckel (DWV 8000 → kein Hinweis)', () =>
-    expect(bs('Velostrasse', 4.3, 'Veloroute', 8000).hinweis).toBeUndefined())
+    expect(bs('Velostrasse', 4.3, 'Veloroute', 8000).warnung).toBeUndefined())
   it('Pendler/Basis: Radstreifen → nicht vorgesehen, max Note 4', () =>
     expect(bs('Radstreifen', 2.5, 'Veloroute').note).toBeLessThanOrEqual(4))
   it('Pendler/Basis: DWV > 5000 → Hinweis, Mischverkehr bleibt Note 6', () => {
     const r = bs('Mischverkehr', undefined, 'Veloroute', 6000)
     expect(r.note).toBe(6)
-    expect(r.hinweis).toContain('Höchstwert 5000')
+    expect(r.warnung).toContain('Höchstwert 5000')
+  })
+
+  // ── Einbahn mit Velogegenverkehr ohne Markierung = Mischverkehr in der Einbahn (29.09.2026) ──
+  const einbahn = 'Einbahn Velogegenverkehr ohne Markierung' as const
+  it('Pendler/Basis: Einbahn ohne Markierung wie Mischverkehr zulässig → Note 6, kein hinweis', () => {
+    const r = bs(einbahn, undefined, 'Veloroute')
+    expect(r.note).toBe(6)
+    expect(r.hinweis).toBeUndefined()
+  })
+  it('Pendler/Basis: Einbahn ohne Markierung trägt denselben DWV-Deckel 5000 wie Mischverkehr', () =>
+    expect(bs(einbahn, undefined, 'Veloroute', 6000).warnung).toContain('Höchstwert 5000'))
+  it('Vorzugsroute: Einbahn ohne Markierung bleibt nicht konform (nur Velostrasse) → max Note 4', () => {
+    const r = bs(einbahn, undefined, 'Velohauptroute')
+    expect(r.note).toBeLessThanOrEqual(4)
+    expect(r.hinweis).toContain('nur Velostrasse')
+  })
+  it('Pendler/Basis: Einbahn MIT Markierung bleibt nicht vorgesehen → max Note 4', () =>
+    expect(bs('Einbahn Velogegenverkehr mit Markierung', 2.5, 'Veloroute').note).toBeLessThanOrEqual(4))
+
+  // ── Abzüge bleiben sichtbar: die Note ist regulär gerechnet, nicht fest gesetzt ──────────────
+  it('DWV-Warnung + Parkierung: Abzug wirkt (Note 5) und die Note gilt nicht als fest', () => {
+    const r = fuehrungsformNote(6000, 30, 'Mischverkehr', undefined, 'Veloroute', 'ja', undefined,
+      'keine', 'keine', undefined, false, undefined, 'basel', 'siedlungsorientiert')
+    expect(r.note).toBe(5)
+    expect(r.parkenAbzug).toBe(1)
+    expect(r.noteFix).toBe(false)
+    expect(r.hinweis).toBeUndefined()
   })
 
   it('Velostrasse auf verkehrsorientierter Strasse → nicht zulässig, max Note 4', () => {
@@ -404,6 +433,29 @@ describe('vergleichsNoten (Stadt-Vergleich)', () => {
     expect(bs.gruende[0]).toContain('verkehrsorientiert')
   })
 
+  it('amtlicher Basler Strassentyp → Basel gilt NICHT als geschätzt', () => {
+    const v = vergleichsNoten({ dtv: 3000, v: 50, ist: 'Radstreifen', breite: 2.5, strassentyp: 'verkehrsorientiert' }, 'bern')
+    const bs = v.find(x => x.stadt === 'basel')!
+    expect(bs.geschaetzt).toBe(false)
+    expect(bs.gruende.some(g => g.includes('geschätzt'))).toBe(false)
+  })
+
+  it('Umweltspur: Grund ist die Umweltspur-Regel, nicht ein Soll, das dort gar nicht wirkt', () => {
+    // Bern Decke 5 (Takt 20 Min), Luzern Decke 4 — gleiche Breite 4,5 m, gleiche Soll-Breite.
+    const v = vergleichsNoten({ dtv: 3000, v: 50, ist: 'Umweltspur', breite: 4.5, oevTakt: 20 }, 'bern')
+    const lu = v.find(x => x.stadt === 'luzern')!
+    expect(lu.note).toBe(4)
+    expect(lu.gruende.some(g => g.startsWith('Soll: '))).toBe(false)
+    expect(lu.gruende.some(g => g.startsWith('Umweltspur-Regel'))).toBe(true)
+  })
+
+  it('Zweirichtungsradweg: Zürich und Basel rechnen mit EIGENEN Breiten, nicht mit den Berner', () => {
+    const v = vergleichsNoten({ dtv: 3000, v: 50, ist: 'Zweirichtungsradweg', breite: 4.5 }, 'bern')
+    expect(v.find(x => x.stadt === 'zurich')!.sollbreite).toBe(4.8)
+    expect(v.find(x => x.stadt === 'basel')!.sollbreite).toBe(4.0)
+    expect(v.find(x => x.stadt === 'luzern')!.sollbreite).toBe(4.5)
+  })
+
   it('identische Note ohne Schätzung liefert keine Gründe', () => {
     // Ruhiger Mischverkehr: Bern und Zürich verlangen beide Mischverkehr → Note beidseits 6.
     // (Der frühere Fall DTV 3000/T50 hatte unterschiedliche Solls — die Assertion hinter dem
@@ -426,17 +478,17 @@ describe('Basel — DWV-Deckel Hinweis (siedlungsorientierte Strasse)', () => {
   }
 
   it('Velohauptroute, siedlungsorientiert, DTV > 2500 → Hinweis (Deckel 2500)', () =>
-    expect(bs(3000, 'Velohauptroute', 'siedlungsorientiert').hinweis).toContain('Höchstwert 2500'))
+    expect(bs(3000, 'Velohauptroute', 'siedlungsorientiert').warnung).toContain('Höchstwert 2500'))
   it('Velohauptroute, siedlungsorientiert, DTV ≤ 2500 → kein Hinweis', () =>
-    expect(bs(2000, 'Velohauptroute', 'siedlungsorientiert').hinweis).toBeUndefined())
+    expect(bs(2000, 'Velohauptroute', 'siedlungsorientiert').warnung).toBeUndefined())
   it('Veloroute, siedlungsorientiert, DTV < 5000 → kein Hinweis', () =>
-    expect(bs(4000, 'Veloroute', 'siedlungsorientiert').hinweis).toBeUndefined())
+    expect(bs(4000, 'Veloroute', 'siedlungsorientiert').warnung).toBeUndefined())
   it('Veloroute, siedlungsorientiert, DTV ≥ 5000 → Hinweis (Deckel 5000)', () =>
-    expect(bs(6000, 'Veloroute', 'siedlungsorientiert').hinweis).toContain('Höchstwert 5000'))
+    expect(bs(6000, 'Veloroute', 'siedlungsorientiert').warnung).toContain('Höchstwert 5000'))
   it('verkehrsorientiert → nie ein Deckel-Hinweis (konforme Form, hoher DTV)', () =>
     expect(fuehrungsformNote(8000, 30, 'Radstreifen', 2.5, 'Veloroute',
       'egal', undefined, 'keine', 'keine', undefined, false,
-      BREITEN_BASEL['Radstreifen'], 'basel', 'verkehrsorientiert').hinweis).toBeUndefined())
+      BREITEN_BASEL['Radstreifen'], 'basel', 'verkehrsorientiert').warnung).toBeUndefined())
 })
 
 describe('Kombinierter Fuss-/Radweg (Q11)', () => {
@@ -529,6 +581,15 @@ describe('Q7 — Einbahn mit Velogegenverkehr (dreistufig)', () => {
     expect(BREITEN_LUZERN['Einbahn Velogegenverkehr mit Markierung']).toEqual({ optimal: 2.5, minimal: 2.0 })
     expect(BREITEN_BASEL['Einbahn Velogegenverkehr mit Markierung']).toEqual({ optimal: 2.5, minimal: 1.8 })
     expect(BREITEN_ZUERICH['Einbahn Velogegenverkehr mit baulicher Trennung']).toEqual({ optimal: 1.8, minimal: 1.8 })
+  })
+  it('Zweirichtungsradweg (Q10): stadtspezifische Breiten Zürich 4,8/3,5 · Basel 4,0/3,4', () => {
+    expect(BREITEN_ZUERICH['Zweirichtungsradweg']).toEqual({ optimal: 4.8, minimal: 3.5 })
+    expect(BREITEN_BASEL['Zweirichtungsradweg']).toEqual({ optimal: 4.0, minimal: 3.4 })
+    // Zürich, Hauptnetz: 3,3 m unterschreitet 3,5 m um 0,2 m (mit der Berner 3,2 wäre es erfüllt).
+    const r = fuehrungsformNote(3000, 50, 'Zweirichtungsradweg', 3.3, 'Veloroute', 'egal', undefined,
+      'keine', 'keine', undefined, false, BREITEN_ZUERICH['Zweirichtungsradweg'], 'zurich')
+    expect(r.sollbreite).toBe(3.5)
+    expect(r.breitenStatus).toBe('zu schmal')
   })
 })
 

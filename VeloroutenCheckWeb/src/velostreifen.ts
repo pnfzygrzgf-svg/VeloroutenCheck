@@ -12,13 +12,14 @@
 // (geo.ts), nicht über IDs; mit Bbox-Vorfilter für die Performance.
 
 import type { Cand } from './VeloMap'
-import { densify, overlapScore, bboxOfLL, bboxOverlap, type LL } from './geo'
+import { densify, naechsteLinieJePunkt, bboxOfLL, bboxOverlap, type LL } from './geo'
+import { holeJson } from './netz'
 
 export interface VeloInfo { breite?: number }   // aus der Markierung gemessene Streifenbreite [m]
 
 const SAMPLE_M = 15      // Verdichtung der OSM-Geometrie
-const OVERLAP_M = 20     // Punkt gilt als „auf dem Streifen", wenn ≤ 20 m entfernt
-const MIN_FRACTION = 0.5 // ≥ 50 % Überlappung → Zuordnung
+const OVERLAP_M = 12     // Punkt gilt als „am Streifen", wenn ≤ 12 m entfernt (Achse ↔ Fahrbahnrand)
+const MIN_FRACTION = 0.5 // ≥ 50 % DES ABSCHNITTS liegen an einem Streifen → Zuordnung
 
 interface VeloFeat { line: LL[]; breite?: number }
 
@@ -38,23 +39,31 @@ const caches = new Map<string, Promise<VeloFeat[]>>()
 function loadVelostreifen(file: string): Promise<VeloFeat[]> {
   let cache = caches.get(file)
   if (!cache) {
-    cache = fetch(import.meta.env.BASE_URL + file)
-      .then(r => { if (!r.ok) throw new Error('Velostreifen HTTP ' + r.status); return r.json() })
-      .then((data: { features?: RawFeature[] }) => (data.features ?? []).flatMap(f => {
+    cache = holeJson<{ features?: RawFeature[] }>(import.meta.env.BASE_URL + file, 60000)
+      .then(data => (data.features ?? []).flatMap(f => {
         const raw = f.geometry?.type === 'LineString' ? (f.geometry.coordinates ?? []) : []
         const line = raw.map(([lon, lat]) => ({ lat, lon }))
         if (line.length < 2) return []
         const b = f.properties?.breite_m
         return [{ line, breite: typeof b === 'number' ? b : undefined }]
       }))
-      .catch(() => { caches.delete(file); return [] as VeloFeat[] })   // fehlt/Netzfehler → leer, nicht eingefroren
+      // Netzfehler → leer, nicht eingefroren. Ein 404 dagegen BLEIBT im Cache: die Datei fehlt im
+      // öffentlichen Build dauerhaft, und ohne Merken fragte jeder Ladevorgang erneut danach.
+      .catch((e: unknown) => { if (!/HTTP 404/.test(String(e))) caches.delete(file); return [] as VeloFeat[] })
     caches.set(file, cache)
   }
   return cache
 }
 
-// Kandidaten → Map cand.id → VeloInfo. Jeder Kandidat, der ausreichend mit einer
-// Streifen-Linie überlappt, gilt als Radstreifen; Breite = Median der Treffer.
+// Kandidaten → Map cand.id → VeloInfo. Ein Kandidat gilt als Radstreifen, wenn mindestens
+// MIN_FRACTION SEINER LÄNGE an Streifen-Linien liegt; Breite = Median der beteiligten Striche.
+//
+// GEMESSEN WIRD AM ABSCHNITT, nicht am Strich (29.09.2026). Der Snapshot besteht fast ganz aus
+// einzelnen Markierungsstrichen (14'507 von 14'516 kürzer als 15 m, Median 2,9 m). Der frühere
+// beidseitige overlapScore nahm das Maximum beider Richtungen — und ein 2,9-m-Strich liegt
+// IMMER ganz am Abschnitt: Score 1,0. Ein einziger Strich machte so einen 500-m-Abschnitt zum
+// Radstreifen, samt Breite. Jetzt stimmt jeder Punkt des Abschnitts für den nächsten parallelen
+// Strich; gezählt wird, welcher Anteil des Abschnitts überhaupt einen Strich neben sich hat.
 export async function enrichVelostreifen(
   cands: Cand[], file = 'velostreifen_bern.json',
 ): Promise<Map<number, VeloInfo>> {
@@ -78,14 +87,13 @@ export async function enrichVelostreifen(
   for (const c of cands) {
     const dense = densify(c.geom, SAMPLE_M)
     const cbox = bboxOfLL(dense)
-    const breiten: number[] = []
-    for (const { f, bbox } of boxes) {
-      if (!bboxOverlap(cbox, bbox, padDeg)) continue
-      if (overlapScore(dense, f.line, OVERLAP_M) >= MIN_FRACTION && f.breite != null) {
-        breiten.push(f.breite)
-      }
-    }
-    if (breiten.length) out.set(c.id, { breite: median(breiten) })
+    const nahe = boxes.filter(({ bbox }) => bboxOverlap(cbox, bbox, padDeg)).map(({ f }) => f)
+    if (nahe.length === 0) continue
+    const stimmen = naechsteLinieJePunkt(dense, nahe.map(f => f.line), OVERLAP_M)
+    const beteiligt = new Set(stimmen.filter(i => i >= 0))
+    if (beteiligt.size === 0 || stimmen.filter(i => i >= 0).length / dense.length < MIN_FRACTION) continue
+    const breiten = [...beteiligt].map(i => nahe[i].breite).filter((b): b is number => b != null)
+    out.set(c.id, breiten.length ? { breite: median(breiten) } : {})
   }
   return out
 }

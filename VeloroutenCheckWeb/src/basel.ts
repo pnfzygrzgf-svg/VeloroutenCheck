@@ -11,14 +11,17 @@
 //       Basis-/Pendlerrouten → Veloroute    — beide ohne Hierarchie untereinander → gleich.
 //       übriges Strassennetz → kein Routentyp (manuell).
 //     Kein Strassenname im Datensatz → Zuordnung geometrisch (geo.ts).
-//   - Velostrasse: aus dem «Velostadtplan» (data.bs.ch, gml_id=Velostrasse) → setzt die
-//     Ist-Führungsform = Velostrasse (amtlich), genau wie Berns Velostrassen-Layer.
+//   - Velostrasse: aus dem «Velostadtplan: Eignung» (data.bs.ch, Datensatz 100426,
+//     klassifikation = Velostrasse) → setzt die Ist-Führungsform = Velostrasse (amtlich),
+//     genau wie Berns Velostrassen-Layer.
 //   - Tempo / übrige Ist-Führungsform / Breite: aus OSM (App.tsx).
 //   - DTV / Bus-Takt: vorerst manuell (kein offener flächendeckender DTV; Takt = OSM→GTFS-Join).
 //   - ÖV (Tram in der Fahrbahn, Haltestelle): aus OSM (cityShared.ts) — Basel hat Tram.
-//   - Velovorzugsrouten (= Velohauptroute) und die «Eignung» des Velostadtplans („gut befahrbares
-//     Velonetz") sind bewusst NICHT übernommen: Vorzugsrouten fehlen als offene Geodaten; die
-//     Eignung ist eine Komfortbewertung, kein Routentyp (würde die Note verfälschen).
+//   - Velovorzugsrouten (= Velohauptroute) und die übrigen Klassen der «Eignung» des
+//     Velostadtplans („gut befahrbares Velonetz", „sonstige für Velos geeignete Strassen") sind
+//     bewusst NICHT übernommen: Vorzugsrouten fehlen als offene Geodaten; die Eignung ist eine
+//     Komfortbewertung, kein Routentyp (würde die Note verfälschen). Aus dem Datensatz wird
+//     allein die Klasse «Velostrasse» gelesen — sie ist eine Führungsform, keine Bewertung.
 //
 // Lizenz: Open Government Data Kanton Basel-Stadt, Quellenangabe Pflicht. Der WFS ist
 // CORS-offen und liefert GeoJSON in WGS84 (Live-Abruf im Browser, kein Proxy nötig).
@@ -26,9 +29,10 @@
 import type { Cand } from './VeloMap'
 import type { Routentyp, Strassentyp } from './fuehrungsform'
 import { densify } from './geo'
+import { holeJson } from './netz'
 import {
-  bboxOf, bestOverlapValue, loadOevFromOsm, nearestDtv, OVERLAP_M, SAMPLE_M,
-  type Bbox, type GeoJsonFeature, type DtvStation,
+  bboxOf, bestOverlapValue, istLinie, loadOevFromOsm, nearestDtv, versuch, OVERLAP_M, SAMPLE_M,
+  type Anreicherung, type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
 
 // DTV je Zählstelle aus dem gebündelten Snapshot (public/dtv_basel.json, via tools/dtv_basel.py) —
@@ -36,9 +40,8 @@ import {
 let dtvCache: Promise<DtvStation[]> | undefined
 function fetchDtvStations(): Promise<DtvStation[]> {
   if (!dtvCache) {
-    dtvCache = fetch(import.meta.env.BASE_URL + 'dtv_basel.json')
-      .then(r => (r.ok ? r.json() : []))
-      .catch(() => { dtvCache = undefined; return [] as DtvStation[] })   // Netzfehler nicht einfrieren
+    dtvCache = holeJson<DtvStation[]>(import.meta.env.BASE_URL + 'dtv_basel.json', 15000)
+    dtvCache.catch(() => { dtvCache = undefined })   // Fehlschlag (auch HTTP-Fehler) nicht einfrieren
   }
   return dtvCache
 }
@@ -67,26 +70,29 @@ async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
     bbox: `${bbox.s},${bbox.w},${bbox.n},${bbox.e},urn:ogc:def:crs:EPSG::4326`,
   })
   // Timeout: ein hängender WFS darf enrichAll/die UI nicht dauerhaft blockieren.
-  const res = await fetch(`${BS_WFS}?${params}`, { signal: AbortSignal.timeout(15000) })
-  if (!res.ok) throw new Error(`Teilrichtplan Velo HTTP ${res.status}`)
-  const data: { features?: GeoJsonFeature[] } = await res.json()
-  return (data.features || []).filter(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString')
+  const data = await holeJson<{ features?: GeoJsonFeature[] }>(`${BS_WFS}?${params}`, 15000)
+  return (data.features || []).filter(istLinie)
 }
 
-// ── Velostrasse aus dem Velostadtplan (data.bs.ch, gml_id=Velostrasse) ─────────
+// ── Velostrasse aus dem Velostadtplan (data.bs.ch) ────────────────────────────
 // Nur 87 Features → einmalig laden und im Modul cachen (wie Berns Velostrassen).
+//
+// QUELLE GEWECHSELT am 29.09.2026. Bis dahin: Datensatz 100404 mit `gml_id="Velostrasse"`.
+// Der Kanton hat den Velostadtplan am 18.08.2026 neu gegliedert — 100404 heisst seither
+// «Velostadtplan: Hinweise» (Einbahn/Gefahr/Steigung) und kennt kein Feld `gml_id` mehr; die
+// Abfrage kam mit HTTP 400 zurück, wurde als «keine Velostrassen» gelesen und so gecacht.
+// Die Velostrassen stehen jetzt in 100426 «Velostadtplan: Eignung», Feld `klassifikation`.
 const VELOSTADTPLAN_GEOJSON =
-  'https://data.bs.ch/api/explore/v2.1/catalog/datasets/100404/exports/geojson?where=' +
-  encodeURIComponent('gml_id="Velostrasse"')
+  'https://data.bs.ch/api/explore/v2.1/catalog/datasets/100426/exports/geojson?where=' +
+  encodeURIComponent('klassifikation="Velostrasse"')
 const VELO_FRACTION = 0.6  // strenger als Routentyp: Velostrasse überschreibt die Ist-Führungsform.
 
 let velostrassenCache: Promise<GeoJsonFeature[]> | null = null
 function loadVelostrassen(): Promise<GeoJsonFeature[]> {
   if (!velostrassenCache) {
-    velostrassenCache = fetch(VELOSTADTPLAN_GEOJSON, { signal: AbortSignal.timeout(15000) })
-      .then(r => (r.ok ? r.json() : { features: [] }))
-      .then((d: { features?: GeoJsonFeature[] }) => d.features || [])
-      .catch(() => { velostrassenCache = null; return [] })   // Netzfehler nicht einfrieren
+    velostrassenCache = holeJson<{ features?: GeoJsonFeature[] }>(VELOSTADTPLAN_GEOJSON, 15000)
+      .then(d => (d.features || []).filter(istLinie))
+    velostrassenCache.catch(() => { velostrassenCache = null })   // Fehlschlag (auch HTTP 400) nicht einfrieren
   }
   return velostrassenCache
 }
@@ -102,10 +108,8 @@ function strassenGeojsonUrl(bbox: Bbox): string {
 }
 
 async function fetchStrassentyp(bbox: Bbox): Promise<GeoJsonFeature[]> {
-  const res = await fetch(strassenGeojsonUrl(bbox), { signal: AbortSignal.timeout(15000) })
-  if (!res.ok) throw new Error(`Strassen und Wege HTTP ${res.status}`)
-  const data: { features?: GeoJsonFeature[] } = await res.json()
-  return (data.features || []).filter(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString')
+  const data = await holeJson<{ features?: GeoJsonFeature[] }>(strassenGeojsonUrl(bbox), 15000)
+  return (data.features || []).filter(istLinie)
 }
 
 function kategorieToStrassentyp(p: Record<string, string | number | null>): Strassentyp | undefined {
@@ -123,17 +127,18 @@ function geschwindigkeit(p: Record<string, string | number | null>): number | un
   return typeof g === 'number' && g >= 20 && g <= 60 ? g : undefined
 }
 
-export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
-  if (cands.length === 0) return cands
+export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
+  const fehler: string[] = []
+  if (cands.length === 0) return { cands, fehler }
   const bbox = bboxOf(cands)
   const [features, velostrassen, strassen, stations] = await Promise.all([
-    fetchVelonetz(bbox).catch(() => []),
-    loadVelostrassen(),
-    fetchStrassentyp(bbox).catch(() => []),
-    fetchDtvStations(),
+    versuch('Teilrichtplan Velo (Routentyp)', fetchVelonetz(bbox), [], fehler),
+    versuch('Velostadtplan (Velostrassen)', loadVelostrassen(), [], fehler),
+    versuch('Strassen und Wege (Strassentyp, Tempo)', fetchStrassentyp(bbox), [], fehler),
+    versuch('Zählstellen (DTV)', fetchDtvStations(), [], fehler),
   ])
-  if (features.length === 0 && velostrassen.length === 0 && strassen.length === 0 && stations.length === 0) return cands
-  return cands.map(c => {
+  if (features.length === 0 && velostrassen.length === 0 && strassen.length === 0 && stations.length === 0) return { cands, fehler }
+  return { fehler, cands: cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
     // Votum pro WERT statt pro Feature: Teilrichtplan (4 002 Segmente) und «Strassen und Wege»
     // (7 546) sind fein segmentiert — pro Feature erreichte keines die 50 %, und ohne Strassentyp
@@ -157,5 +162,5 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
         ...(dtv != null ? { dtv } : {}),
       },
     }
-  })
+  }) }
 }

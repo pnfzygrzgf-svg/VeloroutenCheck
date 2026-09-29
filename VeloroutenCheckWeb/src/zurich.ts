@@ -24,9 +24,10 @@
 import type { Cand } from './VeloMap'
 import type { Routentyp } from './fuehrungsform'
 import { densify } from './geo'
+import { holeJson } from './netz'
 import {
-  bboxOf, bestOverlapValue, loadOevFromOsm, nearestDtv, SAMPLE_M,
-  type Bbox, type GeoJsonFeature, type DtvStation,
+  bboxOf, bestOverlapValue, istLinie, loadOevFromOsm, nearestDtv, versuch, SAMPLE_M,
+  type Anreicherung, type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
 
 // DTV je Zählstelle live aus dem OGD-WFS des Kantons Zürich (TBA Verkehrsmessstellen, Feld `dtv`).
@@ -34,16 +35,14 @@ import {
 let dtvCache: Promise<DtvStation[]> | undefined
 function fetchDtvStations(): Promise<DtvStation[]> {
   if (!dtvCache) {
-    dtvCache = fetch('https://maps.zh.ch/wfs/OGDZHWFS?service=WFS&version=2.0.0&request=GetFeature'
-      + '&typeNames=ms:ogd-0223_giszhpub_tba_verkehrsmessstellen_p&outputFormat=geojson&srsName=EPSG:4326',
-      { signal: AbortSignal.timeout(8000) })
-      .then(r => (r.ok ? r.json() : { features: [] }))
-      .then((d: { features?: { geometry?: { coordinates: [number, number] }; properties?: { dtv?: number } }[] }) =>
-        (d.features ?? []).flatMap(f => {
-          const c = f.geometry?.coordinates, dtv = f.properties?.dtv
-          return c && dtv != null ? [{ lat: c[1], lon: c[0], dtv }] : []
-        }))
-      .catch(() => { dtvCache = undefined; return [] as DtvStation[] })   // Netzfehler nicht einfrieren
+    type Antwort = { features?: { geometry?: { coordinates: [number, number] }; properties?: { dtv?: number } }[] }
+    dtvCache = holeJson<Antwort>('https://maps.zh.ch/wfs/OGDZHWFS?service=WFS&version=2.0.0&request=GetFeature'
+      + '&typeNames=ms:ogd-0223_giszhpub_tba_verkehrsmessstellen_p&outputFormat=geojson&srsName=EPSG:4326', 8000)
+      .then(d => (d.features ?? []).flatMap(f => {
+        const c = f.geometry?.coordinates, dtv = f.properties?.dtv
+        return c && typeof dtv === 'number' ? [{ lat: c[1], lon: c[0], dtv }] : []
+      }))
+    dtvCache.catch(() => { dtvCache = undefined })   // Fehlschlag (auch HTTP-Fehler) nicht einfrieren
   }
   return dtvCache
 }
@@ -69,21 +68,20 @@ async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
     bbox: `${bbox.s},${bbox.w},${bbox.n},${bbox.e},urn:ogc:def:crs:EPSG::4326`,
   })
   // Timeout: ein hängender WFS darf enrichAll/die UI nicht dauerhaft blockieren.
-  const res = await fetch(`${VELONETZ_WFS}?${params}`, { signal: AbortSignal.timeout(15000) })
-  if (!res.ok) throw new Error(`Velonetzplanung HTTP ${res.status}`)
-  const data: { features?: GeoJsonFeature[] } = await res.json()
-  return (data.features || []).filter(f => f.geometry?.type === 'LineString' || f.geometry?.type === 'MultiLineString')
+  const data = await holeJson<{ features?: GeoJsonFeature[] }>(`${VELONETZ_WFS}?${params}`, 15000)
+  return (data.features || []).filter(istLinie)
 }
 
 // Kandidaten mit dem Routentyp aus der Velonetzplanung anreichern (additiv; schreibt in
 // c.bern, das App.tsx als generischen „angereichert"-Container liest).
-export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
-  if (cands.length === 0) return cands
+export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
+  const fehler: string[] = []
+  if (cands.length === 0) return { cands, fehler }
   const [features, stations] = await Promise.all([
-    fetchVelonetz(bboxOf(cands)).catch(() => []),
-    fetchDtvStations(),
+    versuch('Velonetzplanung (Routentyp)', fetchVelonetz(bboxOf(cands)), [], fehler),
+    versuch('Verkehrsmessstellen (DTV)', fetchDtvStations(), [], fehler),
   ])
-  return cands.map(c => {
+  return { fehler, cands: cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
     // Votum pro WERT: die kantonalen Velonetz-Features sind kurz segmentiert — pro Feature
     // erreichte keines die 50 % und der Routentyp fiel aus (07.08.2026).
@@ -93,5 +91,5 @@ export async function enrichCands(cands: Cand[]): Promise<Cand[]> {
     const dtv = nearestDtv(dense, stations)
     if (!routentyp && dtv == null) return c
     return { ...c, bern: { ...c.bern, ...(routentyp ? { routentyp } : {}), ...(dtv != null ? { dtv } : {}) } }
-  })
+  }) }
 }

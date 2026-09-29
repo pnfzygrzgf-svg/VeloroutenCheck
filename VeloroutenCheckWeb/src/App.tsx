@@ -8,25 +8,32 @@ import {
   type Stadt, type Strassentyp, type VergleichsNote,
 } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, type Cand, type SectionMarker, type Stop } from './VeloMap'
+import {
+  candsToSections, defaultSection, dtvAssumed, dtvEff,
+  type Quelle, type QuelleFeld, type Section,
+} from './strecke'
+import { loadBboxCandidates, loadNearestCandidate, loadStreetCandidates } from './osm'
+import { buildCsv, numDE, parseZahl } from './csv'
+import type { Anreicherung } from './cityShared'
 import * as bern from './bern'
 import * as zurich from './zurich'
 import * as basel from './basel'
 import * as luzern from './luzern'
 // import * as stgallen from './stgallen'   // St. Gallen vorerst nicht weiterverfolgt (siehe CITIES)
 import { type OevInfo } from './bern'
-import { enrichObs, mergeObs, type ObsStats } from './obs'
+import { enrichObs, type ObsStats } from './obs'
 import { enrichVelostreifen, type VeloInfo } from './velostreifen'
 
 // ── Städte-Registry: pro Stadt die Datenquellen + Beschriftungen bündeln ───────
-// bern.ts bleibt unverändert; zurich/basel/luzern/stgallen.ts spiegeln dieselben Schnittstellen.
+// Alle Adapter (bern/zurich/basel/luzern/stgallen.ts) tragen dieselben Schnittstellen.
 type CityId = Stadt   // 'bern' | 'zurich' | 'basel' | 'luzern' (St. Gallen vorerst nicht weiterverfolgt)
-type LoadOevResult = { byId: Map<number, OevInfo & { oevQuelle?: 'amtlich' | 'osm' }>; stops: Stop[] }
+type LoadOevResult = { byId: Map<number, OevInfo & { oevQuelle?: 'amtlich' | 'osm' }>; stops: Stop[]; fehler: string[] }
 interface CityCfg {
   label: string                                   // Anzeigename (Meldungen, UI)
   osmArea: string                                 // OSM-Gebietsname für die Strassen-Abfrage
   center: [number, number]                        // Anfangs-Kartenmitte
   attribution: string                             // Quellenangabe der amtlichen Anreicherung (Chip/Karte)
-  enrichCands: (cands: Cand[]) => Promise<Cand[]>
+  enrichCands: (cands: Cand[]) => Promise<Anreicherung>
   loadOev: (cands: Cand[]) => Promise<LoadOevResult>
   obsFile?: string                                // OpenBikeSensor-Snapshot (public/), falls vorhanden
   velostreifenFile?: string                       // lokaler Markierungs-Snapshot (nicht öffentlich), falls vorhanden
@@ -103,9 +110,6 @@ const STADT_KURZ: Record<CityId, string> = { bern: 'BE', zurich: 'ZH', basel: 'B
 
 // Quellenangabe der amtlichen Anreicherung für den Herkunfts-Chip (stadtabhängig).
 const AttribContext = createContext('Geoinformation Stadt Bern')
-// War der Berner DTV-Layer beim letzten Anreichern erreichbar? Steuert die «≤ 2000»-Annahme
-// (dtvAssumed) und deren Chip — bei Ausfall soll «Eingabe nötig» stehen, nicht die Annahme.
-const DtvQuelleOkContext = createContext(true)
 
 const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
   'Mischverkehr':                  { bg: '#9ca3af', fg: '#ffffff' },
@@ -202,371 +206,6 @@ const HALT_COLOR: Record<Haltestellenloesung, { bg: string; fg: string }> = {
   'Mischverkehr':        { bg: '#6b7280', fg: '#ffffff' },
 }
 
-// ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
-// Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
-// Fehlt ein Eintrag, ist das Feld leer (keine erfundenen Werte).
-type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung' | 'angenommen'
-
-// DTV-Annahme (nur Bern): fehlt der DTV, gilt bei bekanntem Tempo DTV ≤ 2000. Die „Flächendeckenden
-// Verkehrsdaten" Bern führen alle Strassen > 2000 + alle Altstadt-Strassen — kein Eintrag ⇒ ≤ 2000
-// (ausserhalb Altstadt; die Live-Punktabfrage liefert in der Altstadt zuverlässig einen Wert).
-const DTV_ANGENOMMEN = 1000   // Repräsentant des „< 2000"-Bands (jeder Wert < 2000 ergibt dasselbe Soll)
-// quelleOk: WAR der Verkehrsdaten-Layer beim Anreichern erreichbar? Nur dann ist «kein
-// Eintrag ⇒ ≤ 2000» ein gültiger Schluss — bei einem Ausfall bliebe die Note sonst mit dem
-// günstigsten Band stehen, als wäre sie amtlich begründet (07.08.2026, bernDtvLayerOk).
-function dtvAssumed(s: Section, city: CityId, quelleOk = true): boolean {
-  return quelleOk && !Number.isFinite(s.dtv) && city === 'bern' && Number.isFinite(s.speed)
-}
-function dtvEff(s: Section, city: CityId, quelleOk = true): number {
-  return Number.isFinite(s.dtv) ? s.dtv : (dtvAssumed(s, city, quelleOk) ? DTV_ANGENOMMEN : NaN)
-}
-// Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
-type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram' | 'strassentyp'
-
-interface Section {
-  id: number
-  dtv: number                  // NaN = leer
-  speed: number                // NaN = leer
-  ist: IstFuehrungsform | ''   // '' = noch nicht gewählt
-  breite: number               // NaN = leer
-  routentyp: Routentyp | ''    // '' = noch nicht gewählt
-  strassentyp: Strassentyp | ''  // '' = noch nicht gewählt (nur Basel relevant)
-  parkenRechts: ParkenRechts
-  parkenSicherheitsstreifen: boolean  // Sicherheitsstreifen ggü. Parkplätzen (SN 640 060), nur bei Parkierung=ja
-  oevTakt: number
-  oevAngebot: OevAngebot
-  haltestellentyp: Haltestellentyp
-  haltestelleBreite: number    // NaN = leer
-  tram: boolean                // Tram (Schienen) in der Fahrbahn — entkoppelt von der Haltestelle
-  label?: string               // Herkunft/Beschriftung (z. B. aus OSM geladen)
-  quelle: Partial<Record<QuelleFeld, Quelle>>   // gesetzt je Feld, sobald ein Wert vorliegt
-  candIds?: number[]           // OSM-Way-IDs der Segmente dieses Abschnitts (für die Karten-Zuordnung)
-  obs?: ObsStats               // OpenBikeSensor-Überholabstände (Zusatzinfo, nicht in der Note)
-  oev?: OevInfo                // ÖV-Erkennung (Geoportal): Haltestelle/Modus im Abschnitt
-}
-let nextId = 1
-// Neuer Abschnitt: datenartige Felder leer (DTV/Tempo/Führungsform/Breite/Routentyp),
-// neutrale Auswahlfelder auf „nichts hier" (Parkierung egal, keine Haltestelle).
-function defaultSection(): Section {
-  return {
-    id: nextId++, dtv: NaN, speed: NaN, ist: '', breite: NaN,
-    routentyp: '', strassentyp: '', parkenRechts: 'egal', parkenSicherheitsstreifen: false, oevTakt: NaN,
-    oevAngebot: 'keine', haltestellentyp: 'keine', haltestelleBreite: NaN,
-    tram: false,
-    quelle: {},
-  }
-}
-
-// ── OSM-Import (Overpass) ─────────────────────────────────────────────────────
-// Distanz [m] einer Geometrie (Haversine).
-function geomLength(geom?: { lat: number; lon: number }[]): number {
-  if (!geom || geom.length < 2) return 0
-  const R = 6371000, rad = (x: number) => (x * Math.PI) / 180
-  let tot = 0
-  for (let i = 1; i < geom.length; i++) {
-    const a = geom[i - 1], b = geom[i]
-    const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon)
-    const h = Math.sin(dLat / 2) ** 2 +
-      Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2
-    tot += 2 * R * Math.asin(Math.sqrt(h))
-  }
-  return tot
-}
-
-// OSM-Tags → Ist-Führungsform (objektive Infrastruktur; Bewertung folgt im Rechner).
-function istFromTags(t: Record<string, string>, highway: string): IstFuehrungsform {
-  const cw = [t.cycleway, t['cycleway:both'], t['cycleway:left'], t['cycleway:right']]
-  const has = (v: string) => cw.includes(v)
-  if (t.bicycle_road === 'yes' || t.cyclestreet === 'yes') return 'Velostrasse'
-  // Zweirichtungsradweg (Q10): eigener Radweg, der AUSDRÜCKLICH in beide Richtungen freigegeben
-  // ist. Bewusst nur bei explizitem Tag — ein `cycleway` ohne oneway-Angabe bleibt „Radweg
-  // abgesetzt". (Formal gilt in OSM dort zwar Zweirichtung als Default, praktisch ist das Tag
-  // aber oft schlicht nicht gesetzt; stillschweigend umzudeuten würde bestehende Bewertungen
-  // verschieben — die Breitenvorgabe steigt von 2,5 auf 4,5 m.)
-  if (highway === 'cycleway' && (t.oneway === 'no' || t['oneway:bicycle'] === 'no'))
-    return 'Zweirichtungsradweg'
-  if (highway === 'cycleway') return 'Radweg abgesetzt'
-  // Gemeinsam genutzter Geh-/Radweg (Velo + Fuss je „designated", nicht getrennt) → kombiniert.
-  if ((highway === 'footway' || highway === 'path') &&
-      t.bicycle === 'designated' && (t.foot === 'designated' || t.foot === 'yes') &&
-      t.segregated !== 'yes') return 'Kombinierter Fuss-/Radweg'
-  if ((highway === 'footway' || highway === 'path') &&
-      ['yes', 'designated', 'permissive'].includes(t.bicycle)) return 'Fussweg Velo gestattet'
-  // „Einbahn mit Velogegenverkehr" (Q7) wird NICHT automatisch erkannt — im Dropdown von Hand wählbar.
-  // Ein Contraflow-Velostreifen fällt hier auf die zugrundeliegende Anlage zurück (z. B. lane → Radstreifen).
-  if (has('track')) return 'Radweg strassenbegleitend / Geschützter Radstreifen'
-  if (has('share_busway')) return 'Umweltspur'
-  if (has('lane')) return 'Radstreifen'
-  return 'Mischverkehr'
-}
-
-const OSM_ROADS = ['primary', 'secondary', 'tertiary', 'residential', 'unclassified',
-  'living_street', 'road', 'primary_link', 'secondary_link', 'tertiary_link']
-
-interface OsmWay { id: number; tags?: Record<string, string>; geometry?: { lat: number; lon: number }[] }
-
-// Ein OSM-Way → Kandidat (Rohsegment für die Karte) — oder null, wenn nicht velo-relevant.
-function wayToCand(w: OsmWay): Cand | null {
-  const t = w.tags || {}
-  const hw = t.highway || ''
-  const bike = ['yes', 'designated', 'permissive'].includes(t.bicycle)
-  const isRoad = OSM_ROADS.includes(hw)
-  const isCycle = hw === 'cycleway'
-  const isFootBike = (hw === 'footway' || hw === 'path') && bike
-  if (!isRoad && !isCycle && !isFootBike) return null  // z. B. reine Trottoirs ausfiltern
-  if (!w.geometry || w.geometry.length < 2) return null
-  // Tempo/Breite nur übernehmen, wenn OSM sie wirklich kennt — sonst leer lassen
-  // (keine erfundenen Fallback-Werte; Herkunft bleibt ehrlich).
-  const sp = parseInt(t.maxspeed, 10)
-  // Breite der Veloanlage: zuerst ein cycleway:*:width-Tag. `width` (ohne Präfix) zählt nur,
-  // wenn der Way SELBST die Veloanlage ist (Radweg/Fuss-Velo-Weg). An einer Strasse meint
-  // `width` die Fahrbahn, nicht den Radstreifen — dann nicht übernehmen (z. B. Sulgeneckstrasse:
-  // highway=residential, cycleway:right=lane, width=9 → die 9 m sind die Fahrbahn, kein Radstreifen).
-  const cwW = t['cycleway:width'] || t['cycleway:right:width'] || t['cycleway:left:width']
-  const wRaw = parseFloat(cwW || ((isCycle || isFootBike) ? t.width : '') || '')
-  return {
-    id: w.id, ist: istFromTags(t, hw),
-    speed: isFinite(sp) && sp > 0 ? sp : undefined,
-    breite: isFinite(wRaw) && wRaw > 0 ? wRaw : undefined,
-    len: geomLength(w.geometry),
-    name: t.name || 'Segment', geom: w.geometry, selected: true,
-  }
-}
-
-// Bus-Frequenzband aus Fahrten/h (Abendspitze, pro Richtung): Headway ≥15 / 5–15 / <5 min.
-function busBand(perH: number): OevAngebot {
-  if (perH <= 4) return 'bus_ab15'
-  if (perH <= 12) return 'bus_5_15'
-  return 'bus_unter5'
-}
-// ÖV-Angebot automatisch aus der Erkennung: Tram → „tram"; Bus mit Takt → Frequenzband.
-function oevAngebotAuto(oev: OevInfo): OevAngebot | undefined {
-  if (oev.oevHalt && oev.oevTram) return 'tram'
-  if (oev.oevHalt && oev.oevBus && oev.busPerH != null) return busBand(oev.busPerH)
-  return undefined
-}
-
-// Kandidat → Abschnitt (Section) der Strecke. Je Feld Wert UND Herkunft setzen
-// (Priorität amtlich > OSM > leer); nicht belegte Felder bleiben leer (keine Defaults).
-// OSM bleibt Quelle für Geometrie, Name und – falls getaggt – Breite/Tempo/Ist-Führungsform.
-function candToSection(c: Cand): Section {
-  const s = defaultSection()
-  // Tempo: amtlich (V_sig) > OSM (maxspeed) > leer
-  if (c.bern?.speed != null) { s.speed = c.bern.speed; s.quelle.speed = 'amtlich' }
-  else if (c.speed != null) { s.speed = c.speed; s.quelle.speed = 'osm' }
-  // DTV: nur amtlich (OSM kennt keinen DTV)
-  if (c.bern?.dtv != null) { s.dtv = c.bern.dtv; s.quelle.dtv = 'amtlich' }
-  // Führungsform: Velostrasse (Geoportal) > Radstreifen (Markierung) > OSM-Ableitung.
-  // Ausnahme: ein OSM-Q7 (Einbahn mit Velogegenverkehr) ist die spezifischere Form und wird von der
-  // Markierung NICHT zu „Radstreifen" übersteuert (Contraflow ≠ normaler Radstreifen).
-  const markierungWins = !!c.bern?.radstreifen && !GEGENVERKEHR_FORMEN.includes(c.ist as IstFuehrungsform)
-  if (c.bern?.velostrasse) { s.ist = 'Velostrasse'; s.quelle.ist = 'amtlich' }
-  else if (markierungWins) { s.ist = 'Radstreifen'; s.quelle.ist = 'markierung' }
-  else { s.ist = c.ist as IstFuehrungsform; s.quelle.ist = 'osm' }
-  // Breite: Markierung (gemessener Velostreifen) > OSM (wenn getaggt) — Markierung nur, wenn sie auch die Form stellt.
-  if (markierungWins && c.bern?.radstreifen?.breite != null) { s.breite = c.bern.radstreifen.breite; s.quelle.breite = 'markierung' }
-  else if (c.breite != null) { s.breite = c.breite; s.quelle.breite = 'osm' }
-  // Routentyp: nur amtlich
-  if (c.bern?.routentyp) { s.routentyp = c.bern.routentyp; s.quelle.routentyp = 'amtlich' }
-  // Strassentyp: nur amtlich (Basel, Dataset 100250)
-  if (c.bern?.strassentyp) { s.strassentyp = c.bern.strassentyp; s.quelle.strassentyp = 'amtlich' }
-  // ÖV (Geoportal + Fahrplan): Haltestelle/Modus übernehmen; Tram → ÖV-Angebot „tram",
-  // Bus → Frequenzband aus dem Takt (GTFS). Haltestellentyp bleibt manuell.
-  if (c.bern && (c.bern.oevHalt || c.bern.oevTram || c.bern.oevBus)) {
-    s.oev = { oevHalt: !!c.bern.oevHalt, oevHaltName: c.bern.oevHaltName,
-              oevTram: !!c.bern.oevTram, oevBus: !!c.bern.oevBus, busPerH: c.bern.busPerH }
-    const auto = oevAngebotAuto(s.oev)
-    // Herkunft der ÖV-Erkennung: Bern = amtlich (Geoportal), Zürich = OSM.
-    // Bern setzt kein oevQuelle → Standard 'amtlich' (verhaltensidentisch wie bisher).
-    const oevQ: Quelle = c.bern.oevQuelle ?? 'amtlich'
-    // Tram = oevQ; Bus-Band stammt (nur bei Bern) aus dem Fahrplan (opentransportdata).
-    if (auto) { s.oevAngebot = auto; s.quelle.oevAngebot = auto === 'tram' ? oevQ : 'fahrplan' }
-    // Tram in der Fahrbahn — entkoppelt von der Haltestelle.
-    s.tram = !!c.bern.oevTram; s.quelle.tram = oevQ
-  }
-  s.label = `${c.name} · ${Math.round(c.len)} m · OSM way ${c.id}`
-  s.candIds = [c.id]
-  if (c.obs) s.obs = c.obs   // OpenBikeSensor-Überholabstände (Zusatzinfo)
-  return s
-}
-
-// Segment mit Geometrie-Kennwerten (für Ordnen + Zusammenfassen).
-interface Seg { sec: Section; id: number; len: number; mid: { lat: number; lon: number }; name: string }
-
-function centroid(geom: { lat: number; lon: number }[]): { lat: number; lon: number } {
-  const n = geom.length
-  return { lat: geom.reduce((s, p) => s + p.lat, 0) / n, lon: geom.reduce((s, p) => s + p.lon, 0) / n }
-}
-
-// (a) Segmente entlang der Strasse ordnen: Mittelpunkte auf die Hauptachse projizieren
-// (Achse = Verbindung der beiden am weitesten entfernten Mittelpunkte) und danach sortieren.
-function orderAlongAxis(segs: Seg[]): Seg[] {
-  if (segs.length < 3) return segs
-  const mLat = segs.reduce((s, x) => s + x.mid.lat, 0) / segs.length
-  const kx = 111320 * Math.cos((mLat * Math.PI) / 180), ky = 111320
-  const xy = segs.map(s => ({ x: s.mid.lon * kx, y: s.mid.lat * ky }))
-  let a = 0, b = 0, best = -1
-  for (let i = 0; i < xy.length; i++) for (let j = i + 1; j < xy.length; j++) {
-    const d = (xy[i].x - xy[j].x) ** 2 + (xy[i].y - xy[j].y) ** 2
-    if (d > best) { best = d; a = i; b = j }
-  }
-  let ax = xy[b].x - xy[a].x, ay = xy[b].y - xy[a].y
-  const L = Math.hypot(ax, ay) || 1; ax /= L; ay /= L
-  const proj = (i: number) => (xy[i].x - xy[a].x) * ax + (xy[i].y - xy[a].y) * ay
-  return segs.map((s, i) => ({ s, p: proj(i) })).sort((u, v) => u.p - v.p).map(o => o.s)
-}
-
-// (b) Benachbarte Segmente zusammenfassen: gleiche Führungsform + Tempo, oder kurze Stummel (< 25 m).
-// Repräsentant einer Gruppe = das längste Segment (damit ein Stummel die Klasse nicht überschreibt).
-function mergeSegs(ordered: Seg[]): Section[] {
-  const MIN_LEN = 25
-  const longest = (g: Seg[]) => g.reduce((a, b) => (b.len > a.len ? b : a))
-  const groups: Seg[][] = []
-  for (const seg of ordered) {
-    const g = groups[groups.length - 1]
-    if (!g) { groups.push([seg]); continue }
-    const rep = longest(g)
-    // Tempo NaN-sicher vergleichen (leeres Tempo === leeres Tempo gilt als gleich).
-    const speedEq = rep.sec.speed === seg.sec.speed ||
-      (Number.isNaN(rep.sec.speed) && Number.isNaN(seg.sec.speed))
-    const same = rep.sec.ist === seg.sec.ist && speedEq
-    if (same || seg.len < MIN_LEN) g.push(seg)
-    else groups.push([seg])
-  }
-  return groups.map(g => {
-    const rep = longest(g)
-    const total = g.reduce((s, x) => s + x.len, 0)
-    if (g.length > 1) rep.sec.label = `${rep.name} · ${Math.round(total)} m · ${g.length} OSM-Segmente`
-    rep.sec.candIds = g.map(seg => seg.id)   // alle Segment-IDs des Abschnitts (für die Karte)
-    rep.sec.obs = mergeObs(g.map(seg => seg.sec.obs))   // OBS-Überholabstände des Abschnitts
-    // ÖV über die Segmente bündeln: Haltestelle/Modus, falls in einem Segment erkannt.
-    const oevs = g.map(seg => seg.sec.oev).filter((o): o is OevInfo => !!o)
-    if (oevs.length) {
-      const withName = oevs.find(o => o.oevHalt && o.oevHaltName)
-      // busPerH = stärkste Richtung über die Segmente (MAX, nie Summe → keine Verdopplung).
-      const busPerH = oevs.reduce<number | undefined>(
-        (m, o) => (o.busPerH != null && (m == null || o.busPerH > m) ? o.busPerH : m), undefined)
-      rep.sec.oev = {
-        oevHalt: oevs.some(o => o.oevHalt), oevHaltName: withName?.oevHaltName,
-        oevTram: oevs.some(o => o.oevTram), oevBus: oevs.some(o => o.oevBus), busPerH,
-      }
-      const auto = oevAngebotAuto(rep.sec.oev)
-      // Herkunft nicht hartkodieren: candToSection hat sie stadtkorrekt gesetzt (Bern = amtlich/
-      // fahrplan, ZH/BS/LU = osm) — vom erkannten Segment der Gruppe übernehmen.
-      const oevQ = g.find(seg => seg.sec.oev)?.sec.quelle.tram ?? 'amtlich'
-      if (auto) { rep.sec.oevAngebot = auto; rep.sec.quelle.oevAngebot = auto === 'tram' ? oevQ : 'fahrplan' }
-      rep.sec.tram = rep.sec.oev.oevTram; rep.sec.quelle.tram = oevQ
-    }
-    return rep.sec
-  })
-}
-
-// Gewählte Kandidaten → geordnete, zusammengefasste Abschnitte.
-function candsToSections(cands: Cand[]): Section[] {
-  const segs: Seg[] = cands.filter(c => c.selected).map(c =>
-    ({ sec: candToSection(c), id: c.id, len: c.len, mid: centroid(c.geom), name: c.name }))
-  return mergeSegs(orderAlongAxis(segs))            // (a) ordnen, dann (b) zusammenfassen
-}
-
-// Overpass-Endpunkte: Hauptinstanz + Ausweich-Mirror (Failover bei Überlastung/Ausfall).
-const OVERPASS_ENDPOINTS = [
-  'https://overpass.osm.ch/api/interpreter',       // Schweizer Mirror (SOSM) — schnell/zuverlässig für CH-Daten
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-]
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-const REQUEST_TIMEOUT_MS = 12000   // Per-Versuch-Timeout: hängende Mirror schnell überspringen (Failover)
-const MAX_BACKOFF_MS = 10000       // Obergrenze fürs Warten (auch bei grossem Retry-After)
-
-// fetch mit hartem Timeout (AbortController) — verhindert, dass eine nicht antwortende
-// Instanz den ganzen Ladevorgang blockiert.
-async function fetchMitTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
-  const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), ms)
-  try { return await fetch(url, { ...init, signal: ctrl.signal }) }
-  finally { clearTimeout(t) }
-}
-
-// Eine Overpass-Anfrage mit Robustheit gegen Rate-Limits (429), kurze Server-Fehler (5xx) und
-// hängende Instanzen: Per-Versuch-Timeout, Retry mit exponentiellem Backoff (gedeckelt),
-// `Retry-After`-Header beachten, über die Mirror-Liste rotieren. Erst wenn alle Endpunkte/Versuche
-// scheitern, wird ein Fehler geworfen.
-async function overpassFetch(query: string): Promise<unknown> {
-  const init: RequestInit = { method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'data=' + encodeURIComponent(query) }
-  const maxRunden = 2                          // Runden über die gesamte Endpunkt-Liste
-  let lastStatus = 0
-  for (let runde = 0; runde < maxRunden; runde++) {
-    for (const url of OVERPASS_ENDPOINTS) {
-      let res: Response
-      try {
-        res = await fetchMitTimeout(url, init, REQUEST_TIMEOUT_MS)
-      } catch { lastStatus = 0; continue }     // Timeout/Netzwerk-/CORS-Fehler → nächster Mirror
-      if (res.ok) return res.json()
-      lastStatus = res.status
-      // 429 (Rate-Limit) / 504 (Timeout) / 5xx: kurz warten und weiterprobieren; 4xx sonst sofort werfen.
-      if (res.status === 429 || res.status === 504 || res.status >= 500) {
-        const ra = parseInt(res.headers.get('Retry-After') || '', 10)
-        const wartMs = Math.min(MAX_BACKOFF_MS, Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** runde)
-        await sleep(wartMs)
-        continue
-      }
-      throw new Error('Overpass HTTP ' + res.status)
-    }
-  }
-  throw new Error('Overpass überlastet (HTTP ' + (lastStatus || 'Netzwerkfehler') + ')')
-}
-
-// Overpass-Abfrage → Kandidaten (Rohsegmente).
-async function overpassCands(query: string): Promise<Cand[]> {
-  const data = await overpassFetch(query) as { elements?: (OsmWay & { type: string })[] }
-  const ways = (data.elements || []).filter(e => e.type === 'way')
-  return ways.map(wayToCand).filter((c): c is Cand => c !== null)
-}
-
-// Weg 1: Kandidaten nach Strassenname (in der gewählten Gemeinde).
-// Case-insensitiver, exakter Namensabgleich (Overpass-Flag „,i"), damit z. B.
-// „jungfraustrasse" oder „JUNGFRAUSTRASSE" ebenso gefunden werden wie „Jungfraustrasse".
-function loadStreetCandidates(street: string, area: string): Promise<Cand[]> {
-  const esc = street.replace(/[\\.[\]{}()*+?^$|]/g, '\\$&')  // Regex-Sonderzeichen maskieren
-  const areaEsc = area.replace(/[\\.[\]{}()*+?^$|]/g, '\\$&')
-  return overpassCands(
-    `[out:json][timeout:60];` +
-    `area["name"="${areaEsc}"]["admin_level"="8"]["boundary"="administrative"]->.a;` +
-    `way["name"~"^${esc}$",i]["highway"](area.a);out tags geom;`)
-}
-
-// Weg 2: Kandidaten im Kartenausschnitt (Bounding-Box), auf velorelevante Strassentypen gefiltert.
-function loadBboxCandidates(s: number, w: number, n: number, e: number): Promise<Cand[]> {
-  return overpassCands(
-    `[out:json][timeout:60];` +
-    `way["highway"~"^(primary|secondary|tertiary|residential|unclassified|living_street|road|cycleway|footway|path)$"]` +
-    `(${s},${w},${n},${e});out tags geom;`)
-}
-
-// Weg 3: Klick auf die Karte → nächstgelegenes velorelevantes Segment (im Umkreis von 25 m).
-function havM(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
-  const R = 6371000, rad = (x: number) => (x * Math.PI) / 180
-  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon)
-  const h = Math.sin(dLat / 2) ** 2 +
-    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2
-  return 2 * R * Math.asin(Math.sqrt(h))
-}
-async function loadNearestCandidate(lat: number, lon: number): Promise<Cand | null> {
-  const cs = await overpassCands(
-    `[out:json][timeout:25];` +
-    `way(around:25,${lat},${lon})["highway"~"^(primary|secondary|tertiary|residential|unclassified|living_street|road|cycleway|footway|path)$"];` +
-    `out tags geom;`)
-  let best: Cand | null = null, bd = Infinity
-  for (const c of cs) {
-    const d = Math.min(...c.geom.map(p => havM(p, { lat, lon })))
-    if (d < bd) { bd = d; best = c }
-  }
-  return best
-}
-
 // Herkunfts-Chip am Feld: blau „amtlich" (Geodaten Stadt Bern), grau „OSM";
 // bei „manuell"/leer kein Chip. Für leere Pflichtfelder ein rötlicher „Eingabe nötig"-Chip.
 function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
@@ -604,15 +243,6 @@ function FieldLabel({ label, chip }: { label: string; chip?: React.ReactNode }) 
       {label}{chip}
     </span>
   )
-}
-
-// «2,3» (Schweizer Komma) und «2.3» gleichermassen lesen; Unlesbares/Leeres wird NaN
-// («Eingabe nötig») statt still 0 — 0 wäre notenwirksam falsch (DTV 0, Breite 0).
-function parseZahl(r: string): number {
-  const t = r.trim().replace(',', '.')
-  if (t === '') return NaN
-  const n = Number(t)
-  return Number.isFinite(n) ? Math.max(0, n) : NaN
 }
 
 function NumberField({ label, unit, value, onChange, chip }: {
@@ -674,7 +304,6 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
   breitenQuelle: string                 // Herkunft der Breiten-Vorgabe (stadtspez. Standard oder Masterplan Bern)
   city: CityId                          // Stadt → bestimmt Sichtbarkeit des Strassentyp-Felds (Basel)
 }) {
-  const dtvQuelleOk = useContext(DtvQuelleOkContext)
   const { ist } = section
   const q = section.quelle
   const bezugLabel = section.routentyp === 'Veloroute' ? 'Minimal' : 'Optimal'
@@ -722,8 +351,8 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
         <NumberField label="DTV MIV" unit="Fz/Tag" value={section.dtv} step={100}
                      onChange={v => onChange({ dtv: v })}
-                     chip={<QuelleChip q={dtvAssumed(section, city, dtvQuelleOk) ? 'angenommen' : q.dtv}
-                                       fehlt={ist !== '' && brauchtDtvTempo(ist) && city !== 'basel' && !Number.isFinite(section.dtv) && !dtvAssumed(section, city, dtvQuelleOk)} />} />
+                     chip={<QuelleChip q={dtvAssumed(section, city) ? 'angenommen' : q.dtv}
+                                       fehlt={ist !== '' && brauchtDtvTempo(ist) && city !== 'basel' && !Number.isFinite(section.dtv) && !dtvAssumed(section, city)} />} />
         <NumberField label="Zul. Höchstgeschwindigkeit" unit="km/h" value={section.speed} step={10}
                      onChange={v => onChange({ speed: v })}
                      chip={<QuelleChip q={q.speed} fehlt={ist !== '' && brauchtDtvTempo(ist) && !Number.isFinite(section.speed)} />} />
@@ -862,13 +491,14 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
       {section.oev?.oevHalt && (() => {
         const o = section.oev!
         const name = o.oevHaltName ? ` „${o.oevHaltName}"` : ''
-        const takt = o.busPerH ? Math.round(60 / o.busPerH) : null
+        const hatTakt = o.busPerH != null && o.busPerH > 0
+        const takt = hatTakt ? Math.round(60 / o.busPerH!) : null
         return (
           <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8,
                         background: '#faf5ff', border: '1px solid #e9d5ff', color: '#6b21a8', fontSize: 12.5 }}>
             {o.oevTram
               ? <>Geoportal: <strong>Tramhaltestelle{name}</strong> im Abschnitt → ÖV-Angebot „Tram" gesetzt. Haltestellentyp bitte wählen.</>
-              : o.busPerH != null
+              : hatTakt
                 ? <>Geoportal + Fahrplan: <strong>Bushaltestelle{name}</strong>, Abendspitze 17–18 h ≈ <strong>{o.busPerH} Fahrten/h</strong> (Takt ~{takt} Min, stärkste Richtung) → ÖV-Angebot gesetzt. Haltestellentyp bitte wählen.</>
                 : <>Geoportal: <strong>Bushaltestelle{name}</strong> im Abschnitt erkannt → ÖV-Angebot/Takt und Haltestellentyp bitte wählen (kein Takt in den Daten).</>}
           </div>
@@ -909,16 +539,22 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
             <div><strong>Soll:</strong> {bewertung.soll}</div>}
           <div><strong>Ist:</strong> {bewertung.ist} ({bewertung.q})</div>
 
+          {/* Aufbau der Erklärung (seit 29.09.2026):
+                1. hinweis ERSETZT nur die Zeile zur Form-Note — nicht mehr die ganze Erklärung.
+                2. Ist die Note FEST gesetzt (noteFix, Kap-Regel), wirken Breite/Parkierung/
+                   Haltestelle nicht und werden nicht gezeigt.
+                3. Sonst stehen alle Abzüge, auch neben einem hinweis. Vorher verschwanden sie:
+                   Basel «nicht konform» mit zu schmaler Breite zeigte eine Note unter 4, ohne
+                   dass der Breitenabzug irgendwo stand. */}
           {bewertung.hinweis ? (
             <div style={{ marginTop: 6, fontWeight: 700 }}>⚠ {bewertung.hinweis}</div>
           ) : (
-            <>
               <div style={{ marginTop: 4, opacity: 0.85 }}>
                 {ist === 'Umweltspur'
                   // Basisnote aus dem Ergebnis, nicht hartkodiert: die Decke ist stadtabhängig
                   // (Bern 5, übrige 4). Die Takt-Schwelle wird bewusst nicht genannt — sie ist
-                  // ebenfalls stadtabhängig, und liegt der Takt darunter, zeigt der Zweig oben
-                  // ohnehin den hinweis statt dieses Satzes.
+                  // ebenfalls stadtabhängig, und liegt der Takt darunter, steht oben der hinweis
+                  // statt dieses Satzes.
                   ? (Number.isFinite(section.oevTakt)
                       ? `öV-Takt ${section.oevTakt} Min → Basis-Note ${bewertung.basisnote} (Decke); DTV/Tempo nicht massgebend.`
                       : `Kein öV-Takt angegeben → als zulässig angenommen (Basis-Note ${bewertung.basisnote} = Decke); DTV/Tempo nicht massgebend. Für die Prüfung «zu hohe Busfrequenz» den Takt eintragen.`)
@@ -928,7 +564,16 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                       ? 'Form erfüllt den Soll → Form-Note 6.'
                       : `feel-safe-Defizit ${bewertung.defizit} Pkt. → Form-Note ${numDE(bewertung.basisnote, 1)}.`}
               </div>
-              {/* warnung steht ZUSÄTZLICH zur Erklärung (hinweis oben ersetzt sie stattdessen). */}
+          )}
+          {bewertung.kapTramNote1 && (
+            <div style={{ marginTop: 6, opacity: 0.9 }}>
+              <strong>Kaphaltestelle an Tram-Haltestelle:</strong> Note 1 — Schiene im schmalen
+              Abstand zur hohen Haltekante, ohne bauliche Trennung (überschreibt alle anderen Regeln)
+            </div>
+          )}
+          {!bewertung.noteFix && !bewertung.kapTramNote1 && (
+            <>
+              {/* warnung steht ZUSÄTZLICH zur Erklärung. */}
               {bewertung.warnung && (
                 <div style={{ marginTop: 4, fontWeight: 700 }}>⚠ {bewertung.warnung}</div>
               )}
@@ -996,12 +641,6 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
                   <strong>Tram in der Fahrbahn:</strong> Note höchstens{' '}
                   {numDE(bewertung.tramDeckel, 0)} (Schienen im Mischverkehr)
-                </div>
-              )}
-              {bewertung.kapTramNote1 && (
-                <div style={{ marginTop: 6, opacity: 0.9 }}>
-                  <strong>Kaphaltestelle an Tram-Haltestelle:</strong> Note 1 — Schiene im schmalen
-                  Abstand zur hohen Haltekante, ohne bauliche Trennung (überschreibt alle anderen Regeln)
                 </div>
               )}
               {bewertung.sollHaltestelle && (
@@ -1110,57 +749,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
   )
 }
 
-// ── CSV-Export (client-seitig, ohne Library) ─────────────────────────────────
-const QUELLE_LABEL: Record<Quelle, string> = { amtlich: 'Geoportal', osm: 'OSM', manuell: 'manuell', fahrplan: 'opentransportdata', markierung: 'Markierung', angenommen: 'angenommen ≤2000' }
-// Zahl im de-CH-Format (Komma-Dezimal); leer, wenn nicht gesetzt.
-const numDE = (x: number, dec = 0) => (Number.isFinite(x) ? x.toFixed(dec).replace('.', ',') : '')
-// CSV-Feld maskieren (Semikolon-getrennt, de-CH/Excel).
-const csvCell = (v: string | number) => {
-  const s = String(v ?? '')
-  return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
-}
-function buildCsv(sections: Section[], results: (NotenErgebnis | null)[], streckeNote: number | null, city: CityId, dtvQuelleOk = true): string {
-  const head = [
-    'Abschnitt', 'Strecke/Herkunft', 'DTV [Fz/Tag]', 'DTV-Quelle', 'Tempo [km/h]', 'Tempo-Quelle',
-    'Ist-Führungsform', 'Ist-Quelle', 'Breite [m]', 'Breite-Quelle', 'Routentyp', 'Routentyp-Quelle',
-    'Strassentyp', 'Strassentyp-Quelle',
-    'Parkierung rechts', 'Sicherheitsstreifen', 'Tram in Fahrbahn', 'ÖV-Angebot', 'Haltestellentyp', 'Soll-Führungsform', 'Note', 'Erfüllungsgrad',
-    'OBS Median [m]', 'OBS n', 'OBS <1,5m [%]', 'OBS Befahrungen',
-    'Stadt', 'Abrufdatum',   // Kontext des Exports: welcher Standard galt, wann waren die Live-Quellen gezogen
-  ]
-  const stadtLabel = CITIES[city].label
-  const abrufdatum = new Date().toISOString().slice(0, 10)
-  const rows = sections.map((s, i) => {
-    const r = results[i]
-    const obs = s.obs
-    const obsPct = obs && obs.count > 0 ? Math.round(100 * obs.below150 / obs.count) : NaN
-    return [
-      `Abschnitt ${i + 1}`, s.label ?? '',
-      numDE(s.dtv), s.quelle.dtv ? QUELLE_LABEL[s.quelle.dtv] : (dtvAssumed(s, city, dtvQuelleOk) ? QUELLE_LABEL.angenommen : ''),
-      numDE(s.speed), s.quelle.speed ? QUELLE_LABEL[s.quelle.speed] : '',
-      s.ist || '', s.quelle.ist ? QUELLE_LABEL[s.quelle.ist] : '',
-      numDE(s.breite, 2), s.quelle.breite ? QUELLE_LABEL[s.quelle.breite] : '',
-      s.routentyp || '', s.quelle.routentyp ? QUELLE_LABEL[s.quelle.routentyp] : '',
-      s.strassentyp || '', s.quelle.strassentyp ? QUELLE_LABEL[s.quelle.strassentyp] : '',
-      s.parkenRechts,
-      s.parkenRechts === 'ja' ? (s.parkenSicherheitsstreifen ? 'ja' : 'nein') : '',
-      s.tram ? 'ja' : 'nein', s.oevAngebot, s.haltestellentyp,
-      r && brauchtDtvTempo(r.ist) ? r.soll : '',   // ohne DTV/Tempo hätte ein Soll keine Bedeutung
-      r ? numDE(r.note, 1) : 'unvollständig', r ? erfuellungsgrad(r.note) : '',
-      obs && obs.count > 0 ? numDE(obs.median, 2) : '',
-      obs ? String(obs.count) : '', Number.isFinite(obsPct) ? String(obsPct) : '',
-      obs ? String(obs.usage) : '',
-      stadtLabel, abrufdatum,
-    ]
-  })
-  // Schlusszeile: Strecken-Note (schlechtester Abschnitt). Spalten aus dem Kopf abgeleitet,
-  // damit die Zeile bei Spaltenänderungen ausgerichtet bleibt.
-  const foot = head.map((h, i) =>
-    i === 0 ? 'Strecke' : i === 1 ? 'schlechtester Abschnitt' :
-    h === 'Note' ? (streckeNote != null ? numDE(streckeNote, 1) : 'unvollständig') :
-    h === 'Erfüllungsgrad' ? (streckeNote != null ? erfuellungsgrad(streckeNote) : '') : '')
-  return [head, ...rows, foot].map(row => row.map(csvCell).join(';')).join('\r\n')
-}
+// ── CSV-Export: Datei-Download (Aufbau der Datei: csv.ts) ────────────────────
 function downloadCsv(csv: string) {
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })  // BOM → Excel erkennt UTF-8
   const url = URL.createObjectURL(blob)
@@ -1276,9 +865,8 @@ export default function App() {
   // damit der erste Strassen-Load nicht am Download/Parsen hängt (Cache in obs.ts; enrichObs([]) lädt nur).
   // Erst im Rechner: die Einstiegsseite braucht die Snapshots nicht — dort wären es tote Downloads.
   const [cands, setCands] = useState<Cand[]>([])
+  const [fitKey, setFitKey] = useState(0)   // +1 → Karte passt sich den Segmenten an (nur «Strasse laden»)
   const [stops, setStops] = useState<Stop[]>([])                  // ÖV-Haltestellen für Karten-Marker
-  // Quellen-Status der letzten Anreicherung (nur Bern notenrelevant, siehe dtvAssumed).
-  const [dtvQuelleOk, setDtvQuelleOk] = useState(true)
   // Stadtwechsel: geladene Segmente/Haltestellen UND Abschnitte verwerfen — die Abschnitte tragen
   // Quellen/Annahmen der alten Stadt (z. B. Bern-DTV-Annahme, Geoportal-Chips) und wären in der
   // neuen Stadt still falsch etikettiert.
@@ -1288,7 +876,6 @@ export default function App() {
     const hatte = sections.some(s => s.ist !== '' || Number.isFinite(s.dtv) || s.candIds?.length)
     setCity(c); setCands([]); setStops([]); setStreet(''); setSections([defaultSection()])
     setOsmBusy(false)      // eine evtl. hängige Ladung ist verworfen — nicht als „Lädt …" stehen lassen
-    setDtvQuelleOk(true)   // Quellen-Status gehört zur Stadt-Ladung, nicht zur neuen Stadt
     undoRef.current = null; setUndoLabel(null)   // Undo über den Stadtwechsel hinweg wäre falsch etikettiert
     setMsg(hatte ? 'Stadtwechsel: die übernommenen Abschnitte wurden geleert.' : '')
   }
@@ -1342,25 +929,36 @@ export default function App() {
   const ladeGen = useRef(0)
   const selCount = cands.filter(c => c.selected).length
 
-  // Kandidaten anreichern: die drei UNABHÄNGIGEN Quellen (amtlich/Adapter, OpenBikeSensor, ÖV) laufen
-  // PARALLEL und werden je Kandidat einmalig zusammengeführt (Latenz = Maximum statt Summe). Ein Fehler
-  // je Quelle ist isoliert — die Anreicherung ist Zusatz und darf den OSM-Import nie verhindern.
-  const enrichAll = async (c: Cand[]): Promise<{ cands: Cand[]; stops: Stop[] }> => {
+  // Aktueller Kandidaten-Stand für die async-Ketten (der State im Closure ist dort veraltet).
+  const candsRef = useRef<Cand[]>([])
+  candsRef.current = cands
+
+  // Kandidaten anreichern: die UNABHÄNGIGEN Quellen (amtlich/Adapter, OpenBikeSensor, ÖV, Markierung)
+  // laufen PARALLEL und werden je Kandidat einmalig zusammengeführt (Latenz = Maximum statt Summe).
+  // Ein Fehler je Quelle ist isoliert — die Anreicherung ist Zusatz und darf den OSM-Import nie
+  // verhindern. Aber er bleibt nicht mehr still: `fehler` nennt die Quellen, die nicht geantwortet
+  // haben, und steht danach in der Statusmeldung.
+  //   bestehende = schon geladene Kandidaten (Klick/Ausschnitt): OpenBikeSensor ordnet jedes
+  //   Mess-Teilstück genau EINEM Segment zu — das geht nur über ALLE Segmente zusammen. `obs`
+  //   gilt darum für bestehende UND neue Kandidaten und ersetzt deren bisherige Werte.
+  const enrichAll = async (c: Cand[], bestehende: Cand[] = []): Promise<{
+    cands: Cand[]; stops: Stop[]; obs: Map<number, ObsStats>; fehler: string[]
+  }> => {
+    const fehler: string[] = []
+    const neuIds = new Set(c.map(x => x.id))
+    const alle = [...bestehende.filter(x => !neuIds.has(x.id)), ...c]
     const [ec, obs, oev, velo] = await Promise.all([
-      cityCfg.enrichCands(c).catch(() => c),
+      cityCfg.enrichCands(c).catch(() => { fehler.push(cityCfg.attribution); return { cands: c, fehler: [] as string[] } }),
       cityCfg.obsFile
-        ? enrichObs(c, cityCfg.obsFile).catch(() => new Map<number, ObsStats>())
+        ? enrichObs(alle, cityCfg.obsFile).catch(() => new Map<number, ObsStats>())
         : Promise.resolve(new Map<number, ObsStats>()),
-      cityCfg.loadOev(c).catch(() => ({ byId: new Map<number, OevInfo>(), stops: [] as Stop[] })),
+      cityCfg.loadOev(c).catch(() => { fehler.push('ÖV'); return { byId: new Map<number, OevInfo>(), stops: [] as Stop[], fehler: [] as string[] } }),
       cityCfg.velostreifenFile
         ? enrichVelostreifen(c, cityCfg.velostreifenFile).catch(() => new Map<number, VeloInfo>())
         : Promise.resolve(new Map<number, VeloInfo>()),
     ])
-    // Layer-Status festhalten (nur Bern hat die Annahme-Logik). Muss NACH dem Adapter-Aufruf
-    // gelesen werden; bei Ausfall unterdrückt dtvAssumed die ≤2000-Annahme und der Nutzer
-    // sieht «Eingabe nötig» plus die Warnmeldung unten.
-    if (city === 'bern') setDtvQuelleOk(bern.bernDtvLayerOk())
-    const bernById = new Map(ec.map(x => [x.id, x.bern]))
+    fehler.push(...ec.fehler, ...oev.fehler)
+    const bernById = new Map(ec.cands.map(x => [x.id, x.bern]))
     const cands = c.map(cand => {
       const v = velo.get(cand.id)
       const bern = { ...bernById.get(cand.id), ...(oev.byId.get(cand.id) ?? {}),
@@ -1371,8 +969,25 @@ export default function App() {
       if (o) out.obs = o
       return out
     })
-    return { cands, stops: oev.stops }
+    return { cands, stops: oev.stops, obs, fehler }
   }
+  // Angereicherte Kandidaten in den State einspielen: neue je Id ersetzen (Auswahl erhalten),
+  // OpenBikeSensor-Werte für ALLE setzen (neu verteilt, siehe enrichAll).
+  const einspielen = (prev: Cand[], neu: Cand[], obs: Map<number, ObsStats>, obsAktiv: boolean): Cand[] => {
+    const byId = new Map(neu.map(n => [n.id, n]))
+    return prev.map(p => {
+      const n = byId.get(p.id)
+      const basis: Cand = n ? { ...n, selected: p.selected } : { ...p }
+      if (obsAktiv) { const o = obs.get(p.id); if (o) basis.obs = o; else delete basis.obs }
+      return basis
+    })
+  }
+  // Zusatz zur Statusmeldung, wenn Quellen nicht geantwortet haben.
+  const fehlerText = (fehler: string[]) => fehler.length
+    ? ` ⚠ Nicht erreichbar: ${[...new Set(fehler)].join(', ')} — betroffene Felder bitte von Hand prüfen.`
+    : ''
+  // Trägt ein Kandidat amtliche WERTE (nicht bloss den Prüfvermerk des DTV-Layers)?
+  const hatAmtlich = (x: Cand) => !!x.bern && Object.keys(x.bern).some(k => k !== 'dtvGeprueft')
   // Haltestellen-Marker zusammenführen (nach Name+Position eindeutig).
   const mergeStops = (prev: Stop[], neu: Stop[]) => {
     const seen = new Set(prev.map(s => `${s.name}|${s.lat}|${s.lon}`))
@@ -1392,25 +1007,22 @@ export default function App() {
       const c = await loadStreetCandidates(name, cityCfg.osmArea)
       if (gen !== ladeGen.current) return          // inzwischen Stadtwechsel/neue Ladung → verwerfen
       setCands(c); setStops([])          // Segmente SOFORT zeigen (anklickbar) — Anreicherung folgt im Hintergrund
+      setFitKey(k => k + 1)              // auf die geladene Strasse einpassen
       if (!c.length) {
         setMsg(`Keine Velo-relevanten Segmente für „${name}" (Stadt ${cityCfg.label}) gefunden.`, 'info')
         return
       }
       setMsg(`${c.length} Segmente geladen (© OpenStreetMap, ODbL) · reichere an …`, 'ok')
-      const { cands: enriched, stops: st } = await enrichAll(c)
+      const { cands: enriched, stops: st, obs, fehler } = await enrichAll(c)
       if (gen !== ladeGen.current) return
       // Angereicherte je Id einspielen; Auswahl (falls inzwischen getoggelt) erhalten. Ids, die nicht
       // mehr da sind (zwischenzeitlich neue Ladung), werden ignoriert.
-      const byId = new Map(enriched.map(e => [e.id, e]))
-      setCands(prev => prev.map(p => { const e = byId.get(p.id); return e ? { ...e, selected: p.selected } : p }))
+      setCands(prev => einspielen(prev, enriched, obs, !!cityCfg.obsFile))
       setStops(st)
-      const amtlichHit = enriched.some(x => x.bern)
-      const dtvWarnung = city === 'bern' && !bern.bernDtvLayerOk()
-        ? ' ⚠ Verkehrsdaten-Layer nicht erreichbar — DTV bitte manuell erfassen (keine ≤-2000-Annahme).'
-        : ''
+      const amtlichHit = enriched.some(hatAmtlich)
       setMsg(`${c.length} Segmente geladen (© OpenStreetMap, ODbL)` +
         (amtlichHit ? ` · Anreicherung: ${cityCfg.attribution}.` : '.') +
-        ' Auf der Karte ab-/zuwählen, dann übernehmen.' + dtvWarnung, dtvWarnung ? 'info' : 'ok')
+        ' Auf der Karte ab-/zuwählen, dann übernehmen.' + fehlerText(fehler), fehler.length ? 'info' : 'ok')
     } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
     finally { if (gen === ladeGen.current) setOsmBusy(false) }
   }
@@ -1432,12 +1044,15 @@ export default function App() {
       setMsg(roh.length ? `${roh.length} Segmente im Ausschnitt · reichere an …` : 'Keine neuen Segmente im Ausschnitt.',
         roh.length ? 'ok' : 'info')
       if (!roh.length) return
-      const { cands: neu, stops: st } = await enrichAll(roh)
+      // Nur anreichern, was wirklich NEU ist — schon geladene Segmente behalten ihre Werte.
+      const schon = new Set(candsRef.current.map(c => c.id))
+      const neuRoh = roh.filter(c => !schon.has(c.id))
+      if (!neuRoh.length) { setMsg('Keine neuen Segmente im Ausschnitt.', 'info'); return }
+      const { cands: neu, stops: st, obs, fehler } = await enrichAll(neuRoh, candsRef.current)
       if (gen !== ladeGen.current) return
-      const byId = new Map(neu.map(n => [n.id, n]))
-      setCands(prev => prev.map(c => { const n = byId.get(c.id); return n ? { ...n, selected: c.selected } : c }))
+      setCands(prev => einspielen(prev, neu, obs, !!cityCfg.obsFile))
       setStops(prev => mergeStops(prev, st))
-      setMsg(`${neu.length} Segmente im Ausschnitt (angereichert).`, 'ok')
+      setMsg(`${neu.length} Segmente im Ausschnitt (angereichert).` + fehlerText(fehler), fehler.length ? 'info' : 'ok')
     } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
     finally { if (gen === ladeGen.current) setOsmBusy(false) }
   }
@@ -1458,14 +1073,14 @@ export default function App() {
       const roh = await loadNearestCandidate(lat, lon)
       if (gen !== ladeGen.current) return
       if (!roh) { setMsg('An dieser Stelle kein velorelevantes Segment gefunden.', 'info'); return }
-      if (cands.some(p => p.id === roh.id)) { setMsg(`Segment „${roh.name}" ist bereits geladen.`, 'info'); return }
+      if (candsRef.current.some(p => p.id === roh.id)) { setMsg(`Segment „${roh.name}" ist bereits geladen.`, 'info'); return }
       setCands(prev => (prev.some(p => p.id === roh.id) ? prev : [...prev, roh]))   // sofort hinzufügen
       setMsg(`Segment „${roh.name}" hinzugefügt · reichere an …`, 'ok')
-      const { cands: [c], stops: st } = await enrichAll([roh])
+      const { cands: [c], stops: st, obs, fehler } = await enrichAll([roh], candsRef.current)
       if (gen !== ladeGen.current) return
-      setCands(prev => prev.map(p => (p.id === c.id ? { ...c, selected: p.selected } : p)))
+      setCands(prev => einspielen(prev, [c], obs, !!cityCfg.obsFile))
       setStops(prev => mergeStops(prev, st))
-      setMsg(`Segment „${c.name}" hinzugefügt.`, 'ok')
+      setMsg(`Segment „${c.name}" hinzugefügt.` + fehlerText(fehler), fehler.length ? 'info' : 'ok')
     } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
     finally { if (gen === ladeGen.current) setOsmBusy(false) }
   }
@@ -1488,10 +1103,14 @@ export default function App() {
   }
 
   // Auswahl in die Strecke übernehmen (ordnen + zusammenfassen).
+  // Während einer laufenden Anreicherung gesperrt (Knopf unten): die Abschnitte entstehen aus
+  // dem Stand der Kandidaten IM MOMENT der Übernahme und werden danach nicht nachgeführt — wer
+  // zu früh übernahm, bekam Abschnitte ohne amtliche Werte.
   const uebernehmen = () => {
+    if (osmBusy) return
     if (selCount === 0) { setMsg('Keine Segmente gewählt.', 'info'); return }
     undoMerken('Übernehmen rückgängig')
-    setSections(candsToSections(cands))
+    setSections(candsToSections(cands, city))
     setMsg(`${selCount} Segmente übernommen → geordnet und zusammengefasst. ` +
       'Herkunft je Feld am Chip (amtlich/OSM); leere Felder bitte ergänzen.', 'ok')
   }
@@ -1519,7 +1138,7 @@ export default function App() {
     // Basel: die Soll-Wahl ist strassentyp-basiert — DTV ist dort nur Zusatzinfo (DWV-Deckel-
     // Hinweis) und darf die Note nicht blockieren; das TEMPO bleibt Pflicht (Velostrasse-Regel).
     (!brauchtDtvTempo(s.ist) ||
-      ((city === 'basel' || Number.isFinite(dtvEff(s, city, dtvQuelleOk))) && Number.isFinite(s.speed))) &&
+      ((city === 'basel' || Number.isFinite(dtvEff(s, city))) && Number.isFinite(s.speed))) &&
     (!brauchtBreite(s.ist) || Number.isFinite(s.breite)) &&
     // Basel: Soll-Wahl ist strassentyp-basiert → Strassentyp nötig.
     (city !== 'basel' || s.strassentyp !== '')
@@ -1531,7 +1150,7 @@ export default function App() {
     const routentyp = s.routentyp || 'Velohauptroute'
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
     const oevTakt = Number.isFinite(s.oevTakt) ? s.oevTakt : undefined   // leeres Feld → unbekannter Takt
-    return fuehrungsformNote(dtvEff(s, city, dtvQuelleOk), s.speed, s.ist as IstFuehrungsform, breite, routentyp,
+    return fuehrungsformNote(dtvEff(s, city), s.speed, s.ist as IstFuehrungsform, breite, routentyp,
       s.parkenRechts, oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram,
       cityCfg.breiten?.[s.ist as IstFuehrungsform],   // stadtspezifische Breiten-Sollwerte
       city,                                            // Stadt → Soll-Tabelle + Haltestellen-Logik
@@ -1544,11 +1163,11 @@ export default function App() {
     if (!sectionComplete(s)) return null
     // Ohne DTV (in Basel erlaubt) keine Vergleichsnoten: die DTV-basierten Soll-Tabellen der
     // anderen Städte ergäben mit NaN still «Mischverkehr» (alle Schwellen-Vergleiche false).
-    if (brauchtDtvTempo(s.ist as IstFuehrungsform) && !Number.isFinite(dtvEff(s, city, dtvQuelleOk))) return null
+    if (brauchtDtvTempo(s.ist as IstFuehrungsform) && !Number.isFinite(dtvEff(s, city))) return null
     const breite = Number.isFinite(s.breite) ? s.breite : undefined
     const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
     return vergleichsNoten({
-      dtv: dtvEff(s, city, dtvQuelleOk), v: s.speed, ist: s.ist as IstFuehrungsform, breite,
+      dtv: dtvEff(s, city), v: s.speed, ist: s.ist as IstFuehrungsform, breite,
       routentyp: s.routentyp || 'Velohauptroute', parkenRechts: s.parkenRechts,
       parkenSicherheitsstreifen: s.parkenSicherheitsstreifen,
       oevTakt: Number.isFinite(s.oevTakt) ? s.oevTakt : undefined,
@@ -1598,7 +1217,6 @@ export default function App() {
 
   return (
     <AttribContext.Provider value={cityCfg.attribution}>
-    <DtvQuelleOkContext.Provider value={dtvQuelleOk}>
     <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)' }}>
       {/* Header (grün); Titel/Logo führen zur Einstiegsseite */}
       <header className="vrc-header">
@@ -1743,7 +1361,7 @@ export default function App() {
             <VeloMap cands={cands} onToggle={toggleCand} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
-                     attribution={cityCfg.attribution} center={cityCfg.center} />
+                     attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} />
             {/* Empty-State als Dismiss-Schicht über der Karte: Die ERSTE Interaktion (Klick/Touch/
                 Zoom) schliesst nur den Hinweis — sie wählt noch kein Segment aus und zoomt nicht.
                 Die Schicht fängt das Ereignis ab (pointerEvents auto); erst danach ist die Karte frei. */}
@@ -1774,13 +1392,14 @@ export default function App() {
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
             <button onClick={ladeAusschnitt} disabled={osmBusy}
                     style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text)',
-                             borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
+                             borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: osmBusy ? 'default' : 'pointer' }}>
               Segmente im Kartenausschnitt laden
             </button>
-            <button onClick={uebernehmen} disabled={selCount === 0}
-                    style={{ border: 'none', background: selCount ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
+            <button onClick={uebernehmen} disabled={selCount === 0 || osmBusy}
+                    title={osmBusy ? 'Die Anreicherung läuft noch — danach übernehmen.' : undefined}
+                    style={{ border: 'none', background: selCount && !osmBusy ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
                              borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600,
-                             cursor: selCount ? 'pointer' : 'default' }}>
+                             cursor: selCount && !osmBusy ? 'pointer' : 'default' }}>
               {selCount} Segmente in Strecke übernehmen
             </button>
             {cands.length > 0 && (
@@ -1884,7 +1503,7 @@ export default function App() {
                          cursor: 'pointer', flex: 1, minWidth: 200 }}>
           + Abschnitt hinzufügen
         </button>
-        <button onClick={() => downloadCsv(buildCsv(sections, results, streckeNote, city, dtvQuelleOk))}
+        <button onClick={() => downloadCsv(buildCsv(sections, results, streckeNote, city, cityCfg.label))}
                 title="Alle Abschnitte mit Werten, Herkunft und Note als CSV (Excel) herunterladen"
                 style={{ border: '1px solid var(--accent)', background: '#fff', color: 'var(--accent)',
                          borderRadius: 10, padding: '10px 16px', fontSize: 14, fontWeight: 600,
@@ -1901,7 +1520,7 @@ export default function App() {
         </summary>
         <div style={{ marginTop: 12 }}>
       <h2 style={{ fontSize: 16, margin: '8px 0 10px' }}>Entscheidungstabelle (Soll-Führungsform)</h2>
-      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 8px' }}>
         Gilt für <strong>Bern</strong> (Masterplan). Zürich, Basel und Luzern verwenden eigene
         Soll-Tabellen; die Note des Abschnitts berücksichtigt sie bereits.
       </p>
@@ -1932,7 +1551,7 @@ export default function App() {
 
       {/* Entscheidungstabelle Haltestellen (Soll-Veloverkehrslösung) */}
       <h2 style={{ fontSize: 16, margin: '28px 0 10px' }}>Entscheidungstabelle (Soll-Haltestellenlösung)</h2>
-      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 8px' }}>
         Gilt für <strong>Bern</strong>. Luzern verwendet ein abweichendes Schema (kein Tram);
         Zürich kriterienbasiert (kein automatischer Abzug); Basel über Typ und Breite.
       </p>
@@ -2003,7 +1622,6 @@ export default function App() {
       </div>
       )}
     </div>
-    </DtvQuelleOkContext.Provider>
     </AttribContext.Provider>
   )
 }

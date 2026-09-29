@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { ObsStats } from './obs'
+import { escapeHtml } from './netz'
 
 // Ein OSM-Rohsegment (Kandidat) — auf der Karte anklickbar, vor dem Zusammenfassen.
 export interface Cand {
@@ -17,6 +18,7 @@ export interface Cand {
   bern?: {
     speed?: number                        // V_sig, Signalisierte Höchstgeschwindigkeit
     dtv?: number                          // 16×Nt + 8×Nn, Flächendeckende Verkehrsdaten
+    dtvGeprueft?: boolean                 // nur Bern: Verkehrsdaten-Layer hat für DIESES Segment geantwortet (Grundlage der ≤-2000-Annahme)
     routentyp?: 'Velohauptroute' | 'Veloroute'   // Veloroutennetz Masterplan
     strassentyp?: 'verkehrsorientiert' | 'siedlungsorientiert'  // nur Basel (Strassen-/Wege-Datensatz)
     velostrasse?: boolean                 // Treffer im Velostrassen-Layer
@@ -53,7 +55,7 @@ export const ISTCOLOR: Record<string, string> = {
 export interface SectionMarker { num: number; lat: number; lon: number }
 
 export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlightIds, stops,
-                          attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447] }: {
+                          attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0 }: {
   cands: Cand[]
   onToggle: (id: number) => void
   onMapClick?: (lat: number, lon: number) => void
@@ -63,12 +65,13 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
   stops?: Stop[]                          // ÖV-Haltestellen im geladenen Bereich (Marker)
   attribution?: string                    // Quellenangabe der amtlichen Anreicherung (stadtabhängig)
   center?: [number, number]               // Anfangs-Kartenmitte (stadtabhängig)
+  fitKey?: number                         // ändert sich → Karte auf die Segmente einpassen (nur «Strasse laden»)
 }) {
   const elRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const layerRef = useRef<L.LayerGroup | null>(null)
   const lineRef = useRef<Map<number, L.Polyline>>(new Map())  // Cand-ID → Linie (für Highlight)
-  const lastFit = useRef<string>('')   // Signatur der Kandidaten-IDs → nur bei Laden neu einpassen
+  const lastFit = useRef(0)            // zuletzt umgesetzter fitKey
   const suppress = useRef(false)        // Klick auf Linie soll keinen Karten-Klick auslösen
   const clickCb = useRef(onMapClick)    // immer den aktuellen Callback aufrufen
   clickCb.current = onMapClick
@@ -120,7 +123,7 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
     return () => {
       wheelEl.removeEventListener('wheel', onWheel)
       map.remove()
-      mapRef.current = null; layerRef.current = null; lineRef.current.clear(); lastFit.current = ''
+      mapRef.current = null; layerRef.current = null; lineRef.current.clear(); lastFit.current = 0
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -163,9 +166,10 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
         : (c.obs && c.obs.usage > 0
             ? `<br>OpenBikeSensor: befahren (n ${c.obs.usage}), keine Überholmessung`
             : '')
+      // Leaflet setzt den Tooltip per innerHTML → Fremdtext (OSM-Name) maskieren, s. netz.ts.
       hit.bindTooltip(
-        `${c.name} · ${Math.round(c.len)} m · ${c.ist}${c.selected ? '' : ' (abgewählt)'}` +
-        (bernParts && bernParts.length ? `<br>${attribution}: ${bernParts.join(' · ')}` : '') +
+        `${escapeHtml(c.name)} · ${Math.round(c.len)} m · ${escapeHtml(c.ist)}${c.selected ? '' : ' (abgewählt)'}` +
+        (bernParts && bernParts.length ? `<br>${escapeHtml(attribution)}: ${escapeHtml(bernParts.join(' · '))}` : '') +
         obsPart,
         { sticky: true })
       hit.addTo(lg)         // unten (Trefffläche)
@@ -196,19 +200,17 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
           html: '<div style="width:11px;height:11px;border-radius:999px;background:#7c3aed;' +
             'border:2px solid #fff;box-shadow:0 0 0 1px #7c3aed"></div>',
         }),
-      }).bindTooltip(`ÖV-Haltestelle: ${st.name}`, { direction: 'top' }).addTo(lg)
+      }).bindTooltip(`ÖV-Haltestelle: ${escapeHtml(st.name)}`, { direction: 'top' }).addTo(lg)
     }
-    // Nur einpassen, wenn sich die Menge der Segmente geändert hat (nicht bei jedem Klick).
-    const sig = cands.map(c => c.id).sort((a, b) => a - b).join(',')
-    if (sig !== lastFit.current && bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [24, 24] })
-      lastFit.current = sig
-    } else if (!bounds.isValid()) {
-      // Karte geleert (Stadtwechsel): Signatur zurücksetzen, sonst passt ein erneutes Laden
-      // DERSELBEN Strasse (gleiche Ids → gleiche Signatur) die Karte nicht mehr ein.
-      lastFit.current = ''
+    // Einpassen nur auf Anforderung (fitKey, gesetzt von «Strasse laden»). Bis zum 29.09.2026 passte
+    // jede Änderung der Segment-Menge neu ein — auch jeder Klick-Zusatz: die Karte sprang, und das
+    // erste kurze Segment zoomte sie auf die höchste Stufe. Klick und «Kartenausschnitt laden»
+    // geschehen im Bild, das man gerade ansieht; dort bleibt die Karte stehen.
+    if (fitKey !== lastFit.current && bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 })
+      lastFit.current = fitKey
     }
-  }, [cands, onToggle, markers, stops, attribution])
+  }, [cands, onToggle, markers, stops, attribution, fitKey])
 
   // Highlight des gehoverten Abschnitts: betroffene Linien dicker + nach vorn, ohne Neuzeichnen.
   // Nur gewählte Segmente anfassen (abgewählte behalten ihren dünnen, grauen Stil).
