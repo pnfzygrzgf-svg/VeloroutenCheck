@@ -830,6 +830,21 @@ function Landing({ onStart }: { onStart: () => void }) {
         </span>
       </a>
 
+      {/* Querverweis auf fgsCheck */}
+      <a href="https://pnfzygrzgf-svg.github.io/fgsCheck/" target="_blank" rel="noopener noreferrer"
+         style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14, textDecoration: 'none',
+                  background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 10,
+                  padding: '12px 16px', color: 'var(--text)' }}>
+        <img src={import.meta.env.BASE_URL + 'fgscheck.svg'} alt="" width={56} height={56}
+             style={{ flexShrink: 0, borderRadius: 8, background: '#fff' }} />
+        <span>
+          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>fgsCheck</span><br />
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            Sichtprüfung an Fussgängerstreifen.
+          </span>
+        </span>
+      </a>
+
       {/* Datenspeicherung (nur auf der Einstiegsseite) — kompakt */}
       <div style={{ marginTop: 22, padding: '10px 14px', borderRadius: 10,
                     background: '#f8fafc', border: '1px solid var(--border-subtle)',
