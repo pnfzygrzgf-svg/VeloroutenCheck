@@ -7,7 +7,7 @@ import {
   type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
   type Stadt, type Strassentyp, type VergleichsNote,
 } from './fuehrungsform'
-import { VeloMap, ISTCOLOR, type Cand, type SectionMarker, type Stop } from './VeloMap'
+import { VeloMap, ISTCOLOR, BREIT_MQ, type Cand, type SectionMarker, type Stop } from './VeloMap'
 import {
   candsToSections, defaultSection, dtvAssumed, dtvEff,
   type Quelle, type QuelleFeld, type Section,
@@ -937,6 +937,18 @@ export default function App() {
     if (view === 'rechner' && cityCfg.velostreifenFile) void enrichVelostreifen([], cityCfg.velostreifenFile).catch(() => {})
   }, [view, cityCfg.velostreifenFile])
   const mapRef = useRef<import('leaflet').Map | null>(null)
+  // Breitbild-Layout (Karte links, Panel rechts) schaltet rein per CSS (index.css, gleiche
+  // Media-Query). Leaflet misst seine Containergrösse aber nur bei window-resize (trackResize)
+  // nach — beim Wechsel zwischen den Layouts die Grösse deshalb ausdrücklich neu einlesen.
+  // Die Karte bleibt dabei dieselbe Instanz (gleiche Stelle im React-Baum, kein Remount).
+  useEffect(() => {
+    if (view !== 'rechner') return
+    const mq = window.matchMedia(BREIT_MQ)
+    let raf = 0
+    const neuMessen = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => mapRef.current?.invalidateSize()) }
+    mq.addEventListener('change', neuMessen)
+    return () => { mq.removeEventListener('change', neuMessen); cancelAnimationFrame(raf) }
+  }, [view])
   // Lade-Generation gegen Races: Stadtwechsel (und jeder neue Load) erhöht den Zähler; eine
   // hängige await-Kette erkennt am veralteten Wert, dass ihr Ergebnis nicht mehr in den State
   // gehört, und verwirft es still. Das Stadt-Select ist während osmBusy zusätzlich gesperrt —
@@ -1232,7 +1244,8 @@ export default function App() {
 
   return (
     <AttribContext.Provider value={cityCfg.attribution}>
-    <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)' }}>
+    <div className={view === 'rechner' ? 'vrc-app-rechner' : undefined}
+         style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)' }}>
       {/* Header (grün); Titel/Logo führen zur Einstiegsseite */}
       <header className="vrc-header">
         <div className="vrc-header-inner">
@@ -1257,12 +1270,18 @@ export default function App() {
 
       {view === 'home' && <Landing onStart={() => go('rechner')} />}
 
+      {/* Rechner: schmal einspaltig (max. 820 px, wie bisher); ab BREIT_MQ zweispaltig —
+          Karte links in voller Höhe, rechts das Panel mit eigenem Scrollen. Beide Layouts
+          haben dieselbe Elementstruktur, nur das CSS unterscheidet sich (index.css). */}
       {view === 'rechner' && (
-      <div style={{ maxWidth: 820, margin: '0 auto', padding: '20px 16px 64px' }}>
+      <div className="vrc-rechner">
+      <div className="vrc-panel" style={{ padding: '20px 16px 64px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
           <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="" width={40} height={40}
                style={{ flexShrink: 0, cursor: 'pointer' }} onClick={() => go('home')} title="Zur Einstiegsseite" />
-          <h1 style={{ fontSize: 22, margin: 0 }}>VeloroutenCheck</h1>
+          {/* Name steht schon im grünen Balken — die Überschrift bleibt nur für Bildschirmleser */}
+          <h1 style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden',
+                       clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0 }}>VeloroutenCheck</h1>
         </div>
 
       {/* Anzeige-Umschalter: Schulnote (1–6) ↔ vierstufiger Erfüllungsgrad. Rein darstellend. */}
@@ -1370,9 +1389,12 @@ export default function App() {
         {/* Karte: immer sichtbar. Strecke per Klick auf die Karte aufbauen (Segment hinzufügen),
             Linien an-/abwählen, dann übernehmen. „Strasse laden" ist optional. */}
         <div style={{ flexBasis: '100%' }}>
-          {/* zIndex 0 isoliert Leaflets interne z-Indizes (Controls bis 1000) im eigenen
-              Stacking-Context — sie können die Sticky-Leiste (zIndex 100) nicht mehr überdecken. */}
-          <div style={{ position: 'relative', zIndex: 0 }}>
+          {/* .vrc-karte (index.css): position relative + z-index 0 isoliert Leaflets interne
+              z-Indizes (Controls bis 1000) im eigenen Stacking-Context — sie können die
+              Sticky-Leiste (zIndex 100) nicht mehr überdecken. Im Breitbild liegt .vrc-karte
+              absolut über der linken Spalte (Bezug .vrc-rechner, nicht das scrollende Panel) und
+              bleibt so beim Scrollen des Panels stehen. */}
+          <div className="vrc-karte">
             <VeloMap cands={cands} onToggle={toggleCand} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
@@ -1395,7 +1417,7 @@ export default function App() {
                   </div>
                   <div style={{ opacity: 0.9 }}>
                     Auf eine Strasse tippen = nächstgelegenes Segment hinzufügen · Linie antippen =
-                    ab-/zuwählen · oder oben einen Strassennamen laden.
+                    ab-/zuwählen · oder einen Strassennamen eingeben und „Strasse laden" klicken.
                   </div>
                   <div style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
                     Tippen schliesst diesen Hinweis.
@@ -1435,7 +1457,7 @@ export default function App() {
           <ol style={{ fontSize: 12.5, color: 'var(--text-muted-strong)', marginTop: 8, marginBottom: 0,
                        paddingLeft: 20, lineHeight: 1.6 }}>
             <li><strong>Auf die Karte klicken</strong> — fügt das nächstgelegene Segment hinzu.
-              (Oder oben einen Strassennamen laden.)</li>
+              (Oder einen Strassennamen eingeben und „Strasse laden" klicken.)</li>
             <li><strong>Linien an-/abwählen</strong> per Klick — grau = nicht in der Strecke.</li>
             <li><strong>Übernehmen</strong> — benachbarte Segmente gleicher Führungsform und
               gleichen Tempos werden zu Abschnitten gruppiert.</li>
@@ -1634,6 +1656,7 @@ export default function App() {
           Quellcode auf GitHub
         </a>
       </footer>
+      </div>
       </div>
       )}
     </div>

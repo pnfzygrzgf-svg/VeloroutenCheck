@@ -52,6 +52,10 @@ export const ISTCOLOR: Record<string, string> = {
 }
 
 // Nummern-Marker eines Abschnitts auf der Karte (num = Abschnitts-Nummer).
+// Ab dieser Fensterbreite zweispaltig (Karte | Panel); muss mit der Media-Query in index.css
+// übereinstimmen. «screen»: Drucken bleibt immer einspaltig.
+export const BREIT_MQ = 'screen and (min-width: 1100px)'
+
 export interface SectionMarker { num: number; lat: number; lon: number }
 
 export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlightIds, stops,
@@ -100,13 +104,17 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
     }
     basemaps['CyclOSM'].addTo(map)
     L.control.layers(basemaps, undefined, { position: 'topright' }).addTo(map)
-    // Zoomen nur mit Ctrl/Cmd + Mausrad: Die Karte liegt mitten in einer scrollenden Seite —
-    // ein «nacktes» Rad-Ereignis soll die Seite scrollen, nicht die Karte zoomen (Scroll-Falle).
-    // Pinch-Zoom (Touch) und die +/−-Buttons bleiben unverändert.
-    map.scrollWheelZoom.disable()
+    // Schmales Layout: Zoomen nur mit Ctrl/Cmd + Mausrad. Die Karte liegt mitten in einer scrollenden
+    // Seite — ein «nacktes» Rad-Ereignis soll die Seite scrollen, nicht die Karte zoomen (Scroll-Falle).
+    // Breitbild (BREIT_MQ, Karte links in voller Höhe, daneben scrollt nur das Panel): keine Scroll-Falle,
+    // das Rad zoomt direkt wie in fgsCheck. Pinch-Zoom (Touch) und die +/−-Buttons bleiben unverändert.
+    const breit = window.matchMedia(BREIT_MQ)
+    const radSetzen = () => { if (breit.matches) map.scrollWheelZoom.enable(); else map.scrollWheelZoom.disable() }
+    radSetzen()
+    breit.addEventListener('change', radSetzen)
     const wheelEl = elRef.current
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return
+      if (breit.matches || (!e.ctrlKey && !e.metaKey)) return   // Breitbild: Leaflet zoomt selbst
       e.preventDefault()   // Browser-Seitenzoom unterdrücken, stattdessen Karte zoomen
       const p = map.mouseEventToContainerPoint(e as unknown as MouseEvent)
       map.setZoomAround(p, map.getZoom() + (e.deltaY < 0 ? 1 : -1))
@@ -122,6 +130,7 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
     readyCb.current?.(map)
     return () => {
       wheelEl.removeEventListener('wheel', onWheel)
+      breit.removeEventListener('change', radSetzen)
       map.remove()
       mapRef.current = null; layerRef.current = null; lineRef.current.clear(); lastFit.current = 0
     }
@@ -226,7 +235,7 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
   }, [highlightIds, cands])
 
   return (
-    <div ref={elRef}
-         style={{ height: 'min(380px, 60vh)', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-subtle)' }} />
+    // Höhe/Rahmen über die Klasse (index.css): im Breitbild-Layout füllt die Karte die linke Spalte.
+    <div ref={elRef} className="vrc-velomap" />
   )
 }
