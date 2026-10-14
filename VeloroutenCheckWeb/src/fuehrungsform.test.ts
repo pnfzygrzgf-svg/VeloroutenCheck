@@ -635,6 +635,34 @@ describe('Tram in der Fahrbahn (TRAM_DECKEL)', () => {
     expect(r.tramDeckel).toBeUndefined()
     expect(r.note).toBe(6)
   })
+  // Seit 29.09.2026 (Angleichung an den lokalen Rechner): An einer Haltestelle mit separater
+  // Velofläche fährt das Velo an der Schiene vorbei — die Gleise wirken nicht auf die Note.
+  it('kein Deckel an einer Haltestelle mit separater Velofläche (Bern, alle vier Typen)', () => {
+    for (const typ of ['Inselhaltestelle', 'Haltestelle mit Veloumfahrung',
+      'Haltestelle mit rückwärtigem Radweg', 'Kaphaltestelle mit Veloüberfahrt'] as const) {
+      const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+        'egal', undefined, 'tram', typ, 2.5, true)
+      expect(r.tramDeckel).toBeUndefined()
+      expect(r.note).toBe(6)
+    }
+  })
+  it('… auch in den anderen Städten (Familie «Separate»)', () => {
+    const z = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'tram', 'Fahrbahnhaltestelle mit Veloumfahrung', 1.8, true,
+      undefined, 'zurich')
+    expect(z.tramDeckel).toBeUndefined()
+  })
+  it('Bushalt auf einem Tramsegment (Familie «Mischverkehr») behält den Deckel', () => {
+    const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Veloroute',
+      'egal', undefined, 'bus_ab15', 'Fahrbahnhaltestelle Bus', undefined, true)
+    expect(r.tramDeckel).toBe(3)
+    expect(r.note).toBe(3)
+  })
+  it('ohne Haltestelle bleibt der Deckel', () => {
+    const r = fuehrungsformNote(1000, 30, 'Mischverkehr', undefined, 'Velohauptroute',
+      'egal', undefined, 'keine', 'keine', undefined, true)
+    expect(r.tramDeckel).toBe(3)
+  })
 })
 
 // Kaphaltestelle an einer Tram-Haltestelle ohne bauliche Trennung → Note 1 (KAP_NOTE),
@@ -807,6 +835,12 @@ describe('roundToHalf — kaufmännisch auf halbe Noten (half-up)', () => {
     expect(roundToHalf(3.24)).toBe(3.0)
     expect(roundToHalf(3.26)).toBe(3.5)
     expect(roundToHalf(5.999)).toBe(6.0)
+    // Seit 29.09.2026: Gleitkomma-Rauschen an der Grenze kippt nicht mehr nach unten.
+    expect(roundToHalf(3.7499999999999996)).toBe(4.0)
+    expect(roundToHalf(3.2499999999999996)).toBe(3.5)
+    expect(roundToHalf(0.1 + 0.2 + 3.45)).toBe(4.0)
+    expect(roundToHalf(3.7499)).toBe(3.5)      // echter Wert unter der Grenze bleibt unten
+    expect(roundToHalf(5.746875)).toBe(5.5)
     expect(roundToHalf(1.0)).toBe(1.0)
   })
 })

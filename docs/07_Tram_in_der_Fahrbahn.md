@@ -76,6 +76,10 @@ parkiert wird.
 - **Deckel Note 3** (`TRAM_DECKEL = 3` in `src/fuehrungsform.ts`): greift, wenn „Tram in der
   Fahrbahn" gesetzt ist **und** Ist-Führungsform = Mischverkehr. Er kappt nur nach oben; eine
   ohnehin schlechtere Note bleibt unverändert.
+- **Nicht an einer Haltestelle mit separater Velofläche** (seit 29.09.2026): Trägt der Abschnitt
+  einen Haltestellentyp der Familie «Separate» (Veloumfahrung, Veloüberfahrt, rückwärtiger
+  Radweg, Inselhaltestelle u. a.), fährt das Velo an der Schiene vorbei, und die Gleise wirken
+  nicht auf die Note. Gleich wie im lokalen Berner Rechner.
 - **Nur bei Mischverkehr** (bei Radstreifen empirisch ~0), **nicht mehr tempo-abhängig**: Der
   Deckel gilt bei Tempo 30 wie bei Tempo 50. Das gemessene Niveau ist in beiden Fällen weit
   unter jeder Note-3-Schwelle (9,4 % bzw. 5,4 %).

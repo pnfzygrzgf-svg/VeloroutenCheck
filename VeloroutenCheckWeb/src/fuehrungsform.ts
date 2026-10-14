@@ -538,7 +538,7 @@ function umweltspurBasis(takt: number, taktNote1: number, taktOk: number, decke:
   if (takt >= taktOk) return decke
   if (takt <= taktNote1 || taktOk === taktNote1) return 1   // Stufe oder unterer Anker
   const frac = (takt - taktNote1) / (taktOk - taktNote1)
-  return Math.round((1 + frac * (decke - 1)) * 2) / 2
+  return roundToHalf(1 + frac * (decke - 1))   // dieselbe Rundung wie die Endnote (29.09.2026)
 }
 
 // Fussweg Velo gestattet (Q12, Mischfläche Fuss/Velo): Kompromisslösung → höchstens «genügend».
@@ -597,7 +597,13 @@ function zielScore(soll: Fuehrungsart, v: number): number {
 // Auf die nächste 0,5 runden (kaufmännisch / round-half-up: genau dazwischen → aufgerundet,
 // da Math.round bei .5 Richtung +∞ rundet; z. B. 4,25 → 4,5, 4,24 → 4,0).
 // Wird NUR EINMAL auf die Endnote angewandt (nach dem Breiten-Abzug); Zwischenwerte bleiben roh.
-export const roundToHalf = (x: number): number => Math.round(x * 2) / 2   // exportiert für Tests
+//
+// SEIT 29.09.2026 wird das Doppelte vor dem Runden auf neun Stellen geglättet — gleich wie im
+// lokalen Berner Rechner (round_half). Ohne das kippt ein Wert, der rechnerisch genau auf der
+// Grenze liegt, durch Gleitkomma-Rauschen nach unten: 3,75 als 3,7499999999999996 ergäbe 3,5
+// statt 4,0. Echte Werte unter der Grenze bleiben unten (3,7499 → 3,5).
+export const roundToHalf = (x: number): number =>
+  Math.round(Number((x * 2).toFixed(9))) / 2   // exportiert für Tests
 
 // Formen ohne Breiten-Vorgabe (kein optimal/minimal in IST, z. B. Mischverkehr oder Einbahn
 // Velogegenverkehr ohne Markierung) brauchen keine Breiten-Eingabe — UI-Feld und Note-Guard
@@ -649,7 +655,7 @@ export interface NotenErgebnis {
   parkenSicherheitsstreifen: boolean  // Sicherheitsstreifen ggü. Parkplätzen (SN 640 060) vorhanden
   parkenAbzug: number    // Notenabzug aus Parkierung rechts (0 wenn nein/egal/Sicherheitsstreifen/nicht relevant)
   tramInFahrbahn: boolean // Tram (Schienen) in der Fahrbahn im Abschnitt
-  tramDeckel?: number    // Notendeckel aus Tram in der Fahrbahn (nur Mischverkehr): 3, sonst undefined
+  tramDeckel?: number    // Notendeckel aus Tram in der Fahrbahn (nur Mischverkehr, nicht an Haltestellen mit separater Velofläche): 3, sonst undefined
   kapTramNote1: boolean  // Kaphaltestelle an Tram ohne bauliche Trennung → Note fix 1 (überschreibt alles)
   // Haltestelle (ÖV):
   oevAngebot: OevAngebot
@@ -729,7 +735,13 @@ export function fuehrungsformNote(
       : 0
 
   // ── Tram in der Fahrbahn (Schienen): DECKEL Note ≤ 3, nur bei Mischverkehr (siehe TRAM_DECKEL).
-  const tramDeckel = (tramInFahrbahn && ist === 'Mischverkehr') ? TRAM_DECKEL : undefined
+  // SEIT 29.09.2026 NICHT an einer Haltestelle mit separater Velofläche (Familie «Separate»:
+  // Veloumfahrung, Veloüberfahrt, rückwärtiger Radweg, Inselhaltestelle u. a.): Das Velo fährt
+  // dort an der Schiene vorbei, die Gleise haben keinen Einfluss auf die Note. Angleichung an
+  // den lokalen Berner Rechner (situativ_abzug) auf Nutzerentscheid. Die Kaphaltestelle und die
+  // übrigen Typen der Familie «Mischverkehr» behalten den Deckel.
+  const hsSeparat = hsTyp(stadt, haltestellentyp)?.familie === 'Separate'
+  const tramDeckel = (tramInFahrbahn && ist === 'Mischverkehr' && !hsSeparat) ? TRAM_DECKEL : undefined
 
   // ── Kaphaltestelle an einer Tram-Haltestelle ohne bauliche Trennung → Note fix 1 (KAP_NOTE).
   // Auslöser ist EINES der beiden Tram-Merkmale: die Schienen-Angabe oder das ÖV-Angebot «Tram»

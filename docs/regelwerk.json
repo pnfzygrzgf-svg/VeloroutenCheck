@@ -60,8 +60,8 @@
   },
   "tramDeckel": {
    "wert": 3,
-   "einheit": "Notendeckel (nur Mischverkehr)",
-   "herleitung": "Schienen in der Fahrbahn deckeln die Note auf höchstens 3 — seit 14.08.2026 in Angleichung an den lokalen Berner Rechner (TRAM_NOTE), vorher ein tempoabhängiger Malus von 1,2 (≤30) bzw. 0,7 (>30). Die Messung bleibt gültig: Mischverkehr mit vs. ohne Tram (Velo-Foto-Bewertungen) T30 27,1 → 9,4 %, T50 15,2 → 5,4 %; auf dem Radstreifen ≈ 0 → dort kein Deckel. Neu ist die Regelform: Der Deckel kappt gute Noten (6 → 3), drückt eine schlechte aber nicht weiter.",
+   "einheit": "Notendeckel (nur Mischverkehr, nicht an Haltestellen mit separater Velofläche)",
+   "herleitung": "Schienen in der Fahrbahn deckeln die Note auf höchstens 3 — seit 14.08.2026 in Angleichung an den lokalen Berner Rechner (TRAM_NOTE), vorher ein tempoabhängiger Malus von 1,2 (≤30) bzw. 0,7 (>30). Die Messung bleibt gültig: Mischverkehr mit vs. ohne Tram (Velo-Foto-Bewertungen) T30 27,1 → 9,4 %, T50 15,2 → 5,4 %; auf dem Radstreifen ≈ 0 → dort kein Deckel. Neu ist die Regelform: Der Deckel kappt gute Noten (6 → 3), drückt eine schlechte aber nicht weiter. Seit 29.09.2026 gilt er nicht an einer Haltestelle mit separater Velofläche (Haltestellentyp der Familie «Separate»): Das Velo fährt dort an der Schiene vorbei.",
    "code": "TRAM_DECKEL"
   },
   "kapNote": {
