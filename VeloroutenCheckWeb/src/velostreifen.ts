@@ -12,10 +12,18 @@
 // (geo.ts), nicht über IDs; mit Bbox-Vorfilter für die Performance.
 
 import type { Cand } from './VeloMap'
-import { densify, naechsteLinieJePunkt, bboxOfLL, bboxOverlap, type LL } from './geo'
+import { densify, naechsteLinieJePunkt, naechsteLinieJeSeite, bboxOfLL, bboxOverlap, type LL } from './geo'
 import { holeJson } from './netz'
 
-export interface VeloInfo { breite?: number }   // aus der Markierung gemessene Streifenbreite [m]
+// Aus der Markierung: Streifenbreite [m] und — seit 14.10.2026 — die Seite. `rechts`/`links`
+// (bezogen auf die Way-Richtung) steht da, wenn auf DIESER Seite mindestens MIN_FRACTION des
+// Abschnitts an Strichen liegt. Fehlen beide, obwohl der Abschnitt als Radstreifen gilt (Striche
+// wechseln die Seite oder liegen auf der Achse), gilt die Markierung für beide Seiten (strecke.ts).
+export interface VeloInfo {
+  breite?: number
+  rechts?: { breite?: number }
+  links?: { breite?: number }
+}
 
 const SAMPLE_M = 15      // Verdichtung der OSM-Geometrie
 const OVERLAP_M = 12     // Punkt gilt als „am Streifen", wenn ≤ 12 m entfernt (Achse ↔ Fahrbahnrand)
@@ -93,7 +101,19 @@ export async function enrichVelostreifen(
     const beteiligt = new Set(stimmen.filter(i => i >= 0))
     if (beteiligt.size === 0 || stimmen.filter(i => i >= 0).length / dense.length < MIN_FRACTION) continue
     const breiten = [...beteiligt].map(i => nahe[i].breite).filter((b): b is number => b != null)
-    out.set(c.id, breiten.length ? { breite: median(breiten) } : {})
+    const info: VeloInfo = breiten.length ? { breite: median(breiten) } : {}
+    // Seiten: jede Seite zählt für sich (ein Punkt mit Strichen beidseits stimmt für beide).
+    const jeSeite = naechsteLinieJeSeite(dense, nahe.map(f => f.line), OVERLAP_M)
+    const seite = (idx: number[]): { breite?: number } | undefined => {
+      const hits = idx.filter(i => i >= 0)
+      if (hits.length / dense.length < MIN_FRACTION) return undefined
+      const br = [...new Set(hits)].map(i => nahe[i].breite).filter((b): b is number => b != null)
+      return br.length ? { breite: median(br) } : {}
+    }
+    const rechts = seite(jeSeite.rechts), links = seite(jeSeite.links)
+    if (rechts) info.rechts = rechts
+    if (links) info.links = links
+    out.set(c.id, info)
   }
   return out
 }

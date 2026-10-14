@@ -10,7 +10,7 @@ const M_LON = 1 / (111320 * Math.cos((47 * Math.PI) / 180))
 const pt = (xM: number, yM: number) => ({ lat: 47 + yM * M_LAT, lon: 7.4 + xM * M_LON })
 // Kandidat entlang der x-Achse von x0 bis x1 (Länge = x1 − x0).
 const cand = (id: number, x0: number, x1: number, extra: Partial<Cand> = {}): Cand =>
-  ({ id, ist: 'Mischverkehr', len: x1 - x0, name: 'Teststrasse', geom: [pt(x0, 0), pt(x1, 0)], selected: true, ...extra })
+  ({ id, wayId: id, ist: 'Mischverkehr', len: x1 - x0, name: 'Teststrasse', geom: [pt(x0, 0), pt(x1, 0)], selected: true, ...extra })
 
 describe('DTV-Annahme «≤ 2000» (nur Bern, nur nach erfolgreicher Abfrage)', () => {
   it('von Hand angelegter Abschnitt: KEINE Annahme — es wurde nie nachgesehen', () => {
@@ -156,5 +156,198 @@ describe('candToSection — Herkunft je Feld', () => {
     expect(s.speed).toBeNaN()
     expect(s.dtv).toBeNaN()
     expect(s.routentyp).toBe('')
+  })
+})
+
+describe('Zusammenfassen — ein von Hand gesetzter Schnitt bleibt eine Grenze', () => {
+  const teil = (id: number, x0: number, x1: number, nr: number, extra: Partial<Cand> = {}): Cand =>
+    cand(id, x0, x1, { wayId: 500, teil: { nr, anzahl: 2, startM: x0 }, ...extra })
+  const bern = { speed: 30, dtv: 3000, dtvGeprueft: true }
+
+  it('zwei gleich bewertete Teile desselben Ways → zwei Abschnitte, mit Teil im Label', () => {
+    const r = candsToSections([teil(-1, 0, 200, 1, { bern }), teil(-2, 200, 441, 2, { bern })], 'bern')
+    expect(r.map(s => s.candIds)).toEqual([[-1], [-2]])
+    expect(r[0].label).toBe('Teststrasse · 200 m · OSM way 500 · Teil 1/2')
+  })
+  it('ein kurzes Teil (< 25 m) ist kein Stummel und geht nicht im Nachbarteil auf', () => {
+    const r = candsToSections([teil(-1, 0, 10, 1, { bern }), teil(-2, 10, 300, 2, { bern })], 'bern')
+    expect(r).toHaveLength(2)
+  })
+  it('ein Teil darf mit dem gleich bewerteten Nachbar-Way zusammengehen', () => {
+    const r = candsToSections([
+      cand(9, -150, 0, { bern }), teil(-1, 0, 200, 1, { bern }), teil(-2, 200, 441, 2, { bern }),
+    ], 'bern')
+    expect(r.map(s => s.candIds)).toEqual([[9, -1], [-2]])
+  })
+})
+
+import { ausrichtung, seiteA, tauscheSeiten } from './strecke'
+describe('candToSection — Seiten (Fahrtrichtungen)', () => {
+  // Way nach Osten: rechts = Seite in Way-Richtung (Süden), links = Gegenrichtung.
+  const einseitig = (extra: Partial<Cand> = {}) => cand(1, 0, 100, {
+    ist: 'Radstreifen', seiten: { rechts: 'Radstreifen', links: 'Mischverkehr' }, breiteSeiten: { rechts: 1.5 }, ...extra })
+
+  it('einseitiger Radstreifen: Seite A Radstreifen, Seite B Mischverkehr', () => {
+    const s = candToSection(einseitig())
+    expect([s.ist, s.breite, s.quelle.ist, s.quelle.breite]).toEqual(['Radstreifen', 1.5, 'osm', 'osm'])
+    expect(s.gegen?.ist).toBe('Mischverkehr')
+    expect(s.gegen?.breite).toBeNaN()
+    expect(s.richtung).toBe('beide')
+    expect(s.peilungA).toBeCloseTo(90, 0)
+    expect(s.candsGegenA).toEqual([])
+  })
+  it('Way gegen die Strecke: Seiten vertauscht, Fahrtrichtung gedreht', () => {
+    const s = candToSection(einseitig(), false)
+    expect([s.ist, s.gegen?.ist]).toEqual(['Mischverkehr', 'Radstreifen'])
+    expect(s.peilungA).toBeCloseTo(270, 0)
+    expect(s.candsGegenA).toEqual([1])
+  })
+  it('beidseits gleich → keine Gegenseite («gleich wie Seite A»)', () =>
+    expect(candToSection(cand(1, 0, 100, { seiten: { rechts: 'Radstreifen', links: 'Radstreifen' } })).gegen).toBeUndefined())
+  it('Einbahn gegen die Way-Richtung: nur Seite A, und A ist die Fahrtrichtung', () => {
+    const s = candToSection(cand(1, 0, 100, { einbahn: 'rueck', seiten: { rechts: 'Mischverkehr', links: 'Radstreifen' } }), true)
+    expect([s.richtung, s.quelle.richtung, s.ist]).toEqual(['eine', 'osm', 'Radstreifen'])
+    expect(s.peilungA).toBeCloseTo(270, 0)
+    expect(s.osmVeloGegenverkehr).toBeUndefined()
+  })
+  it('Einbahn mit Velogegenverkehr → Hinweis, aber weiterhin nur Seite A', () => {
+    const s = candToSection(cand(1, 0, 100, { einbahn: 'vor', veloGegenverkehr: true }))
+    expect([s.richtung, s.osmVeloGegenverkehr]).toEqual(['eine', true])
+  })
+  it('Markierung nur rechts: A Radstreifen aus der Markierung, ein OSM-Radstreifen links wird Mischverkehr', () => {
+    const s = candToSection(cand(1, 0, 100, { seiten: { rechts: 'Radstreifen', links: 'Radstreifen' },
+      bern: { radstreifen: { breite: 1.6, rechts: { breite: 1.6 } } } }))
+    expect([s.ist, s.breite, s.quelle.ist]).toEqual(['Radstreifen', 1.6, 'markierung'])
+    expect([s.gegen?.ist, s.gegen?.quelle.ist]).toEqual(['Mischverkehr', 'markierung'])
+  })
+  it('Markierung nur rechts: ein OSM-Radweg links bleibt', () => {
+    const s = candToSection(cand(1, 0, 100, {
+      seiten: { rechts: 'Mischverkehr', links: 'Radweg strassenbegleitend / Geschützter Radstreifen' },
+      bern: { radstreifen: { rechts: {} } } }))
+    expect(s.ist).toBe('Radstreifen')
+    expect(s.gegen?.ist).toBe('Radweg strassenbegleitend / Geschützter Radstreifen')
+  })
+  it('Markierung ohne erkannte Seite: gilt für beide Seiten', () => {
+    const s = candToSection(cand(1, 0, 100, { seiten: { rechts: 'Mischverkehr', links: 'Mischverkehr' },
+      bern: { radstreifen: { breite: 1.4 } } }))
+    expect([s.ist, s.breite]).toEqual(['Radstreifen', 1.4])
+    expect(s.gegen).toBeUndefined()
+  })
+  it('Velostrasse (Geoportal) gilt für beide Seiten; die Breite kommt nicht aus der Markierung', () => {
+    const s = candToSection(cand(1, 0, 100, { breite: 5, seiten: { rechts: 'Radstreifen', links: 'Mischverkehr' },
+      bern: { velostrasse: true, radstreifen: { breite: 1.5 } } }))
+    expect([s.ist, s.breite, s.quelle.breite]).toEqual(['Velostrasse', 5, 'osm'])
+    expect(s.gegen).toBeUndefined()
+  })
+})
+
+describe('tauscheSeiten', () => {
+  it('B wird A samt Herkunft; Fahrtrichtung und Karten-Pfeil drehen', () => {
+    const s = { ...candToSection(cand(1, 0, 100, { ist: 'Radstreifen',
+      seiten: { rechts: 'Radstreifen', links: 'Mischverkehr' }, breiteSeiten: { rechts: 1.5 } })), parkenRechts: 'ja' as const }
+    const t = tauscheSeiten(s)
+    expect([t.ist, t.quelle.ist, t.parkenRechts]).toEqual(['Mischverkehr', 'osm', 'egal'])
+    expect(t.breite).toBeNaN()
+    expect(t.quelle.breite).toBeUndefined()
+    expect([t.gegen?.ist, t.gegen?.breite, t.gegen?.parkenRechts, t.gegen?.quelle.breite]).toEqual(['Radstreifen', 1.5, 'ja', 'osm'])
+    expect(t.peilungA).toBeCloseTo(270, 0)
+    expect(t.candsGegenA).toEqual([1])
+    expect(tauscheSeiten(t).ist).toBe('Radstreifen')
+  })
+  it('gleiche Seiten: nur die Fahrtrichtung dreht', () => {
+    const s = { ...defaultSection(), ist: 'Mischverkehr' as const, peilungA: 10 }
+    const t = tauscheSeiten(s)
+    expect(seiteA(t)).toEqual(seiteA(s))
+    expect(t.gegen).toBeUndefined()
+    expect(t.peilungA).toBe(190)
+  })
+})
+
+describe('ausrichtung — Laufrichtung der geordneten Segmente', () => {
+  const g = (x0: number, x1: number) => [pt(x0, 0), pt(x1, 0)]
+  it('ein umgekehrt erfasster Way in der Kette wird erkannt', () =>
+    expect(ausrichtung([g(0, 100), g(200, 100), g(200, 300)])).toEqual([true, false, true]))
+  it('das erste Segment richtet sich nach dem zweiten', () =>
+    expect(ausrichtung([g(100, 0), g(100, 200)])).toEqual([false, true]))
+  it('ein einzelnes Segment läuft mit', () => expect(ausrichtung([g(0, 50)])).toEqual([true]))
+})
+
+describe('Zusammenfassen — Seiten', () => {
+  const bern = { speed: 30, dtv: 3000, dtvGeprueft: true }
+  const nachOsten = { seiten: { rechts: 'Radstreifen', links: 'Mischverkehr' }, bern }
+  // Gleiche Strassenseite (Süden), aber der Way ist nach Westen gezeichnet: dort ist es «links».
+  const nachWesten = (id: number, x0: number, x1: number) =>
+    ({ ...cand(id, x0, x1, { seiten: { rechts: 'Mischverkehr', links: 'Radstreifen' }, bern }), geom: [pt(x1, 0), pt(x0, 0)] })
+
+  it('gegenläufig gezeichnete Ways mit Radstreifen auf derselben Strassenseite → ein Abschnitt', () => {
+    const r = candsToSections([cand(1, 0, 200, nachOsten), nachWesten(2, 200, 400)], 'bern')
+    expect(r).toHaveLength(1)
+    expect([r[0].ist, r[0].gegen?.ist]).toEqual(['Radstreifen', 'Mischverkehr'])
+    expect(r[0].candsGegenA).toEqual([2])
+    expect(r[0].peilungA).toBeCloseTo(90, 0)
+  })
+  it('andere Form auf Seite B trennt', () => {
+    const r = candsToSections([cand(1, 0, 200, nachOsten),
+      cand(2, 200, 400, { seiten: { rechts: 'Radstreifen', links: 'Radstreifen' }, bern })], 'bern')
+    expect(r.map(s => s.gegen?.ist)).toEqual(['Mischverkehr', undefined])
+  })
+  it('Einbahn und Zweirichtungsverkehr trennen', () => {
+    const r = candsToSections([cand(1, 0, 200, { bern }), cand(2, 200, 400, { bern, einbahn: 'vor' })], 'bern')
+    expect(r.map(s => s.richtung)).toEqual(['beide', 'eine'])
+  })
+  it('Einbahnen in entgegengesetzter Richtung trennen', () => {
+    const r = candsToSections([cand(1, 0, 200, { bern, einbahn: 'vor' }), cand(2, 200, 400, { bern, einbahn: 'rueck' })], 'bern')
+    expect(r).toHaveLength(2)
+    expect(r.map(s => Math.round(s.peilungA!))).toEqual([90, 270])
+  })
+  it('Breite auf Seite B: die schmalste Stelle gleicher Form', () => {
+    const beidseits = (b: number) => ({ seiten: { rechts: 'Radstreifen', links: 'Radstreifen' },
+      breiteSeiten: { rechts: 1.8, links: b }, bern })
+    const r = candsToSections([cand(1, 0, 200, beidseits(1.6)), cand(2, 200, 400, beidseits(1.3))], 'bern')
+    expect(r).toHaveLength(1)
+    expect([r[0].breite, r[0].gegen?.breite]).toEqual([1.8, 1.3])
+  })
+})
+
+import { luftbildHinweis, luftbildUebernehmen } from './strecke'
+describe('Luftbild-Hinweis je Seite', () => {
+  const lb = (rechts: number, links: number) => ({ bern: { luftbild: { rechts, links } } })
+
+  it('candToSection ordnet die Way-Seiten Seite A und B zu, auch bei umgekehrtem Way', () => {
+    expect(candToSection(cand(1, 0, 100, lb(0.9, 0))).luftbild).toEqual({ a: 0.9, b: 0 })
+    expect(candToSection(cand(1, 0, 100, lb(0.9, 0)), false).luftbild).toEqual({ a: 0, b: 0.9 })
+  })
+  it('Hinweis nur für offene oder Mischverkehr-Seiten ab der Schwelle', () => {
+    const s = candToSection(cand(1, 0, 100, { ist: 'Mischverkehr', ...lb(0.8, 0.2) }))
+    expect(luftbildHinweis(s, 0.3)).toEqual({ a: true, b: false })
+    expect(luftbildHinweis({ ...s, ist: 'Umweltspur' }, 0.3).a).toBe(false)
+    expect(luftbildHinweis({ ...s, richtung: 'eine', luftbild: { a: 0, b: 0.9 } }, 0.3).b).toBe(false)
+  })
+  it('Übernehmen auf einer von zwei gleichen Seiten macht die Seiten verschieden', () => {
+    const s = candToSection(cand(1, 0, 100, { ist: 'Mischverkehr', ...lb(0.8, 0) }))
+    const t = luftbildUebernehmen(s, { a: true, b: false })
+    expect([t.ist, t.quelle.ist, t.gegen?.ist]).toEqual(['Radstreifen', 'luftbild', 'Mischverkehr'])
+    expect(t.breite).toBeNaN()
+  })
+  it('Übernehmen nur auf Seite B: A bleibt, B wird Radstreifen', () => {
+    const s = candToSection(cand(1, 0, 100, { ist: 'Mischverkehr', ...lb(0, 0.8) }))
+    const t = luftbildUebernehmen(s, { a: false, b: true })
+    expect([t.ist, t.gegen?.ist, t.gegen?.quelle.ist]).toEqual(['Mischverkehr', 'Radstreifen', 'luftbild'])
+  })
+  it('Übernehmen auf beiden gleichen Seiten: Seiten bleiben gleich', () => {
+    const s = candToSection(cand(1, 0, 100, { ist: 'Mischverkehr', ...lb(0.8, 0.7) }))
+    const t = luftbildUebernehmen(s, { a: true, b: true })
+    expect([t.ist, t.gegen]).toEqual(['Radstreifen', undefined])
+  })
+  it('Seiten tauschen tauscht auch den Luftbild-Anteil', () =>
+    expect(tauscheSeiten(candToSection(cand(1, 0, 100, lb(0.9, 0.1)))).luftbild).toEqual({ a: 0.1, b: 0.9 }))
+  it('Zusammenfassen gewichtet den Anteil nach Länge', () => {
+    const bern = { speed: 30, dtv: 3000, dtvGeprueft: true }
+    const [r] = candsToSections([
+      cand(1, 0, 300, { bern: { ...bern, luftbild: { rechts: 1, links: 0 } } }),
+      cand(2, 300, 400, { bern: { ...bern, luftbild: { rechts: 0, links: 0 } } }),
+    ], 'bern')
+    expect(r.luftbild!.a).toBeCloseTo(0.75, 5)
+    expect(r.luftbild!.b).toBe(0)
   })
 })

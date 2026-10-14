@@ -6,7 +6,7 @@
 
 import type { IstFuehrungsform } from './fuehrungsform'
 import type { Cand } from './VeloMap'
-import { distPointToLineM } from './geo'
+import { distPointToLineM, teileLinie } from './geo'
 import { overpassAbgebrochen } from './cityShared'
 
 type LL = { lat: number; lon: number }
@@ -56,6 +56,37 @@ export function istFromTags(t: Record<string, string>, highway: string): IstFueh
 const OSM_ROADS = ['primary', 'secondary', 'tertiary', 'residential', 'unclassified',
   'living_street', 'road', 'primary_link', 'secondary_link', 'tertiary_link']
 
+// ── Seiten (seit 14.10.2026) ─────────────────────────────────────────────────
+// istFromTags fasst beide Fahrbahnseiten zusammen: ein Radstreifen auf EINER Seite machte die
+// ganze Strasse zum Radstreifen, die Gegenrichtung wurde überbewertet. istSeiten liest die
+// Seiten getrennt, bezogen auf die Way-Richtung (Rechtsverkehr): `cycleway:right` gehört zur
+// Fahrtrichtung des Ways, `cycleway:left` zur Gegenrichtung; `cycleway:both` und `cycleway`
+// gelten für beide. Formen, die nicht an einer Fahrbahnseite hängen — Velostrasse, eigener
+// Rad- oder Fussweg —, gelten für beide Seiten gleich. Einbahn-Gegenverkehr (Q7) wird wie in
+// istFromTags nicht erkannt.
+function formAusCycleway(v: string | undefined): IstFuehrungsform {
+  if (v === 'track') return 'Radweg strassenbegleitend / Geschützter Radstreifen'
+  if (v === 'share_busway') return 'Umweltspur'
+  if (v === 'lane') return 'Radstreifen'
+  return 'Mischverkehr'
+}
+export function istSeiten(t: Record<string, string>, highway: string): { rechts: IstFuehrungsform; links: IstFuehrungsform } {
+  const ganz = istFromTags(t, highway)
+  if (t.bicycle_road === 'yes' || t.cyclestreet === 'yes' || !OSM_ROADS.includes(highway)) return { rechts: ganz, links: ganz }
+  const seite = (s: 'right' | 'left') => formAusCycleway(t[`cycleway:${s}`] ?? t['cycleway:both'] ?? t.cycleway)
+  return { rechts: seite('right'), links: seite('left') }
+}
+
+// Einbahn für den Verkehr auf dem Way: 'vor' = nur in Way-Richtung, 'rueck' = nur dagegen.
+// Ein Kreisel ist ohne eigenes oneway-Tag eine Einbahn (OSM-Konvention).
+export function einbahnAusTags(t: Record<string, string>): 'vor' | 'rueck' | undefined {
+  const o = t.oneway
+  if (o === 'yes' || o === 'true' || o === '1') return 'vor'
+  if (o === '-1' || o === 'reverse') return 'rueck'
+  if (o == null && (t.junction === 'roundabout' || t.junction === 'circular')) return 'vor'
+  return undefined
+}
+
 export interface OsmWay { id: number; tags?: Record<string, string>; geometry?: LL[] }
 
 // OSM-Breitenangabe → Meter. OSM schreibt «1.5», «1.5 m», vereinzelt «1,5» — parseFloat las
@@ -86,13 +117,59 @@ export function wayToCand(w: OsmWay): Cand | null {
   // `width` die Fahrbahn, nicht den Radstreifen — dann nicht übernehmen (z. B. Sulgeneckstrasse:
   // highway=residential, cycleway:right=lane, width=9 → die 9 m sind die Fahrbahn, kein Radstreifen).
   const cwW = t['cycleway:width'] || t['cycleway:both:width'] || t['cycleway:right:width'] || t['cycleway:left:width']
+  // Je Seite (nur an Strassen): die eigene Breitenangabe, sonst die für beide Seiten.
+  const brSeite = (s: 'right' | 'left') =>
+    osmBreite(t[`cycleway:${s}:width`] || t['cycleway:both:width'] || t['cycleway:width'])
+  const einbahn = einbahnAusTags(t)
   return {
-    id: w.id, ist: istFromTags(t, hw),
+    id: w.id, wayId: w.id, ist: istFromTags(t, hw), seiten: istSeiten(t, hw),
+    ...(isRoad ? { breiteSeiten: { rechts: brSeite('right'), links: brSeite('left') } } : {}),
+    ...(einbahn ? { einbahn } : {}),
+    ...(einbahn && t['oneway:bicycle'] === 'no' ? { veloGegenverkehr: true } : {}),
     speed: isFinite(sp) && sp > 0 ? sp : undefined,
     breite: osmBreite(cwW || ((isCycle || isFootBike) ? t.width : undefined)),
     len: geomLength(w.geometry),
     name: t.name || 'Segment', geom: w.geometry, selected: true,
   }
+}
+
+// ── Segment teilen ───────────────────────────────────────────────────────────
+// Ein OSM-Way ist oft länger als ein gleichartiger Strassenabschnitt (Grosser Muristalden:
+// 441 m, ein Way). «Segment teilen» (App.tsx) schneidet einen Kandidaten an der Klickstelle in
+// zwei Teile. Beide behalten die OSM-Werte des Ways — die Tags gelten für den ganzen Way —,
+// verlieren aber die Anreicherung (amtliche Werte, ÖV, Markierung, OpenBikeSensor): Sie ordnet
+// über die Geometrie zu und kann je Teil anders ausfallen; die App fragt sie je Teil neu ab.
+
+export const MIN_TEIL_M = 5   // kürzere Teile entstehen nicht (Klick zu nah am Ende)
+
+// Kennungen der Teile: negativ und fortlaufend, damit sie nie mit einer OSM-Way-ID kollidieren.
+let naechsteTeilId = -1
+
+// Kandidat `id` in `cs` an der Stelle (lat, lon) teilen. Liefert die neue Liste (die beiden
+// Teile stehen an der Stelle des alten Kandidaten, alle Teile des Ways neu nummeriert) und die
+// zwei neuen Teile — oder null, wenn der Kandidat fehlt oder ein Teil kürzer als MIN_TEIL_M würde.
+export function teileInListe(cs: Cand[], id: number, lat: number, lon: number): { cands: Cand[]; neu: [Cand, Cand] } | null {
+  const c = cs.find(x => x.id === id)
+  if (!c) return null
+  const r = teileLinie(c.geom, { lat, lon })
+  if (!r) return null
+  const lenA = geomLength(r.a), lenB = geomLength(r.b)
+  if (lenA < MIN_TEIL_M || lenB < MIN_TEIL_M) return null
+  const start = c.teil?.startM ?? 0
+  const teil = (geom: LL[], len: number, startM: number): Cand => {
+    const t: Cand = { ...c, id: naechsteTeilId--, geom, len, teil: { nr: 0, anzahl: 0, startM } }
+    delete t.bern; delete t.obs
+    return t
+  }
+  const a = teil(r.a, lenA, start), b = teil(r.b, lenB, start + lenA)
+  // Nummern 1…n entlang der Way-Richtung, über alle Teile des Ways (auch frühere Schnitte).
+  const liste = cs.flatMap(x => (x.id === id ? [a, b] : [x]))
+  const teile = liste.filter(x => x.wayId === c.wayId && x.teil)
+    .sort((u, v) => u.teil!.startM - v.teil!.startM)
+  const nr = new Map(teile.map((x, i) => [x.id, i + 1]))
+  const cands = liste.map(x => (nr.has(x.id) ? { ...x, teil: { ...x.teil!, nr: nr.get(x.id)!, anzahl: teile.length } } : x))
+  const neu = [cands.find(x => x.id === a.id)!, cands.find(x => x.id === b.id)!] as [Cand, Cand]
+  return { cands, neu }
 }
 
 // Overpass-Endpunkte: Hauptinstanz + Ausweich-Mirror (Failover bei Überlastung/Ausfall).

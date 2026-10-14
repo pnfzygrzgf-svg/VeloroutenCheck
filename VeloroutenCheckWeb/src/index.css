@@ -96,3 +96,7 @@ select { max-width: 100%; }
   .vrc-karte { position: absolute; top: 0; bottom: 0; left: 0; right: var(--vrc-panel-w); }
   .vrc-karte .vrc-velomap { height: 100%; border: none; border-radius: 0; }
 }
+
+/* «Segment teilen» (App.tsx): Fadenkreuz über den anklickbaren Linien, solange der Modus aktiv
+   ist. Zwei Klassen schlagen Leaflets `.leaflet-interactive { cursor: pointer }`. */
+.vrc-teilmodus .leaflet-interactive { cursor: crosshair; }

@@ -247,6 +247,33 @@ export function fussAufLinie(p: LL, line: LL[]): { distM: number; endeM: number 
   return { distM, endeM: Math.min(vomStart, gesamt - vomStart) }
 }
 
+// Polylinie am Fusspunkt von p in zwei Teile zerlegen («Segment teilen», App.tsx). Beide Teile
+// enthalten den Schnittpunkt: Teil a endet, Teil b beginnt dort; die Laufrichtung bleibt die der
+// Linie. Fällt der Schnitt genau auf einen Stützpunkt, steht dieser nicht doppelt. Für
+// einteilige Linien (Kandidaten) gedacht; wie kurz ein Teil sein darf, entscheidet der Aufrufer.
+export function teileLinie(line: LL[], p: LL): { a: LL[]; b: LL[] } | null {
+  if (line.length < 2) return null
+  const kx = KY * Math.cos((p.lat * Math.PI) / 180)
+  const px = p.lon * kx, py = p.lat * KY
+  let bestD = Infinity, bestI = 1, bestT = 0
+  for (let i = 1; i < line.length; i++) {
+    const a = line[i - 1], b = line[i]
+    const ax = a.lon * kx, ay = a.lat * KY, dx = b.lon * kx - ax, dy = b.lat * KY - ay
+    const l2 = dx * dx + dy * dy
+    const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2))
+    const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+    if (d < bestD) { bestD = d; bestI = i; bestT = t }
+  }
+  const a = line[bestI - 1], b = line[bestI]
+  // Genau auf einem Stützpunkt: dessen Koordinaten übernehmen (keine Rundungsdublette).
+  const schnitt = bestT === 0 ? a : bestT === 1 ? b
+    : { lat: a.lat + (b.lat - a.lat) * bestT, lon: a.lon + (b.lon - a.lon) * bestT }
+  const teilA = [...line.slice(0, bestI), schnitt]
+  const teilB = [schnitt, ...line.slice(bestI)]
+  const ohneDoppel = (ls: LL[]) => ls.filter((q, k) => k === 0 || q.lat !== ls[k - 1].lat || q.lon !== ls[k - 1].lon)
+  return { a: ohneDoppel(teilA), b: ohneDoppel(teilB) }
+}
+
 // Bounding-Box einer Polylinie (für den billigen Vorfilter vor dem teuren overlapScore).
 export type BboxLL = { s: number; n: number; w: number; e: number }
 export function bboxOfLL(line: LL[]): BboxLL {
@@ -267,4 +294,67 @@ export function padBbox<B extends BboxLL>(b: B, padM: number): B {
   const dLat = padM / KY
   const dLon = padM / (KY * Math.cos((((b.s + b.n) / 2) * Math.PI) / 180))
   return { ...b, s: b.s - dLat, n: b.n + dLat, w: b.w - dLon, e: b.e + dLon }
+}
+
+// ── Fahrtrichtungen (Seite A/B eines Abschnitts, strecke.ts) ──────────────────
+
+// Peilung [Grad] von a nach b: 0 = Nord, im Uhrzeigersinn (lokal planar wie die übrigen Helfer).
+export function peilung(a: LL, b: LL): number {
+  const kx = KY * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180)
+  const dx = (b.lon - a.lon) * kx, dy = (b.lat - a.lat) * KY
+  return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360
+}
+
+// Peilung → Himmelsrichtung in acht Stufen, ausgeschrieben («Süden» statt «S»: das Kürzel war in
+// der Maske nicht verständlich).
+export function himmelsrichtung(grad: number): string {
+  const g = ((grad % 360) + 360) % 360
+  return ['Norden', 'Nordosten', 'Osten', 'Südosten', 'Süden', 'Südwesten', 'Westen', 'Nordwesten'][Math.round(g / 45) % 8]
+}
+
+// Fusspunkt von p auf einer Linie, planar in Metern: Abstand und Lage (x = Ost, y = Nord).
+function fussPlanar(p: LL, line: LL[], kx: number): { d: number; x: number; y: number } {
+  const px = p.lon * kx, py = p.lat * KY
+  let best = { d: Infinity, x: px, y: py }
+  for (let i = 1; i < line.length; i++) {
+    const a = line[i - 1], b = line[i]
+    if (istLuecke(a) || istLuecke(b)) continue
+    const ax = a.lon * kx, ay = a.lat * KY, dx = b.lon * kx - ax, dy = b.lat * KY - ay
+    const l2 = dx * dx + dy * dy
+    const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2))
+    const x = ax + t * dx, y = ay + t * dy
+    const d = Math.hypot(px - x, py - y)
+    if (d < best.d) best = { d, x, y }
+  }
+  return best
+}
+
+const SEITE_MIN_M = 0.5   // Linien näher an der Achse lassen sich keiner Seite zuordnen
+
+// Je Abschnitts-Punkt die nächste lokal parallele Linie RECHTS und LINKS der Laufrichtung
+// (Index, ≤ maxDistM, sonst -1). Grundlage der Seitenerkennung der Velostreifen-Markierung
+// (velostreifen.ts): rechts = Fahrtrichtung des Ways, links = Gegenrichtung (Rechtsverkehr).
+// Anders als naechsteLinieJePunkt hat JEDE Seite ihre eigene Stimme — ein Punkt mit Strichen
+// auf beiden Seiten zählt für beide. Quer laufende Linien zählen wie dort nicht.
+export function naechsteLinieJeSeite(candGeom: LL[], lines: LL[][], maxDistM: number): { rechts: number[]; links: number[] } {
+  const rechts: number[] = [], links: number[] = []
+  if (candGeom.length === 0) return { rechts, links }
+  const kx = KY * Math.cos((candGeom[0].lat * Math.PI) / 180)
+  for (const p of candGeom) {
+    const [cx, cy] = dirAt(p, candGeom, kx)
+    const px = p.lon * kx, py = p.lat * KY
+    let bR = maxDistM, iR = -1, bL = maxDistM, iL = -1
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].length < 2) continue
+      const f = fussPlanar(p, lines[i], kx)
+      if (!(f.d <= maxDistM)) continue
+      const [fx, fy] = dirAt(p, lines[i], kx)
+      if (Math.abs(fx * cx + fy * cy) < COS_MAX_ANGLE) continue   // quer → keine Seite
+      const quer = cx * (f.y - py) - cy * (f.x - px)   // vorzeichenbehafteter Querabstand: > 0 = links
+      if (quer >= SEITE_MIN_M) { if (f.d <= bL) { bL = f.d; iL = i } }
+      else if (quer <= -SEITE_MIN_M) { if (f.d <= bR) { bR = f.d; iR = i } }
+    }
+    rechts.push(iR); links.push(iL)
+  }
+  return { rechts, links }
 }

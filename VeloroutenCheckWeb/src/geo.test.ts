@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   anteilAbgedeckt, bboxOfLL, bboxOverlap, densify, distPointToLineM, fussAufLinie, majorityLineIndex,
   majorityValue, mehrteilig, naechsteLinieJePunkt, overlapScore, padBbox, type LL,
+  himmelsrichtung, naechsteLinieJeSeite, peilung,
 } from './geo'
 import { featureLatLon, nearestDtv } from './cityShared'
 import { mergeObs, type ObsStats } from './obs'
@@ -271,5 +272,51 @@ describe('padBbox', () => {
   it('leere Bbox bleibt leer', () => {
     const leer = bboxOfLL([])
     expect(padBbox(leer, 50)).toEqual(leer)
+  })
+})
+
+describe('peilung / himmelsrichtung', () => {
+  it('Ost = 90°, Nord = 0°, Südwest = 225°', () => {
+    // Toleranz 0,01°: peilung rechnet mit der mittleren Breite, die Testpunkte mit 47°.
+    expect(peilung(pt(0, 0), pt(100, 0))).toBeCloseTo(90, 2)
+    expect(peilung(pt(0, 0), pt(0, 100))).toBeCloseTo(0, 2)
+    expect(peilung(pt(0, 0), pt(-100, -100))).toBeCloseTo(225, 2)
+  })
+  it('acht Stufen, auch über 360° hinaus', () => {
+    expect(himmelsrichtung(0)).toBe('Norden')
+    expect(himmelsrichtung(44)).toBe('Nordosten')
+    expect(himmelsrichtung(90)).toBe('Osten')
+    expect(himmelsrichtung(200)).toBe('Süden')
+    expect(himmelsrichtung(225)).toBe('Südwesten')
+    expect(himmelsrichtung(350)).toBe('Norden')
+    expect(himmelsrichtung(405)).toBe('Nordosten')
+  })
+})
+
+describe('naechsteLinieJeSeite — Markierung rechts/links der Laufrichtung', () => {
+  const abschnitt = densify(linie(0, 200, 0), 10)   // läuft nach Osten: rechts = Süden (y < 0)
+  const treffer = (xs: number[]) => xs.filter(i => i >= 0).length / xs.length
+
+  it('Striche nur rechts (Süden) → nur die rechte Seite', () => {
+    const r = naechsteLinieJeSeite(abschnitt, [linie(0, 200, -4)], 12)
+    expect(treffer(r.rechts)).toBe(1)
+    expect(treffer(r.links)).toBe(0)
+  })
+  it('Striche beidseits → beide Seiten zählen voll (je eine Stimme)', () => {
+    const r = naechsteLinieJeSeite(abschnitt, [linie(0, 200, -4), linie(0, 200, 5)], 12)
+    expect(treffer(r.rechts)).toBe(1)
+    expect(treffer(r.links)).toBe(1)
+    expect(r.links.every(i => i === 1)).toBe(true)
+  })
+  it('Gegenrichtung (Abschnitt nach Westen): dieselben Striche liegen links', () => {
+    const r = naechsteLinieJeSeite([...abschnitt].reverse(), [linie(0, 200, -4)], 12)
+    expect(treffer(r.links)).toBe(1)
+    expect(treffer(r.rechts)).toBe(0)
+  })
+  it('Linie auf der Achse und quer laufende Linie zählen für keine Seite', () => {
+    const quer: LL[] = []
+    for (let y = -50; y <= 50; y += 5) quer.push(pt(100, y))
+    const r = naechsteLinieJeSeite(abschnitt, [linie(0, 200, 0.2), quer], 12)
+    expect(treffer(r.rechts) + treffer(r.links)).toBe(0)
   })
 })

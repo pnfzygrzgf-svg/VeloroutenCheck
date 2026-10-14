@@ -6,8 +6,22 @@ import { escapeHtml } from './netz'
 
 // Ein OSM-Rohsegment (Kandidat) — auf der Karte anklickbar, vor dem Zusammenfassen.
 export interface Cand {
-  id: number                              // OSM-Way-ID
+  // Kennung des Kandidaten — eindeutig in der Liste, Schlüssel für Karte, Anreicherung und
+  // Abschnitte. Bei einem ganzen Way = OSM-Way-ID; die Teile eines geteilten Ways erhalten
+  // eigene, negative Kennungen (osm.ts, teileInListe), damit sie nie mit einer Way-ID kollidieren.
+  id: number
+  wayId: number                           // OSM-Way-ID (bei Teilen die des ursprünglichen Ways)
+  // Nur bei Teilen eines von Hand geteilten Ways: Nummer entlang der Way-Richtung, Anzahl
+  // Teile, Lage des Teilanfangs ab Way-Anfang [m]. Ein Schnitt bleibt beim Zusammenfassen
+  // immer eine Abschnittsgrenze (strecke.ts, mergeSegs).
+  teil?: { nr: number; anzahl: number; startM: number }
   ist: string                             // abgeleitete Ist-Führungsform (für die Farbe)
+  // OSM je Fahrbahnseite, bezogen auf die WAY-Richtung (rechts = Fahrtrichtung des Ways,
+  // links = Gegenrichtung; Rechtsverkehr). Fehlt `seiten`, gilt `ist` für beide Seiten.
+  seiten?: { rechts: string; links: string }
+  breiteSeiten?: { rechts?: number; links?: number }   // nur an Strassen (cycleway:right/left:width)
+  einbahn?: 'vor' | 'rueck'               // OSM-Einbahn: in bzw. gegen die Way-Richtung
+  veloGegenverkehr?: boolean              // Einbahn, Velo in der Gegenrichtung erlaubt (oneway:bicycle=no)
   speed?: number                          // nur wenn ein maxspeed-Tag vorhanden ist
   breite?: number                         // nur wenn ein width-/cycleway:width-Tag vorhanden ist
   len: number
@@ -22,7 +36,12 @@ export interface Cand {
     routentyp?: 'Velohauptroute' | 'Veloroute'   // Veloroutennetz Masterplan
     strassentyp?: 'verkehrsorientiert' | 'siedlungsorientiert'  // nur Basel (Strassen-/Wege-Datensatz)
     velostrasse?: boolean                 // Treffer im Velostrassen-Layer
-    radstreifen?: { breite?: number }     // Treffer im lokalen Markierungs-Snapshot (Velostreifen, siehe velostreifen.ts)
+    // Treffer im lokalen Markierungs-Snapshot (Velostreifen, siehe velostreifen.ts); rechts/links
+    // = Seite der Striche, bezogen auf die Way-Richtung
+    radstreifen?: { breite?: number; rechts?: { breite?: number }; links?: { breite?: number } }
+    // Radstreifen aus dem Luftbild (luftbild.ts, nur Bern): Anteil der Länge mit Fund je Seite,
+    // bezogen auf die Way-Richtung. Nur Hinweis, setzt keine Form.
+    luftbild?: { rechts: number; links: number }
     oevHalt?: boolean                     // Haltestelle im Abschnitt (Geoportal Haltestellen)
     oevHaltName?: string                  // Name der nächsten Haltestelle
     oevTram?: boolean                     // Tram-Linie verläuft entlang (OeV_Linien)
@@ -56,12 +75,14 @@ export const ISTCOLOR: Record<string, string> = {
 // übereinstimmen. «screen»: Drucken bleibt immer einspaltig.
 export const BREIT_MQ = 'screen and (min-width: 1100px)'
 
-export interface SectionMarker { num: number; lat: number; lon: number }
+// peilung: Fahrtrichtung der Seite A an der Marker-Stelle [Grad, 0 = Nord] → kleiner Pfeil am Kreis.
+export interface SectionMarker { num: number; lat: number; lon: number; peilung?: number }
 
-export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlightIds, stops,
-                          attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0 }: {
+export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
+                          attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
+                          teilModus = false }: {
   cands: Cand[]
-  onToggle: (id: number) => void
+  onLineClick: (id: number, lat: number, lon: number) => void   // Linie angeklickt (an-/abwählen oder teilen)
   onMapClick?: (lat: number, lon: number) => void
   onReady?: (map: L.Map) => void
   markers?: SectionMarker[]               // nummerierte Abschnitts-Marker
@@ -70,6 +91,7 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
   attribution?: string                    // Quellenangabe der amtlichen Anreicherung (stadtabhängig)
   center?: [number, number]               // Anfangs-Kartenmitte (stadtabhängig)
   fitKey?: number                         // ändert sich → Karte auf die Segmente einpassen (nur «Strasse laden»)
+  teilModus?: boolean                     // «Segment teilen» aktiv → Fadenkreuz über den Linien
 }) {
   const elRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -163,8 +185,12 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
         interactive: false,
       })
       // Unsichtbare, breite Trefflinie → leichteres An-/Abwählen per Finger (und Maus).
+      // Die Klickstelle geht mit: im Teil-Modus schneidet die App dort.
       const hit = L.polyline(pts, { color: '#000', weight: 16, opacity: 0 })
-      hit.on('click', () => { suppress.current = true; onToggle(c.id) })
+      hit.on('click', (e: L.LeafletMouseEvent) => {
+        suppress.current = true
+        onLineClick(c.id, e.latlng.lat, e.latlng.lng)
+      })
       const bernParts = c.bern && [
         c.bern.speed != null ? `Tempo ${c.bern.speed}` : null,
         c.bern.dtv != null ? `DTV ≈ ${c.bern.dtv}` : null,
@@ -177,7 +203,9 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
             : '')
       // Leaflet setzt den Tooltip per innerHTML → Fremdtext (OSM-Name) maskieren, s. netz.ts.
       hit.bindTooltip(
-        `${escapeHtml(c.name)} · ${Math.round(c.len)} m · ${escapeHtml(c.ist)}${c.selected ? '' : ' (abgewählt)'}` +
+        `${escapeHtml(c.name)} · ${Math.round(c.len)} m` +
+        (c.teil ? ` · Teil ${c.teil.nr}/${c.teil.anzahl}` : '') +
+        ` · ${escapeHtml(c.ist)}${c.selected ? '' : ' (abgewählt)'}` +
         (bernParts && bernParts.length ? `<br>${escapeHtml(attribution)}: ${escapeHtml(bernParts.join(' · '))}` : '') +
         obsPart,
         { sticky: true })
@@ -186,16 +214,32 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
       lineRef.current.set(c.id, line)
       pts.forEach(p => bounds.extend(p))
     }
-    // Nummern-Marker je Abschnitt (dunkler Kreis, weisse Zahl; klick-transparent).
+    // Schnittpunkte geteilter Ways: weisser Punkt am Anfang jedes Teils ausser dem ersten
+    // (die Teile laufen in Way-Richtung, Teil n+1 beginnt am Schnitt). Klick-transparent.
+    for (const c of cands) {
+      if (!c.teil || c.teil.nr < 2 || c.geom.length < 2) continue
+      L.circleMarker([c.geom[0].lat, c.geom[0].lon], {
+        radius: 5, color: '#1e293b', weight: 2, fillColor: '#ffffff', fillOpacity: 1, interactive: false,
+      }).addTo(lg)
+    }
+    // Nummern-Marker je Abschnitt (dunkler Kreis, weisse Zahl; klick-transparent). Ein kleines
+    // Dreieck am Kreisrand zeigt die Fahrtrichtung der Seite A (Karte ist genordet → Peilung =
+    // Drehung im Uhrzeigersinn).
     for (const m of markers ?? []) {
+      const pfeil = m.peilung == null ? '' :
+        `<div style="position:absolute;left:0;top:0;width:22px;height:22px;transform:rotate(${Math.round(m.peilung)}deg)">` +
+        `<div style="position:absolute;left:5px;top:-10px;width:0;height:0;border-left:6px solid transparent;` +
+        `border-right:6px solid transparent;border-bottom:10px solid #1e293b;` +
+        `filter:drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff)"></div></div>`
       L.marker([m.lat, m.lon], {
         interactive: false,
         icon: L.divIcon({
           className: '',
           iconSize: [22, 22], iconAnchor: [11, 11],
-          html: `<div style="width:22px;height:22px;border-radius:999px;background:#1e293b;` +
+          html: `<div style="position:relative;width:22px;height:22px">${pfeil}` +
+            `<div style="position:absolute;left:0;top:0;width:22px;height:22px;border-radius:999px;background:#1e293b;` +
             `color:#fff;font:700 12px/22px system-ui,sans-serif;text-align:center;` +
-            `box-shadow:0 0 0 2px #fff">${m.num}</div>`,
+            `box-shadow:0 0 0 2px #fff">${m.num}</div></div>`,
         }),
       }).addTo(lg)
     }
@@ -219,7 +263,12 @@ export function VeloMap({ cands, onToggle, onMapClick, onReady, markers, highlig
       map.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 })
       lastFit.current = fitKey
     }
-  }, [cands, onToggle, markers, stops, attribution, fitKey])
+  }, [cands, onLineClick, markers, stops, attribution, fitKey])
+
+  // Teil-Modus: Fadenkreuz über den Linien (CSS-Klasse am Karten-Container, index.css).
+  useEffect(() => {
+    mapRef.current?.getContainer().classList.toggle('vrc-teilmodus', teilModus)
+  }, [teilModus])
 
   // Highlight des gehoverten Abschnitts: betroffene Linien dicker + nach vorn, ohne Neuzeichnen.
   // Nur gewählte Segmente anfassen (abgewählte behalten ihren dünnen, grauen Stil).

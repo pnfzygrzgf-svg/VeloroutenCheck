@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildCsv, csvCell, numDE, parseZahl } from './csv'
 import { defaultSection } from './strecke'
-import { fuehrungsformNote } from './fuehrungsform'
+import { bewerteAbschnitt } from './bewertung'
 
 describe('parseZahl — Eingabefelder', () => {
   it('Komma und Punkt als Dezimalzeichen', () => {
@@ -42,8 +42,8 @@ describe('csvCell', () => {
 describe('buildCsv', () => {
   const s = { ...defaultSection(), dtv: 3000, speed: 50, ist: 'Umweltspur' as const, breite: 4.5,
     oevTakt: 10, oevAngebot: 'bus_5_15' as const, haltestelleBreite: 1.6, label: '=böse' }
-  const r = fuehrungsformNote(3000, 50, 'Umweltspur', 4.5, 'Velohauptroute', 'egal', 10)
-  const zeilen = buildCsv([s], [r], r.note, 'bern', 'Bern', '2026-09-29').split('\r\n').map(z => z.split(';'))
+  const e = bewerteAbschnitt(s, 'bern')
+  const zeilen = buildCsv([s], [e], e.note, 'bern', 'Bern', '2026-09-29').split('\r\n').map(z => z.split(';'))
   const [kopf, zeile, fuss] = zeilen
 
   it('alle Zeilen haben gleich viele Spalten', () => {
@@ -53,7 +53,7 @@ describe('buildCsv', () => {
   it('bestehende Spalten behalten ihre Position, die neuen stehen am Ende', () => {
     expect(kopf.indexOf('Stadt')).toBe(26)
     expect(kopf.indexOf('Abrufdatum')).toBe(27)
-    expect(kopf.slice(28)).toEqual(['ÖV-Takt [Min]', 'Breite Haltestelle [m]'])
+    expect(kopf.slice(28, 30)).toEqual(['ÖV-Takt [Min]', 'Breite Haltestelle [m]'])
   })
   it('ÖV-Takt und Haltestellenbreite stehen im Export', () => {
     expect(zeile[28]).toBe('10,0')
@@ -65,5 +65,36 @@ describe('buildCsv', () => {
   it('numDE', () => {
     expect(numDE(4.5, 1)).toBe('4,5')
     expect(numDE(NaN)).toBe('')
+  })
+})
+
+import { seiteA } from './strecke'
+describe('buildCsv — Seiten', () => {
+  const basis = { ...defaultSection(), dtv: 8000, speed: 50, routentyp: 'Velohauptroute' as const,
+    ist: 'Radstreifen' as const, breite: 1.8, peilungA: 80, quelle: { ist: 'osm' as const, breite: 'osm' as const } }
+  const zeilen = (s: typeof basis & { gegen?: unknown; richtung?: 'beide' | 'eine' }) => {
+    const sec = s as Parameters<typeof bewerteAbschnitt>[0]
+    const e = bewerteAbschnitt(sec, 'bern')
+    const [kopf, zeile] = buildCsv([sec], [e], e.note, 'bern', 'Bern', '2026-10-14').split('\r\n').map(z => z.split(';'))
+    return (name: string) => zeile[kopf.indexOf(name)]
+  }
+  it('abweichende Seite B in eigenen Spalten; «Note» ist die schlechtere Seite', () => {
+    const wert = zeilen({ ...basis, gegen: { ...seiteA(basis), ist: 'Mischverkehr', breite: NaN, quelle: { ist: 'manuell' } } })
+    expect(wert('Seiten')).toBe('beide')
+    expect(wert('Fahrtrichtung Seite A')).toBe('Osten')
+    expect(wert('Ist-Führungsform Seite B')).toBe('Mischverkehr')
+    expect(wert('Ist-Quelle Seite B')).toBe('manuell')
+    expect(wert('Breite Seite B [m]')).toBe('')
+    expect(wert('Note')).toBe(wert('Note Seite B'))
+    expect(Number(wert('Note Seite A').replace(',', '.'))).toBeGreaterThan(Number(wert('Note Seite B').replace(',', '.')))
+  })
+  it('Seite B wie A: Seite-B-Spalten tragen die Werte von A', () => {
+    const wert = zeilen(basis)
+    expect([wert('Ist-Führungsform Seite B'), wert('Ist-Quelle Seite B'), wert('Breite Seite B [m]')]).toEqual(['Radstreifen', 'OSM', '1,80'])
+    expect(wert('Note Seite B')).toBe(wert('Note Seite A'))
+  })
+  it('nur eine Seite: Seite-B-Spalten leer', () => {
+    const wert = zeilen({ ...basis, richtung: 'eine' })
+    expect([wert('Seiten'), wert('Ist-Führungsform Seite B'), wert('Note Seite B')]).toEqual(['eine', '', ''])
   })
 })

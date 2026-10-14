@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  fuehrungsart, fuehrungsformNote, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
-  brauchtBreite, brauchtDtvTempo, erfuellungsgrad, vergleichsNoten, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
+  fuehrungsart, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
+  brauchtBreite, brauchtDtvTempo, erfuellungsgrad, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   GEGENVERKEHR_FORMEN, GEGENVERKEHR_DEFAULT,
   type Fuehrungsart, type IstFuehrungsform, type Routentyp, type ParkenRechts,
   type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
@@ -9,10 +9,13 @@ import {
 } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, BREIT_MQ, type Cand, type SectionMarker, type Stop } from './VeloMap'
 import {
-  candsToSections, defaultSection, dtvAssumed, dtvEff,
-  type Quelle, type QuelleFeld, type Section,
+  candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
+  luftbildHinweis, luftbildUebernehmen,
+  type Quelle, type QuelleFeld, type Section, type Seite, type SeitenQuelle,
 } from './strecke'
-import { loadBboxCandidates, loadNearestCandidate, loadStreetCandidates } from './osm'
+import { bewerteAbschnitt, type AbschnittErgebnis } from './bewertung'
+import { himmelsrichtung, peilung } from './geo'
+import { loadBboxCandidates, loadNearestCandidate, loadStreetCandidates, teileInListe, MIN_TEIL_M } from './osm'
 import { buildCsv, numDE, parseZahl } from './csv'
 import type { Anreicherung } from './cityShared'
 import * as bern from './bern'
@@ -23,6 +26,7 @@ import * as luzern from './luzern'
 import { type OevInfo } from './bern'
 import { enrichObs, type ObsStats } from './obs'
 import { enrichVelostreifen, type VeloInfo } from './velostreifen'
+import { enrichLuftbild, LUFTBILD_SCHWELLE, type LuftbildInfo } from './luftbild'
 
 // ── Städte-Registry: pro Stadt die Datenquellen + Beschriftungen bündeln ───────
 // Alle Adapter (bern/zurich/basel/luzern/stgallen.ts) tragen dieselben Schnittstellen.
@@ -37,6 +41,7 @@ interface CityCfg {
   loadOev: (cands: Cand[]) => Promise<LoadOevResult>
   obsFile?: string                                // OpenBikeSensor-Snapshot (public/), falls vorhanden
   velostreifenFile?: string                       // lokaler Markierungs-Snapshot (nicht öffentlich), falls vorhanden
+  luftbildFile?: string                           // Radstreifen aus dem Luftbild (öffentlicher Snapshot, nur Hinweis)
   breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>  // stadtspezifische Breiten-Sollwerte (sonst Bern)
   breitenQuelle?: string                          // Quellenangabe der stadtspez. Breiten (sonst „Masterplan Bern")
   standardDoc: { titel: string; url: string }     // massgebendes Grundlagendokument (Rechnerseite)
@@ -48,6 +53,7 @@ const CITIES: Record<CityId, CityCfg> = {
     attribution: 'Geoinformation Stadt Bern',
     enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json',
     velostreifenFile: 'velostreifen_bern.json',   // lokaler Snapshot; im öffentlichen Build nicht vorhanden
+    luftbildFile: 'luftbild_bern.json',           // öffentlich (tools/luftbild_bern.py); nur Bern
     standardDoc: {
       titel: 'Standards Masterplans Veloinfrastruktur Stadt Bern',
       url: 'https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur',
@@ -214,13 +220,14 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
     amtlich: { t: 'Geoportal', bg: '#dbeafe', fg: '#1e40af', title: amtlichTitle },
     osm: { t: 'OSM', bg: 'var(--border-subtle)', fg: 'var(--text-muted-strong)', title: 'OpenStreetMap' },
     fahrplan: { t: 'opentransportdata', bg: '#dcfce7', fg: '#166534', title: 'Fahrplan (opentransportdata.swiss / GTFS)' },
-    markierung: { t: 'Markierung', bg: '#ffedd5', fg: '#9a3412', title: 'Aus der Fahrbahnmarkierung ermittelter Velostreifen (lokale Auswertung)' },
+    markierung: { t: 'Markierung', bg: '#ffedd5', fg: '#9a3412', title: 'Aus der Fahrbahnmarkierung ermittelt (lokale Auswertung): Velostreifen auf dieser Seite — oder keiner, wenn die Striche nur auf der anderen Seite liegen' },
+    luftbild: { t: 'Luftbild', bg: '#e0f2fe', fg: '#075985', title: 'Aus dem Luftbild-Hinweis übernommen (SWISSIMAGE © swisstopo, Erkennung mit dem Modell remote_velo der ETH Zürich) — bitte am Orthofoto prüfen' },
     angenommen: { t: '≤ 2000 angenommen', bg: '#fef9c3', fg: '#854d0e', title: 'Flächendeckende Verkehrsdaten Bern: kein Eintrag ⇒ DTV ≤ 2000 (ausserhalb Altstadt)' },
     fehlt: { t: 'Eingabe nötig', bg: '#fee2e2', fg: '#b91c1c' },
   }
   const key = fehlt ? 'fehlt'
     : q === 'amtlich' ? 'amtlich' : q === 'osm' ? 'osm' : q === 'fahrplan' ? 'fahrplan'
-    : q === 'markierung' ? 'markierung' : q === 'angenommen' ? 'angenommen' : null
+    : q === 'markierung' ? 'markierung' : q === 'angenommen' ? 'angenommen' : q === 'luftbild' ? 'luftbild' : null
   if (!key) return null
   const c = map[key]
   return (
@@ -289,223 +296,126 @@ const groupLabelStyle: React.CSSProperties = {
   color: 'var(--text-muted)', marginBottom: 8,
 }
 
-// ── Karte für einen Abschnitt: Eingaben + Einzelbewertung ────────────────────
-function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onChange, onRemove, canRemove, onHover, breitenQuelle, city }: {
-  index: number
-  section: Section
+// Kasten je Seite (Seite A / Seite B / Beide Seiten) in der Abschnittsmaske, mit Überschrift.
+const seiteKastenStyle: React.CSSProperties = {
+  marginTop: 12, padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid var(--border-subtle)',
+}
+const seiteTitelStyle: React.CSSProperties = {
+  fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 8,
+}
+
+// ── Eingaben einer Fahrtrichtung (Seite A oder B, strecke.ts: Seite) ─────────
+// Was je Fahrtrichtung verschieden sein kann: Führungsform samt Breite, Parkierung rechts,
+// öV-Takt der Umweltspur, Haltestellentyp und -breite. Seite A und B nutzen dieselbe Maske.
+function SeiteFelder({ felder, quelle, onChange, city, oevAngebot }: {
+  felder: Seite
+  quelle: SeitenQuelle
+  onChange: (patch: Partial<Seite>) => void
+  city: CityId
+  oevAngebot: OevAngebot                // gilt für den Abschnitt; Haltestellenfelder nur, wenn ≠ keine
+}) {
+  const { ist } = felder
+  return (
+    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+      <label style={fieldStyle}>
+        <FieldLabel label="Vorhandene Führungsform (Ist)"
+                    chip={<QuelleChip q={quelle.ist} fehlt={ist === ''} />} />
+        <select value={GEGENVERKEHR_FORMEN.includes(ist as IstFuehrungsform) ? '__gegenverkehr__' : ist}
+                onChange={e => onChange({ ist: e.target.value === '__gegenverkehr__'
+                  ? GEGENVERKEHR_DEFAULT : e.target.value as IstFuehrungsform })}
+                style={selectStyle}>
+          <option value="">— wählen —</option>
+          {IST_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+          <option value="__gegenverkehr__">Einbahn mit Velogegenverkehr</option>
+        </select>
+      </label>
+      {/* Zweite Stufe: Sicherung der Gegenrichtung → bestimmt die Q7-Führungsform. */}
+      {GEGENVERKEHR_FORMEN.includes(ist as IstFuehrungsform) && (
+        <label style={fieldStyle}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Sicherung der Gegenrichtung</span>
+          <select value={ist} onChange={e => onChange({ ist: e.target.value as IstFuehrungsform })}
+                  style={selectStyle}>
+            <option value="Einbahn Velogegenverkehr ohne Markierung">Ohne Markierung</option>
+            <option value="Einbahn Velogegenverkehr mit Markierung">Mit Markierung</option>
+            <option value="Einbahn Velogegenverkehr mit baulicher Trennung">Mit baulicher Trennung (Radweg)</option>
+          </select>
+        </label>
+      )}
+      {/* Breite nur bei Formen mit Breiten-Vorgabe (optimal/minimal in IST) — gleiche Regel wie der Note-Guard. */}
+      {ist !== '' && brauchtBreite(ist) && (
+        <NumberField label="Breite der Führungsform" unit="m" value={felder.breite} step={0.1}
+                     onChange={v => onChange({ breite: v })}
+                     chip={<QuelleChip q={quelle.breite} fehlt={!Number.isFinite(felder.breite)} />} />
+      )}
+      {/* Parkierung rechts (Dooring) bei Fahrbahn-Führungsformen (siehe PARKEN_RELEVANT) */}
+      {PARKEN_RELEVANT.includes(ist as IstFuehrungsform) && (
+        <label style={fieldStyle}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+            Parkierung rechts (Dooring)
+          </span>
+          <select value={felder.parkenRechts}
+                  onChange={e => onChange({ parkenRechts: e.target.value as ParkenRechts })}
+                  style={selectStyle}>
+            {PARKEN_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+      )}
+      {/* Sicherheitsstreifen ggü. Parkplätzen (SN 640 060) — nur wenn Parkierung rechts = Ja; hebt den Dooring-Abzug auf */}
+      {PARKEN_RELEVANT.includes(ist as IstFuehrungsform) && felder.parkenRechts === 'ja' && (
+        <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={felder.parkenSicherheitsstreifen}
+                 onChange={e => onChange({ parkenSicherheitsstreifen: e.target.checked })} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+            Sicherheitsstreifen gegenüber Parkplätzen (SN 640 060)
+          </span>
+        </label>
+      )}
+      {/* öV-Takt nur bei der Umweltspur (Bus+Velo) */}
+      {ist === 'Umweltspur' && (
+        <NumberField label="öV-Takt (Bus)" unit="Min" value={felder.oevTakt} step={0.5}
+                     onChange={v => onChange({ oevTakt: v })} />
+      )}
+      {/* Haltestellentyp je Seite. «keine Haltestelle auf dieser Seite»: das ÖV-Angebot des
+          Abschnitts gilt hier nicht (bewertung.ts). */}
+      {oevAngebot !== 'keine' && (
+        <label style={fieldStyle}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+            Vorhandener Haltestellentyp
+          </span>
+          <select value={felder.ohneHaltestelle ? '__ohne__' : felder.haltestellentyp}
+                  onChange={e => onChange(e.target.value === '__ohne__'
+                    ? { ohneHaltestelle: true, haltestellentyp: 'keine', haltestelleBreite: NaN }
+                    : { ohneHaltestelle: false, haltestellentyp: e.target.value as Haltestellentyp })}
+                  style={selectStyle}>
+            {haltestellenOptions(city).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            <option value="__ohne__">keine Haltestelle auf dieser Seite</option>
+          </select>
+        </label>
+      )}
+      {/* Breite der Veloführung an der Haltestelle — nur bei Typen mit Breitenkriterium (stadtabhängig) */}
+      {oevAngebot !== 'keine' && !felder.ohneHaltestelle && haltestellenMitBreite(city).includes(felder.haltestellentyp) && (
+        <NumberField label="Breite Veloführung Haltestelle" unit="m" value={felder.haltestelleBreite}
+                     step={0.1} onChange={v => onChange({ haltestelleBreite: v })} />
+      )}
+    </div>
+  )
+}
+
+// ── Ergebnis einer Seite: Note mit Erklärung — oder Hinweis, solange Pflichtfelder fehlen ──
+function ErgebnisBox({ bewertung, vergleich, felder, routentyp, modus, city, breitenQuelle }: {
   bewertung: NotenErgebnis | null
   vergleich: VergleichsNote[] | null    // Endnoten nach den Standards der anderen Städte (null = unvollständig)
-  isWorst: boolean
+  felder: Seite
+  routentyp: Routentyp | ''
   modus: 'note' | 'erfuellung'
-  onChange: (patch: Partial<Section>) => void
-  onRemove: () => void
-  canRemove: boolean
-  onHover?: (hovering: boolean) => void
+  city: CityId
   breitenQuelle: string                 // Herkunft der Breiten-Vorgabe (stadtspez. Standard oder Masterplan Bern)
-  city: CityId                          // Stadt → bestimmt Sichtbarkeit des Strassentyp-Felds (Basel)
 }) {
-  const { ist } = section
-  const q = section.quelle
-  const bezugLabel = section.routentyp === 'Veloroute' ? 'Minimal' : 'Optimal'
-  const routenOptions = CITIES[city].routenOptions ?? ROUTE_OPTIONS.map(v => ({ value: v, label: v }))
-  const hatMarker = (section.candIds?.length ?? 0) > 0   // nur OSM-Abschnitte sind auf der Karte markiert
-
+  const { ist } = felder
+  const bezugLabel = routentyp === 'Veloroute' ? 'Minimal' : 'Optimal'
   return (
-    <div onMouseEnter={() => onHover?.(true)} onMouseLeave={() => onHover?.(false)}
-         style={{ background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 12,
-                  padding: 16, marginBottom: 14,
-                  boxShadow: isWorst ? '0 0 0 2px #b91c1c' : 'none' }}>
-      {/* Kopfzeile */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        {/* Nummer wie der Karten-Marker (dunkler Kreis) — nur bei OSM-Abschnitten */}
-        {hatMarker && (
-          <span title="Nummer auf der Karte"
-                style={{ width: 22, height: 22, borderRadius: 999, background: 'var(--text-strong)',
-                         color: '#fff', fontWeight: 700, fontSize: 12, lineHeight: '22px',
-                         textAlign: 'center', flexShrink: 0 }}>
-            {index + 1}
-          </span>
-        )}
-        <strong style={{ fontSize: 15 }}>Abschnitt {index + 1}</strong>
-        {section.label && (
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{section.label}</span>
-        )}
-        {isWorst && (
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#b91c1c',
-                         background: '#fee2e2', borderRadius: 999, padding: '2px 8px' }}>
-            massgebend für die Strecke
-          </span>
-        )}
-        <span style={{ flex: 1 }} />
-        {canRemove && (
-          <button onClick={onRemove}
-                  style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
-                           borderRadius: 8, padding: '4px 10px', fontSize: 13, cursor: 'pointer' }}>
-            Entfernen
-          </button>
-        )}
-      </div>
-
-      {/* Eingaben — Gruppe 1: Grunddaten (Führungsform & Kontext) */}
-      <div style={groupLabelStyle}>Grunddaten</div>
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-        <NumberField label="DTV MIV" unit="Fz/Tag" value={section.dtv} step={100}
-                     onChange={v => onChange({ dtv: v })}
-                     chip={<QuelleChip q={dtvAssumed(section, city) ? 'angenommen' : q.dtv}
-                                       fehlt={ist !== '' && brauchtDtvTempo(ist) && city !== 'basel' && !Number.isFinite(section.dtv) && !dtvAssumed(section, city)} />} />
-        <NumberField label="Zul. Höchstgeschwindigkeit" unit="km/h" value={section.speed} step={10}
-                     onChange={v => onChange({ speed: v })}
-                     chip={<QuelleChip q={q.speed} fehlt={ist !== '' && brauchtDtvTempo(ist) && !Number.isFinite(section.speed)} />} />
-        <label style={fieldStyle}>
-          <FieldLabel label="Vorhandene Führungsform (Ist)"
-                      chip={<QuelleChip q={q.ist} fehlt={ist === ''} />} />
-          <select value={GEGENVERKEHR_FORMEN.includes(ist as IstFuehrungsform) ? '__gegenverkehr__' : ist}
-                  onChange={e => onChange({ ist: e.target.value === '__gegenverkehr__'
-                    ? GEGENVERKEHR_DEFAULT : e.target.value as IstFuehrungsform })}
-                  style={selectStyle}>
-            <option value="">— wählen —</option>
-            {IST_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-            <option value="__gegenverkehr__">Einbahn mit Velogegenverkehr</option>
-          </select>
-        </label>
-        {/* Zweite Stufe: Sicherung der Gegenrichtung → bestimmt die Q7-Führungsform. */}
-        {GEGENVERKEHR_FORMEN.includes(ist as IstFuehrungsform) && (
-          <label style={fieldStyle}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Sicherung der Gegenrichtung</span>
-            <select value={ist} onChange={e => onChange({ ist: e.target.value as IstFuehrungsform })}
-                    style={selectStyle}>
-              <option value="Einbahn Velogegenverkehr ohne Markierung">Ohne Markierung</option>
-              <option value="Einbahn Velogegenverkehr mit Markierung">Mit Markierung</option>
-              <option value="Einbahn Velogegenverkehr mit baulicher Trennung">Mit baulicher Trennung (Radweg)</option>
-            </select>
-          </label>
-        )}
-        {/* Breite nur bei Formen mit Breiten-Vorgabe (optimal/minimal in IST) — gleiche Regel wie der Note-Guard. */}
-        {ist !== '' && brauchtBreite(ist) && (
-          <NumberField label="Breite der Führungsform" unit="m" value={section.breite} step={0.1}
-                       onChange={v => onChange({ breite: v })}
-                       chip={<QuelleChip q={q.breite} fehlt={!Number.isFinite(section.breite)} />} />
-        )}
-        <label style={fieldStyle}>
-          <FieldLabel label="Routentyp" chip={<QuelleChip q={q.routentyp} />} />
-          <select value={section.routentyp}
-                  onChange={e => onChange({ routentyp: e.target.value as Routentyp })}
-                  style={selectStyle}>
-            <option value="">— wählen —</option>
-            {routenOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </label>
-        {/* Strassentyp — nur Basel: dort ist die Soll-Wahl strassentyp- statt DTV-basiert. */}
-        {city === 'basel' && (
-          <label style={fieldStyle}>
-            <FieldLabel label="Strassentyp" chip={<QuelleChip q={q.strassentyp} fehlt={section.strassentyp === ''} />} />
-            <select value={section.strassentyp}
-                    onChange={e => onChange({ strassentyp: e.target.value as Strassentyp })}
-                    style={selectStyle}>
-              <option value="">— wählen —</option>
-              <option value="verkehrsorientiert">verkehrsorientierte Strasse</option>
-              <option value="siedlungsorientiert">siedlungsorientierte Strasse</option>
-            </select>
-          </label>
-        )}
-        {/* Parkierung rechts (Dooring) bei Fahrbahn-Führungsformen (siehe PARKEN_RELEVANT) */}
-        {PARKEN_RELEVANT.includes(ist as IstFuehrungsform) && (
-          <label style={fieldStyle}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-              Parkierung rechts (Dooring)
-            </span>
-            <select value={section.parkenRechts}
-                    onChange={e => onChange({ parkenRechts: e.target.value as ParkenRechts })}
-                    style={selectStyle}>
-              {PARKEN_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </label>
-        )}
-        {/* Sicherheitsstreifen ggü. Parkplätzen (SN 640 060) — nur wenn Parkierung rechts = Ja; hebt den Dooring-Abzug auf */}
-        {PARKEN_RELEVANT.includes(ist as IstFuehrungsform) && section.parkenRechts === 'ja' && (
-          <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={section.parkenSicherheitsstreifen}
-                   onChange={e => onChange({ parkenSicherheitsstreifen: e.target.checked })} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-              Sicherheitsstreifen gegenüber Parkplätzen (SN 640 060)
-            </span>
-          </label>
-        )}
-        {/* öV-Takt nur bei der Umweltspur (Bus+Velo) */}
-        {ist === 'Umweltspur' && (
-          <NumberField label="öV-Takt (Bus)" unit="Min" value={section.oevTakt} step={0.5}
-                       onChange={v => onChange({ oevTakt: v })} />
-        )}
-        {/* Tram in der Fahrbahn — entkoppelt von der Haltestelle; wirkt nur bei Mischverkehr. */}
-        <label style={fieldStyle}>
-          <FieldLabel label="Tram in der Fahrbahn" chip={<QuelleChip q={q.tram} />} />
-          <select value={section.tram ? 'ja' : 'nein'}
-                  onChange={e => onChange({ tram: e.target.value === 'ja' })}
-                  style={selectStyle}>
-            <option value="nein">Nein</option>
-            <option value="ja">Ja (Schienen in der Fahrbahn)</option>
-          </select>
-        </label>
-      </div>
-
-      {/* Eingaben — Gruppe 2: ÖV-Haltestelle im Abschnitt (für die Soll-Haltestellenlösung) */}
-      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={groupLabelStyle}>ÖV-Haltestelle</div>
-        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-        <label style={fieldStyle}>
-          <FieldLabel label="ÖV-Angebot (Haltestelle)" chip={<QuelleChip q={q.oevAngebot} />} />
-          <select value={section.oevAngebot}
-                  onChange={e => {
-                    const v = e.target.value as OevAngebot
-                    // «keine Haltestelle» räumt Typ und Breite mit ab: die Felder verschwinden aus
-                    // der Maske, und was unsichtbar ist, darf nicht weiterrechnen (07.08.2026).
-                    onChange(v === 'keine'
-                      ? { oevAngebot: v, haltestellentyp: 'keine', haltestelleBreite: NaN }
-                      : { oevAngebot: v })
-                  }}
-                  style={selectStyle}>
-            {OEV_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </label>
-        {section.oevAngebot !== 'keine' && (
-          <label style={fieldStyle}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-              Vorhandener Haltestellentyp
-            </span>
-            <select value={section.haltestellentyp}
-                    onChange={e => onChange({ haltestellentyp: e.target.value as Haltestellentyp })}
-                    style={selectStyle}>
-              {haltestellenOptions(city).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </label>
-        )}
-        {/* Breite der Veloführung an der Haltestelle — nur bei Typen mit Breitenkriterium (stadtabhängig) */}
-        {section.oevAngebot !== 'keine' && haltestellenMitBreite(city).includes(section.haltestellentyp) && (
-          <NumberField label="Breite Veloführung Haltestelle" unit="m" value={section.haltestelleBreite}
-                       step={0.1} onChange={v => onChange({ haltestelleBreite: v })} />
-        )}
-        </div>
-      </div>
-
-      {/* ÖV-Hinweis: Tram → „Tram"; Bus → Frequenzband aus dem Fahrplan (Abendspitze). Typ manuell. */}
-      {section.oev?.oevHalt && (() => {
-        const o = section.oev!
-        const name = o.oevHaltName ? ` „${o.oevHaltName}"` : ''
-        const hatTakt = o.busPerH != null && o.busPerH > 0
-        const takt = hatTakt ? Math.round(60 / o.busPerH!) : null
-        return (
-          <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8,
-                        background: '#faf5ff', border: '1px solid #e9d5ff', color: '#6b21a8', fontSize: 12.5 }}>
-            {o.oevTram
-              ? <>Geoportal: <strong>Tramhaltestelle{name}</strong> im Abschnitt → ÖV-Angebot „Tram" gesetzt. Haltestellentyp bitte wählen.</>
-              : hatTakt
-                ? <>Geoportal + Fahrplan: <strong>Bushaltestelle{name}</strong>, Abendspitze 17–18 h ≈ <strong>{o.busPerH} Fahrten/h</strong> (Takt ~{takt} Min, stärkste Richtung) → ÖV-Angebot gesetzt. Haltestellentyp bitte wählen.</>
-                : <>Geoportal: <strong>Bushaltestelle{name}</strong> im Abschnitt erkannt → ÖV-Angebot/Takt und Haltestellentyp bitte wählen (kein Takt in den Daten).</>}
-          </div>
-        )
-      })()}
-
-      {/* Ergebnis des Abschnitts — oder Hinweis, solange Pflichtfelder fehlen */}
+    <>
+      {/* Ergebnis der Seite — oder Hinweis, solange Pflichtfelder fehlen */}
       {bewertung == null ? (
         <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10,
                       background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412',
@@ -555,8 +465,8 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                   // (Bern 5, übrige 4). Die Takt-Schwelle wird bewusst nicht genannt — sie ist
                   // ebenfalls stadtabhängig, und liegt der Takt darunter, steht oben der hinweis
                   // statt dieses Satzes.
-                  ? (Number.isFinite(section.oevTakt)
-                      ? `öV-Takt ${section.oevTakt} Min → Basis-Note ${bewertung.basisnote} (Decke); DTV/Tempo nicht massgebend.`
+                  ? (Number.isFinite(felder.oevTakt)
+                      ? `öV-Takt ${felder.oevTakt} Min → Basis-Note ${bewertung.basisnote} (Decke); DTV/Tempo nicht massgebend.`
                       : `Kein öV-Takt angegeben → als zulässig angenommen (Basis-Note ${bewertung.basisnote} = Decke); DTV/Tempo nicht massgebend. Für die Prüfung «zu hohe Busfrequenz» den Takt eintragen.`)
                   : ist === 'Fussweg Velo gestattet'
                     ? 'Mischfläche Fuss/Velo · Basis-Note 4 (max. «genügend»); DTV/Tempo nicht massgebend.'
@@ -586,7 +496,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                     ? `${numDE(bewertung.sollbreite, 2)}–${numDE(bewertung.maxbreite, 2)} m`
                     : `${bezugLabel} ${numDE(bewertung.sollbreite, 2)} m`}
                   {` (Quelle: ${breitenQuelle})`}
-                  {!section.routentyp && ' · Routentyp wählen'}
+                  {!routentyp && ' · Routentyp wählen'}
                 </div>
               ) : (
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
@@ -647,9 +557,9 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
                 <div style={{ marginTop: 6, opacity: 0.9 }}>
                   <strong>Haltestelle:</strong> Soll {bewertung.sollHaltestelle}
                   {bewertung.haltestelleStatus === 'kompatibel' &&
-                    ` · ${section.haltestellentyp} ✓ kompatibel`}
+                    ` · ${felder.haltestellentyp} ✓ kompatibel`}
                   {bewertung.haltestelleStatus === 'inkompatibel' &&
-                    ` · ${section.haltestellentyp} ✗ → Abzug ${numDE(bewertung.haltestelleAbzug, 1)} Note`}
+                    ` · ${felder.haltestellentyp} ✗ → Abzug ${numDE(bewertung.haltestelleAbzug, 1)} Note`}
                   {bewertung.haltestelleStatus === 'pruefen' &&
                     ` · Haltestellentyp wählen. Kompatibel: ${bewertung.kompatibleHaltestellen.join(', ')}`}
                   {bewertung.haltestelleStatus === 'inkompatibel' && (
@@ -704,6 +614,299 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
         </div>
       )}
 
+    </>
+  )
+}
+
+// ── Karte für einen Abschnitt: Eingaben + Bewertung je Seite ─────────────────
+// Aufbau (seit 14.10.2026): gemeinsame Grunddaten und ÖV-Angebot, dann die Wahl der Seiten
+// (beide / nur Seite A, Seite B wie A oder abweichend), die Felder je Seite und das Ergebnis
+// je bewertete Seite. Die Abschnittsnote ist die schlechtere Seite (bewertung.ts).
+function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTauschen, onLuftbild, onRemove, canRemove, onHover, breitenQuelle, city }: {
+  index: number
+  section: Section
+  ergebnis: AbschnittErgebnis
+  isWorst: boolean
+  modus: 'note' | 'erfuellung'
+  onChange: (patch: Partial<Section>) => void
+  onTauschen: () => void
+  onLuftbild: (welche: { a: boolean; b: boolean }) => void   // Luftbild-Hinweis übernehmen
+  onRemove: () => void
+  canRemove: boolean
+  onHover?: (hovering: boolean) => void
+  breitenQuelle: (ist: IstFuehrungsform | '') => string   // Herkunft der Breiten-Vorgabe je Form
+  city: CityId                          // Stadt → bestimmt Sichtbarkeit des Strassentyp-Felds (Basel)
+}) {
+  const q = section.quelle
+  const routenOptions = CITIES[city].routenOptions ?? ROUTE_OPTIONS.map(v => ({ value: v, label: v }))
+  const hatMarker = (section.candIds?.length ?? 0) > 0   // nur OSM-Abschnitte sind auf der Karte markiert
+  const beide = section.richtung === 'beide'
+  const abweichend = beide && !!section.gegen
+  // Formen der bewerteten Seiten: DTV/Tempo sind Pflicht, sobald eine davon sie auswertet.
+  const formen = abweichend ? [section.ist, section.gegen!.ist] : [section.ist]
+  const brauchtVerkehr = formen.some(f => f !== '' && brauchtDtvTempo(f))
+  const fussweg = formen.includes('Fussweg Velo gestattet')
+  const rA = section.peilungA != null ? himmelsrichtung(section.peilungA) : null
+  const rB = section.peilungA != null ? himmelsrichtung(section.peilungA + 180) : null
+  const titelA = beide && !abweichend
+    ? `Beide Seiten${rA ? ` · Richtung ${rA} und Richtung ${rB}` : ''}`
+    : `Seite A${rA ? ` · Richtung ${rA}` : ''}`
+  const titelB = `Seite B${rB ? ` · Richtung ${rB}` : ''}`
+  // Eine Wahl mit drei Zuständen statt Umschalter + Häkchen (14.10.2026): «Seite B wie Seite A»
+  // abzuwählen war als Weg zur Gegenseite nicht zu finden.
+  const seitenModus: 'gleich' | 'verschieden' | 'eine' = !beide ? 'eine' : abweichend ? 'verschieden' : 'gleich'
+  const seitenModusSetzen = (m: typeof seitenModus) => {
+    if (m === seitenModus) return
+    if (m === 'gleich') onChange({ richtung: 'beide', gegen: undefined })
+    // Eine schon vorbelegte Gegenseite (z. B. aus OSM auf einer Einbahn) bleibt; sonst Kopie von A.
+    else if (m === 'verschieden') onChange({ richtung: 'beide', gegen: section.gegen ?? gegenVon(section) })
+    else onChange({ richtung: 'eine' })
+  }
+  // Luftbild-Hinweis (nur Bern): welche Seiten zeigen im Luftbild einen Radstreifen, der in der
+  // Maske noch fehlt? Seite A und B werden für den Text getrennt benannt; bei gleichen Seiten mit
+  // Fund auf beiden genügt «beide Seiten».
+  const lbHinweis = luftbildHinweis(section, LUFTBILD_SCHWELLE)
+  const lbProzent = (x: number) => `${Math.round(100 * x)} %`
+  const lbSeiten = [
+    ...(lbHinweis.a ? [`Seite A${rA ? ` (Richtung ${rA})` : ''} auf ${lbProzent(section.luftbild!.a)} der Länge`] : []),
+    ...(lbHinweis.b ? [`Seite B${rB ? ` (Richtung ${rB})` : ''} auf ${lbProzent(section.luftbild!.b)} der Länge`] : []),
+  ]
+  const lbKnopf = lbHinweis.a && lbHinweis.b ? 'Auf beiden Seiten Radstreifen übernehmen'
+    : lbHinweis.a ? 'Für Seite A Radstreifen übernehmen' : 'Für Seite B Radstreifen übernehmen'
+  // Änderung an Seite B: Herkunft von Form/Breite wird «manuell» (wie update() für Seite A).
+  const aendereB = (patch: Partial<Seite>) => {
+    const g = section.gegen
+    if (!g) return
+    const quelle = { ...g.quelle }
+    if ('ist' in patch) quelle.ist = 'manuell'
+    if ('breite' in patch) quelle.breite = 'manuell'
+    onChange({ gegen: { ...g, ...patch, quelle } })
+  }
+
+  return (
+    <div onMouseEnter={() => onHover?.(true)} onMouseLeave={() => onHover?.(false)}
+         style={{ background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 12,
+                  padding: 16, marginBottom: 14,
+                  boxShadow: isWorst ? '0 0 0 2px #b91c1c' : 'none' }}>
+      {/* Kopfzeile */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        {/* Nummer wie der Karten-Marker (dunkler Kreis) — nur bei OSM-Abschnitten */}
+        {hatMarker && (
+          <span title="Nummer auf der Karte"
+                style={{ width: 22, height: 22, borderRadius: 999, background: 'var(--text-strong)',
+                         color: '#fff', fontWeight: 700, fontSize: 12, lineHeight: '22px',
+                         textAlign: 'center', flexShrink: 0 }}>
+            {index + 1}
+          </span>
+        )}
+        <strong style={{ fontSize: 15 }}>Abschnitt {index + 1}</strong>
+        {section.label && (
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{section.label}</span>
+        )}
+        {isWorst && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#b91c1c',
+                         background: '#fee2e2', borderRadius: 999, padding: '2px 8px' }}>
+            massgebend für die Strecke
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        {canRemove && (
+          <button onClick={onRemove}
+                  style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
+                           borderRadius: 8, padding: '4px 10px', fontSize: 13, cursor: 'pointer' }}>
+            Entfernen
+          </button>
+        )}
+      </div>
+
+      {/* Eingaben — Gruppe 1: Grunddaten, gemeinsam für beide Seiten */}
+      <div style={groupLabelStyle}>Grunddaten (beide Seiten)</div>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+        <NumberField label="DTV MIV" unit="Fz/Tag" value={section.dtv} step={100}
+                     onChange={v => onChange({ dtv: v })}
+                     chip={<QuelleChip q={dtvAssumed(section, city) ? 'angenommen' : q.dtv}
+                                       fehlt={brauchtVerkehr && city !== 'basel' && !Number.isFinite(section.dtv) && !dtvAssumed(section, city)} />} />
+        <NumberField label="Zul. Höchstgeschwindigkeit" unit="km/h" value={section.speed} step={10}
+                     onChange={v => onChange({ speed: v })}
+                     chip={<QuelleChip q={q.speed} fehlt={brauchtVerkehr && !Number.isFinite(section.speed)} />} />
+        <label style={fieldStyle}>
+          <FieldLabel label="Routentyp" chip={<QuelleChip q={q.routentyp} />} />
+          <select value={section.routentyp}
+                  onChange={e => onChange({ routentyp: e.target.value as Routentyp })}
+                  style={selectStyle}>
+            <option value="">— wählen —</option>
+            {routenOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+        {/* Strassentyp — nur Basel: dort ist die Soll-Wahl strassentyp- statt DTV-basiert. */}
+        {city === 'basel' && (
+          <label style={fieldStyle}>
+            <FieldLabel label="Strassentyp" chip={<QuelleChip q={q.strassentyp} fehlt={section.strassentyp === ''} />} />
+            <select value={section.strassentyp}
+                    onChange={e => onChange({ strassentyp: e.target.value as Strassentyp })}
+                    style={selectStyle}>
+              <option value="">— wählen —</option>
+              <option value="verkehrsorientiert">verkehrsorientierte Strasse</option>
+              <option value="siedlungsorientiert">siedlungsorientierte Strasse</option>
+            </select>
+          </label>
+        )}
+        {/* Tram in der Fahrbahn — entkoppelt von der Haltestelle; wirkt nur bei Mischverkehr. */}
+        <label style={fieldStyle}>
+          <FieldLabel label="Tram in der Fahrbahn" chip={<QuelleChip q={q.tram} />} />
+          <select value={section.tram ? 'ja' : 'nein'}
+                  onChange={e => onChange({ tram: e.target.value === 'ja' })}
+                  style={selectStyle}>
+            <option value="nein">Nein</option>
+            <option value="ja">Ja (Schienen in der Fahrbahn)</option>
+          </select>
+        </label>
+      </div>
+
+      {/* Eingaben — Gruppe 2: ÖV-Haltestelle im Abschnitt (Angebot gemeinsam, Typ je Seite) */}
+      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={groupLabelStyle}>ÖV-Haltestelle</div>
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <label style={fieldStyle}>
+          <FieldLabel label="ÖV-Angebot (Haltestelle)" chip={<QuelleChip q={q.oevAngebot} />} />
+          <select value={section.oevAngebot}
+                  onChange={e => {
+                    const v = e.target.value as OevAngebot
+                    // «keine Haltestelle» räumt Typ und Breite mit ab, auf beiden Seiten: die Felder
+                    // verschwinden aus der Maske, und was unsichtbar ist, darf nicht weiterrechnen (07.08.2026).
+                    const leer = { haltestellentyp: 'keine' as Haltestellentyp, haltestelleBreite: NaN, ohneHaltestelle: false }
+                    onChange(v === 'keine'
+                      ? { oevAngebot: v, ...leer, ...(section.gegen ? { gegen: { ...section.gegen, ...leer } } : {}) }
+                      : { oevAngebot: v })
+                  }}
+                  style={selectStyle}>
+            {OEV_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+        {section.oevAngebot !== 'keine' && (
+          <span style={{ flex: 1, minWidth: 150, fontSize: 12.5, color: 'var(--text-muted-strong)', paddingBottom: 10 }}>
+            Den Haltestellentyp unten je Seite wählen.
+          </span>
+        )}
+        </div>
+      </div>
+
+      {/* ÖV-Hinweis: Tram → „Tram"; Bus → Frequenzband aus dem Fahrplan (Abendspitze). Typ manuell. */}
+      {section.oev?.oevHalt && (() => {
+        const o = section.oev!
+        const name = o.oevHaltName ? ` „${o.oevHaltName}"` : ''
+        const hatTakt = o.busPerH != null && o.busPerH > 0
+        const takt = hatTakt ? Math.round(60 / o.busPerH!) : null
+        return (
+          <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8,
+                        background: '#faf5ff', border: '1px solid #e9d5ff', color: '#6b21a8', fontSize: 12.5 }}>
+            {o.oevTram
+              ? <>Geoportal: <strong>Tramhaltestelle{name}</strong> im Abschnitt → ÖV-Angebot „Tram" gesetzt. Haltestellentyp bitte wählen.</>
+              : hatTakt
+                ? <>Geoportal + Fahrplan: <strong>Bushaltestelle{name}</strong>, Abendspitze 17–18 h ≈ <strong>{o.busPerH} Fahrten/h</strong> (Takt ~{takt} Min, stärkste Richtung) → ÖV-Angebot gesetzt. Haltestellentyp bitte wählen.</>
+                : <>Geoportal: <strong>Bushaltestelle{name}</strong> im Abschnitt erkannt → ÖV-Angebot/Takt und Haltestellentyp bitte wählen (kein Takt in den Daten).</>}
+          </div>
+        )
+      })()}
+
+      {/* Eingaben — Gruppe 3: Seiten (Fahrtrichtungen). Seite A = Fahrtrichtung entlang der
+          Strecke (auf einer Einbahn: die des Verkehrs), Seite B = Gegenrichtung. */}
+      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
+        <div style={groupLabelStyle}>Seiten (Fahrtrichtungen)</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div role="group" aria-label="Erfasste Seiten"
+               style={{ display: 'inline-flex', flexWrap: 'wrap', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            {([['gleich', 'Beide Seiten gleich'], ['verschieden', 'Seiten verschieden'], ['eine', 'Nur Seite A']] as const).map(([m, label]) => (
+              <button key={m} type="button" aria-pressed={seitenModus === m}
+                      onClick={() => seitenModusSetzen(m)}
+                      style={{ border: 'none', padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                               background: seitenModus === m ? 'var(--accent)' : '#fff',
+                               color: seitenModus === m ? '#fff' : 'var(--text)' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <QuelleChip q={q.richtung} />
+          {seitenModus !== 'gleich' && (
+            <button type="button" onClick={onTauschen}
+                    title="Seite A und Seite B vertauschen (die andere Fahrtrichtung wird Seite A)"
+                    style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text)',
+                             borderRadius: 8, padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
+              ⇄ Seiten tauschen
+            </button>
+          )}
+        </div>
+        <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+          {seitenModus === 'eine'
+            ? `Bewertet wird nur Seite A${rA ? `, die Fahrtrichtung nach ${rA}` : ''}. «Seiten tauschen» bewertet stattdessen die Gegenrichtung.`
+            : seitenModus === 'verschieden'
+              ? 'Seite A und Seite B werden unten getrennt erfasst. Die Note des Abschnitts ist die schlechtere der beiden Seiten.'
+              : 'Beide Fahrtrichtungen haben dieselbe Führung; eine Note gilt für beide. Unterscheiden sie sich, «Seiten verschieden» wählen.'}
+          {hatMarker && section.peilungA != null && ' Der Pfeil am Karten-Marker zeigt die Fahrtrichtung der Seite A.'}
+        </div>
+        {/* Luftbild-Hinweis: nur Funde, nie «nicht erkannt» (ein fehlender Fund sagt wenig). */}
+        {(lbHinweis.a || lbHinweis.b) && (
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
+                        background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a' }}>
+            <div>
+              <strong>Luftbild:</strong> Radstreifen erkannt auf {lbSeiten.join(' und ')}. Das ist nur ein
+              Hinweis aus einer automatischen Erkennung — bitte am Orthofoto prüfen (Kartenhintergrund
+              «Orthofoto»). Eine Breite liefert das Luftbild nicht.
+            </div>
+            <button type="button" onClick={() => onLuftbild(lbHinweis)}
+                    style={{ marginTop: 6, border: '1px solid #93c5fd', background: '#fff', color: '#1e3a8a',
+                             borderRadius: 8, padding: '5px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+              {lbKnopf}
+            </button>
+            <div style={{ marginTop: 6, fontSize: 11.5, opacity: 0.8 }}>
+              SWISSIMAGE 2024 © swisstopo · Erkennung: Modell remote_velo, ETH Zürich
+            </div>
+          </div>
+        )}
+        {!beide && section.osmVeloGegenverkehr && (
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
+                        background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+            OSM: Einbahn mit Velogegenverkehr. Für die Gegenrichtung «Seiten verschieden» wählen und für
+            Seite B die Form angeben (z. B. «Einbahn mit Velogegenverkehr»).
+          </div>
+        )}
+      </div>
+
+      {/* Felder je Seite, jede in einem eigenen Kasten */}
+      <div style={seiteKastenStyle}>
+        <div style={seiteTitelStyle}>{titelA}</div>
+        <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite }}
+                     onChange={onChange} city={city} oevAngebot={section.oevAngebot} />
+      </div>
+      {abweichend && (
+        <div style={seiteKastenStyle}>
+          <div style={seiteTitelStyle}>{titelB}</div>
+          <SeiteFelder felder={seiteB(section)} quelle={section.gegen!.quelle}
+                       onChange={aendereB} city={city} oevAngebot={section.oevAngebot} />
+        </div>
+      )}
+
+      {/* Ergebnis je bewertete Seite (bei zwei Seiten mit Überschrift; die schlechtere ist massgebend) */}
+      {ergebnis.seiten.map(se => (
+        <div key={se.seite}>
+          {ergebnis.seiten.length > 1 && (
+            <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                          fontSize: 13, fontWeight: 700, color: 'var(--text-strong)' }}>
+              Ergebnis {se.seite === 'A' ? titelA : titelB}
+              {ergebnis.massgebend === se.seite && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#b91c1c',
+                               background: '#fee2e2', borderRadius: 999, padding: '2px 8px' }}>
+                  massgebend für den Abschnitt
+                </span>
+              )}
+            </div>
+          )}
+          <ErgebnisBox bewertung={se.bewertung} vergleich={se.vergleich} felder={se.felder}
+                       routentyp={section.routentyp} modus={modus} city={city}
+                       breitenQuelle={breitenQuelle(se.felder.ist)} />
+        </div>
+      ))}
+
       {/* OpenBikeSensor: gemessene Überholabstände — reine Zusatzinfo, kein Noteneinfluss.
           Auch „befahren, aber nicht überholt" (nur usage) wird gezeigt. */}
       {section.obs && (section.obs.count > 0 || section.obs.usage > 0) && (
@@ -729,7 +932,7 @@ function SectionCard({ index, section, bewertung, vergleich, isWorst, modus, onC
       )}
 
       {/* Voraussetzungs-Checkliste für die Mischfläche Fuss/Velo (Q12) — reiner Hinweis */}
-      {ist === 'Fussweg Velo gestattet' && (
+      {fussweg && (
         <div style={{ marginTop: 12, padding: '14px 16px', borderRadius: 10,
                       background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>
@@ -889,16 +1092,16 @@ export default function App() {
     if (c === city) return
     ladeGen.current++   // hängige Lade-Ketten (falls doch eine läuft) als veraltet markieren
     const hatte = sections.some(s => s.ist !== '' || Number.isFinite(s.dtv) || s.candIds?.length)
-    setCity(c); setCands([]); setStops([]); setStreet(''); setSections([defaultSection()])
+    setCity(c); setCands([]); setStops([]); setStreet(''); setSections([defaultSection()]); setTeilModus(false)
     setOsmBusy(false)      // eine evtl. hängige Ladung ist verworfen — nicht als „Lädt …" stehen lassen
     undoRef.current = null; setUndoLabel(null)   // Undo über den Stadtwechsel hinweg wäre falsch etikettiert
     setMsg(hatte ? 'Stadtwechsel: die übernommenen Abschnitte wurden geleert.' : '')
   }
   // Herkunft der massgeblichen Breiten-Vorgabe eines Abschnitts: stadtspezifischer Standard,
   // wenn die Stadt für diese Führungsform/diesen Routentyp einen Wert liefert — sonst Masterplan Bern.
-  const breitenQuelleFuer = (s: Section): string => {
-    const ov = cityCfg.breiten?.[s.ist as IstFuehrungsform]
-    const feld = (s.routentyp || 'Velohauptroute') === 'Veloroute' ? 'minimal' : 'optimal'
+  const breitenQuelleFuer = (ist: IstFuehrungsform | '', routentyp: Routentyp | ''): string => {
+    const ov = cityCfg.breiten?.[ist as IstFuehrungsform]
+    const feld = (routentyp || 'Velohauptroute') === 'Veloroute' ? 'minimal' : 'optimal'
     return ov && ov[feld] != null && cityCfg.breitenQuelle ? cityCfg.breitenQuelle : 'Masterplan Bern'
   }
   const [hoverSec, setHoverSec] = useState<number | null>(null)   // gehoverter Abschnitt (für Karten-Highlight)
@@ -936,6 +1139,10 @@ export default function App() {
   useEffect(() => {
     if (view === 'rechner' && cityCfg.velostreifenFile) void enrichVelostreifen([], cityCfg.velostreifenFile).catch(() => {})
   }, [view, cityCfg.velostreifenFile])
+  // Luftbild-Snapshot (nur Bern) ebenso vorwärmen.
+  useEffect(() => {
+    if (view === 'rechner' && cityCfg.luftbildFile) void enrichLuftbild([], cityCfg.luftbildFile).catch(() => {})
+  }, [view, cityCfg.luftbildFile])
   const mapRef = useRef<import('leaflet').Map | null>(null)
   // Breitbild-Layout (Karte links, Panel rechts) schaltet rein per CSS (index.css, gleiche
   // Media-Query). Leaflet misst seine Containergrösse aber nur bei window-resize (trackResize)
@@ -974,7 +1181,7 @@ export default function App() {
     const fehler: string[] = []
     const neuIds = new Set(c.map(x => x.id))
     const alle = [...bestehende.filter(x => !neuIds.has(x.id)), ...c]
-    const [ec, obs, oev, velo] = await Promise.all([
+    const [ec, obs, oev, velo, luftbild] = await Promise.all([
       cityCfg.enrichCands(c).catch(() => { fehler.push(cityCfg.attribution); return { cands: c, fehler: [] as string[] } }),
       cityCfg.obsFile
         ? enrichObs(alle, cityCfg.obsFile).catch(() => new Map<number, ObsStats>())
@@ -983,13 +1190,16 @@ export default function App() {
       cityCfg.velostreifenFile
         ? enrichVelostreifen(c, cityCfg.velostreifenFile).catch(() => new Map<number, VeloInfo>())
         : Promise.resolve(new Map<number, VeloInfo>()),
+      cityCfg.luftbildFile
+        ? enrichLuftbild(c, cityCfg.luftbildFile).catch(() => new Map<number, LuftbildInfo>())
+        : Promise.resolve(new Map<number, LuftbildInfo>()),
     ])
     fehler.push(...ec.fehler, ...oev.fehler)
     const bernById = new Map(ec.cands.map(x => [x.id, x.bern]))
     const cands = c.map(cand => {
-      const v = velo.get(cand.id)
+      const v = velo.get(cand.id), lb = luftbild.get(cand.id)
       const bern = { ...bernById.get(cand.id), ...(oev.byId.get(cand.id) ?? {}),
-                     ...(v ? { radstreifen: v } : {}) }
+                     ...(v ? { radstreifen: v } : {}), ...(lb ? { luftbild: lb } : {}) }
       const o = obs.get(cand.id)
       const out: Cand = { ...cand }
       if (Object.keys(bern).length) out.bern = bern
@@ -1034,6 +1244,7 @@ export default function App() {
       const c = await loadStreetCandidates(name, cityCfg.osmArea)
       if (gen !== ladeGen.current) return          // inzwischen Stadtwechsel/neue Ladung → verwerfen
       setCands(c); setStops([])          // Segmente SOFORT zeigen (anklickbar) — Anreicherung folgt im Hintergrund
+      setTeilModus(false)                // die Liste ist neu — ein angefangenes Teilen gilt nicht mehr
       setFitKey(k => k + 1)              // auf die geladene Strasse einpassen
       if (!c.length) {
         setMsg(`Keine Velo-relevanten Segmente für „${name}" (Stadt ${cityCfg.label}) gefunden.`, 'info')
@@ -1064,16 +1275,18 @@ export default function App() {
     try {
       const roh = await loadBboxCandidates(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
       if (gen !== ladeGen.current) return
+      // Abgleich über die WAY-ID, nicht die Kandidaten-Kennung: ein geteilter Way ist schon da
+      // (als Teile mit eigenen Kennungen) und darf nicht ein zweites Mal ganz dazukommen.
       setCands(prev => {                 // neue Segmente SOFORT hinzufügen (roh), Anreicherung folgt
-        const ids = new Set(prev.map(c => c.id))
-        return [...prev, ...roh.filter(c => !ids.has(c.id))]
+        const ways = new Set(prev.map(c => c.wayId))
+        return [...prev, ...roh.filter(c => !ways.has(c.wayId))]
       })
       setMsg(roh.length ? `${roh.length} Segmente im Ausschnitt · reichere an …` : 'Keine neuen Segmente im Ausschnitt.',
         roh.length ? 'ok' : 'info')
       if (!roh.length) return
       // Nur anreichern, was wirklich NEU ist — schon geladene Segmente behalten ihre Werte.
-      const schon = new Set(candsRef.current.map(c => c.id))
-      const neuRoh = roh.filter(c => !schon.has(c.id))
+      const schon = new Set(candsRef.current.map(c => c.wayId))
+      const neuRoh = roh.filter(c => !schon.has(c.wayId))
       if (!neuRoh.length) { setMsg('Keine neuen Segmente im Ausschnitt.', 'info'); return }
       const { cands: neu, stops: st, obs, fehler } = await enrichAll(neuRoh, candsRef.current)
       if (gen !== ladeGen.current) return
@@ -1089,10 +1302,64 @@ export default function App() {
   const toggleCand = useCallback((id: number) =>
     setCands(prev => prev.map(c => (c.id === id ? { ...c, selected: !c.selected } : c))), [])
 
+  // «Segment teilen»: Der Knopf schaltet den Modus ein, der NÄCHSTE Klick auf eine Linie schneidet
+  // sie am Fusspunkt der Klickstelle (osm.ts, teileInListe); danach ist der Modus wieder aus.
+  // Esc oder der Knopf brechen ab. Beide Teile werden neu angereichert — amtliche Werte, ÖV,
+  // Markierung und OpenBikeSensor ordnen über die Geometrie zu und können je Teil anders ausfallen.
+  const [teilModus, setTeilModus] = useState(false)
+  const teilModusRef = useRef(false)
+  teilModusRef.current = teilModus
+  useEffect(() => {
+    if (!teilModus) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setTeilModus(false); setMsg('Teilen abgebrochen.', 'info') }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [teilModus])
+  const teilen = async (id: number, lat: number, lon: number) => {
+    setTeilModus(false)
+    if (osmBusy) { setMsg('Teilen nicht möglich, solange noch geladen wird — danach erneut versuchen.', 'info'); return }
+    const r = teileInListe(candsRef.current, id, lat, lon)
+    if (!r) {
+      setMsg(`Zu nah am Ende des Segments — ein Teil wäre kürzer als ${MIN_TEIL_M} m. ` +
+        '«Segment teilen» erneut wählen und weiter innen antippen.', 'info')
+      return
+    }
+    const [a, b] = r.neu
+    const warUebernommen = sections.some(s => s.candIds?.includes(id))
+    undoMerken('Teilen rückgängig')
+    const gen = ++ladeGen.current
+    setCands(r.cands)                           // Teile SOFORT zeigen, Anreicherung folgt
+    setOsmBusy(true); setMsg(`Segment „${a.name}" geteilt · reichere die Teile an …`, 'ok')
+    try {
+      // Bestehende = alle übrigen Kandidaten OHNE den alten, ungeteilten: OpenBikeSensor verteilt
+      // jedes Mess-Teilstück auf genau einen Kandidaten — der alte darf dabei nicht mehr mitbieten.
+      const rest = r.cands.filter(c => c.id !== a.id && c.id !== b.id)
+      const { cands: neu, stops: st, obs, fehler } = await enrichAll([a, b], rest)
+      if (gen !== ladeGen.current) return
+      setCands(prev => einspielen(prev, neu, obs, !!cityCfg.obsFile))
+      setStops(prev => mergeStops(prev, st))
+      setMsg(`Segment „${a.name}" geteilt: Teil ${a.teil!.nr} (${Math.round(a.len)} m) und ` +
+        `Teil ${b.teil!.nr} (${Math.round(b.len)} m) von ${a.teil!.anzahl}.` +
+        (warUebernommen ? ' Die Abschnitte folgen erst nach erneutem «in Strecke übernehmen».' : '') +
+        fehlerText(fehler), fehler.length ? 'info' : 'ok')
+    } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Anreichern: ' + (e as Error).message, 'error') }
+    finally { if (gen === ladeGen.current) setOsmBusy(false) }
+  }
+  // Stabil (wie toggleCand): der aktuelle Modus und die aktuelle teilen-Funktion laufen über Refs.
+  const teilenRef = useRef(teilen)
+  teilenRef.current = teilen
+  const linieGeklickt = useCallback((id: number, lat: number, lon: number) => {
+    if (teilModusRef.current) void teilenRef.current(id, lat, lon)
+    else toggleCand(id)
+  }, [toggleCand])
+
   // Weg 3: Klick auf die Karte → nächstes Segment laden, anreichern und hinzufügen.
   // Wie beim Strassen-/Ausschnitt-Laden mit den Stadt-Daten + OpenBikeSensor anreichern
   // (Klick ist der Hauptweg zum Strecken-Aufbau, daher müssen DTV/Tempo/Routentyp/OBS auch hier kommen).
   const klickHinzufuegen = async (lat: number, lon: number) => {
+    if (teilModus) { setMsg('Teilen: bitte direkt auf die Linie tippen, die geteilt werden soll (Esc bricht ab).', 'info'); return }
     if (osmBusy) return                         // läuft schon eine Anfrage → Klick ignorieren (Rate-Limit schonen)
     const gen = ++ladeGen.current
     setOsmBusy(true); setMsg('Suche Segment an der Klickstelle …')
@@ -1100,8 +1367,9 @@ export default function App() {
       const roh = await loadNearestCandidate(lat, lon)
       if (gen !== ladeGen.current) return
       if (!roh) { setMsg('An dieser Stelle kein velorelevantes Segment gefunden.', 'info'); return }
-      if (candsRef.current.some(p => p.id === roh.id)) { setMsg(`Segment „${roh.name}" ist bereits geladen.`, 'info'); return }
-      setCands(prev => (prev.some(p => p.id === roh.id) ? prev : [...prev, roh]))   // sofort hinzufügen
+      // Über die Way-ID: auch ein geteilter Way (Teile mit eigenen Kennungen) ist «bereits geladen».
+      if (candsRef.current.some(p => p.wayId === roh.wayId)) { setMsg(`Segment „${roh.name}" ist bereits geladen.`, 'info'); return }
+      setCands(prev => (prev.some(p => p.wayId === roh.wayId) ? prev : [...prev, roh]))   // sofort hinzufügen
       setMsg(`Segment „${roh.name}" hinzugefügt · reichere an …`, 'ok')
       const { cands: [c], stops: st, obs, fehler } = await enrichAll([roh], candsRef.current)
       if (gen !== ladeGen.current) return
@@ -1143,7 +1411,7 @@ export default function App() {
   }
 
   // Manuelle Änderung eines getrackten Feldes setzt dessen Herkunft auf „manuell".
-  const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram', 'strassentyp']
+  const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram', 'strassentyp', 'richtung']
   const update = (id: number, patch: Partial<Section>) =>
     setSections(prev => prev.map(s => {
       if (s.id !== id) return s
@@ -1153,66 +1421,21 @@ export default function App() {
     }))
   const add = () => setSections(prev => [...prev, defaultSection()])
   const remove = (id: number) => setSections(prev => prev.filter(s => s.id !== id))
+  const tauschen = (id: number) => setSections(prev => prev.map(s => (s.id === id ? tauscheSeiten(s) : s)))
+  const luftbildAnnehmen = (id: number, welche: { a: boolean; b: boolean }) =>
+    setSections(prev => prev.map(s => (s.id === id ? luftbildUebernehmen(s, welche) : s)))
 
-  // Eine Note braucht DTV, Tempo, Führungsform und – bei Formen mit Breiten-Vorgabe – die Breite.
-  // Formen ohne Vorgabe (Mischverkehr, Einbahn ohne Markierung) sind ausgenommen; dort ist das
-  // Breite-Feld auch ausgeblendet (gleiche Regel via brauchtBreite, sonst Sackgasse ohne Note).
-  const sectionComplete = (s: Section) =>
-    // Form zuerst: ohne sie lässt sich nicht sagen, welche Felder überhaupt gebraucht werden.
-    s.ist !== '' &&
-    // DTV/Tempo nur, wo die Form sie auswertet (nicht bei Umweltspur und Fussweg Velo gestattet).
-    // DTV zählt als vorhanden, wenn er eingegeben ist oder (nur Bern) als ≤ 2000 angenommen wird.
-    // Basel: die Soll-Wahl ist strassentyp-basiert — DTV ist dort nur Zusatzinfo (DWV-Deckel-
-    // Hinweis) und darf die Note nicht blockieren; das TEMPO bleibt Pflicht (Velostrasse-Regel).
-    (!brauchtDtvTempo(s.ist) ||
-      ((city === 'basel' || Number.isFinite(dtvEff(s, city))) && Number.isFinite(s.speed))) &&
-    (!brauchtBreite(s.ist) || Number.isFinite(s.breite)) &&
-    // Basel: Soll-Wahl ist strassentyp-basiert → Strassentyp nötig.
-    (city !== 'basel' || s.strassentyp !== '')
-  // Einzelbewertungen je Abschnitt (null = unvollständig); Strecke = schlechtester Abschnitt.
-  const results = sections.map(s => {
-    if (!sectionComplete(s)) return null
-    // Breite bewerten, sobald eingegeben (Routentyp bestimmt die Vorgabe; Default Velohauptroute).
-    const breite = Number.isFinite(s.breite) ? s.breite : undefined
-    const routentyp = s.routentyp || 'Velohauptroute'
-    const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
-    const oevTakt = Number.isFinite(s.oevTakt) ? s.oevTakt : undefined   // leeres Feld → unbekannter Takt
-    return fuehrungsformNote(dtvEff(s, city), s.speed, s.ist as IstFuehrungsform, breite, routentyp,
-      s.parkenRechts, oevTakt, s.oevAngebot, s.haltestellentyp, haltestelleBreite, s.tram,
-      cityCfg.breiten?.[s.ist as IstFuehrungsform],   // stadtspezifische Breiten-Sollwerte
-      city,                                            // Stadt → Soll-Tabelle + Haltestellen-Logik
-      s.strassentyp || undefined,                      // Strassentyp (nur Basel)
-      s.parkenSicherheitsstreifen)                     // Sicherheitsstreifen ggü. Parkplätzen (SN 640 060)
-  })
-  // Vergleichsnoten je Abschnitt nach den Standards der ANDEREN Städte (null = unvollständig).
-  // Reine Zusatzinfo; Basel-Strassentyp wird aus DTV/Tempo geschätzt (geschaetzt = true).
-  const vergleiche = sections.map(s => {
-    if (!sectionComplete(s)) return null
-    // Ohne DTV (in Basel erlaubt) keine Vergleichsnoten: die DTV-basierten Soll-Tabellen der
-    // anderen Städte ergäben mit NaN still «Mischverkehr» (alle Schwellen-Vergleiche false).
-    if (brauchtDtvTempo(s.ist as IstFuehrungsform) && !Number.isFinite(dtvEff(s, city))) return null
-    const breite = Number.isFinite(s.breite) ? s.breite : undefined
-    const haltestelleBreite = Number.isFinite(s.haltestelleBreite) ? s.haltestelleBreite : undefined
-    return vergleichsNoten({
-      dtv: dtvEff(s, city), v: s.speed, ist: s.ist as IstFuehrungsform, breite,
-      routentyp: s.routentyp || 'Velohauptroute', parkenRechts: s.parkenRechts,
-      parkenSicherheitsstreifen: s.parkenSicherheitsstreifen,
-      oevTakt: Number.isFinite(s.oevTakt) ? s.oevTakt : undefined,
-      oevAngebot: s.oevAngebot, haltestellentyp: s.haltestellentyp, haltestelleBreite, tram: s.tram,
-      // Amtlicher/manueller Basler Strassentyp mitgeben — sonst schätzte der Vergleich ihn neu
-      // und die Referenz wich von der angezeigten Hauptnote ab (07.08.2026).
-      strassentyp: s.strassentyp || undefined,
-    }, city)
-  })
-  const offen = results.filter(r => r == null).length
-  const alleVollstaendig = offen === 0 && results.length > 0
+  // Bewertung je Abschnitt und Seite (bewertung.ts); die Abschnittsnote ist die schlechtere Seite,
+  // null solange eine Seite unvollständig ist. Strecke = schlechtester Abschnitt.
+  const ergebnisse: AbschnittErgebnis[] = sections.map(s => bewerteAbschnitt(s, city, cityCfg.breiten))
+  const offen = ergebnisse.filter(e => e.note == null).length
+  const alleVollstaendig = offen === 0 && ergebnisse.length > 0
+  // Abschnittsnoten (nur gelesen, wenn alle vollständig sind).
+  const noten = ergebnisse.map(e => e.note ?? NaN)
   // Strecken-Note nur, wenn alle Abschnitte vollständig sind.
-  const streckeNote = alleVollstaendig
-    ? Math.min(...results.map(r => (r as NotenErgebnis).note))
-    : null
+  const streckeNote = alleVollstaendig ? Math.min(...noten) : null
   const worstIdx = alleVollstaendig
-    ? results.reduce((wi, r, i) =>
-        ((r as NotenErgebnis).note < (results[wi] as NotenErgebnis).note ? i : wi), 0)
+    ? noten.reduce((wi, n, i) => (n < noten[wi] ? i : wi), 0)
     : -1
   const sc = streckeNote != null ? noteColor(streckeNote) : { bg: 'var(--text-muted-strong)', fg: '#ffffff' }
 
@@ -1221,7 +1444,9 @@ export default function App() {
   // useMemo: stabile Referenz, sonst zeichnet der VeloMap-Effekt bei jedem Render alles neu.
   // Abhängig nur von der candIds-STRUKTUR (Schlüssel unten), nicht vom sections-Array selbst —
   // sonst löste jeder Tastendruck in einer SectionCard ein komplettes Karten-Neuzeichnen aus.
-  const candIdsKey = sections.map(s => `${s.id}:${(s.candIds ?? []).join('.')}`).join('|')
+  // Der Schlüssel trägt auch die Fahrtrichtung (Seiten tauschen dreht den Pfeil).
+  const candIdsKey = sections.map(s =>
+    `${s.id}:${(s.candIds ?? []).join('.')}:${(s.candsGegenA ?? []).join('.')}:${s.peilungA != null}`).join('|')
   const markers: SectionMarker[] = useMemo(() => {
     const candById = new Map(cands.map(c => [c.id, c]))
     return sections.flatMap((s, i) => {
@@ -1229,8 +1454,16 @@ export default function App() {
         .map(id => candById.get(id)).filter((c): c is Cand => !!c && c.geom.length >= 2)
       if (segs.length === 0) return []
       const longest = segs.reduce((a, b) => (b.len > a.len ? b : a))
-      const mid = longest.geom[Math.floor(longest.geom.length / 2)]
-      return [{ num: i + 1, lat: mid.lat, lon: mid.lon }]
+      const g = longest.geom, k = Math.floor(g.length / 2)
+      const mid = g[k]
+      // Pfeil = Fahrtrichtung der Seite A an der Marker-Stelle: Richtung der Kante dort, umgedreht,
+      // wenn dieser Way gegen Seite A läuft. Lokal statt der Sehne des Abschnitts — in einer Kehre
+      // zeigt die Sehne sonst quer zur Strasse.
+      const [p, q] = k + 1 < g.length ? [g[k], g[k + 1]] : [g[k - 1], g[k]]
+      const lokal = peilung(p, q)
+      const pfeil = s.peilungA == null ? undefined
+        : (s.candsGegenA?.includes(longest.id) ? (lokal + 180) % 360 : lokal)
+      return [{ num: i + 1, lat: mid.lat, lon: mid.lon, peilung: pfeil }]
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cands, candIdsKey])
@@ -1308,7 +1541,7 @@ export default function App() {
       <div style={{ position: 'sticky', top: 0, zIndex: 100, marginBottom: 18 }}>
         <button
           onClick={() => {
-            const ziel = streckeNote != null ? worstIdx : results.findIndex(r => r == null)
+            const ziel = streckeNote != null ? worstIdx : ergebnisse.findIndex(e => e.note == null)
             if (ziel >= 0) document.getElementById('sec-' + ziel)
               ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
           }}
@@ -1327,7 +1560,7 @@ export default function App() {
           <span style={{ fontSize: 13, opacity: 0.95 }}>
             {streckeNote != null
               ? `· massgebend: Abschnitt ${worstIdx + 1}`
-              : `· unvollständig (${offen} von ${results.length} offen)`}
+              : `· unvollständig (${offen} von ${ergebnisse.length} offen)`}
           </span>
         </button>
       </div>
@@ -1395,10 +1628,22 @@ export default function App() {
               absolut über der linken Spalte (Bezug .vrc-rechner, nicht das scrollende Panel) und
               bleibt so beim Scrollen des Panels stehen. */}
           <div className="vrc-karte">
-            <VeloMap cands={cands} onToggle={toggleCand} onMapClick={klickHinzufuegen}
+            <VeloMap cands={cands} onLineClick={linieGeklickt} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
-                     attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} />
+                     attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey}
+                     teilModus={teilModus} />
+            {/* Teil-Modus: Hinweis direkt auf der Karte (im Breitbild steht die Anleitung im Panel
+                rechts, weit weg von der Stelle, an der man tippen soll). Klick-transparent. */}
+            {teilModus && (
+              <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+                            zIndex: 500, pointerEvents: 'none', maxWidth: 'calc(100% - 120px)',
+                            background: 'rgba(15,23,42,0.88)', color: '#fff', borderRadius: 10,
+                            padding: '7px 14px', fontSize: 13, fontWeight: 600, textAlign: 'center',
+                            boxShadow: '0 4px 14px rgba(0,0,0,0.25)' }}>
+                ✂ Linie dort antippen, wo geteilt werden soll · Esc bricht ab
+              </div>
+            )}
             {/* Empty-State als Dismiss-Schicht über der Karte: Die ERSTE Interaktion (Klick/Touch/
                 Zoom) schliesst nur den Hinweis — sie wählt noch kein Segment aus und zoomt nicht.
                 Die Schicht fängt das Ereignis ab (pointerEvents auto); erst danach ist die Karte frei. */}
@@ -1440,7 +1685,24 @@ export default function App() {
               {selCount} Segmente in Strecke übernehmen
             </button>
             {cands.length > 0 && (
-              <button onClick={() => { undoMerken('Karte leeren rückgängig'); setCands([]); setStops([]); setMsg('') }}
+              <button onClick={() => {
+                        if (teilModus) { setTeilModus(false); setMsg('Teilen abgebrochen.', 'info'); return }
+                        setTeilModus(true)
+                        setMsg('Teilen: auf die Linie tippen, wo sie geteilt werden soll (Esc bricht ab).', 'info')
+                      }}
+                      disabled={osmBusy}
+                      aria-pressed={teilModus}
+                      title="Ein Segment an der angeklickten Stelle in zwei Teile schneiden"
+                      style={{ border: teilModus ? '1px solid var(--accent)' : '1px solid var(--border)',
+                               background: teilModus ? 'var(--accent)' : '#fff',
+                               color: teilModus ? '#fff' : 'var(--text)',
+                               borderRadius: 8, padding: '8px 12px', fontSize: 13,
+                               cursor: osmBusy ? 'default' : 'pointer' }}>
+                {teilModus ? 'Teilen abbrechen' : '✂ Segment teilen'}
+              </button>
+            )}
+            {cands.length > 0 && (
+              <button onClick={() => { undoMerken('Karte leeren rückgängig'); setCands([]); setStops([]); setMsg(''); setTeilModus(false) }}
                       style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
                                borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
                 Karte leeren
@@ -1454,14 +1716,27 @@ export default function App() {
               </button>
             )}
           </div>
+          {/* Teil-Modus: eigene Anleitung statt der drei Schritte zum Aufbau der Strecke. */}
+          {teilModus ? (
+            <div style={{ fontSize: 12.5, marginTop: 8, padding: '8px 12px', borderRadius: 8, lineHeight: 1.6,
+                          background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+              <strong>Segment teilen:</strong> Auf die Linie tippen, genau an der Stelle, an der das Segment
+              geteilt werden soll. Danach ist der Teil-Modus wieder aus; für einen weiteren Schnitt erneut
+              «✂ Segment teilen» wählen. Esc oder «Teilen abbrechen» bricht ab, «Teilen rückgängig» nimmt
+              einen Schnitt zurück.
+            </div>
+          ) : (
           <ol style={{ fontSize: 12.5, color: 'var(--text-muted-strong)', marginTop: 8, marginBottom: 0,
                        paddingLeft: 20, lineHeight: 1.6 }}>
             <li><strong>Auf die Karte klicken</strong> — fügt das nächstgelegene Segment hinzu.
               (Oder einen Strassennamen eingeben und „Strasse laden" klicken.)</li>
-            <li><strong>Linien an-/abwählen</strong> per Klick — grau = nicht in der Strecke.</li>
+            <li><strong>Linien an-/abwählen</strong> per Klick — grau = nicht in der Strecke.
+              Ein langes Segment lässt sich mit <strong>«✂ Segment teilen»</strong> an der
+              angeklickten Stelle in zwei Teile schneiden.</li>
             <li><strong>Übernehmen</strong> — benachbarte Segmente gleicher Führungsform und
               gleichen Tempos werden zu Abschnitten gruppiert.</li>
           </ol>
+          )}
           {/* Legende Führungsform */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 6, fontSize: 12 }}>
             {Object.entries(ISTCOLOR).map(([k, col]) => (
@@ -1497,19 +1772,19 @@ export default function App() {
                 {modus === 'erfuellung' ? 'Beurteilung' : 'Note'} = schlechtester Abschnitt{' '}
                 (<strong>Abschnitt {worstIdx + 1}</strong>,{' '}
                 {modus === 'erfuellung'
-                  ? erfuellungsgrad((results[worstIdx] as NotenErgebnis).note).toLowerCase()
-                  : `Note ${numDE((results[worstIdx] as NotenErgebnis).note, 1)}`}).
+                  ? erfuellungsgrad(noten[worstIdx]).toLowerCase()
+                  : `Note ${numDE(noten[worstIdx], 1)}`}).
               </div>
               <div style={{ marginTop: 4, opacity: 0.85, fontSize: 13 }}>
                 {modus === 'erfuellung'
-                  ? results.map((r, i) => `A${i + 1}: ${erfuellungsgrad((r as NotenErgebnis).note)}`).join(' · ')
-                  : 'Einzelnoten: ' + results.map((r, i) => `A${i + 1}: ${numDE((r as NotenErgebnis).note, 1)}`).join(' · ')}
+                  ? noten.map((n, i) => `A${i + 1}: ${erfuellungsgrad(n)}`).join(' · ')
+                  : 'Einzelnoten: ' + noten.map((n, i) => `A${i + 1}: ${numDE(n, 1)}`).join(' · ')}
               </div>
             </>
           ) : (
             <div style={{ marginTop: 4 }}>
-              Unvollständig — {offen} von {results.length}{' '}
-              {results.length === 1 ? 'Abschnitt braucht' : 'Abschnitten brauchen'} noch Eingaben
+              Unvollständig — {offen} von {ergebnisse.length}{' '}
+              {ergebnisse.length === 1 ? 'Abschnitt braucht' : 'Abschnitten brauchen'} noch Eingaben
               (DTV, Tempo und Führungsform).
             </div>
           )}
@@ -1521,13 +1796,15 @@ export default function App() {
       {sections.map((s, i) => (
         <div key={s.id} id={'sec-' + i} style={{ scrollMarginTop: 64 }}>
           <SectionCard
-            index={i} section={s} bewertung={results[i]} vergleich={vergleiche[i]}
+            index={i} section={s} ergebnis={ergebnisse[i]}
             isWorst={i === worstIdx && sections.length > 1} modus={modus}
             onChange={patch => update(s.id, patch)}
+            onTauschen={() => tauschen(s.id)}
+            onLuftbild={welche => luftbildAnnehmen(s.id, welche)}
             onRemove={() => remove(s.id)}
             canRemove={sections.length > 1}
             onHover={h => setHoverSec(h ? s.id : null)}
-            breitenQuelle={breitenQuelleFuer(s)}
+            breitenQuelle={ist => breitenQuelleFuer(ist, s.routentyp)}
             city={city}
           />
         </div>
@@ -1540,7 +1817,7 @@ export default function App() {
                          cursor: 'pointer', flex: 1, minWidth: 200 }}>
           + Abschnitt hinzufügen
         </button>
-        <button onClick={() => downloadCsv(buildCsv(sections, results, streckeNote, city, cityCfg.label))}
+        <button onClick={() => downloadCsv(buildCsv(sections, ergebnisse, streckeNote, city, cityCfg.label))}
                 title="Alle Abschnitte mit Werten, Herkunft und Note als CSV (Excel) herunterladen"
                 style={{ border: '1px solid var(--accent)', background: '#fff', color: 'var(--accent)',
                          borderRadius: 10, padding: '10px 16px', fontSize: 14, fontWeight: 600,
