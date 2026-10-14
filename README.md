@@ -729,4 +729,7 @@ nicht-kommerziell). Ausgenommen ist der [Ergebnisbericht der Berner Bildumfrage 
 Text, PDF und Bilder stehen unter **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.de)**
 (Namensnennung, auch kommerziell). Die eingebundenen **Dritt-Daten** behalten ihre eigenen Lizenzen und
 Quellenangaben — siehe [Datenlizenzen und Quellenangaben](#datenlizenzen-und-quellenangaben)
-(Geodaten Stadt Bern, OpenStreetMap/ODbL, opentransportdata.swiss, OpenBikeSensor).
+(u. a. Geodaten Stadt Bern, OpenStreetMap/ODbL, opentransportdata.swiss, OpenBikeSensor, swisstopo).
+Das gilt auch für die gebündelten **Daten-Snapshots** `VeloroutenCheckWeb/public/*.json`, die aus solchen
+Quellen stammen oder abgeleitet sind (eigene Ausnahme in der [LICENSE](LICENSE)); so verlangt der aus
+SWISSIMAGE abgeleitete Luftbild-Snapshot `luftbild_bern.json` die Angabe «© swisstopo».
