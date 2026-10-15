@@ -1019,7 +1019,7 @@ function Landing({ onStart }: { onStart: () => void }) {
       </a>
 
       {/* Querverweis auf KnotenCheck */}
-      <a href="https://pnfzygrzgf-svg.github.io/KnotenCheck/" target="_blank" rel="noopener noreferrer"
+      <a href="https://knotencheck.ch/" target="_blank" rel="noopener noreferrer"
          style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 22, textDecoration: 'none',
                   background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 10,
                   padding: '12px 16px', color: 'var(--text)' }}>
@@ -1034,7 +1034,7 @@ function Landing({ onStart }: { onStart: () => void }) {
       </a>
 
       {/* Querverweis auf fgsCheck */}
-      <a href="https://pnfzygrzgf-svg.github.io/fgsCheck/" target="_blank" rel="noopener noreferrer"
+      <a href="https://fgscheck.ch/" target="_blank" rel="noopener noreferrer"
          style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14, textDecoration: 'none',
                   background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 10,
                   padding: '12px 16px', color: 'var(--text)' }}>

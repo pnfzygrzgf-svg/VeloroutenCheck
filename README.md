@@ -11,7 +11,7 @@ VeloroutenCheck bewertet die Qualität von Veloinfrastruktur und vergibt dafür 
 
 Bewertet wird eine **Strecke**, die aus einem oder mehreren **Abschnitten** besteht. Jeder Abschnitt erhält eine eigene Note; die Strecke erhält die Note ihres schlechtesten Abschnitts.
 
-**Web-VeloroutenCheck** https://pnfzygrzgf-svg.github.io/VeloroutenCheck/
+**Web-VeloroutenCheck** https://veloroutencheck.ch/
 
 **Ergebnisbericht Bildumfrage Bern 2026** — [docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Ergebnisbericht.md](docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Ergebnisbericht.md). 5 900 Bewertungen von 51 Bildern aus 14 Berner Strassenabschnitten: Feel-Safe-Anker, Breiteneffekte und was daraus für die Werte im Rechner folgt.
 
@@ -716,9 +716,9 @@ Stack: React 18, Vite 5, TypeScript (strict).
 
 Bei jedem Push auf `main`, der `VeloroutenCheckWeb/**` ändert, baut der Workflow
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) die App und veröffentlicht sie auf
-GitHub Pages. Vite ist dafür auf `base: '/VeloroutenCheck/'` (Build) eingestellt. Einmalig nötig: in den
-Repo-Einstellungen unter **Settings → Pages → Source = „GitHub Actions"** aktivieren. Die Seite
-erscheint dann unter `https://pnfzygrzgf-svg.github.io/VeloroutenCheck/`.
+GitHub Pages. Vite ist dafür auf `base: '/'` (eigene Domain) eingestellt. Einmalig nötig: in den
+Repo-Einstellungen unter **Settings → Pages → Source = „GitHub Actions"** aktivieren und unter
+**Custom domain** `veloroutencheck.ch` eintragen. Die Seite erscheint dann unter `https://veloroutencheck.ch/`.
 
 ---
 
