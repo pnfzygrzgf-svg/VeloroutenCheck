@@ -320,6 +320,10 @@ th, td { border: 1px solid #cdd6cf; padding: 2.2mm 2.5mm; text-align: left; vert
 thead th { background: #0a4; color: #fff; font-weight: 600; }
 tbody th.rowhead { background: #eef4ef; font-weight: 600; }
 tbody tr:nth-child(even) td { background: #f8faf8; }
+/* Eine Zeile nie über einen Seitenumbruch teilen (15.10.2026): Im Grundlagen-Dokument stand der
+   Parametername «Fussweg Velo gestattet: höchstens Note (Decke)» halb auf Seite 2, halb auf 3.
+   Die längste Zeile (Breiten-Abzug) ist deutlich kürzer als eine Seite. */
+tbody tr { break-inside: avoid; page-break-inside: avoid; }
 .bern { display: inline-block; background: #fde68a; color: #7c4a02; border-radius: 3px;
         padding: 0 1.4mm; font-size: 8pt; font-weight: 700; }
 .legende { color: #7c4a02; font-size: 8.5pt; margin: 1mm 0 3mm; }
