@@ -303,6 +303,14 @@ const seiteKastenStyle: React.CSSProperties = {
 const seiteTitelStyle: React.CSSProperties = {
   fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 8,
 }
+// Kopfzeile eines Seiten-Kastens (Titel links, Knöpfe rechts) und die kleinen Knöpfe darin.
+const kastenKopfStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8,
+}
+const kleinKnopfStyle: React.CSSProperties = {
+  border: '1px solid var(--border)', background: '#fff', color: 'var(--text)',
+  borderRadius: 8, padding: '5px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+}
 
 // ── Eingaben einer Fahrtrichtung (Seite A oder B, strecke.ts: Seite) ─────────
 // Was je Fahrtrichtung verschieden sein kann: Führungsform samt Breite, Parkierung rechts,
@@ -619,9 +627,10 @@ function ErgebnisBox({ bewertung, vergleich, felder, routentyp, modus, city, bre
 }
 
 // ── Karte für einen Abschnitt: Eingaben + Bewertung je Seite ─────────────────
-// Aufbau (seit 14.10.2026): gemeinsame Grunddaten und ÖV-Angebot, dann die Wahl der Seiten
-// (beide / nur Seite A, Seite B wie A oder abweichend), die Felder je Seite und das Ergebnis
-// je bewertete Seite. Die Abschnittsnote ist die schlechtere Seite (bewertung.ts).
+// Aufbau (seit 14.10.2026): gemeinsame Grunddaten und ÖV-Angebot, dann die Seiten — ein
+// gemeinsamer Kasten, solange beide gleich sind, sonst je ein Kasten für Seite A und Seite B
+// (eigene Werte oder nicht bewertet) — und das Ergebnis je bewertete Seite. Die Abschnittsnote
+// ist die schlechtere Seite (bewertung.ts).
 function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTauschen, onLuftbild, onRemove, canRemove, onHover, breitenQuelle, city }: {
   index: number
   section: Section
@@ -648,12 +657,10 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
   const fussweg = formen.includes('Fussweg Velo gestattet')
   const rA = section.peilungA != null ? himmelsrichtung(section.peilungA) : null
   const rB = section.peilungA != null ? himmelsrichtung(section.peilungA + 180) : null
-  const titelA = beide && !abweichend
-    ? `Beide Seiten${rA ? ` · Richtung ${rA} und Richtung ${rB}` : ''}`
-    : `Seite A${rA ? ` · Richtung ${rA}` : ''}`
+  const titelA = `Seite A${rA ? ` · Richtung ${rA}` : ''}`
   const titelB = `Seite B${rB ? ` · Richtung ${rB}` : ''}`
-  // Eine Wahl mit drei Zuständen statt Umschalter + Häkchen (14.10.2026): «Seite B wie Seite A»
-  // abzuwählen war als Weg zur Gegenseite nicht zu finden.
+  // Zustand von Seite B: gleich wie A (ein gemeinsamer Kasten für beide Seiten), eigene Werte
+  // oder nicht bewertet (je ein Kasten für A und B). Die Knöpfe stehen in den Kopfzeilen.
   const seitenModus: 'gleich' | 'verschieden' | 'eine' = !beide ? 'eine' : abweichend ? 'verschieden' : 'gleich'
   const seitenModusSetzen = (m: typeof seitenModus) => {
     if (m === seitenModus) return
@@ -810,38 +817,17 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
       })()}
 
       {/* Eingaben — Gruppe 3: Seiten (Fahrtrichtungen). Seite A = Fahrtrichtung entlang der
-          Strecke (auf einer Einbahn: die des Verkehrs), Seite B = Gegenrichtung. */}
+          Strecke (auf einer Einbahn: die des Verkehrs), Seite B = Gegenrichtung. Sind beide gleich,
+          steht ein gemeinsamer Kasten da; sonst je ein Kasten, und Seite B zeigt ihren Zustand
+          (eigene Werte / nicht bewertet). Die Knöpfe stehen in den Kopfzeilen und nennen Seite B
+          ausdrücklich. Seit 15.10.2026 — vorher eine Dreierwahl «Beide Seiten gleich / Seiten
+          verschieden / Nur Seite A», in der Seite B nur verneint vorkam: Der Weg zu ihrer
+          Erfassung war nicht zu finden. */}
       <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={groupLabelStyle}>Seiten (Fahrtrichtungen)</div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div role="group" aria-label="Erfasste Seiten"
-               style={{ display: 'inline-flex', flexWrap: 'wrap', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-            {([['gleich', 'Beide Seiten gleich'], ['verschieden', 'Seiten verschieden'], ['eine', 'Nur Seite A']] as const).map(([m, label]) => (
-              <button key={m} type="button" aria-pressed={seitenModus === m}
-                      onClick={() => seitenModusSetzen(m)}
-                      style={{ border: 'none', padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                               background: seitenModus === m ? 'var(--accent)' : '#fff',
-                               color: seitenModus === m ? '#fff' : 'var(--text)' }}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <QuelleChip q={q.richtung} />
-          {seitenModus !== 'gleich' && (
-            <button type="button" onClick={onTauschen}
-                    title="Seite A und Seite B vertauschen (die andere Fahrtrichtung wird Seite A)"
-                    style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text)',
-                             borderRadius: 8, padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}>
-              ⇄ Seiten tauschen
-            </button>
-          )}
-        </div>
-        <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
-          {seitenModus === 'eine'
-            ? `Bewertet wird nur Seite A${rA ? `, die Fahrtrichtung nach ${rA}` : ''}. «Seiten tauschen» bewertet stattdessen die Gegenrichtung.`
-            : seitenModus === 'verschieden'
-              ? 'Seite A und Seite B werden unten getrennt erfasst. Die Note des Abschnitts ist die schlechtere der beiden Seiten.'
-              : 'Beide Fahrtrichtungen haben dieselbe Führung; eine Note gilt für beide. Unterscheiden sie sich, «Seiten verschieden» wählen.'}
+        <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+          Seite A ist die Fahrtrichtung entlang der Strecke, Seite B die Gegenrichtung. Die Note des
+          Abschnitts ist die schlechtere der bewerteten Seiten.
           {hatMarker && section.peilungA != null && ' Der Pfeil am Karten-Marker zeigt die Fahrtrichtung der Seite A.'}
         </div>
         {/* Luftbild-Hinweis: nur Funde, nie «nicht erkannt» (ein fehlender Fund sagt wenig). */}
@@ -863,27 +849,91 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
             </div>
           </div>
         )}
-        {!beide && section.osmVeloGegenverkehr && (
-          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
-                        background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
-            OSM: Einbahn mit Velogegenverkehr. Für die Gegenrichtung «Seiten verschieden» wählen und für
-            Seite B die Form angeben (z. B. «Einbahn mit Velogegenverkehr»).
-          </div>
-        )}
       </div>
 
-      {/* Felder je Seite, jede in einem eigenen Kasten */}
+      {/* Beide Seiten gleich: EIN gemeinsamer Kasten, eine Erfassung für beide Fahrtrichtungen
+          (Nutzerwunsch 15.10.2026: beide Seiten in einem Schritt erfassen). Die Knöpfe zum
+          Trennen stehen in seiner Kopfzeile und nennen Seite B ausdrücklich. */}
+      {seitenModus === 'gleich' && (
+        <div style={seiteKastenStyle}>
+          <div style={kastenKopfStyle}>
+            <span style={{ ...seiteTitelStyle, marginBottom: 0 }}>
+              Seite A und Seite B{rA ? ` · Richtung ${rA} und Richtung ${rB}` : ''}
+            </span>
+            <span style={{ flex: 1 }} />
+            <button type="button" onClick={() => seitenModusSetzen('verschieden')} style={kleinKnopfStyle}>
+              Seite B anders erfassen
+            </button>
+            <button type="button" onClick={() => seitenModusSetzen('eine')} style={kleinKnopfStyle}>
+              Seite B nicht bewerten
+            </button>
+          </div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)', marginBottom: 8 }}>
+            Beide Seiten gleich: Was hier steht, gilt für beide Fahrtrichtungen, mit einer gemeinsamen Note.
+          </div>
+          <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite }}
+                       onChange={onChange} city={city} oevAngebot={section.oevAngebot} />
+        </div>
+      )}
+
+      {/* Seiten getrennt: Seite A (immer bewertet) … */}
+      {seitenModus !== 'gleich' && (
       <div style={seiteKastenStyle}>
-        <div style={seiteTitelStyle}>{titelA}</div>
+        <div style={kastenKopfStyle}>
+          <span style={{ ...seiteTitelStyle, marginBottom: 0 }}>{titelA}</span>
+          <span style={{ flex: 1 }} />
+          <button type="button" onClick={onTauschen} style={kleinKnopfStyle}
+                  title="Seite A und Seite B vertauschen (die andere Fahrtrichtung wird Seite A)">
+            ⇄ Seiten tauschen
+          </button>
+        </div>
         <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite }}
                      onChange={onChange} city={city} oevAngebot={section.oevAngebot} />
       </div>
-      {abweichend && (
-        <div style={seiteKastenStyle}>
-          <div style={seiteTitelStyle}>{titelB}</div>
+      )}
+
+      {/* … und Seite B mit eigenen Werten oder nicht bewertet */}
+      {seitenModus !== 'gleich' && (
+      <div style={seiteKastenStyle}>
+        <div style={kastenKopfStyle}>
+          <span style={{ ...seiteTitelStyle, marginBottom: 0 }}>{titelB}</span>
+          {seitenModus === 'eine' && <QuelleChip q={q.richtung} />}
+          <span style={{ flex: 1 }} />
+          {seitenModus === 'verschieden' && (
+            <>
+              <button type="button" onClick={() => seitenModusSetzen('gleich')} style={kleinKnopfStyle}
+                      title="Zurück zur gemeinsamen Erfassung: Seite B übernimmt wieder die Werte von Seite A, ihre eigenen Werte gehen verloren">
+                Wie Seite A
+              </button>
+              <button type="button" onClick={() => seitenModusSetzen('eine')} style={kleinKnopfStyle}>
+                Seite B nicht bewerten
+              </button>
+            </>
+          )}
+          {seitenModus === 'eine' && (
+            <button type="button" onClick={() => onChange({ richtung: 'beide' })} style={kleinKnopfStyle}>
+              Seite B bewerten
+            </button>
+          )}
+        </div>
+        {seitenModus === 'verschieden' && (
           <SeiteFelder felder={seiteB(section)} quelle={section.gegen!.quelle}
                        onChange={aendereB} city={city} oevAngebot={section.oevAngebot} />
-        </div>
+        )}
+        {seitenModus === 'eine' && (
+          <div style={{ fontSize: 13, color: 'var(--text-muted-strong)' }}>
+            Wird nicht bewertet{q.richtung === 'osm' ? ', weil OSM hier eine Einbahn kennt' : ''}. Die Note des
+            Abschnitts ist die von Seite A.
+          </div>
+        )}
+        {seitenModus === 'eine' && section.osmVeloGegenverkehr && (
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
+                        background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+            OSM: Einbahn mit Velogegenverkehr. Für die Gegenrichtung «Seite B bewerten» wählen und die
+            Form angeben (z. B. «Einbahn mit Velogegenverkehr»).
+          </div>
+        )}
+      </div>
       )}
 
       {/* Ergebnis je bewertete Seite (bei zwei Seiten mit Überschrift; die schlechtere ist massgebend) */}
