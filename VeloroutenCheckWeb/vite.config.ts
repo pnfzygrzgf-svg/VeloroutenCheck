@@ -23,11 +23,11 @@ function nichtOeffentlichEntfernen(): Plugin {
   }
 }
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(() => ({
   plugins: [react(), nichtOeffentlichEntfernen()],
-  // GitHub Pages bedient Projekt-Sites unter /<repo>/ → Build-Basis auf den Repo-Namen setzen.
+  // Eigene Domain (veloroutencheck.ch) → die Site liegt an der Wurzel, nicht unter /<repo>/.
   // import.meta.env.BASE_URL spiegelt das (z. B. fetch der gebündelten public/-Snapshots).
-  base: command === 'build' ? '/VeloroutenCheck/' : '/',
+  base: '/',
   // Dev-Server: zugewiesenen Port aus der Umgebung respektieren (z. B. Preview-Tooling).
   server: process.env.PORT ? { port: Number(process.env.PORT), strictPort: true } : undefined,
   // Verhindert, dass Vite/esbuild Media-Queries in die Level-4-Range-Syntax umschreibt
