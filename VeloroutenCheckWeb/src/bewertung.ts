@@ -17,6 +17,7 @@ export interface SeitenErgebnis {
   felder: Seite
   bewertung: NotenErgebnis | null      // null = Seite unvollständig
   vergleich: VergleichsNote[] | null   // Endnoten nach den Standards der anderen Städte (null = unvollständig)
+  fehlt: string[]                      // fehlende Pflichtfelder dieser Seite (leer = vollständig)
 }
 export interface AbschnittErgebnis {
   seiten: SeitenErgebnis[]             // [A] oder [A, B] (B nur bei abweichender Gegenseite)
@@ -43,13 +44,33 @@ export function seiteKomplett(s: Section, f: Seite, city: Stadt): boolean {
   )
 }
 
+// Welche Pflichtfelder fehlen dieser Seite? Dieselbe Regel wie seiteKomplett, aber als Liste für
+// den Hinweis «Eingabe nötig» (seit 16.10.2026; vorher nannte er immer Führungsform, DTV und
+// Tempo, auch wenn sie gesetzt waren). Ohne Führungsform werden DTV und Tempo mitgenannt, sofern
+// sie fehlen: Die meisten Formen brauchen sie.
+export function fehlendeEingaben(s: Section, f: Seite, city: Stadt): string[] {
+  const fehlt: string[] = []
+  if (f.ist === '') fehlt.push('Führungsform')
+  if (f.ist === '' || brauchtDtvTempo(f.ist)) {
+    if (city !== 'basel' && !Number.isFinite(dtvEff(s, city))) fehlt.push('DTV')
+    if (!Number.isFinite(s.speed)) fehlt.push('Tempo')
+  }
+  if (f.ist !== '' && brauchtBreite(f.ist) && !Number.isFinite(f.breite)) fehlt.push('Breite')
+  if (city === 'basel' && s.strassentyp === '') fehlt.push('Strassentyp')
+  return fehlt
+}
+
+// Liste lesbar verbinden: «A», «A und B», «A, B und C».
+export const aufzaehlen = (xs: string[]): string =>
+  xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} und ${xs[xs.length - 1]}`
+
 // Abschnitt bewerten: je bewertete Seite Note und Vergleichsnoten, dazu die Abschnittsnote.
 //   breiten: stadtspezifische Breiten-Sollwerte (App.tsx, CITIES); fehlt ein Wert → Bern.
 export function bewerteAbschnitt(
   s: Section, city: Stadt, breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>,
 ): AbschnittErgebnis {
   const seiten: SeitenErgebnis[] = bewerteteSeiten(s).map(({ seite, felder: f }) => {
-    if (!seiteKomplett(s, f, city)) return { seite, felder: f, bewertung: null, vergleich: null }
+    if (!seiteKomplett(s, f, city)) return { seite, felder: f, bewertung: null, vergleich: null, fehlt: fehlendeEingaben(s, f, city) }
     const ist = f.ist as IstFuehrungsform
     // Breite bewerten, sobald eingegeben (Routentyp bestimmt die Vorgabe; Default Velohauptroute).
     const breite = Number.isFinite(f.breite) ? f.breite : undefined
@@ -77,7 +98,7 @@ export function bewerteAbschnitt(
           // und die Referenz wich von der angezeigten Hauptnote ab (07.08.2026).
           strassentyp: s.strassentyp || undefined,
         }, city)
-    return { seite, felder: f, bewertung, vergleich }
+    return { seite, felder: f, bewertung, vergleich, fehlt: [] }
   })
   const fertig = seiten.every(x => x.bewertung != null)
   const note = fertig ? Math.min(...seiten.map(x => x.bewertung!.note)) : null

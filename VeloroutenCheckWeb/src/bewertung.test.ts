@@ -51,3 +51,33 @@ describe('bewerteAbschnitt — Note je Seite', () => {
     expect(e.massgebend).toBe('A')
   })
 })
+
+import { fehlendeEingaben, aufzaehlen, seiteKomplett } from './bewertung'
+describe('Hinweis «Eingabe nötig» — nur was wirklich fehlt', () => {
+  it('Führungsform gesetzt, nur DTV fehlt → nur DTV', () => {
+    const s = { ...defaultSection(), ist: 'Mischverkehr' as const, speed: 50 }
+    expect(fehlendeEingaben(s, seiteA(s), 'zurich')).toEqual(['DTV'])
+  })
+  it('Radstreifen ohne Breite → nur Breite', () => {
+    const s = basis({ breite: NaN })
+    expect(fehlendeEingaben(s, seiteA(s), 'bern')).toEqual(['Breite'])
+  })
+  it('leere Maske → Führungsform, DTV und Tempo', () => {
+    const s = defaultSection()
+    expect(fehlendeEingaben(s, seiteA(s), 'bern')).toEqual(['Führungsform', 'DTV', 'Tempo'])
+  })
+  it('Basel: kein DTV, aber der Strassentyp', () => {
+    const s = { ...defaultSection(), ist: 'Mischverkehr' as const, speed: 30 }
+    expect(fehlendeEingaben(s, seiteA(s), 'basel')).toEqual(['Strassentyp'])
+  })
+  it('stimmt mit seiteKomplett überein (leer ⇔ vollständig)', () => {
+    for (const s of [basis(), basis({ breite: NaN }), basis({ speed: NaN }), defaultSection()])
+      for (const city of ['bern', 'zurich', 'basel', 'luzern'] as const)
+        expect(fehlendeEingaben(s, seiteA(s), city).length === 0).toBe(seiteKomplett(s, seiteA(s), city))
+  })
+  it('Aufzählung', () => {
+    expect(aufzaehlen(['DTV'])).toBe('DTV')
+    expect(aufzaehlen(['DTV', 'Tempo'])).toBe('DTV und Tempo')
+    expect(aufzaehlen(['Führungsform', 'DTV', 'Tempo'])).toBe('Führungsform, DTV und Tempo')
+  })
+})

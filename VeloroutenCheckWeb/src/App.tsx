@@ -17,7 +17,7 @@ import {
   luftbildHinweis, luftbildUebernehmen, setzeGemesseneBreite,
   type Quelle, type QuelleFeld, type Section, type Seite, type SeitenQuelle,
 } from './strecke'
-import { bewerteAbschnitt, type AbschnittErgebnis } from './bewertung'
+import { bewerteAbschnitt, aufzaehlen, type AbschnittErgebnis } from './bewertung'
 import { himmelsrichtung, peilung } from './geo'
 import { loadBboxCandidates, loadNearestCandidate, loadStreetCandidates, teileInListe, MIN_TEIL_M } from './osm'
 import { buildCsv, numDE, parseZahl } from './csv'
@@ -444,8 +444,9 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen }: {
 }
 
 // ── Ergebnis einer Seite: Note mit Erklärung — oder Hinweis, solange Pflichtfelder fehlen ──
-function ErgebnisBox({ bewertung, vergleich, felder, routentyp, modus, city, breitenQuelle }: {
+function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, modus, city, breitenQuelle }: {
   bewertung: NotenErgebnis | null
+  fehlt: string[]                       // fehlende Pflichtfelder (bewertung.ts, fehlendeEingaben)
   vergleich: VergleichsNote[] | null    // Endnoten nach den Standards der anderen Städte (null = unvollständig)
   felder: Seite
   routentyp: Routentyp | ''
@@ -462,9 +463,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, routentyp, modus, city, bre
         <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10,
                       background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412',
                       fontSize: 13.5 }}>
-          <strong>Eingabe nötig:</strong> Führungsform
-          {(ist === '' || brauchtDtvTempo(ist)) && ', DTV, Tempo'}
-          {ist !== '' && ist !== 'Mischverkehr' && brauchtBreite(ist) && ' und Breite'} angeben — dann wird die Note berechnet.
+          <strong>Eingabe nötig:</strong> {aufzaehlen(fehlt)} angeben — dann wird die Note berechnet.
         </div>
       ) : (
       <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10,
@@ -1006,7 +1005,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
               )}
             </div>
           )}
-          <ErgebnisBox bewertung={se.bewertung} vergleich={se.vergleich} felder={se.felder}
+          <ErgebnisBox bewertung={se.bewertung} vergleich={se.vergleich} felder={se.felder} fehlt={se.fehlt}
                        routentyp={section.routentyp} modus={modus} city={city}
                        breitenQuelle={breitenQuelle(se.felder.ist)} />
         </div>
