@@ -14,8 +14,10 @@
 //     Zählresultate» (Quelle: Metadatenblatt Flächendeckende Verkehrsdaten).
 //   - Signalisierte_Hoechstgeschwindigkeit (Layer 0, Feld V_sig): amtliche
 //     zulässige Höchstgeschwindigkeit je Strassenabschnitt.
-//   - Veloroutennetz_Masterplan (Layer 0, Feld Velorouten_beschrieb):
-//     „Velohauptroute" / „Veloroute" je Strassenabschnitt.
+//   - Veloroutennetz_Masterplan (Layer 0, Feld Veloroutentyp): Code 1–6 je
+//     Strassenabschnitt, übersetzt in «Velohauptroute» / «Veloroute» (routentypAusCode).
+//     Bis Oktober 2026 trug der Layer ein Textfeld Velorouten_beschrieb; die Stadt hat es
+//     entfernt, seither fehlte der Routentyp überall (festgestellt 16.10.2026).
 //   - Velostrassen (Service-Name, Layer-Name «Velostrasse»): nur 7 Features
 //     (Stand 2026); Treffer bestätigt/erzwingt Ist-Führungsform «Velostrasse».
 //
@@ -44,6 +46,20 @@ function fetchBernGeojson(service: string, bbox: Bbox, outFields: string): Promi
     geometryType: 'esriGeometryEnvelope', inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
     outFields, outSR: '4326',
   })
+}
+
+// Routentyp aus dem Code im Feld Veloroutentyp. Bedeutung laut Legende des Kartendienstes
+// (Renderer des Layers, abgerufen 16.10.2026):
+//   1 Velohauptroute entlang Hauptverkehrsachsen · 2 Velohauptroute abseits Hauptverkehrsachsen ·
+//   3 Velohauptroute entlang neuer Stadtstrasse A6 · 4 Veloroute entlang Hauptverkehrsstrassen ·
+//   5 Veloroute abseits Hauptverkehrsstrassen · 6 Veloroute abseits … mit Fokus Freizeit.
+// Ohne Code (nicht klassierte Netzgeometrie) oder mit unbekanntem Code → null: Die Linie stimmt
+// dann nicht mit (majorityValue) — lieber kein Routentyp als ein geratener.
+export function routentypAusCode(code: unknown): Routentyp | null {
+  const n = zahlOderNull(code)
+  if (n === 1 || n === 2 || n === 3) return 'Velohauptroute'
+  if (n === 4 || n === 5 || n === 6) return 'Veloroute'
+  return null
 }
 
 // DTV aus Nt (Tag, 16 h) / Nn (Nacht, 8 h) — siehe Herleitung im Kopfkommentar.
@@ -97,7 +113,7 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
     versuch('Signalisierte Höchstgeschwindigkeit', fetchBernGeojson('Signalisierte_Hoechstgeschwindigkeit', bbox, 'V_sig'), [], fehler),
     // null = Layer nicht erreichbar (≠ leeres, aber gültiges Ergebnis) — Grundlage der Annahme.
     versuch<GeoJsonFeature[] | null>('Verkehrsdaten (DTV)', fetchBernGeojson('Flaechendeckende_Verkehrsdaten', bbox, 'Nt,Nn'), null, fehler),
-    versuch('Veloroutennetz', fetchBernGeojson('Veloroutennetz_Masterplan', bbox, 'Velorouten_beschrieb'), [], fehler),
+    versuch('Veloroutennetz', fetchBernGeojson('Veloroutennetz_Masterplan', bbox, 'Veloroutentyp'), [], fehler),
     versuch('Velostrassen', loadVelostrassen(), [], fehler),
   ])
   const dtvLayerOk = dtvRoh !== null
@@ -122,7 +138,7 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
       return nt != null && nn != null ? dtvFromNtNn(nt, nn) : null
     }, OVERLAP_M, MIN_FRACTION)
     const routentyp = bestOverlapValue(dense, routen,
-      f => f.properties.Velorouten_beschrieb as string | null, OVERLAP_M, MIN_FRACTION) as Routentyp | undefined
+      f => routentypAusCode(f.properties.Veloroutentyp), OVERLAP_M, MIN_FRACTION)
     // Velostrasse setzt die Ist-Führungsform → strenger (VELO_FRACTION), damit eine bloss
     // kreuzende Velostrasse die OSM-Führungsform nicht fälschlich überschreibt.
     const velostrasse = bestOverlapFeature(dense, velostrassen, OVERLAP_M, VELO_FRACTION) != null

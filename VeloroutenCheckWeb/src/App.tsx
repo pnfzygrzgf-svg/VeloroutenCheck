@@ -158,7 +158,7 @@ const OEV_OPTIONS: { value: OevAngebot; label: string }[] = [
 const HALTESTELLEN_LABEL: Partial<Record<Haltestellentyp, string>> = {
   'Haltestelle mit Veloumfahrung': 'Haltestelle mit Veloumfahrung',
   'Kaphaltestelle mit Veloüberfahrt': 'Kaphaltestelle mit Veloüberfahrt',
-  'Kaphaltestelle': 'Kaphaltestelle (Ausnahme)',
+  'Kaphaltestelle': 'Kaphaltestelle',
   'Haltestelle mit rückwärtigem Radweg': 'Haltestelle mit rückw. Radweg',
   'Inselhaltestelle': 'Inselhaltestelle',
   'Fahrbahnhaltestelle Bus': 'Fahrbahnhaltestelle Bus',
