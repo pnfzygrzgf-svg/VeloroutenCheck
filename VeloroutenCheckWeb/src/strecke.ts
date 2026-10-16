@@ -16,7 +16,7 @@ import { peilung, type LL } from './geo'
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
 // Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
 // Fehlt ein Eintrag, ist das Feld leer (keine erfundenen Werte).
-export type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung' | 'angenommen' | 'luftbild' | 'gemessen'
+export type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung' | 'angenommen' | 'luftbild' | 'gemessen' | 'av'
 
 // DTV-Annahme (nur Bern): fehlt der DTV, gilt bei bekanntem Tempo DTV ≤ 2000. Die „Flächendeckenden
 // Verkehrsdaten" Bern führen alle Strassen > 2000 + alle Altstadt-Strassen — kein Eintrag ⇒ ≤ 2000
@@ -36,6 +36,7 @@ export function dtvEff(s: Section, city: Stadt): number {
 }
 // Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
 export type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram' | 'strassentyp' | 'richtung'
+  | 'fahrbahnbreite'
 
 // ── Seiten: die beiden Fahrtrichtungen eines Abschnitts (seit 14.10.2026) ──────
 // Seite A = Fahrtrichtung entlang der Strecke, Seite B = Gegenrichtung (Rechtsverkehr: je die
@@ -68,6 +69,9 @@ export interface Section extends Seite {
   strassentyp: Strassentyp | ''  // '' = noch nicht gewählt (nur Basel relevant)
   oevAngebot: OevAngebot
   tram: boolean                // Tram (Schienen) in der Fahrbahn — entkoppelt von der Haltestelle
+  // Fahrbahnbreite von Bordstein zu Bordstein [m], NaN = leer. Reine Information, nicht in der
+  // Note (seit 16.10.2026); aus der AV ermittelt (breitenmessung.ts, fahrbahnbreite) oder von Hand.
+  fahrbahnbreite: number
   richtung: Richtung           // 'beide' = beide Seiten erfassen (Standard), 'eine' = nur Seite A
   gegen?: GegenSeite           // Seite B, wenn sie von A abweicht; fehlt = gleich wie Seite A
   peilungA?: number            // Fahrtrichtung der Seite A [Grad, 0 = Nord]; nur Abschnitte von der Karte
@@ -88,7 +92,7 @@ export function defaultSection(): Section {
     id: nextId++, dtv: NaN, dtvGeprueft: false, speed: NaN, ist: '', breite: NaN,
     routentyp: '', strassentyp: '', parkenRechts: 'egal', parkenSicherheitsstreifen: false, oevTakt: NaN,
     oevAngebot: 'keine', haltestellentyp: 'keine', haltestelleBreite: NaN, ohneHaltestelle: false,
-    tram: false, richtung: 'beide',
+    tram: false, fahrbahnbreite: NaN, richtung: 'beide',
     quelle: {},
   }
 }

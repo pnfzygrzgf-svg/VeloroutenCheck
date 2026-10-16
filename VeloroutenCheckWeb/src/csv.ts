@@ -26,7 +26,7 @@ export const numDE = (x: number, dec = 0) => (Number.isFinite(x) ? x.toFixed(dec
 export const QUELLE_LABEL: Record<Quelle, string> = {
   amtlich: 'Geoportal', osm: 'OSM', manuell: 'manuell', fahrplan: 'opentransportdata',
   markierung: 'Markierung', angenommen: 'angenommen ≤2000', luftbild: 'Luftbild',
-  gemessen: 'gemessen (Luftbild/AV)',
+  gemessen: 'gemessen (Luftbild/AV)', av: 'AV',
 }
 
 // CSV-Feld maskieren (Semikolon-getrennt, de-CH/Excel).
@@ -65,6 +65,8 @@ export function buildCsv(
     'Ist-Führungsform Seite B', 'Ist-Quelle Seite B', 'Breite Seite B [m]', 'Breite-Quelle Seite B',
     'Parkierung rechts Seite B', 'Sicherheitsstreifen Seite B', 'Haltestellentyp Seite B',
     'ÖV-Takt Seite B [Min]', 'Breite Haltestelle Seite B [m]', 'Note Seite B',
+    // Fahrbahnbreite (16.10.2026), Information ohne Noteneinfluss.
+    'Fahrbahnbreite [m]', 'Fahrbahnbreite-Quelle',
   ]
   const rows = sections.map((s, i) => {
     const e = ergebnisse[i]
@@ -108,6 +110,7 @@ export function buildCsv(
       b && b.ist === 'Umweltspur' ? numDE(b.oevTakt, 1) : '',
       b && s.oevAngebot !== 'keine' && !b.ohneHaltestelle ? numDE(b.haltestelleBreite, 2) : '',
       noteB ? numDE(noteB.note, 1) : '',
+      numDE(s.fahrbahnbreite, 1), s.quelle.fahrbahnbreite ? QUELLE_LABEL[s.quelle.fahrbahnbreite] : '',
     ]
   })
   // Schlusszeile: Strecken-Note (schlechtester Abschnitt). Spalten aus dem Kopf abgeleitet,

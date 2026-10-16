@@ -62,3 +62,28 @@ describe('messeAbKante — rechtwinklig von der Markierung zur Bordsteinkante', 
     expect(aufZentimeter(1.625)).toBe(1.63)
   })
 })
+
+import { fahrbahnbreite } from './breitenmessung'
+describe('fahrbahnbreite — Bordstein zu Bordstein, Median der Querschnitte', () => {
+  const achse: P[] = [[0, 4], [100, 4]]
+  it('gerade Strasse 8 m breit, aus zwei aneinanderstossenden Flächen', () => {
+    const r = fahrbahnbreite([achse], [strasse([rechteck(0, 0, 50, 8)]), strasse([rechteck(50, 0, 100, 8)])])!
+    expect(r.median).toBeCloseTo(8, 6)
+    expect(r.n).toBeGreaterThan(10)
+  })
+  it('in einer Einmündung findet der Strahl keinen Bord → Querschnitt fällt weg, die Breite bleibt', () => {
+    const haupt = strasse([rechteck(0, 0, 100, 8)])
+    const einmuendung = strasse([rechteck(45, 8, 55, 40)])   // stösst von Norden an
+    const ohne = fahrbahnbreite([achse], [haupt])!
+    const mit = fahrbahnbreite([achse], [haupt, einmuendung])!
+    expect(mit.median).toBeCloseTo(8, 6)
+    expect(mit.max).toBeCloseTo(8, 6)
+    expect(mit.n).toBeLessThan(ohne.n)
+  })
+  it('Achse neben der Strassenfläche → keine Breite', () =>
+    expect(fahrbahnbreite([[[0, 50], [100, 50]]], [strasse([rechteck(0, 0, 100, 8)])])).toBeNull())
+  it('kurzes Segment: an den Enden nur je ein Achtel ausgelassen', () =>
+    expect(fahrbahnbreite([[[0, 4], [30, 4]]], [strasse([rechteck(0, 0, 30, 8)])])?.median).toBeCloseTo(8, 6))
+  it('zu kurz für drei Querschnitte → keine Breite', () =>
+    expect(fahrbahnbreite([[[0, 4], [12, 4]]], [strasse([rechteck(0, 0, 12, 8)])])).toBeNull())
+})

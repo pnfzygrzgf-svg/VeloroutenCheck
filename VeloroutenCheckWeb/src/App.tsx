@@ -10,7 +10,8 @@ import {
 import { VeloMap, ISTCOLOR, BREIT_MQ, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
 import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeAv, avQuelle } from './av'
-import { bordkanten, messeAbKante, abstand, aufZentimeter, FANG_M, type Kante } from './breitenmessung'
+import { bordkanten, messeAbKante, abstand, aufZentimeter, fahrbahnbreite, FANG_M, type Kante } from './breitenmessung'
+import type { AvFlaeche } from './av'
 import {
   candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
   luftbildHinweis, luftbildUebernehmen, setzeGemesseneBreite,
@@ -234,6 +235,7 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
     fahrplan: { t: 'opentransportdata', bg: '#dcfce7', fg: '#166534', title: 'Fahrplan (opentransportdata.swiss / GTFS)' },
     markierung: { t: 'Markierung', bg: '#ffedd5', fg: '#9a3412', title: 'Aus der Fahrbahnmarkierung ermittelt (lokale Auswertung): Velostreifen auf dieser Seite — oder keiner, wenn die Striche nur auf der anderen Seite liegen' },
     luftbild: { t: 'Luftbild', bg: '#e0f2fe', fg: '#075985', title: 'Aus dem Luftbild-Hinweis übernommen (SWISSIMAGE © swisstopo, Erkennung mit dem Modell remote_velo der ETH Zürich) — bitte am Orthofoto prüfen' },
+    av: { t: 'AV', bg: '#f1f5f9', fg: '#334155', title: `Aus der amtlichen Vermessung ermittelt: Fahrbahn von Bordstein zu Bordstein, Median der Querschnitte alle 5 m (${avTitle || 'Amtliche Vermessung, geodienste.ch'})` },
     gemessen: { t: 'gemessen', bg: '#ede9fe', fg: '#5b21b6', title: `Am Luftbild gemessen: ab der Bordsteinkante der amtlichen Vermessung bis zur angeklickten Stelle der Markierung (Luftbild © swisstopo; ${avTitle || 'Amtliche Vermessung, geodienste.ch'})` },
     angenommen: { t: '≤ 2000 angenommen', bg: '#fef9c3', fg: '#854d0e', title: 'Flächendeckende Verkehrsdaten Bern: kein Eintrag ⇒ DTV ≤ 2000 (ausserhalb Altstadt)' },
     fehlt: { t: 'Eingabe nötig', bg: '#fee2e2', fg: '#b91c1c' },
@@ -241,7 +243,7 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
   const key = fehlt ? 'fehlt'
     : q === 'amtlich' ? 'amtlich' : q === 'osm' ? 'osm' : q === 'fahrplan' ? 'fahrplan'
     : q === 'markierung' ? 'markierung' : q === 'angenommen' ? 'angenommen' : q === 'luftbild' ? 'luftbild'
-    : q === 'gemessen' ? 'gemessen' : null
+    : q === 'gemessen' ? 'gemessen' : q === 'av' ? 'av' : null
   if (!key) return null
   const c = map[key]
   return (
@@ -655,7 +657,9 @@ function ErgebnisBox({ bewertung, vergleich, felder, routentyp, modus, city, bre
 // gemeinsamer Kasten, solange beide gleich sind, sonst je ein Kasten für Seite A und Seite B
 // (eigene Werte oder nicht bewertet) — und das Ergebnis je bewertete Seite. Die Abschnittsnote
 // ist die schlechtere Seite (bewertung.ts).
-function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTauschen, onLuftbild, onMessen, onRemove, canRemove, onHover, breitenQuelle, city }: {
+function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTauschen, onLuftbild, onMessen, onFahrbahnbreite, fbLaden, onRemove, canRemove, onHover, breitenQuelle, city }: {
+  onFahrbahnbreite?: () => void          // Fahrbahnbreite aus der AV ermitteln (Bern, Zürich, Basel; nur Karten-Abschnitte)
+  fbLaden?: boolean                      // Ermittlung läuft
   index: number
   section: Section
   ergebnis: AbschnittErgebnis
@@ -793,6 +797,19 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
             <option value="ja">Ja (Schienen in der Fahrbahn)</option>
           </select>
         </label>
+        {/* Fahrbahnbreite von Bordstein zu Bordstein — Information, nicht in der Note. */}
+        <NumberField label="Fahrbahnbreite (Bordstein–Bordstein)" unit="m" value={section.fahrbahnbreite} step={0.1}
+                     onChange={v => onChange({ fahrbahnbreite: v })}
+                     chip={<QuelleChip q={q.fahrbahnbreite} />} />
+        {onFahrbahnbreite && (
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button type="button" onClick={onFahrbahnbreite} disabled={fbLaden}
+                    title="Aus der amtlichen Vermessung: Median der Querschnitte alle 5 m entlang des Abschnitts"
+                    style={{ ...kleinKnopfStyle, padding: '8px 10px', cursor: fbLaden ? 'default' : 'pointer' }}>
+              {fbLaden ? 'Ermittle …' : 'aus AV ermitteln'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Eingaben — Gruppe 2: ÖV-Haltestelle im Abschnitt (Angebot gemeinsam, Typ je Seite) */}
@@ -1519,6 +1536,45 @@ export default function App() {
         fehler: `Amtliche Vermessung nicht erreichbar (${(err as Error).message}). Mit «Zwei Punkte» messen.` })
     }
   }
+  // ── Fahrbahnbreite aus der AV (Bern, Zürich, Basel; breitenmessung.ts) ──────
+  // Nur auf Knopfdruck (Fair Use von geodienste.ch). Lange Abschnitte in Kacheln zu höchstens
+  // ±260 m, höchstens 6 Abfragen; dieselbe Fläche aus zwei Kacheln zählt einmal.
+  const [fbLaden, setFbLaden] = useState<number | null>(null)
+  const fahrbahnbreiteErmitteln = async (secId: number) => {
+    const s = sections.find(x => x.id === secId)
+    if (!s || fbLaden != null) return
+    const candById = new Map(candsRef.current.map(c => [c.id, c]))
+    const achsen: P[][] = (s.candIds ?? []).map(id => candById.get(id)).filter((c): c is Cand => !!c)
+      .map(c => c.geom.map(p => zuLv95(p.lat, p.lon)))
+    if (!achsen.length) { setMsg('Fahrbahnbreite: Der Abschnitt hat keine Geometrie auf der Karte.', 'info'); return }
+    const KACHEL = 500
+    const kacheln = new Map<string, [number, number]>()
+    for (const l of achsen) for (const [e, n] of l) {
+      const k: [number, number] = [Math.floor(e / KACHEL), Math.floor(n / KACHEL)]
+      kacheln.set(k.join('|'), k)
+    }
+    if (kacheln.size > 6) { setMsg('Fahrbahnbreite: Der Abschnitt ist zu lang für eine Abfrage (über 6 Ausschnitte). Bitte teilen.', 'info'); return }
+    setFbLaden(secId); setMsg('Ermittle die Fahrbahnbreite aus der amtlichen Vermessung …', 'info')
+    try {
+      const flaechen: AvFlaeche[] = [], gesehen = new Set<string>()
+      for (const [x, y] of kacheln.values()) {
+        for (const f of await ladeAv(x * KACHEL + KACHEL / 2, y * KACHEL + KACHEL / 2, KACHEL / 2 + 10)) {
+          const sig = `${f.art}|${f.ringe[0]?.slice(0, 3).join(';')}|${f.ringe[0]?.length}`
+          if (!gesehen.has(sig)) { gesehen.add(sig); flaechen.push(f) }
+        }
+      }
+      const r = fahrbahnbreite(achsen, flaechen)
+      if (!r) { setMsg('Fahrbahnbreite: Die amtliche Vermessung liefert hier keine eindeutige Strassenfläche (zu kurz, Platz oder Kreuzung). Bitte von Hand eintragen.', 'info'); return }
+      const wert = Math.round(r.median * 10) / 10
+      setSections(prev => prev.map(x => (x.id === secId
+        ? { ...x, fahrbahnbreite: wert, quelle: { ...x.quelle, fahrbahnbreite: 'av' } } : x)))
+      setMsg(`Fahrbahnbreite ${numDE(wert, 1)} m: Median aus ${r.n} Querschnitten, Spannweite ${numDE(r.min, 1)}–${numDE(r.max, 1)} m. ` +
+        'Die Fläche umfasst auch Parkstreifen, Busbuchten und Tramgleise.', 'ok')
+    } catch (err) {
+      setMsg(`Fahrbahnbreite: amtliche Vermessung nicht erreichbar (${(err as Error).message}).`, 'error')
+    } finally { setFbLaden(null) }
+  }
+
   const messungStarten = (secId: number, seite: 'A' | 'B') => {
     const map = mapRef.current
     if (!map) return
@@ -1670,7 +1726,8 @@ export default function App() {
   }
 
   // Manuelle Änderung eines getrackten Feldes setzt dessen Herkunft auf „manuell".
-  const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram', 'strassentyp', 'richtung']
+  const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram', 'strassentyp', 'richtung',
+    'fahrbahnbreite']
   const update = (id: number, patch: Partial<Section>) =>
     setSections(prev => prev.map(s => {
       if (s.id !== id) return s
@@ -2089,6 +2146,8 @@ export default function App() {
             onTauschen={() => tauschen(s.id)}
             onLuftbild={welche => luftbildAnnehmen(s.id, welche)}
             onMessen={cityCfg.avKanton ? (seite => messungStarten(s.id, seite)) : undefined}
+            onFahrbahnbreite={cityCfg.avKanton && s.candIds?.length ? () => void fahrbahnbreiteErmitteln(s.id) : undefined}
+            fbLaden={fbLaden === s.id}
             onRemove={() => remove(s.id)}
             canRemove={sections.length > 1}
             onHover={h => setHoverSec(h ? s.id : null)}
