@@ -42,18 +42,22 @@ input { font: inherit; }
    im aufgeklappten Menü aber voll sichtbar). */
 select { max-width: 100%; }
 
-/* ── Einstiegsseiten-/App-Header (grün, via Akzent-Token) ─────────────────────── */
-.vrc-header { background: var(--accent); color: #fff; }
-.vrc-header-inner { max-width: 980px; margin: 0 auto; padding: 10px 16px;
-  display: flex; align-items: center; gap: 14px; }
-.vrc-header-title { font-weight: 800; font-size: 18px; letter-spacing: 0.01em; }
-.vrc-header-nav { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.vrc-header-nav a { color: #fff; text-decoration: none; opacity: 0.95; }
-.vrc-header-nav a:hover { text-decoration: underline; }
-.vrc-home-btn { background: #ffffff22; color: #fff; border: none; border-radius: 8px;
-  padding: 6px 12px; font-size: 13px; cursor: pointer; }
-.vrc-home-btn:hover { background: #ffffff33; }
-@media (max-width: 480px) { .vrc-header-nav .nav-long { display: none; } }
+/* ── Kopfzeile im Panel und auf der Startseite (Standard der Check-Apps: keine farbige Leiste) ── */
+.vrc-h1 { font-size: 20px; margin: 4px 0 8px; color: var(--text-strong); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vrc-h1 img { flex-shrink: 0; display: block; }
+/* Logo als Knopf «Zur Startseite» (tastaturbedienbar) */
+.logo-knopf { flex-shrink: 0; padding: 0; border: 0; background: none; border-radius: 6px; line-height: 0; cursor: pointer; }
+.logo-knopf:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.marke { font-size: 12px; font-weight: 600; color: #ffffff; background: var(--accent); border-radius: 6px; padding: 2px 6px; vertical-align: middle; }
+details.hilfe { margin: 0 0 14px; font-size: 13px; line-height: 1.5; color: var(--text); }
+details.hilfe summary { cursor: pointer; font-weight: 600; color: var(--text-strong); }
+details.hilfe ol, details.hilfe ul { margin: 6px 0; padding-left: 20px; }
+details.hilfe li { margin-bottom: 4px; }
+details.hilfe p { margin: 8px 0 2px; }
+.start-titel { text-align: center; font-size: 28px; font-weight: 800; margin: 0; color: var(--text-strong); }
+.start-untertitel { text-align: center; color: var(--text-muted); margin: 0 0 14px; }
+.start-fuss { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+.start-fuss a { color: var(--accent); }
 
 /* Touch-Geräte: grössere Tippziele (≥ 44 px). Inline setzt keine min-height → greift sauber. */
 @media (pointer: coarse) {
@@ -83,10 +87,7 @@ select { max-width: 100%; }
 @media screen and (min-width: 1100px) {
   .vrc-app-rechner { --vrc-panel-w: clamp(400px, 34vw, 560px);
     display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
-  .vrc-app-rechner > .vrc-header { flex: none; }
-  /* Kopfzeile über die ganze Breite (Titel über der Karte, Navigation über dem Panel) statt 980 px mittig */
-  .vrc-app-rechner > .vrc-header .vrc-header-inner { max-width: none; }
-  /* Bezugsrahmen der Karte: die ganze Fläche unter dem Header. */
+  /* Bezugsrahmen der Karte: die ganze Fläche (keine Kopfleiste mehr). */
   .vrc-rechner { position: relative; flex: 1; min-height: 0; }
   /* Panel rechts, scrollt selbst. Bewusst NICHT positioniert: sonst wäre es der Bezug der
      absolut gesetzten Karte, und die Karte scrollte mit dem Panel mit. Die Sticky-Leiste

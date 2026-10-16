@@ -1038,13 +1038,48 @@ function downloadCsv(csv: string) {
 }
 
 // ── Einstiegsseite ───────────────────────────────────────────────────────────
+/** Aufklappbare Einstiegshilfe im Panel (Standard der Check-Apps): Schritte und Grenzen */
+function SoFunktionierts() {
+  return (
+    <details className="hilfe">
+      <summary>So funktioniert's</summary>
+      <ol>
+        <li><b>Stadt wählen:</b> Die Bewertung folgt den Vorgaben der gewählten Stadt (z.&nbsp;B. Masterplan Veloinfrastruktur
+          Bern); der Link unter der Auswahl führt zur Grundlage.</li>
+        <li><b>Strecke aufbauen:</b> auf die Karte klicken (nächstgelegenes Segment), einen Strassennamen eingeben und «Strasse
+          laden» oder «Segmente im Kartenausschnitt laden». Linien per Klick an- und abwählen (grau = nicht in der Strecke);
+          «Segment teilen» schneidet ein langes Segment an der angeklickten Stelle.</li>
+        <li><b>Übernehmen:</b> benachbarte Segmente gleicher Führungsform und gleichen Tempos werden zu Abschnitten gruppiert.</li>
+        <li><b>Abschnitte prüfen:</b> je Abschnitt stehen Führungsform, Tempo und weitere Angaben aus OpenStreetMap und dem
+          Geoportal der Stadt, mit Herkunft am Chip. Was nicht stimmt, lässt sich von Hand anpassen; die Bewertung rechnet sofort neu.</li>
+        <li><b>Luftbild (nur Bern):</b> Zeigt das Luftbild auf einer Seite einen Radstreifen, erscheint ein Hinweis zum
+          Übernehmen; eine Breite liefert er nicht. Die Breite lässt sich mit «📏 Am Luftbild messen» je Seite bestimmen:
+          Kartenhintergrund «Orthofoto» wählen, weit hineinzoomen und im Modus «Ab Bordsteinkante (AV)» auf die Markierung
+          klicken, bis zu der die Breite zählt; gemessen wird rechtwinklig bis zur Bordsteinkante der amtlichen Vermessung
+          (orange). Wo die AV keine Strassenfläche kennt, im Modus «Zwei Punkte» zuerst die Bordsteinkante und dann die
+          Markierung anklicken. «… m übernehmen» trägt den Wert ein, mit Herkunft «gemessen» am Chip.</li>
+        <li><b>Ergebnis lesen:</b> oben zwischen Schulnote (1 bis 6) und Erfüllungsgrad umschalten; die Bewertung gilt je Abschnitt
+          und für die ganze Strecke. «Als CSV exportieren» sichert die Bewertung als Datei.</li>
+      </ol>
+      <p><b>Grenzen</b></p>
+      <ul>
+        <li>Daten aus OpenStreetMap und den städtischen Geoportalen haben ihren eigenen Stand; fehlende oder falsche Angaben
+          müssen von Hand korrigiert werden.</li>
+        <li>Die Bewertung ist eine Einordnung nach den Vorgaben der Stadt, keine Beurteilung vor Ort. Vibecoding. Don't trust, verify!</li>
+      </ul>
+    </details>
+  )
+}
+
 function Landing({ onStart }: { onStart: () => void }) {
   return (
     <main style={{ maxWidth: 680, margin: '0 auto', padding: '24px 16px 56px',
                    fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text)' }}>
-      <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="VeloroutenCheck — zum Rechner"
+      <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="" aria-hidden="true"
            title="Zum Rechner" onClick={onStart}
            style={{ width: 225, maxWidth: '60%', display: 'block', margin: '8px auto 6px', cursor: 'pointer' }} />
+      <h1 className="start-titel">VeloroutenCheck</h1>
+      <p className="start-untertitel">Qualität der Veloinfrastruktur <span className="marke">Beta</span></p>
       <div style={{ textAlign: 'center', marginBottom: 22 }}>
         <button onClick={onStart}
                 style={{ border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer',
@@ -1136,6 +1171,12 @@ function Landing({ onStart }: { onStart: () => void }) {
             Ergebnisse. GitHub Pages loggt zudem serverseitig Zugriffe (IP, User-Agent), wie jeder Webserver.</li>
         </ul>
       </div>
+      <footer className="start-fuss">
+        VeloroutenCheck · Code &amp; eigene Inhalte unter{' '}
+        <a href="https://creativecommons.org/licenses/by-nc/4.0/deed.de" target="_blank" rel="noopener noreferrer">CC BY-NC 4.0</a>
+        {' '}(eingebundene Daten behalten ihre eigenen Lizenzen) ·{' '}
+        <a href="https://github.com/pnfzygrzgf-svg/VeloroutenCheck" target="_blank" rel="noopener noreferrer">Quellcode auf GitHub</a>
+      </footer>
     </main>
   )
 }
@@ -1676,27 +1717,7 @@ export default function App() {
     <AttribContext.Provider value={cityCfg.attribution}>
     <div className={view === 'rechner' ? 'vrc-app-rechner' : undefined}
          style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)' }}>
-      {/* Header (grün); Titel/Logo führen zur Einstiegsseite */}
-      <header className="vrc-header">
-        <div className="vrc-header-inner">
-          <span className="vrc-header-title" onClick={() => go('home')}
-                style={{ cursor: view !== 'home' ? 'pointer' : 'default' }}>VeloroutenCheck</span>
-          {view === 'rechner' && (
-            <button className="vrc-home-btn" onClick={() => go('home')}>← Startseite</button>
-          )}
-          <nav className="vrc-header-nav">
-            <a href="https://github.com/pnfzygrzgf-svg/VeloroutenCheck"
-               target="_blank" rel="noopener noreferrer">
-              <span className="nav-long">Quellcode: </span>GitHub
-            </a>
-            <span style={{ opacity: 0.5 }}>·</span>
-            <a href="https://creativecommons.org/licenses/by-nc/4.0/deed.de"
-               target="_blank" rel="noopener noreferrer">
-              <span className="nav-long">Lizenz: </span>CC BY-NC 4.0
-            </a>
-          </nav>
-        </div>
-      </header>
+      {/* Keine Kopfleiste (Standard der Check-Apps seit 16.10.2026): Logo, Name und Marke stehen im Panel bzw. auf der Startseite */}
 
       {view === 'home' && <Landing onStart={() => go('rechner')} />}
 
@@ -1706,13 +1727,13 @@ export default function App() {
       {view === 'rechner' && (
       <div className="vrc-rechner">
       <div className="vrc-panel" style={{ padding: '20px 16px 64px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-          <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="" width={40} height={40}
-               style={{ flexShrink: 0, cursor: 'pointer' }} onClick={() => go('home')} title="Zur Einstiegsseite" />
-          {/* Name steht schon im grünen Balken — die Überschrift bleibt nur für Bildschirmleser */}
-          <h1 style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden',
-                       clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0 }}>VeloroutenCheck</h1>
-        </div>
+        <h1 className="vrc-h1">
+          <button className="logo-knopf" onClick={() => go('home')} title="Zur Startseite" aria-label="Zur Startseite">
+            <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="" width={36} height={36} />
+          </button>
+          VeloroutenCheck <span className="marke">Beta</span>
+        </h1>
+        <SoFunktionierts />
 
       {/* Anzeige-Umschalter: Schulnote (1–6) ↔ vierstufiger Erfüllungsgrad. Rein darstellend. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
