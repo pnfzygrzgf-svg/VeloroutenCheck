@@ -7,10 +7,10 @@ import {
   type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
   type Stadt, type Strassentyp, type VergleichsNote,
 } from './fuehrungsform'
-import { VeloMap, ISTCOLOR, BREIT_MQ, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
+import { VeloMap, ISTCOLOR, BREIT_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
 import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeAv, avQuelle } from './av'
-import { bordkanten, messeAbKante, abstand, aufZentimeter, fahrbahnbreite, FANG_M, type Kante } from './breitenmessung'
+import { bordkanten, messeAbKante, abstand, aufZentimeter, fahrbahnbreite, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
 import type { AvFlaeche } from './av'
 import {
   candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
@@ -18,6 +18,14 @@ import {
   type Quelle, type QuelleFeld, type Section, type Seite, type SeitenQuelle,
 } from './strecke'
 import { bewerteAbschnitt, aufzaehlen, type AbschnittErgebnis } from './bewertung'
+import { QuerschnittSkizze, breiteCm } from './Querschnitt'
+import Bericht from './Bericht'
+import { ladeFussnetz, FUSSNETZ_GEOPORTAL } from './fussnetz'
+import {
+  bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, linksDerMitte, markierungenFuer, pruefungText, richtungenFuer, richtungVon, FUSSNETZ, mitTrottoirs, pruefeKernfahrbahn, pruefeTeil, standardBreite, startAufteilung, umfeldVon,
+  BILDER, BILD_LABEL, MARKIERUNG_LABEL, TEIL_ARTEN, TEIL_LABEL, RICHTWERT_QUELLE,
+  type Aufteilung, type Bild, type FussNetz, type Markierung, type Richtung, type Teil, type TeilArt, type TeilPruefung,
+} from './aufteilung'
 import { himmelsrichtung, peilung } from './geo'
 import { loadBboxCandidates, loadNearestCandidate, loadStreetCandidates, teileInListe, MIN_TEIL_M } from './osm'
 import { buildCsv, numDE, parseZahl } from './csv'
@@ -31,7 +39,7 @@ import { type OevInfo } from './bern'
 import { enrichObs, type ObsStats } from './obs'
 import { enrichVelostreifen, type VeloInfo } from './velostreifen'
 import { enrichLuftbild, LUFTBILD_SCHWELLE, type LuftbildInfo } from './luftbild'
-import { enrichParkierung, type ParkInfo, type ParkStadt } from './parkierung'
+import { enrichParkierung, ladeParkflaechen, PARK_MAX_M, PARK_QUELLE, type Box as ParkBox, type ParkFlaeche, type ParkInfo, type ParkStadt } from './parkierung'
 
 // ── Städte-Registry: pro Stadt die Datenquellen + Beschriftungen bündeln ───────
 // Alle Adapter (bern/zurich/basel/luzern/stgallen.ts) tragen dieselben Schnittstellen.
@@ -56,6 +64,8 @@ interface CityCfg {
   // Breite am Luftbild messen: Kanton der amtlichen Vermessung (geodienste.ch) für die Quellenangabe.
   // Fehlt er, gibt es die Messung nicht (Luzern: AV nur mit Freigabe).
   avKanton?: string
+  // Aufteilung planen (aufteilung.ts): vorerst nur Bern, die Richtwerte stammen aus dem Berner Masterplan.
+  aufteilung?: boolean
   breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>  // stadtspezifische Breiten-Sollwerte (sonst Bern)
   breitenQuelle?: string                          // Quellenangabe der stadtspez. Breiten (sonst „Masterplan Bern")
   standardDoc: { titel: string; url: string }     // massgebendes Grundlagendokument (Rechnerseite)
@@ -70,6 +80,7 @@ const CITIES: Record<CityId, CityCfg> = {
     velostreifenFile: 'velostreifen_bern.json',   // lokaler Snapshot; im öffentlichen Build nicht vorhanden
     luftbildFile: 'luftbild_bern.json',           // öffentlich (tools/luftbild_bern.py); nur Bern
     avKanton: 'Bern',                             // Breitenmessung (seit 15.10.2026)
+    aufteilung: true,                             // Aufteilung planen (seit 16.10.2026, Etappe 1)
     standardDoc: {
       titel: 'Standards Masterplans Veloinfrastruktur Stadt Bern',
       url: 'https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur',
@@ -278,9 +289,10 @@ function FieldLabel({ label, chip }: { label: string; chip?: React.ReactNode }) 
   )
 }
 
-function NumberField({ label, unit, value, onChange, chip }: {
+function NumberField({ label, unit, value, onChange, chip, kompakt }: {
   label: string; unit: string; value: number; onChange: (v: number) => void
   step?: number; chip?: React.ReactNode
+  kompakt?: boolean                     // ohne sichtbare Beschriftung, schmal (Zeilen der Aufteilung)
 }) {
   // Text-Feld mit lokalem Rohtext statt type="number": erlaubt das Komma («2,3») und
   // Tipp-Zwischenstände («2,»), ohne dass der Wert unterwegs zu 0 kollabiert.
@@ -293,11 +305,12 @@ function NumberField({ label, unit, value, onChange, chip }: {
     if (!gleich) setText(Number.isFinite(value) ? String(value).replace('.', ',') : '')
   }, [value])  // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 150 }}>
-      <FieldLabel label={label} chip={chip} />
+    <label style={kompakt ? { display: 'flex', width: 120, flexShrink: 0 }
+                          : { display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 150 }}>
+      {!kompakt && <FieldLabel label={label} chip={chip} />}
       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <input
-          type="text" inputMode="decimal" value={text}
+          type="text" inputMode="decimal" value={text} aria-label={kompakt ? label : undefined}
           onChange={e => { setText(e.target.value); onChange(parseZahl(e.target.value)) }}
           style={{
             width: '100%', padding: '8px 10px', borderRadius: 8,
@@ -320,6 +333,17 @@ const fieldStyle: React.CSSProperties = {
 const groupLabelStyle: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
   color: 'var(--text-muted)', marginBottom: 8,
+}
+
+// Ein- und ausklappbare Gruppe der Abschnittsmaske (Nutzerwunsch 16.10.2026: weniger scrollen).
+// Natives <details>, anfangs offen; der Zustand bleibt beim Neuzeichnen erhalten.
+function Klappe({ titel, children, stil }: { titel: React.ReactNode; children: React.ReactNode; stil?: React.CSSProperties }) {
+  return (
+    <details open className="vrc-klappe" style={stil}>
+      <summary style={{ ...groupLabelStyle, cursor: 'pointer', userSelect: 'none' }}>{titel}</summary>
+      {children}
+    </details>
+  )
 }
 
 // Kasten je Seite (Seite A / Seite B / Beide Seiten) in der Abschnittsmaske, mit Überschrift.
@@ -497,133 +521,139 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, modus, ci
                 3. Sonst stehen alle Abzüge, auch neben einem hinweis. Vorher verschwanden sie:
                    Basel «nicht konform» mit zu schmaler Breite zeigte eine Note unter 4, ohne
                    dass der Breitenabzug irgendwo stand. */}
-          {bewertung.hinweis ? (
-            <div style={{ marginTop: 6, fontWeight: 700 }}>⚠ {bewertung.hinweis}</div>
-          ) : (
-              <div style={{ marginTop: 4, opacity: 0.85 }}>
-                {ist === 'Umweltspur'
-                  // Basisnote aus dem Ergebnis, nicht hartkodiert: die Decke ist stadtabhängig
-                  // (Bern 5, übrige 4). Die Takt-Schwelle wird bewusst nicht genannt — sie ist
-                  // ebenfalls stadtabhängig, und liegt der Takt darunter, steht oben der hinweis
-                  // statt dieses Satzes.
-                  ? (Number.isFinite(felder.oevTakt)
-                      ? `öV-Takt ${felder.oevTakt} Min → Basis-Note ${bewertung.basisnote} (Decke); DTV/Tempo nicht massgebend.`
-                      : `Kein öV-Takt angegeben → als zulässig angenommen (Basis-Note ${bewertung.basisnote} = Decke); DTV/Tempo nicht massgebend. Für die Prüfung «zu hohe Busfrequenz» den Takt eintragen.`)
-                  : ist === 'Fussweg Velo gestattet'
-                    ? 'Mischfläche Fuss/Velo · Basis-Note 4 (max. «genügend»); DTV/Tempo nicht massgebend.'
-                    : bewertung.erfuellt
-                      ? 'Form erfüllt den Soll → Form-Note 6.'
-                      : `feel-safe-Defizit ${bewertung.defizit} Pkt. → Form-Note ${numDE(bewertung.basisnote, 1)}.`}
+          {/* Erklärung der Note einklappbar (Nutzerwunsch 16.10.2026); Soll und Ist bleiben sichtbar */}
+          <details style={{ marginTop: 4 }}>
+            <summary style={{ cursor: 'pointer', userSelect: 'none', fontSize: 12.5, opacity: 0.9 }}>
+              Details zur Note{bewertung.hinweis ? ' · ⚠ Hinweis' : ''}
+            </summary>
+            {bewertung.hinweis ? (
+              <div style={{ marginTop: 6, fontWeight: 700 }}>⚠ {bewertung.hinweis}</div>
+            ) : (
+                <div style={{ marginTop: 4, opacity: 0.85 }}>
+                  {ist === 'Umweltspur'
+                    // Basisnote aus dem Ergebnis, nicht hartkodiert: die Decke ist stadtabhängig
+                    // (Bern 5, übrige 4). Die Takt-Schwelle wird bewusst nicht genannt — sie ist
+                    // ebenfalls stadtabhängig, und liegt der Takt darunter, steht oben der hinweis
+                    // statt dieses Satzes.
+                    ? (Number.isFinite(felder.oevTakt)
+                        ? `öV-Takt ${felder.oevTakt} Min → Basis-Note ${bewertung.basisnote} (Decke); DTV/Tempo nicht massgebend.`
+                        : `Kein öV-Takt angegeben → als zulässig angenommen (Basis-Note ${bewertung.basisnote} = Decke); DTV/Tempo nicht massgebend. Für die Prüfung «zu hohe Busfrequenz» den Takt eintragen.`)
+                    : ist === 'Fussweg Velo gestattet'
+                      ? 'Mischfläche Fuss/Velo · Basis-Note 4 (max. «genügend»); DTV/Tempo nicht massgebend.'
+                      : bewertung.erfuellt
+                        ? 'Form erfüllt den Soll → Form-Note 6.'
+                        : `feel-safe-Defizit ${bewertung.defizit} Pkt. → Form-Note ${numDE(bewertung.basisnote, 1)}.`}
+                </div>
+            )}
+            {bewertung.kapTramNote1 && (
+              <div style={{ marginTop: 6, opacity: 0.9 }}>
+                <strong>Kaphaltestelle an Tram-Haltestelle:</strong> Note 1 — Schiene im schmalen
+                Abstand zur hohen Haltekante, ohne bauliche Trennung (überschreibt alle anderen Regeln)
               </div>
-          )}
-          {bewertung.kapTramNote1 && (
-            <div style={{ marginTop: 6, opacity: 0.9 }}>
-              <strong>Kaphaltestelle an Tram-Haltestelle:</strong> Note 1 — Schiene im schmalen
-              Abstand zur hohen Haltekante, ohne bauliche Trennung (überschreibt alle anderen Regeln)
-            </div>
-          )}
-          {!bewertung.noteFix && !bewertung.kapTramNote1 && (
-            <>
-              {/* warnung steht ZUSÄTZLICH zur Erklärung. */}
-              {bewertung.warnung && (
-                <div style={{ marginTop: 4, fontWeight: 700 }}>⚠ {bewertung.warnung}</div>
-              )}
-              {bewertung.sollbreite == null ? (
-                <div style={{ marginTop: 6, opacity: 0.75 }}>Keine Breitenvorgabe für diese Form.</div>
-              ) : bewertung.breite == null ? (
-                <div style={{ marginTop: 6, opacity: 0.9 }}>
-                  <strong>Breite:</strong> nicht angegeben · Vorgabe{' '}
-                  {bewertung.maxbreite != null
-                    ? `${numDE(bewertung.sollbreite, 2)}–${numDE(bewertung.maxbreite, 2)} m`
-                    : `${bezugLabel} ${numDE(bewertung.sollbreite, 2)} m`}
-                  {` (Quelle: ${breitenQuelle})`}
-                  {!routentyp && ' · Routentyp wählen'}
-                </div>
-              ) : (
-                <div style={{ marginTop: 6, opacity: 0.9 }}>
-                  <strong>Breite:</strong> {numDE(bewertung.breite, 2)} m · Vorgabe{' '}
-                  {bewertung.maxbreite != null
-                    ? `${numDE(bewertung.sollbreite, 2)}–${numDE(bewertung.maxbreite, 2)} m`
-                    : `${bezugLabel} ${numDE(bewertung.sollbreite, 2)} m`}
-                  {` (Quelle: ${breitenQuelle})`}
-                  {' · '}
-                  {bewertung.breiteErfuellt
-                    ? '✓ erfüllt'
-                    : `${bewertung.breitenStatus} (${numDE(bewertung.breitenDefizit, 2)} m) → Abzug ${numDE(bewertung.breitenabzug, 1)} Note`}
-                </div>
-              )}
-              {city === 'basel' && ist === 'Velostrasse' && bewertung.sollbreite != null && (
-                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
-                  Nettobreite der Fahrbahn (ohne Parkierung und Sicherheitsabstand zur Parkierung).
-                </div>
-              )}
-              {city === 'bern' && ist === 'Velostrasse' && (
-                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
-                  Einsatzbereich: Nebenstrasse mit übergeordneter Velobedeutung, viel Veloverkehr,
-                  wenig MIV und ohne ÖV.
-                  {bewertung.sollbreite != null && (
-                    <> Die Breitenvorgabe ist die Nettobreite der Fahrbahn (ohne Parkierung).</>
-                  )}
-                </div>
-              )}
-              {city === 'luzern' && ist === 'Velostrasse' && (
-                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
-                  Einsatzbereich: bei gebündelter Velonutzung auf Quartierstrassen in
-                  Tempo-30-Zonen; bei geringer MIV-Belastung und hohem Veloanteil (&gt; 50 %).
-                </div>
-              )}
-              {city === 'zurich' && ist === 'Velostrasse' && (
-                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
-                  Velostrasse: im Zürcher Grundlagenpapier nicht vorgesehen.
-                </div>
-              )}
-              {bewertung.parkenAbzug > 0 && (
-                <div style={{ marginTop: 6, opacity: 0.9 }}>
-                  <strong>Parkierung rechts (Dooring):</strong> Abzug{' '}
-                  {numDE(bewertung.parkenAbzug, 1)} Note
-                </div>
-              )}
-              {bewertung.parkenRechts === 'ja' && bewertung.parkenSicherheitsstreifen && (
-                <div style={{ marginTop: 6, opacity: 0.9 }}>
-                  <strong>Parkierung rechts (Dooring):</strong> Sicherheitsstreifen (SN 640 060) vorhanden → kein Abzug
-                </div>
-              )}
-              {bewertung.tramDeckel != null && (
-                <div style={{ marginTop: 6, opacity: 0.9 }}>
-                  <strong>Tram in der Fahrbahn:</strong> Note höchstens{' '}
-                  {numDE(bewertung.tramDeckel, 0)} (Schienen im Mischverkehr)
-                </div>
-              )}
-              {bewertung.sollHaltestelle && (
-                <div style={{ marginTop: 6, opacity: 0.9 }}>
-                  <strong>Haltestelle:</strong> Soll {bewertung.sollHaltestelle}
-                  {bewertung.haltestelleStatus === 'kompatibel' &&
-                    ` · ${felder.haltestellentyp} ✓ kompatibel`}
-                  {bewertung.haltestelleStatus === 'inkompatibel' &&
-                    ` · ${felder.haltestellentyp} ✗ → Abzug ${numDE(bewertung.haltestelleAbzug, 1)} Note`}
-                  {bewertung.haltestelleStatus === 'pruefen' &&
-                    ` · Haltestellentyp wählen. Kompatibel: ${bewertung.kompatibleHaltestellen.join(', ')}`}
-                  {bewertung.haltestelleStatus === 'inkompatibel' && (
-                    <div style={{ fontSize: 12, opacity: 0.85 }}>
-                      Kompatibel wären: {bewertung.kompatibleHaltestellen.join(', ')}
-                    </div>
-                  )}
-                </div>
-              )}
-              {bewertung.hsBreitenSoll != null && (
-                <div style={{ marginTop: 6, opacity: 0.9 }}>
-                  <strong>Breite Haltestelle:</strong>{' '}
-                  {bewertung.haltestelleBreite != null
-                    ? `${numDE(bewertung.haltestelleBreite, 2)} m`
-                    : 'nicht angegeben'} · Vorgabe{' '}
-                  {bezugLabel} {numDE(bewertung.hsBreitenSoll, 2)} m
-                  {bewertung.haltestelleBreite != null && (' · ' + (bewertung.hsBreiteStatus === 'erfuellt'
-                    ? '✓ erfüllt'
-                    : `zu schmal → Abzug ${numDE(bewertung.hsBreitenabzug, 1)} Note`))}
-                </div>
-              )}
-            </>
-          )}
+            )}
+            {!bewertung.noteFix && !bewertung.kapTramNote1 && (
+              <>
+                {/* warnung steht ZUSÄTZLICH zur Erklärung. */}
+                {bewertung.warnung && (
+                  <div style={{ marginTop: 4, fontWeight: 700 }}>⚠ {bewertung.warnung}</div>
+                )}
+                {bewertung.sollbreite == null ? (
+                  <div style={{ marginTop: 6, opacity: 0.75 }}>Keine Breitenvorgabe für diese Form.</div>
+                ) : bewertung.breite == null ? (
+                  <div style={{ marginTop: 6, opacity: 0.9 }}>
+                    <strong>Breite:</strong> nicht angegeben · Vorgabe{' '}
+                    {bewertung.maxbreite != null
+                      ? `${numDE(bewertung.sollbreite, 2)}–${numDE(bewertung.maxbreite, 2)} m`
+                      : `${bezugLabel} ${numDE(bewertung.sollbreite, 2)} m`}
+                    {` (Quelle: ${breitenQuelle})`}
+                    {!routentyp && ' · Routentyp wählen'}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 6, opacity: 0.9 }}>
+                    <strong>Breite:</strong> {numDE(bewertung.breite, 2)} m · Vorgabe{' '}
+                    {bewertung.maxbreite != null
+                      ? `${numDE(bewertung.sollbreite, 2)}–${numDE(bewertung.maxbreite, 2)} m`
+                      : `${bezugLabel} ${numDE(bewertung.sollbreite, 2)} m`}
+                    {` (Quelle: ${breitenQuelle})`}
+                    {' · '}
+                    {bewertung.breiteErfuellt
+                      ? '✓ erfüllt'
+                      : `${bewertung.breitenStatus} (${numDE(bewertung.breitenDefizit, 2)} m) → Abzug ${numDE(bewertung.breitenabzug, 1)} Note`}
+                  </div>
+                )}
+                {city === 'basel' && ist === 'Velostrasse' && bewertung.sollbreite != null && (
+                  <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
+                    Nettobreite der Fahrbahn (ohne Parkierung und Sicherheitsabstand zur Parkierung).
+                  </div>
+                )}
+                {city === 'bern' && ist === 'Velostrasse' && (
+                  <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
+                    Einsatzbereich: Nebenstrasse mit übergeordneter Velobedeutung, viel Veloverkehr,
+                    wenig MIV und ohne ÖV.
+                    {bewertung.sollbreite != null && (
+                      <> Die Breitenvorgabe ist die Nettobreite der Fahrbahn (ohne Parkierung).</>
+                    )}
+                  </div>
+                )}
+                {city === 'luzern' && ist === 'Velostrasse' && (
+                  <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
+                    Einsatzbereich: bei gebündelter Velonutzung auf Quartierstrassen in
+                    Tempo-30-Zonen; bei geringer MIV-Belastung und hohem Veloanteil (&gt; 50 %).
+                  </div>
+                )}
+                {city === 'zurich' && ist === 'Velostrasse' && (
+                  <div style={{ marginTop: 4, opacity: 0.75, fontSize: 12.5 }}>
+                    Velostrasse: im Zürcher Grundlagenpapier nicht vorgesehen.
+                  </div>
+                )}
+                {bewertung.parkenAbzug > 0 && (
+                  <div style={{ marginTop: 6, opacity: 0.9 }}>
+                    <strong>Parkierung rechts (Dooring):</strong> Abzug{' '}
+                    {numDE(bewertung.parkenAbzug, 1)} Note
+                  </div>
+                )}
+                {bewertung.parkenRechts === 'ja' && bewertung.parkenSicherheitsstreifen && (
+                  <div style={{ marginTop: 6, opacity: 0.9 }}>
+                    <strong>Parkierung rechts (Dooring):</strong> Sicherheitsstreifen (SN 640 060) vorhanden → kein Abzug
+                  </div>
+                )}
+                {bewertung.tramDeckel != null && (
+                  <div style={{ marginTop: 6, opacity: 0.9 }}>
+                    <strong>Tram in der Fahrbahn:</strong> Note höchstens{' '}
+                    {numDE(bewertung.tramDeckel, 0)} (Schienen im Mischverkehr)
+                  </div>
+                )}
+                {bewertung.sollHaltestelle && (
+                  <div style={{ marginTop: 6, opacity: 0.9 }}>
+                    <strong>Haltestelle:</strong> Soll {bewertung.sollHaltestelle}
+                    {bewertung.haltestelleStatus === 'kompatibel' &&
+                      ` · ${felder.haltestellentyp} ✓ kompatibel`}
+                    {bewertung.haltestelleStatus === 'inkompatibel' &&
+                      ` · ${felder.haltestellentyp} ✗ → Abzug ${numDE(bewertung.haltestelleAbzug, 1)} Note`}
+                    {bewertung.haltestelleStatus === 'pruefen' &&
+                      ` · Haltestellentyp wählen. Kompatibel: ${bewertung.kompatibleHaltestellen.join(', ')}`}
+                    {bewertung.haltestelleStatus === 'inkompatibel' && (
+                      <div style={{ fontSize: 12, opacity: 0.85 }}>
+                        Kompatibel wären: {bewertung.kompatibleHaltestellen.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {bewertung.hsBreitenSoll != null && (
+                  <div style={{ marginTop: 6, opacity: 0.9 }}>
+                    <strong>Breite Haltestelle:</strong>{' '}
+                    {bewertung.haltestelleBreite != null
+                      ? `${numDE(bewertung.haltestelleBreite, 2)} m`
+                      : 'nicht angegeben'} · Vorgabe{' '}
+                    {bezugLabel} {numDE(bewertung.hsBreitenSoll, 2)} m
+                    {bewertung.haltestelleBreite != null && (' · ' + (bewertung.hsBreiteStatus === 'erfuellt'
+                      ? '✓ erfüllt'
+                      : `zu schmal → Abzug ${numDE(bewertung.hsBreitenabzug, 1)} Note`))}
+                  </div>
+                )}
+              </>
+            )}
+          </details>
         </div>
       </div>
       )}
@@ -659,13 +689,355 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, modus, ci
   )
 }
 
+// ── Aufteilung planen (Etappe 1, nur Bern; aufteilung.ts) ────────────────────
+// Der Querschnitt wird von Hand aus Teilen zusammengestellt; die App schlägt nichts vor
+// (Nutzerentscheid 16.10.2026). Sie zeigt die Bilanz gegen die verfügbare Fahrbahnbreite, die
+// Prüfung je Teil und die Note mit dieser Aufteilung neben der von heute (dieselbe Bewertung).
+const TEIL_FARBE: Record<TeilPruefung['status'], string> = {
+  ok: '#15803d', 'zu schmal': '#b91c1c', 'zu breit': '#b91c1c', 'unter Richtwert': '#a16207', leer: '#9a3412',
+  'keine Vorgabe': 'var(--text-muted)',
+}
+
+// AV auf der Karte während der Planung (nur Karten-Abschnitte in Städten mit AV)
+interface PlanAv { gezeigt: boolean; laden: boolean; park: boolean; zeigen: () => void; ausblenden: () => void }
+const AV_LEGENDE: [string, string][] = [['Strasse_Weg', 'Strasse'], ['Trottoir', 'Trottoir'], ['Verkehrsinsel', 'Verkehrsinsel'], ['Gebaeude', 'Gebäude']]
+
+function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, onFahrbahnbreite, fbLaden, onBericht }: {
+  section: Section
+  heute: AbschnittErgebnis               // Bewertung des Abschnitts wie eingegeben
+  city: CityId
+  modus: 'note' | 'erfuellung'
+  rA: string | null; rB: string | null   // Fahrtrichtung der Seiten (ausgeschrieben), falls bekannt
+  onChange: (a: Aufteilung | undefined) => void
+  av?: PlanAv
+  onFahrbahnbreite?: () => void           // verfügbare Fahrbahnbreite aus der AV (Median der Querschnitte)
+  fbLaden?: boolean
+  onBericht?: () => void                  // Bericht (Druckansicht, als PDF) öffnen
+}) {
+  const a = section.aufteilung
+  // Ziehen einer Zeile (Drag and Drop): gezogenes Teil und Zeile, über der es gerade schwebt
+  const [zieh, setZieh] = useState<number | null>(null)
+  const [ueber, setUeber] = useState<number | null>(null)
+  const kopf = <div style={groupLabelStyle}>Aufteilung planen</div>
+  // Einstieg hervorgehoben (Nutzerbefund 16.10.2026: als graue Zeile am Kartenende schlecht
+  // auffindbar); dazu der Knopf in der Kopfzeile der Abschnittskarte.
+  if (!a) return (
+    <div id={`plan-${section.id}`} style={{ marginTop: 16, padding: '12px 14px', borderRadius: 10, scrollMarginTop: 64,
+                                           background: '#f0fdfa', border: '1px solid #99f6e4' }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-strong)' }}>Neue Aufteilung der Strasse planen</div>
+          <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)', marginTop: 2 }}>
+            Den Querschnitt neu aufteilen und prüfen: Fahrspuren, Velostreifen, Parkierung … Ausgangslage ist der
+            Querschnitt von heute; welche Teile wie breit werden, legt man selbst fest. Die Note mit der neuen
+            Aufteilung steht neben der von heute.
+          </div>
+        </div>
+        <button type="button" onClick={() => { onChange(startAufteilung(section)); av?.zeigen() }}
+                style={{ border: 'none', background: 'var(--accent)', color: '#fff', borderRadius: 8,
+                         padding: '8px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+          Aufteilung planen
+        </button>
+      </div>
+    </div>
+  )
+
+  const breiten = CITIES[city].breiten
+  const rt: Routentyp = section.routentyp || 'Veloroute'
+  const umfeld = umfeldVon(section, a.teile, a.fussnetz)
+  const einbahn = section.richtung === 'eine'
+  const links = linksDerMitte(a.teile)
+  const richtungText = (r: Richtung) => (r === 'beide' ? 'beide Richtungen (Gegenverkehr)'
+    : r === 'A' ? `Richtung Seite A${rA ? ` (${rA})` : ''}, von hinten` : `Richtung Seite B${rB ? ` (${rB})` : ''}, von vorne`)
+  const vorgabe = (art: TeilArt, bild?: Bild) => standardBreite({ art, breite: NaN, bild }, rt, breiten, umfeld)
+  // Anderes Bild: Hatte das Teil noch die vorbelegte Breite, gilt die des neuen Bilds (Lastwagen 3,50 statt 3,00).
+  const bildWechsel = (i: number, t: Teil, bild: Bild) => {
+    const alt = vorgabe(t.art, t.bild)
+    aendere(i, { ...t, bild, breite: Math.abs(t.breite - alt) < 1e-9 ? vorgabe(t.art, bild) : t.breite })
+  }
+  const setTeile = (teile: Teil[]) => onChange({ ...a, teile })
+  const aendere = (i: number, t: Teil) => setTeile(a.teile.map((x, j) => (j === i ? t : x)))
+  const einfuegen = (an: number, art: TeilArt) => {
+    if (!art) return
+    const t = [...a.teile]; t.splice(an, 0, { art, breite: vorgabe(art) })
+    setTeile(t)
+  }
+  const schiebe = (i: number, d: number) => {
+    const j = i + d
+    if (j < 0 || j >= a.teile.length) return
+    const t = [...a.teile];[t[i], t[j]] = [t[j], t[i]]
+    setTeile(t)
+  }
+  // Teil von «von» an die Stelle «nach» setzen (die übrigen rücken nach)
+  const verschiebe = (von: number, nach: number) => {
+    if (von === nach) return
+    const t = [...a.teile], [x] = t.splice(von, 1)
+    t.splice(nach, 0, x)
+    setTeile(t)
+  }
+  const ziehEnde = () => { setZieh(null); setUeber(null) }
+  const ausgang = startAufteilung(section)
+  const massstab = Math.max(breiteCm(ausgang.teile), breiteCm(a.teile))
+  const aq = mitSeitenraum(a, section), b = bilanz(aq), bt = bilanzText(aq, b)
+  const plan = bewerteAufteilung(section, a, city, breiten)
+  const planFehlt = [...new Set(plan.seiten.flatMap(se => se.fehlt))]
+  const kern = pruefeKernfahrbahn(section, a.teile)
+  const NoteMarke = ({ note }: { note: number | null }) => note == null
+    ? <span style={{ fontWeight: 700, color: 'var(--text-muted)' }}>—</span>
+    : <span style={{ background: noteColor(note).bg, color: noteColor(note).fg, borderRadius: 8,
+                     padding: '3px 10px', fontWeight: 800, fontSize: 15, whiteSpace: 'nowrap' }}>
+        {modus === 'erfuellung' ? erfuellungsgrad(note) : numDE(note, 1)}
+      </span>
+  const seiteName = (s: 'A' | 'B') => (s === 'A' ? `Seite A${rA ? ` (Richtung ${rA})` : ''}` : `Seite B${rB ? ` (Richtung ${rB})` : ''}`)
+  const formText = (f: Seite) => `${f.ist || '—'}${Number.isFinite(f.breite) ? ` ${numDE(f.breite, 2)} m` : ''}` +
+    `${f.parkenRechts === 'ja' ? ', neben Parkierung' : ''}`
+
+  return (
+    <div id={`plan-${section.id}`} style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)', scrollMarginTop: 64 }}>
+      {kopf}
+      <div style={{ ...seiteKastenStyle, marginTop: 0 }}>
+        <div style={kastenKopfStyle}>
+          <NumberField label="Verfügbare Fahrbahnbreite ohne Randsteinanpassung (Bordstein–Bordstein)" unit="m" value={a.fahrbahn} step={0.1}
+                       onChange={v => onChange({ ...a, fahrbahn: v })} />
+          <NumberField label="Heute ausserhalb der Fahrbahn (Trottoirs beider Seiten)" unit="m" value={aq.seitenraum ?? NaN} step={0.1}
+                       onChange={v => onChange({ ...a, seitenraum: v })} />
+          {/* Fussverkehrsnetz: bestimmt die Mindestbreite der Trottoirs (Masterplan Fussverkehr) */}
+          <label style={{ ...fieldStyle, flex: '1 1 200px' }}>
+            <FieldLabel label="Fussverkehrsnetz (Vorgabe Trottoir)" />
+            <select value={a.fussnetz ?? ''} style={selectStyle}
+                    onChange={e => onChange({ ...a, fussnetz: (e.target.value || undefined) as FussNetz | undefined, fussnetzQuelle: undefined })}>
+              <option value="">— nicht gewählt —</option>
+              {(Object.keys(FUSSNETZ) as FussNetz[]).map(k => (
+                <option key={k} value={k}>{FUSSNETZ[k].label} (≥ {numDE(FUSSNETZ[k].min, 2)} m)</option>
+              ))}
+            </select>
+            {a.fussnetzQuelle === 'geoportal' && (
+              <span style={{ fontSize: 11.5, color: 'var(--text-muted-strong)' }}>
+                Aus dem Richtplan Fussverkehr ({a.fussnetz === 'basis' ? 'auf dem Basisnetz' : 'nicht auf dem Basisnetz'}).
+                «Publikumsintensiv» steht nicht in den Daten und ist von Hand zu wählen.
+              </span>
+            )}
+          </label>
+          {onFahrbahnbreite && (
+            <button type="button" onClick={onFahrbahnbreite} disabled={fbLaden}
+                    title="Aus der amtlichen Vermessung: Median der Querschnitte alle 5 m entlang des Abschnitts"
+                    style={{ ...kleinKnopfStyle, padding: '8px 10px', alignSelf: 'flex-end', cursor: fbLaden ? 'default' : 'pointer' }}>
+              {fbLaden ? 'Ermittle …' : 'aus AV ermitteln'}
+            </button>
+          )}
+          <span style={{ flex: 1 }} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', alignSelf: 'flex-end' }}>
+            {onBericht && (
+              <button type="button" onClick={onBericht} style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                      title="Druckansicht mit Luftbild, Skizzen, Prüfung, Bewertung und Quellen; als PDF speichern über den Druckdialog">
+                Bericht / PDF
+              </button>
+            )}
+            <button type="button" onClick={() => onChange(startAufteilung(section))} style={kleinKnopfStyle}
+                    title="Eigene Änderungen verwerfen und wieder vom Querschnitt von heute ausgehen">
+              Auf heute zurücksetzen
+            </button>
+            <button type="button" onClick={() => onChange(undefined)} style={kleinKnopfStyle}>
+              Planung verwerfen
+            </button>
+          </div>
+        </div>
+        {/* AV auf der Karte: Bestand zum Ablesen der Aufteilung */}
+        {av && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8, fontSize: 12.5 }}>
+            <button type="button" onClick={av.gezeigt ? av.ausblenden : av.zeigen} disabled={av.laden}
+                    style={{ ...kleinKnopfStyle, cursor: av.laden ? 'default' : 'pointer' }}>
+              {av.laden ? 'Lade AV …' : av.gezeigt ? 'AV auf der Karte ausblenden' : 'AV auf der Karte zeigen'}
+            </button>
+            {av.gezeigt && [...AV_LEGENDE.map(([art, text]) => [AV_FARBEN[art], text]),
+                            ...(av.park ? [[PARK_FARBE, 'Parkfeld'], [PARKVERBOT_FARBE, 'Parkverbotsfeld']] : [])].map(([farbe, text]) => (
+              <span key={text} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--text-muted-strong)' }}>
+                <span style={{ width: 12, height: 12, borderRadius: 2, background: farbe, border: '1px solid rgba(0,0,0,0.25)' }} />
+                {text}
+              </span>
+            ))}
+          </div>
+        )}
+        <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)', marginBottom: 8 }}>
+          Reihenfolge von links nach rechts, in Fahrtrichtung der Seite A{rA ? ` (Richtung ${rA})` : ''} gesehen:
+          links der Rand der Seite B, rechts der Rand der Seite A.
+        </div>
+
+        {/* Skizze: heute und Planung untereinander, im selben Massstab */}
+        <div style={{ background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '6px 10px', marginBottom: 10 }}>
+          <QuerschnittSkizze titel="Heute" teile={ausgang.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} />
+          <QuerschnittSkizze titel="Planung" teile={a.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} />
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            «Heute» ist die Ausgangslage aus den Eingaben des Abschnitts{section.trottoir ? ' und den Trottoirs aus der AV' : ''}.
+            Illustrationen (Personen, Velos, Fahrzeuge vom Auto bis zum Tram, Ausstattung, Markierungen): <a href="https://streetmix.net" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>Streetmix</a>,{' '}
+            <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.de" target="_blank" rel="noopener noreferrer"
+               style={{ color: 'inherit' }}>CC BY-SA 4.0</a>.
+          </div>
+        </div>
+
+        {/* Teile: ziehen am Griff ⠿ (Drag and Drop) oder mit den Pfeilen verschieben */}
+        {a.teile.map((t, i) => {
+          const p = pruefeTeil(t, rt, breiten, umfeld)
+          const bilder = BILDER[t.art]
+          const marks = markierungenFuer(t.art)
+          const richtungen = richtungenFuer(t.art, einbahn)
+          return (
+            <div key={i}
+                 onDragOver={e => { if (zieh == null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (ueber !== i) setUeber(i) }}
+                 onDrop={e => { e.preventDefault(); if (zieh != null) verschiebe(zieh, i); ziehEnde() }}
+                 style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '6px 0',
+                          opacity: zieh === i ? 0.45 : 1,
+                          borderTop: ueber === i && zieh != null && zieh > i ? '2px solid var(--accent)'
+                            : i ? '1px solid var(--border-subtle)' : '2px solid transparent',
+                          borderBottom: ueber === i && zieh != null && zieh < i ? '2px solid var(--accent)' : '2px solid transparent' }}>
+              <span draggable title="Ziehen zum Verschieben" aria-hidden
+                    onDragStart={e => {
+                      setZieh(i); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i))
+                      const zeile = e.currentTarget.parentElement
+                      if (zeile) e.dataTransfer.setDragImage(zeile, 12, 16)
+                    }}
+                    onDragEnd={ziehEnde}
+                    style={{ cursor: 'grab', fontSize: 16, color: 'var(--text-muted)', padding: '0 2px', userSelect: 'none' }}>⠿</span>
+              <span style={{ width: 18, fontSize: 12, color: 'var(--text-muted)', textAlign: 'right' }}>{i + 1}</span>
+              <select value={t.art} aria-label={`Teil ${i + 1}`} style={{ ...selectStyle, flex: '1 1 200px', minWidth: 0 }}
+                      onChange={e => { const art = e.target.value as TeilArt; aendere(i, { art, breite: vorgabe(art) }) }}>
+                {TEIL_ARTEN.map(x => <option key={x} value={x}>{TEIL_LABEL[x]}</option>)}
+              </select>
+              <NumberField kompakt label={`Breite Teil ${i + 1}`} unit="m" value={t.breite} step={0.05}
+                           onChange={v => aendere(i, { ...t, breite: v, angenommen: undefined })} />
+              {/* Bild (was darauf steht) und Markierung, wo es eine Wahl gibt */}
+              {bilder && (
+                <select value={bildVon(t)} aria-label={`Bild Teil ${i + 1}`} title="Was auf dem Teil steht (Skizze; bei der Fahrspur auch die Vorgabe)"
+                        onChange={e => bildWechsel(i, t, e.target.value as Bild)} style={{ ...selectStyle, flex: '0 1 150px', minWidth: 0 }}>
+                  {bilder.map(b => <option key={b} value={b}>{BILD_LABEL[b]}</option>)}
+                </select>
+              )}
+              {marks.length > 0 && (
+                <select value={t.markierung && marks.includes(t.markierung) ? t.markierung : 'keine'} aria-label={`Markierung Teil ${i + 1}`}
+                        title="Markierung auf dem Teil (Skizze)"
+                        onChange={e => aendere(i, { ...t, markierung: e.target.value as Markierung })}
+                        style={{ ...selectStyle, flex: '0 1 160px', minWidth: 0 }}>
+                  {marks.map(m => <option key={m} value={m}>{MARKIERUNG_LABEL[m]}</option>)}
+                </select>
+              )}
+              {richtungen.length > 1 && (
+                <select value={richtungVon(t, links[i], einbahn)} aria-label={`Richtung Teil ${i + 1}`}
+                        title="Fahrtrichtung (Skizze: Fahrzeug von vorne oder hinten, Richtung der Pfeile)"
+                        onChange={e => aendere(i, { ...t, richtung: e.target.value as Richtung })}
+                        style={{ ...selectStyle, flex: '0 1 220px', minWidth: 0 }}>
+                  {richtungen.map(r => <option key={r} value={r}>{richtungText(r)}</option>)}
+                </select>
+              )}
+              <span style={{ display: 'flex', gap: 4 }}>
+                <button type="button" onClick={() => schiebe(i, -1)} disabled={i === 0} style={kleinKnopfStyle}
+                        aria-label={`Teil ${i + 1} nach links`} title="nach links">←</button>
+                <button type="button" onClick={() => schiebe(i, 1)} disabled={i === a.teile.length - 1} style={kleinKnopfStyle}
+                        aria-label={`Teil ${i + 1} nach rechts`} title="nach rechts">→</button>
+                <button type="button" onClick={() => setTeile(a.teile.filter((_, j) => j !== i))} style={kleinKnopfStyle}
+                        aria-label={`Teil ${i + 1} entfernen`} title="entfernen">✕</button>
+                {/* Einfügen direkt rechts dieses Teils; die Art wird gleich hier gewählt (vorher kam
+                    jedes neue Teil an den rechten Rand und musste verschoben werden, Nutzerbefund 16.10.2026). */}
+                <select value="" onChange={e => einfuegen(i + 1, e.target.value as TeilArt)}
+                        aria-label={`Neues Teil rechts von Teil ${i + 1} einfügen`} title="Neues Teil rechts davon einfügen"
+                        style={{ ...kleinKnopfStyle, width: 40, textAlign: 'center' }}>
+                  <option value="" disabled hidden>＋</option>
+                  {TEIL_ARTEN.map(x => <option key={x} value={x}>{TEIL_LABEL[x]}</option>)}
+                </select>
+              </span>
+              <span style={{ flex: '1 1 100%', paddingLeft: 26, fontSize: 12.5, fontWeight: 600, color: TEIL_FARBE[p.status] }}>
+                {pruefungText(t, p)}
+                {t.angenommen && (
+                  <span style={{ display: 'block', fontWeight: 500, color: '#92400e' }}>
+                    Breite heute unbekannt (keine Angabe in OSM, nicht gemessen): Vorgabe eingesetzt. Am Luftbild messen
+                    («📏 Am Luftbild messen» bei der Seite) und «Auf heute zurücksetzen» oder hier eintragen.
+                  </span>
+                )}
+              </span>
+            </div>
+          )
+        })}
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+          {a.teile.length ? (
+            <>Neues Teil: «＋» in der Zeile fügt es rechts davon ein; ganz links:{' '}
+              <select value="" onChange={e => einfuegen(0, e.target.value as TeilArt)} aria-label="Neues Teil ganz links einfügen"
+                      style={{ ...kleinKnopfStyle, width: 40, textAlign: 'center' }}>
+                <option value="" disabled hidden>＋</option>
+                {TEIL_ARTEN.map(x => <option key={x} value={x}>{TEIL_LABEL[x]}</option>)}
+              </select></>
+          ) : (
+            <select value="" onChange={e => einfuegen(0, e.target.value as TeilArt)} aria-label="Teil hinzufügen" style={selectStyle}>
+              <option value="" disabled hidden>+ Teil hinzufügen …</option>
+              {TEIL_ARTEN.map(x => <option key={x} value={x}>{TEIL_LABEL[x]}</option>)}
+            </select>
+          )}
+        </div>
+
+        {/* Bilanz über den ganzen Querschnitt (bilanz, bilanzText) */}
+        <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, fontSize: 13,
+                      ...(bt.fehlmass
+                        ? { background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b' }
+                        : { background: '#fff', border: '1px solid var(--border-subtle)', color: 'var(--text)' }) }}>
+          {bt.kopf} · <strong>{bt.ergebnis}</strong>
+          {bt.zusatz.length > 0 && <span style={{ fontSize: 12 }}> · {bt.zusatz.join(' · ')}</span>}
+        </div>
+
+        {/* Kernfahrbahn: Bedingungen des Masterplans (Q 5) */}
+        {kern.length > 0 && (
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
+                        ...(kern.some(k => k.streng)
+                          ? { background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b' }
+                          : { background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }) }}>
+            <strong>Kernfahrbahn:</strong>
+            <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+              {kern.map(k => <li key={k.text}>{k.text}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {/* Note mit der Aufteilung neben der von heute */}
+        <div style={{ marginTop: 12, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
+          <span>Heute <NoteMarke note={heute.note} /></span>
+          <span>Mit dieser Aufteilung <NoteMarke note={plan.note} /></span>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+          {plan.seiten.map(se => (
+            <div key={se.seite}>
+              {plan.seiten.length > 1 || section.richtung === 'eine' ? seiteName(se.seite) : 'Beide Seiten'}: {formText(se.felder)}
+              {plan.seiten.length > 1 && se.bewertung && <> → {modus === 'erfuellung' ? erfuellungsgrad(se.bewertung.note) : numDE(se.bewertung.note, 1)}</>}
+            </div>
+          ))}
+          {plan.note == null && planFehlt.length > 0 && <div>Für die Note fehlt: {aufzaehlen(planFehlt)}.</div>}
+          {Number.isFinite(b.rest) && b.rest < -0.005 &&
+            <div style={{ color: '#991b1b' }}>Die Teile haben im verfügbaren Querschnitt keinen Platz; die Note setzt voraus, dass sie passen.</div>}
+        </div>
+        <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--text-muted)' }}>
+          Trottoirs werden gegen das Fussverkehrsnetz geprüft. Die Bilanz zählt den ganzen Querschnitt, sobald die Breite ausserhalb der Fahrbahn von heute bekannt ist; der Bordstein darf dabei wandern. Eine Kernfahrbahn ändert die
+          Note nicht; bewertet werden die Velostreifen an ihren Rändern. Nicht geprüft: Mittelinseln,
+          Abbiegespuren; von der Haltestelle nur die Breite (Wartehäuschen und Warteraum). DTV, Tempo,
+          Routentyp und die Bewertung der Haltestelle gelten wie oben eingegeben.
+          {!section.routentyp && ' Ohne Routentyp gelten für Velostreifen und Radweg die Werte der Veloroute.'}
+          {' '}Richtwerte und Vorgaben: {RICHTWERT_QUELLE}; Trottoirs nach dem Fussverkehrsnetz: Masterplan Fussverkehr Stadt Bern; Lichtraum von Lastwagen und Bus nach SN 640 201, Tram 2,80 m
+          (1,40 m ab Gleisachse, Masterplan). Jede Fahrspur ist ab 3,00 m gültig. Ein Velostreifen direkt neben einer
+          Trennung mit Pfosten gilt als geschützter Radstreifen; Veloabstellplatz und Parklet zählen nicht als Parkierung.
+          {av?.gezeigt && ` Karte: ${avQuelle(CITIES[city].avKanton ?? '')}${av.park && CITIES[city].parkierung ? `; Parkfelder: ${PARK_QUELLE[CITIES[city].parkierung!]}` : ''}.`}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Karte für einen Abschnitt: Eingaben + Bewertung je Seite ─────────────────
 // Aufbau (seit 14.10.2026): gemeinsame Grunddaten und ÖV-Angebot, dann die Seiten — ein
 // gemeinsamer Kasten, solange beide gleich sind, sonst je ein Kasten für Seite A und Seite B
 // (eigene Werte oder nicht bewertet) — und das Ergebnis je bewertete Seite. Die Abschnittsnote
 // ist die schlechtere Seite (bewertung.ts).
-function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTauschen, onLuftbild, onMessen, onFahrbahnbreite, fbLaden, onRemove, canRemove, onHover, breitenQuelle, city }: {
-  onFahrbahnbreite?: () => void          // Fahrbahnbreite aus der AV ermitteln (Bern, Zürich, Basel; nur Karten-Abschnitte)
+function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, onChange, onTauschen, onLuftbild, onMessen, onFahrbahnbreite, fbLaden, av, onBericht, onRemove, canRemove, onHover, breitenQuelle, city }: {
+  onBericht?: () => void                 // Bericht der Planung öffnen
+  zu?: boolean                           // Abschnitt eingeklappt (nur Kopfzeile)
+  onKlappen?: () => void
+  // Fahrbahnbreite aus der AV ermitteln (Bern, Zürich, Basel; nur Karten-Abschnitte); 'plan' = in die Aufteilung
+  onFahrbahnbreite?: (ziel?: 'abschnitt' | 'plan') => void
+  av?: PlanAv                            // AV auf der Karte während der Planung (nur Karten-Abschnitte)
   fbLaden?: boolean                      // Ermittlung läuft
   index: number
   section: Section
@@ -744,7 +1116,20 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
             {index + 1}
           </span>
         )}
-        <strong style={{ fontSize: 15 }}>Abschnitt {index + 1}</strong>
+        {/* Ein-/Ausklappen deutlich als Knopf (Nutzerbefund 16.10.2026: ▾ allein war nicht als Klappe erkennbar) */}
+        {onKlappen && (
+          <button type="button" onClick={onKlappen} aria-expanded={!zu} title={zu ? 'Abschnitt aufklappen' : 'Abschnitt einklappen'}
+                  style={{ ...kleinKnopfStyle, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px' }}>
+            <span style={{ fontSize: 13, lineHeight: 1 }}>{zu ? '▸' : '▾'}</span>{zu ? 'Aufklappen' : 'Einklappen'}
+          </button>
+        )}
+        <strong style={{ fontSize: 15, cursor: onKlappen ? 'pointer' : undefined }} onClick={onKlappen}>Abschnitt {index + 1}</strong>
+        {zu && ergebnis.note != null && (
+          <span style={{ fontSize: 12, fontWeight: 800, borderRadius: 6, padding: '2px 8px',
+                         background: noteColor(ergebnis.note).bg, color: noteColor(ergebnis.note).fg }}>
+            {modus === 'erfuellung' ? erfuellungsgrad(ergebnis.note) : numDE(ergebnis.note, 1)}
+          </span>
+        )}
         {section.label && (
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{section.label}</span>
         )}
@@ -755,6 +1140,19 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
           </span>
         )}
         <span style={{ flex: 1 }} />
+        {CITIES[city].aufteilung && (
+          <button type="button"
+                  onClick={() => {
+                    if (!section.aufteilung) { onChange({ aufteilung: startAufteilung(section) }); av?.zeigen() }
+                    // nach dem Rendern zur Planung scrollen (sie steht unter dem Ergebnis)
+                    setTimeout(() => document.getElementById(`plan-${section.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+                  }}
+                  title="Den Querschnitt neu aufteilen und prüfen (unter dem Ergebnis)"
+                  style={{ border: '1px solid var(--accent)', background: '#fff', color: 'var(--accent)',
+                           borderRadius: 8, padding: '4px 10px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            {section.aufteilung ? 'Zur Aufteilung ↓' : 'Aufteilung planen'}
+          </button>
+        )}
         {canRemove && (
           <button onClick={onRemove}
                   style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
@@ -764,8 +1162,9 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
         )}
       </div>
 
+      {!zu && (<>
       {/* Eingaben — Gruppe 1: Grunddaten, gemeinsam für beide Seiten */}
-      <div style={groupLabelStyle}>Grunddaten (beide Seiten)</div>
+      <Klappe titel="Grunddaten (beide Seiten)">
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
         <NumberField label="DTV MIV" unit="Fz/Tag" value={section.dtv} step={100}
                      onChange={v => onChange({ dtv: v })}
@@ -812,7 +1211,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
                      chip={<QuelleChip q={q.fahrbahnbreite} />} />
         {onFahrbahnbreite && (
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button type="button" onClick={onFahrbahnbreite} disabled={fbLaden}
+            <button type="button" onClick={() => onFahrbahnbreite()} disabled={fbLaden}
                     title="Aus der amtlichen Vermessung: Median der Querschnitte alle 5 m entlang des Abschnitts"
                     style={{ ...kleinKnopfStyle, padding: '8px 10px', cursor: fbLaden ? 'default' : 'pointer' }}>
               {fbLaden ? 'Ermittle …' : 'aus AV ermitteln'}
@@ -820,6 +1219,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
           </div>
         )}
       </div>
+      </Klappe>
 
       {/* Eingaben — Gruppe 2: ÖV-Haltestelle im Abschnitt (Angebot gemeinsam, Typ je Seite) */}
       <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
@@ -874,8 +1274,8 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
           ausdrücklich. Seit 15.10.2026 — vorher eine Dreierwahl «Beide Seiten gleich / Seiten
           verschieden / Nur Seite A», in der Seite B nur verneint vorkam: Der Weg zu ihrer
           Erfassung war nicht zu finden. */}
-      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={groupLabelStyle}>Seiten (Fahrtrichtungen)</div>
+      <Klappe titel="Seiten (Fahrtrichtungen)" stil={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
+      <div>
         <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
           Seite A ist die Fahrtrichtung entlang der Strecke, Seite B die Gegenrichtung. Die Note des
           Abschnitts ist die schlechtere der bewerteten Seiten.
@@ -990,6 +1390,8 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
       </div>
       )}
 
+      </Klappe>
+
       {/* Ergebnis je bewertete Seite (bei zwei Seiten mit Überschrift; die schlechtere ist massgebend) */}
       {ergebnis.seiten.map(se => (
         <div key={se.seite}>
@@ -1010,6 +1412,14 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
                        breitenQuelle={breitenQuelle(se.felder.ist)} />
         </div>
       ))}
+
+      {/* Aufteilung planen — nur Städte mit Richtwerten (vorerst Bern) */}
+      {CITIES[city].aufteilung && (
+        <AufteilungPlanen section={section} heute={ergebnis} city={city} modus={modus} rA={rA} rB={rB}
+                          onChange={aufteilung => { onChange({ aufteilung }); if (!aufteilung) av?.ausblenden() }} av={av}
+                          onFahrbahnbreite={onFahrbahnbreite && (() => onFahrbahnbreite('plan'))} fbLaden={fbLaden}
+                          onBericht={onBericht} />
+      )}
 
       {/* OpenBikeSensor: gemessene Überholabstände — reine Zusatzinfo, kein Noteneinfluss.
           Auch „befahren, aber nicht überholt" (nur usage) wird gezeigt. Mit Stand des Exports:
@@ -1053,6 +1463,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
           </div>
         </div>
       )}
+      </>)}
     </div>
   )
 }
@@ -1094,6 +1505,11 @@ function SoFunktionierts() {
           Strassenfläche kennt oder die Kante nicht auf dem Bordstein im Foto liegt, im Modus «Zwei Punkte» zuerst die
           Bordsteinkante und dann die Markierung anklicken. «… m übernehmen» trägt den Wert ein, mit Herkunft «gemessen»
           am Chip.</li>
+        <li><b>Aufteilung planen (nur Bern):</b> oben bei «Aufteilung planen» oder in der Kopfzeile eines Abschnitts. Die Planung
+          beginnt mit dem Querschnitt von heute (Fahrbahn und Trottoirs aus der amtlichen Vermessung, Parkierung, Velostreifen).
+          Teile wählen, mit «＋» einfügen, am Griff ⠿ verschieben und in der Breite ändern; die App prüft jedes Teil gegen die
+          Vorgaben, rechnet die Bilanz über den ganzen Querschnitt und zeigt die Note mit der Planung neben der von heute. Die Karte
+          zeigt dazu die amtliche Vermessung und die Parkfelder. «Bericht / PDF» druckt Karte, Skizzen, Prüfung und Bewertung.</li>
         <li><b>Ergebnis lesen:</b> oben zwischen Schulnote (1 bis 6) und Erfüllungsgrad umschalten; die Bewertung gilt je Abschnitt
           und für die ganze Strecke. «Als CSV exportieren» sichert die Bewertung als Datei.</li>
       </ol>
@@ -1553,40 +1969,181 @@ export default function App() {
   // Nur auf Knopfdruck (Fair Use von geodienste.ch). Lange Abschnitte in Kacheln zu höchstens
   // ±260 m, höchstens 6 Abfragen; dieselbe Fläche aus zwei Kacheln zählt einmal.
   const [fbLaden, setFbLaden] = useState<number | null>(null)
-  const fahrbahnbreiteErmitteln = async (secId: number) => {
-    const s = sections.find(x => x.id === secId)
-    if (!s || fbLaden != null) return
+  // AV eines Abschnitts: Achsen (LV95) und Flächen. Zwischengespeichert je Abschnitt und Lage der
+  // Segmente (Schlüssel aus den Kandidaten-Kennungen), damit Fahrbahnbreite und Planung dieselbe
+  // Abfrage teilen und erneutes Zeigen nichts nachlädt (Fair Use). Wirft Error mit Meldungstext.
+  const avCacheRef = useRef(new Map<string, AvFlaeche[]>())
+  // inRichtungA: Segmente, die gegen Seite A laufen (candsGegenA), umdrehen — dann ist «rechts»
+  // überall Seite A (für die Trottoirs je Seite).
+  const avAchsen = (s: Section, inRichtungA = false): P[][] => {
     const candById = new Map(candsRef.current.map(c => [c.id, c]))
-    const achsen: P[][] = (s.candIds ?? []).map(id => candById.get(id)).filter((c): c is Cand => !!c)
-      .map(c => c.geom.map(p => zuLv95(p.lat, p.lon)))
-    if (!achsen.length) { setMsg('Fahrbahnbreite: Der Abschnitt hat keine Geometrie auf der Karte.', 'info'); return }
+    const gegen = new Set(inRichtungA ? s.candsGegenA ?? [] : [])
+    return (s.candIds ?? []).map(id => candById.get(id)).filter((c): c is Cand => !!c)
+      .map(c => { const l = c.geom.map(p => zuLv95(p.lat, p.lon)); return gegen.has(c.id) ? l.reverse() : l })
+  }
+  const avFuerAbschnitt = async (s: Section): Promise<{ achsen: P[][]; flaechen: AvFlaeche[] }> => {
+    const achsen = avAchsen(s)
+    if (!achsen.length) throw new Error('Der Abschnitt hat keine Geometrie auf der Karte.')
+    const schluessel = (s.candIds ?? []).join(',')
+    const gemerkt = avCacheRef.current.get(schluessel)
+    if (gemerkt) return { achsen, flaechen: gemerkt }
     const KACHEL = 500
     const kacheln = new Map<string, [number, number]>()
     for (const l of achsen) for (const [e, n] of l) {
       const k: [number, number] = [Math.floor(e / KACHEL), Math.floor(n / KACHEL)]
       kacheln.set(k.join('|'), k)
     }
-    if (kacheln.size > 6) { setMsg('Fahrbahnbreite: Der Abschnitt ist zu lang für eine Abfrage (über 6 Ausschnitte). Bitte teilen.', 'info'); return }
+    if (kacheln.size > 6) throw new Error('Der Abschnitt ist zu lang für eine Abfrage (über 6 Ausschnitte). Bitte teilen.')
+    const flaechen: AvFlaeche[] = [], gesehen = new Set<string>()
+    for (const [x, y] of kacheln.values()) {
+      let liste: AvFlaeche[]
+      try { liste = await ladeAv(x * KACHEL + KACHEL / 2, y * KACHEL + KACHEL / 2, KACHEL / 2 + 10) }
+      catch (err) { throw new Error(`amtliche Vermessung nicht erreichbar (${(err as Error).message}).`) }
+      for (const f of liste) {
+        const sig = `${f.art}|${f.ringe[0]?.slice(0, 3).join(';')}|${f.ringe[0]?.length}`
+        if (!gesehen.has(sig)) { gesehen.add(sig); flaechen.push(f) }
+      }
+    }
+    avCacheRef.current.set(schluessel, flaechen)
+    return { achsen, flaechen }
+  }
+  // ziel 'plan': in die verfügbare Fahrbahnbreite der Aufteilung statt ins Feld der Grunddaten.
+  const fahrbahnbreiteErmitteln = async (secId: number, ziel: 'abschnitt' | 'plan' = 'abschnitt') => {
+    const s = sections.find(x => x.id === secId)
+    if (!s || fbLaden != null) return
+    if (!avAchsen(s).length) { setMsg('Fahrbahnbreite: Der Abschnitt hat keine Geometrie auf der Karte.', 'info'); return }
     setFbLaden(secId); setMsg('Ermittle die Fahrbahnbreite aus der amtlichen Vermessung …', 'info')
     try {
-      const flaechen: AvFlaeche[] = [], gesehen = new Set<string>()
-      for (const [x, y] of kacheln.values()) {
-        for (const f of await ladeAv(x * KACHEL + KACHEL / 2, y * KACHEL + KACHEL / 2, KACHEL / 2 + 10)) {
-          const sig = `${f.art}|${f.ringe[0]?.slice(0, 3).join(';')}|${f.ringe[0]?.length}`
-          if (!gesehen.has(sig)) { gesehen.add(sig); flaechen.push(f) }
-        }
+      let av: { achsen: P[][]; flaechen: AvFlaeche[] }
+      try { av = await avFuerAbschnitt(s) }
+      catch (err) {
+        const t = (err as Error).message
+        setMsg(`Fahrbahnbreite: ${t}`, t.includes('nicht erreichbar') ? 'error' : 'info'); return
       }
+      const { achsen, flaechen } = av
       const r = fahrbahnbreite(achsen, flaechen)
       if (!r) { setMsg('Fahrbahnbreite: Die amtliche Vermessung liefert hier keine eindeutige Strassenfläche (zu kurz, Platz oder Kreuzung). Bitte von Hand eintragen.', 'info'); return }
       const wert = Math.round(r.median * 10) / 10
-      setSections(prev => prev.map(x => (x.id === secId
-        ? { ...x, fahrbahnbreite: wert, quelle: { ...x.quelle, fahrbahnbreite: 'av' } } : x)))
+      setSections(prev => prev.map(x => (x.id !== secId ? x
+        : ziel === 'plan' ? (x.aufteilung ? { ...x, aufteilung: { ...x.aufteilung, fahrbahn: wert } } : x)
+        : { ...x, fahrbahnbreite: wert, quelle: { ...x.quelle, fahrbahnbreite: 'av' } })))
       setMsg(`Fahrbahnbreite ${numDE(wert, 1)} m: Median aus ${r.n} Querschnitten, Spannweite ${numDE(r.min, 1)}–${numDE(r.max, 1)} m. ` +
-        'Die Fläche umfasst auch Parkstreifen, Busbuchten und Tramgleise.', 'ok')
+        'Die Fläche umfasst auch Parkierung, Busbuchten und Tramgleise.', 'ok')
     } catch (err) {
       setMsg(`Fahrbahnbreite: amtliche Vermessung nicht erreichbar (${(err as Error).message}).`, 'error')
     } finally { setFbLaden(null) }
   }
+
+  // Zoom und Ausschnitt bleiben, solange der Abschnitt (ganz oder teilweise) im Bild ist — wer
+  // schon an der Messstelle steht, soll nicht herausgeworfen werden (Nutzer-Rückmeldung
+  // 16.10.2026; vorher passte die Karte sich immer an den ganzen Abschnitt an). Nur wenn er gar
+  // nicht zu sehen ist, springt die Karte hin. -> neuer Ausschnitt oder null (Karte blieb).
+  const abschnittInsBild = (map: import('leaflet').Map, s: Section): [[number, number], [number, number]] | null => {
+    const candById = new Map(candsRef.current.map(c => [c.id, c]))
+    const pts = (s.candIds ?? []).flatMap(id => candById.get(id)?.geom ?? [])
+    if (!pts.length) return null
+    let s0 = Infinity, n0 = -Infinity, w0 = Infinity, e0 = -Infinity
+    for (const p of pts) { s0 = Math.min(s0, p.lat); n0 = Math.max(n0, p.lat); w0 = Math.min(w0, p.lon); e0 = Math.max(e0, p.lon) }
+    if (map.getBounds().intersects([[s0, w0], [n0, e0]])) return null
+    const ziel: [[number, number], [number, number]] = [[s0, w0], [n0, e0]]
+    map.fitBounds(ziel, { padding: [40, 40], maxZoom: 19 })
+    return ziel
+  }
+
+  // ── AV in der Planung (Aufteilung planen, nur Bern) ──────────────────────────
+  // Wie in fgsCheck: Strasse, Trottoir, Verkehrsinsel und Gebäude als Flächen über dem Orthofoto,
+  // damit sich die Aufteilung am Bestand ablesen lässt. Gezeigt wird höchstens ein Abschnitt; die
+  // Abfrage teilt sich den Zwischenspeicher mit der Fahrbahnbreite (avFuerAbschnitt).
+  // Dazu die amtlichen Parkfelder (parkierung.ts, ladeParkflaechen; vorerst Bern), je Abschnitt
+  // zwischengespeichert. Fehlen sie, bleibt die AV trotzdem stehen.
+  const [planAv, setPlanAv] = useState<{ secId: number; flaechen: AvFlaeche[]; park: ParkFlaeche[] } | null>(null)
+  const [planAvLaden, setPlanAvLaden] = useState<number | null>(null)
+  const [berichtSec, setBerichtSec] = useState<number | null>(null)   // Bericht der Planung offen (Abschnitt-Id)
+  const [zuSec, setZuSec] = useState<Set<number>>(new Set())          // eingeklappte Abschnitte
+  const klappen = (id: number) => setZuSec(z => { const n = new Set(z); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  // Planung eines Abschnitts öffnen (Knopf oben neben «Anzeige»): aufklappen, anlegen, AV laden, hinscrollen
+  const planungOeffnen = (secId: number) => {
+    const s = sections.find(x => x.id === secId)
+    if (!s) return
+    setZuSec(z => { const n = new Set(z); n.delete(secId); return n })
+    if (!s.aufteilung) {
+      update(secId, { aufteilung: startAufteilung(s) })
+      if (cityCfg.avKanton && s.candIds?.length) void planAvZeigen(secId)
+    }
+    setTimeout(() => document.getElementById(`plan-${secId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+  }
+  const berichtSchliessen = useCallback(() => setBerichtSec(null), [])
+  const parkCacheRef = useRef(new Map<string, ParkFlaeche[]>())
+  const parkFuerAbschnitt = async (s: Section): Promise<ParkFlaeche[]> => {
+    const stadt = cityCfg.parkierung
+    if (!stadt || !PARK_QUELLE[stadt]) return []
+    const schluessel = (s.candIds ?? []).join(',')
+    const gemerkt = parkCacheRef.current.get(schluessel)
+    if (gemerkt) return gemerkt
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity
+    for (const l of avAchsen(s)) for (const [e, n] of l) { a = Math.min(a, e); b = Math.min(b, n); c = Math.max(c, e); d = Math.max(d, n) }
+    if (!Number.isFinite(a)) return []
+    const r = PARK_MAX_M + 6
+    const park = await ladeParkflaechen(stadt, [a - r, b - r, c + r, d + r].map(v => Math.round(v * 10) / 10) as ParkBox)
+    parkCacheRef.current.set(schluessel, park)
+    return park
+  }
+  const planAvZeigen = async (secId: number) => {
+    const s = sections.find(x => x.id === secId)
+    if (!s || planAvLaden != null) return
+    if (mapRef.current) abschnittInsBild(mapRef.current, s)
+    setPlanAvLaden(secId)
+    const parkLaden = parkFuerAbschnitt(s).catch(() => null)   // parallel zur AV
+    // Fussverkehrsnetz (Richtplan Fussverkehr, nur Bern): Basisnetz oder Feinverteilernetz vorbelegen
+    const netzLaden = cityCfg.aufteilung && city === 'bern' && avAchsen(s).length
+      ? ladeFussnetz(avAchsen(s)).catch(() => null) : Promise.resolve(null)
+    try {
+      const { flaechen } = await avFuerAbschnitt(s)
+      const park = await parkLaden
+      setPlanAv({ secId, flaechen, park: park ?? [] })
+      if (park == null) setMsg('Parkfelder der Stadt nicht erreichbar; die Karte zeigt nur die amtliche Vermessung.', 'info')
+      // Mit der AV gleich messen: Trottoirs je Seite und, falls leer, die Fahrbahnbreite (wie
+      // «aus AV ermitteln»). Ist die Planung noch die unveränderte Ausgangslage, wird sie mit den
+      // Messwerten neu aufgebaut; sonst bleiben die eigenen Teile. Die bestehenden Trottoirs gehen
+      // dabei nie verloren (Nutzerbefund 16.10.2026): Hat eine schon geänderte Planung keine,
+      // kommen die gemessenen an die Ränder (mitTrottoirs).
+      const achsen = avAchsen(s, true), kanten = bordkanten(flaechen)
+      const tr = trottoirbreiten(achsen, flaechen, kanten)
+      const fb = Number.isFinite(s.fahrbahnbreite) ? null : fahrbahnbreite(achsen, flaechen, kanten)
+      const netz = await netzLaden
+      setSections(prev => prev.map(x => {
+        if (x.id !== secId) return x
+        const neu: Section = { ...x, trottoir: { a: tr.rechts ?? NaN, b: tr.links ?? NaN } }
+        if (fb) { neu.fahrbahnbreite = Math.round(fb.median * 10) / 10; neu.quelle = { ...x.quelle, fahrbahnbreite: 'av' } }
+        if (netz) neu.fussnetzGeoportal = netz.netz
+        if (x.aufteilung && JSON.stringify(x.aufteilung) === JSON.stringify(startAufteilung(x))) neu.aufteilung = startAufteilung(neu)
+        else if (x.aufteilung) {
+          neu.aufteilung = mitTrottoirs(x.aufteilung, neu.trottoir!)
+          // ein schon gewähltes Netz bleibt; sonst das aus dem Geoportal
+          if (netz && !neu.aufteilung.fussnetz) neu.aufteilung = { ...neu.aufteilung, fussnetz: netz.netz, fussnetzQuelle: 'geoportal' }
+        }
+        return neu
+      }))
+      const trText = (m: number | null) => (m != null ? `${numDE(m, 2)} m` : 'keines')
+      if (park != null) setMsg(`Amtliche Vermessung${park.length ? ' und Parkfelder' : ''} geladen. Trottoir Seite A ${trText(tr.rechts)}, Seite B ${trText(tr.links)}` +
+        `${fb ? `, Fahrbahnbreite ${numDE(Math.round(fb.median * 10) / 10, 1)} m` : ''} (Median der Querschnitte alle 5 m).`, 'ok')
+    } catch (err) {
+      const t = (err as Error).message
+      setMsg(`Amtliche Vermessung: ${t}`, t.includes('nicht erreichbar') ? 'error' : 'info')
+    } finally { setPlanAvLaden(null) }
+  }
+  // Planung verworfen oder Abschnitt weg → AV ausblenden.
+  useEffect(() => {
+    if (planAv && !sections.some(s => s.id === planAv.secId && s.aufteilung)) setPlanAv(null)
+  }, [sections, planAv])
+  // Für die Karte nur die gezeigten Arten umrechnen (viele hundert Flächen je Kachel).
+  const planAvWgs = useMemo(() => (planAv ? {
+    flaechen: planAv.flaechen.filter(f => f.art in AV_FARBEN)
+      .map(f => ({ art: f.art, ringe: f.ringe.map(r => r.map(p => zuWgs(p[0], p[1]))) })),
+    park: planAv.park.map(f => ({ verbot: f.verbot, ringe: f.ringe.map(r => r.map(p => zuWgs(p[0], p[1]))) })),
+    quelle: [avQuelle(cityCfg.avKanton ?? ''), ...(planAv.park.length && cityCfg.parkierung ? [PARK_QUELLE[cityCfg.parkierung] ?? ''] : [])]
+      .filter(Boolean).join(' · '),
+  } : null), [planAv, cityCfg.avKanton, cityCfg.parkierung])
 
   const messungStarten = (secId: number, seite: 'A' | 'B') => {
     const map = mapRef.current
@@ -1594,22 +2151,8 @@ export default function App() {
     setTeilModus(false)
     const idx = sections.findIndex(s => s.id === secId)
     if (idx < 0) return
-    // Zoom und Ausschnitt bleiben, solange der Abschnitt (ganz oder teilweise) im Bild ist — wer
-    // schon an der Messstelle steht, soll nicht herausgeworfen werden (Nutzer-Rückmeldung
-    // 16.10.2026; vorher passte die Karte sich immer an den ganzen Abschnitt an). Nur wenn er gar
-    // nicht zu sehen ist, springt die Karte hin. Die Bordsteinkanten kommen für das, was danach
-    // im Bild ist.
-    const candById = new Map(candsRef.current.map(c => [c.id, c]))
-    const pts = (sections[idx].candIds ?? []).flatMap(id => candById.get(id)?.geom ?? [])
-    let ziel: [[number, number], [number, number]] | null = null
-    if (pts.length) {
-      let s0 = Infinity, n0 = -Infinity, w0 = Infinity, e0 = -Infinity
-      for (const p of pts) { s0 = Math.min(s0, p.lat); n0 = Math.max(n0, p.lat); w0 = Math.min(w0, p.lon); e0 = Math.max(e0, p.lon) }
-      if (!map.getBounds().intersects([[s0, w0], [n0, e0]])) {
-        ziel = [[s0, w0], [n0, e0]]
-        map.fitBounds(ziel, { padding: [40, 40], maxZoom: 19 })
-      }
-    }
+    // Die Bordsteinkanten kommen für das, was nach abschnittInsBild im Bild ist.
+    const ziel = abschnittInsBild(map, sections[idx])
     const b = map.getBounds()
     const { e, n, r } = ziel ? avAusschnitt(ziel[0][0], ziel[0][1], ziel[1][0], ziel[1][1])
       : avAusschnitt(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
@@ -1828,7 +2371,7 @@ export default function App() {
         <SoFunktionierts />
 
       {/* Anzeige-Umschalter: Schulnote (1–6) ↔ vierstufiger Erfüllungsgrad. Rein darstellend. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Anzeige:</span>
         <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
           {([['note', 'Schulnote'], ['erfuellung', 'Erfüllungsgrad']] as const).map(([m, label]) => (
@@ -1841,6 +2384,21 @@ export default function App() {
             </button>
           ))}
         </div>
+        {/* Aufteilung planen, gleich hier oben (Nutzerwunsch 16.10.2026); je Abschnitt ein Knopf */}
+        {cityCfg.aufteilung && sections.length > 0 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginLeft: 8 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Aufteilung planen:</span>
+            {sections.map((s, i) => (
+              <button key={s.id} type="button" onClick={() => planungOeffnen(s.id)}
+                      title={s.label ? `Abschnitt ${i + 1}: ${s.label}` : `Abschnitt ${i + 1}`}
+                      style={{ border: '1px solid var(--accent)', background: s.aufteilung ? 'var(--accent)' : '#fff',
+                               color: s.aufteilung ? '#fff' : 'var(--accent)', borderRadius: 8, padding: '5px 10px',
+                               fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                {sections.length === 1 ? 'Abschnitt planen' : `Abschnitt ${i + 1}`}
+              </button>
+            ))}
+          </span>
+        )}
       </div>
 
       {/* Sticky Ergebnis-Leiste: Strecken-Beurteilung jederzeit sichtbar (Punkt 1).
@@ -1942,7 +2500,7 @@ export default function App() {
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
                      attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} obsStand={cityCfg.obsStand}
-                     teilModus={teilModus} orthofoto={messAktiv} messung={messAnzeige} />
+                     teilModus={teilModus} orthofoto={messAktiv || planAv != null} messung={messAnzeige} av={planAvWgs} />
             {/* Breitenmessung: Werkzeugleiste auf der Karte (klickbar, liegt über dem Kartenrand). */}
             {messung && (
               <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 600,
@@ -2073,8 +2631,10 @@ export default function App() {
               </button>
             )}
           </div>
-          {/* Teil-Modus: eigene Anleitung statt der drei Schritte zum Aufbau der Strecke. */}
-          {teilModus ? (
+          {/* Teil-Modus: eigene Anleitung. Die drei Schritte zum Aufbau der Strecke standen bis
+              16.10.2026 immer hier; sie stehen in «So funktioniert's» und im Hinweis auf der leeren
+              Karte (Nutzerentscheid: doppelt, entfernt). */}
+          {teilModus && (
             <div style={{ fontSize: 12.5, marginTop: 8, padding: '8px 12px', borderRadius: 8, lineHeight: 1.6,
                           background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
               <strong>Segment teilen:</strong> Auf die Linie tippen, genau an der Stelle, an der das Segment
@@ -2082,47 +2642,35 @@ export default function App() {
               «✂ Segment teilen» wählen. Esc oder «Teilen abbrechen» bricht ab, «Teilen rückgängig» nimmt
               einen Schnitt zurück.
             </div>
-          ) : (
-          <ol style={{ fontSize: 12.5, color: 'var(--text-muted-strong)', marginTop: 8, marginBottom: 0,
-                       paddingLeft: 20, lineHeight: 1.6 }}>
-            <li><strong>Auf die Karte klicken</strong> — fügt das nächstgelegene Segment hinzu.
-              (Oder einen Strassennamen eingeben und „Strasse laden" klicken.)</li>
-            <li><strong>Linien an-/abwählen</strong> per Klick — grau = nicht in der Strecke.
-              Ein langes Segment lässt sich mit <strong>«✂ Segment teilen»</strong> an der
-              angeklickten Stelle in zwei Teile schneiden.</li>
-            <li><strong>Übernehmen</strong> — benachbarte Segmente gleicher Führungsform und
-              gleichen Tempos werden zu Abschnitten gruppiert.</li>
-          </ol>
           )}
-          {/* Legende Führungsform */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 6, fontSize: 12 }}>
-            {Object.entries(ISTCOLOR).map(([k, col]) => (
-              <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted-strong)' }}>
-                <span style={{ width: 16, height: 4, background: col, borderRadius: 2 }} />{k}
-              </span>
-            ))}
-          </div>
+          {/* Legende Führungsform, einklappbar (Nutzerwunsch 16.10.2026) */}
+          <details style={{ marginTop: 6, fontSize: 12 }}>
+            <summary style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--text-muted-strong)' }}>Legende Führungsform</summary>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
+              {Object.entries(ISTCOLOR).map(([k, col]) => (
+                <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted-strong)' }}>
+                  <span style={{ width: 16, height: 4, background: col, borderRadius: 2 }} />{k}
+                </span>
+              ))}
+            </div>
+          </details>
         </div>
       </div>
 
-      {/* Strecken-Beurteilung (schlechtester Abschnitt) */}
-      <div style={{ padding: '20px 22px', borderRadius: 12, background: sc.bg, color: sc.fg,
-                    display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-        <div style={{ textAlign: 'center', minWidth: modus === 'erfuellung' ? 130 : 90 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em',
-                        textTransform: 'uppercase', opacity: 0.85 }}>Strecke</div>
-          {modus === 'erfuellung' ? (
-            <div style={{ fontSize: streckeNote != null ? 20 : 18, fontWeight: 800, lineHeight: 1.15 }}>
-              {streckeNote != null ? erfuellungsgrad(streckeNote) : '–'}
-            </div>
-          ) : (
-            <div style={{ fontSize: streckeNote != null ? 48 : 22, fontWeight: 800, lineHeight: 1.1 }}>
-              {streckeNote != null ? numDE(streckeNote, 1) : '–'}
-            </div>
-          )}
+      {/* Strecken-Beurteilung (schlechtester Abschnitt). Kompakt, Einzelheiten einklappbar (Nutzerwunsch 16.10.2026). */}
+      <div style={{ padding: '8px 14px', borderRadius: 10, background: sc.bg, color: sc.fg,
+                    display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.85 }}>Strecke</span>
+          <span style={{ fontSize: modus === 'erfuellung' ? 17 : 26, fontWeight: 800, lineHeight: 1.1 }}>
+            {streckeNote == null ? '–' : modus === 'erfuellung' ? erfuellungsgrad(streckeNote) : numDE(streckeNote, 1)}
+          </span>
         </div>
-        <div style={{ fontSize: 14, opacity: 0.95 }}>
-          <div><strong>{sections.length}</strong> {sections.length === 1 ? 'Abschnitt' : 'Abschnitte'}</div>
+        <details style={{ fontSize: 13, opacity: 0.95, flex: 1, minWidth: 200 }}>
+          <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
+            {streckeNote != null ? `${sections.length} ${sections.length === 1 ? 'Abschnitt' : 'Abschnitte'} · Details`
+              : `Unvollständig — ${offen} von ${ergebnisse.length} ${ergebnisse.length === 1 ? 'Abschnitt braucht' : 'Abschnitten brauchen'} noch Eingaben`}
+          </summary>
           {streckeNote != null ? (
             <>
               <div style={{ marginTop: 4 }}>
@@ -2132,21 +2680,37 @@ export default function App() {
                   ? erfuellungsgrad(noten[worstIdx]).toLowerCase()
                   : `Note ${numDE(noten[worstIdx], 1)}`}).
               </div>
-              <div style={{ marginTop: 4, opacity: 0.85, fontSize: 13 }}>
+              <div style={{ marginTop: 2, opacity: 0.85, fontSize: 12.5 }}>
                 {modus === 'erfuellung'
                   ? noten.map((n, i) => `A${i + 1}: ${erfuellungsgrad(n)}`).join(' · ')
                   : 'Einzelnoten: ' + noten.map((n, i) => `A${i + 1}: ${numDE(n, 1)}`).join(' · ')}
               </div>
             </>
           ) : (
-            <div style={{ marginTop: 4 }}>
-              Unvollständig — {offen} von {ergebnisse.length}{' '}
-              {ergebnisse.length === 1 ? 'Abschnitt braucht' : 'Abschnitten brauchen'} noch Eingaben
-              (DTV, Tempo und Führungsform).
-            </div>
+            <div style={{ marginTop: 4 }}>Es fehlen DTV, Tempo oder Führungsform.</div>
           )}
-        </div>
+        </details>
       </div>
+
+      {/* Bericht der Planung (Druckansicht, Portal im body) */}
+      {(() => {
+        const i = sections.findIndex(x => x.id === berichtSec)
+        const s = sections[i]
+        if (!s?.aufteilung) return null
+        const rA = s.peilungA != null ? himmelsrichtung(s.peilungA) : null
+        const rB = s.peilungA != null ? himmelsrichtung(s.peilungA + 180) : null
+        const mitAv = planAv?.secId === s.id
+        const quellen = [
+          `Abschnittsdaten (DTV, Tempo, Routentyp u. a.): ${cityCfg.attribution}`,
+          ...(mitAv && cityCfg.avKanton ? [`Bodenbedeckung und Trottoirs: ${avQuelle(cityCfg.avKanton)}`] : []),
+          ...(mitAv && planAv!.park.length && cityCfg.parkierung ? [`Parkfelder: ${PARK_QUELLE[cityCfg.parkierung]}`] : []),
+          ...(s.aufteilung.fussnetzQuelle === 'geoportal' ? [`Fussverkehrsnetz: ${FUSSNETZ_GEOPORTAL}`] : []),
+        ]
+        return <Bericht section={{ ...s, aufteilung: s.aufteilung }} nr={i + 1} heute={ergebnisse[i]} city={city} breiten={cityCfg.breiten}
+                        stadtName={cityCfg.label} modus={modus} rA={rA} rB={rB} achsen={avAchsen(s, true)}
+                        av={mitAv ? planAv!.flaechen : []} park={mitAv ? planAv!.park : []} quellen={quellen}
+                        schliessen={berichtSchliessen} />
+      })()}
 
       {/* Abschnitte */}
       <h2 style={{ fontSize: 16, margin: '26px 0 12px' }}>Abschnitte</h2>
@@ -2159,8 +2723,14 @@ export default function App() {
             onTauschen={() => tauschen(s.id)}
             onLuftbild={welche => luftbildAnnehmen(s.id, welche)}
             onMessen={cityCfg.avKanton ? (seite => messungStarten(s.id, seite)) : undefined}
-            onFahrbahnbreite={cityCfg.avKanton && s.candIds?.length ? () => void fahrbahnbreiteErmitteln(s.id) : undefined}
+            onFahrbahnbreite={cityCfg.avKanton && s.candIds?.length ? (ziel => void fahrbahnbreiteErmitteln(s.id, ziel)) : undefined}
             fbLaden={fbLaden === s.id}
+            onBericht={() => setBerichtSec(s.id)}
+            zu={zuSec.has(s.id)} onKlappen={() => klappen(s.id)}
+            av={cityCfg.avKanton && s.candIds?.length ? {
+              gezeigt: planAv?.secId === s.id, laden: planAvLaden === s.id, park: planAv?.secId === s.id && planAv.park.length > 0,
+              zeigen: () => void planAvZeigen(s.id), ausblenden: () => setPlanAv(p => (p?.secId === s.id ? null : p)),
+            } : undefined}
             onRemove={() => remove(s.id)}
             canRemove={sections.length > 1}
             onHover={h => setHoverSec(h ? s.id : null)}

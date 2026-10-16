@@ -10,6 +10,7 @@ import {
 } from './fuehrungsform'
 import type { Cand } from './VeloMap'
 import type { OevInfo } from './bern'
+import type { Aufteilung, FussNetz } from './aufteilung'
 import { mergeObs, type ObsStats } from './obs'
 import { peilung, type LL } from './geo'
 import { PARK_SCHWELLE } from './parkierung'
@@ -85,6 +86,9 @@ export interface Section extends Seite {
   candIds?: number[]           // Kandidaten-Kennungen der Segmente dieses Abschnitts (für die Karten-Zuordnung)
   obs?: ObsStats               // OpenBikeSensor-Überholabstände (Zusatzinfo, nicht in der Note)
   oev?: OevInfo                // ÖV-Erkennung (Geoportal): Haltestelle/Modus im Abschnitt
+  aufteilung?: Aufteilung      // geplanter Querschnitt (aufteilung.ts; nur Bern, nicht in der Note von heute)
+  trottoir?: { a: number; b: number }  // Trottoirbreite je Seite aus der AV [m], NaN = keines (breitenmessung.ts)
+  fussnetzGeoportal?: FussNetz         // Fussverkehrsnetz aus dem Richtplan Fussverkehr (fussnetz.ts; nur Bern)
 }
 let nextId = 1
 // Neuer Abschnitt: datenartige Felder leer (DTV/Tempo/Führungsform/Breite/Routentyp),
@@ -151,6 +155,9 @@ export function tauscheSeiten(s: Section): Section {
   }
   if (s.peilungA != null) neu.peilungA = (s.peilungA + 180) % 360
   if (s.luftbild) neu.luftbild = { a: s.luftbild.b, b: s.luftbild.a }
+  // Die Aufteilung ist von links (Rand B) nach rechts (Rand A) geordnet: mit den Seiten spiegeln.
+  if (s.aufteilung) neu.aufteilung = { ...s.aufteilung, teile: [...s.aufteilung.teile].reverse() }
+  if (s.trottoir) neu.trottoir = { a: s.trottoir.b, b: s.trottoir.a }
   if (s.candIds) {
     const gegen = new Set(s.candsGegenA ?? [])
     neu.candsGegenA = s.candIds.filter(id => !gegen.has(id))

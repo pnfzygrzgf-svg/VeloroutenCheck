@@ -77,7 +77,7 @@ export function parkAnteile(achse: P[], punkte: P[]): ParkInfo {
 }
 
 // ── Lader: je Stadt alle Parkierungs-Punkte (LV95) im Rechteck [minE, minN, maxE, maxN] ──
-type Box = [number, number, number, number]
+export type Box = [number, number, number, number]
 interface GeoJson { features?: { properties?: Record<string, unknown> | null; geometry?: { type?: string; coordinates?: unknown } | null }[] }
 
 // Alle Koordinatenpaare einer GeoJSON-Geometrie als Punkte; Linien und Ringe verdichtet.
@@ -102,7 +102,8 @@ const BERN_TYPEN = ['Parkfeld_Gebuehrenpflichtig', 'Parkfeld_blau_APK', 'Parkfel
   'Parkverbot', 'Spezialfeld', 'Andere_Unbekannt']
 export const bernSpezialAusgeschlossen = (pr: Record<string, unknown>): boolean =>
   /polizei|lastwagen|lkw|sanit|ambulanz|feuerwehr/i.test(`${pr.Art_beschrieb ?? ''} ${pr.Subgruppe_beschrieb ?? ''} ${pr.Gruppe_beschrieb ?? ''}`)
-async function bernLaden([a, b, c, d]: Box): Promise<P[]> {
+// Die zählenden Felder je Flächen-Typ (für die Vorbelegung als Punkte, für die Karte als Flächen).
+async function bernFelder([a, b, c, d]: Box): Promise<{ typ: string; g: { type?: string; coordinates?: unknown } | null | undefined }[]> {
   const ant = await Promise.all(BERN_TYPEN.map(t => holeJson<GeoJson & { crs?: { properties?: { name?: string } } }>(
     'https://map.bern.ch/arcgis/services/Geoportal/Parkplaetze_oeffentlich/MapServer/WFSServer?SERVICE=WFS&VERSION=2.0.0' +
     `&REQUEST=GetFeature&TYPENAMES=Geoportal_Parkplaetze_oeffentlich_2:${t}&OUTPUTFORMAT=GEOJSON` +
@@ -112,7 +113,25 @@ async function bernLaden([a, b, c, d]: Box): Promise<P[]> {
     throw new Error('Parkfelder Bern nicht in LV95')
   return ant.flatMap((j, i) => (j.features ?? [])
     .filter(f => BERN_TYPEN[i] !== 'Spezialfeld' || !bernSpezialAusgeschlossen(f.properties ?? {}))
-    .flatMap(f => punkteAus(f.geometry)))
+    .map(f => ({ typ: BERN_TYPEN[i], g: f.geometry })))
+}
+async function bernLaden(box: Box): Promise<P[]> {
+  return (await bernFelder(box)).flatMap(f => punkteAus(f.g))
+}
+
+// ── Parkfelder als Flächen für die Karte (Aufteilung planen, seit 16.10.2026; vorerst Bern) ──
+// Dieselben Felder, die für die Vorbelegung zählen. verbot: Parkverbotsfeld (zählt ebenfalls).
+export interface ParkFlaeche { verbot: boolean; ringe: P[][] }
+export const PARK_QUELLE: Partial<Record<ParkStadt, string>> = { bern: 'Geodaten Stadt Bern, Parkplätze öffentlich' }
+export async function ladeParkflaechen(stadt: ParkStadt, box: Box): Promise<ParkFlaeche[]> {
+  if (stadt !== 'bern') return []
+  const ring = (xs: unknown): P[] => (Array.isArray(xs)
+    ? xs.filter(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map(p => [p[0], p[1]] as P) : [])
+  return (await bernFelder(box)).flatMap(({ typ, g }) => {
+    if (!g || !Array.isArray(g.coordinates)) return []
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []
+    return (polys as unknown[]).filter(Array.isArray).map(poly => ({ verbot: typ === 'Parkverbot', ringe: (poly as unknown[]).map(ring) }))
+  })
 }
 
 // Zürich: Punkte je Feld (ohne Motorrad/Velo) und Linien der Abschnitte nach Länge.

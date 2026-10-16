@@ -87,3 +87,23 @@ describe('fahrbahnbreite — Bordstein zu Bordstein, Median der Querschnitte', (
   it('zu kurz für drei Querschnitte → keine Breite', () =>
     expect(fahrbahnbreite([[[0, 4], [12, 4]]], [strasse([rechteck(0, 0, 12, 8)])])).toBeNull())
 })
+
+import { trottoirbreiten } from './breitenmessung'
+describe('trottoirbreiten — ab Bordsteinkante über die Trottoirfläche', () => {
+  const trottoir = (r: P[]): AvFlaeche => ({ art: 'Trottoir', ringe: [r] })
+  const achse: P[] = [[0, 4], [100, 4]]   // nach Osten: links = Norden, rechts = Süden
+  const strasseF = strasse([rechteck(0, 0, 100, 8)])
+  it('je Seite der Median; zwei aneinanderstossende Trottoirflächen zählen als eine', () => {
+    const r = trottoirbreiten([achse], [strasseF,
+      trottoir(rechteck(0, 8, 50, 10.5)), trottoir(rechteck(50, 8, 100, 10.5)),   // Norden 2,50
+      trottoir(rechteck(0, -2, 100, 0))])                                         // Süden 2,00
+    expect(r.links).toBeCloseTo(2.5, 6)
+    expect(r.rechts).toBeCloseTo(2, 6)
+  })
+  it('ohne Trottoirfläche hinter dem Bord: null', () =>
+    expect(trottoirbreiten([achse], [strasseF, trottoir(rechteck(0, 8, 100, 10))]).rechts).toBeNull())
+  it('Trottoir nur auf einem kurzen Stück (unter der Hälfte der Querschnitte): null', () =>
+    expect(trottoirbreiten([achse], [strasseF, trottoir(rechteck(40, -2, 60, 0))]).rechts).toBeNull())
+  it('Fläche breiter als 8 m (Platz) zählt nicht', () =>
+    expect(trottoirbreiten([achse], [strasseF, trottoir(rechteck(0, 8, 100, 20))]).links).toBeNull())
+})

@@ -78,6 +78,15 @@ export const ISTCOLOR: Record<string, string> = {
 // übereinstimmen. «screen»: Drucken bleibt immer einspaltig.
 export const BREIT_MQ = 'screen and (min-width: 1100px)'
 
+// Farben der AV-Flächen und Parkfelder: farben.ts (ohne Leaflet, auch im Bericht verwendet)
+export { AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE } from './farben'
+import { AV_FARBEN, AV_DECKKRAFT, PARK_FARBE, PARKVERBOT_FARBE } from './farben'
+export interface AvAnzeige {
+  flaechen: { art: string; ringe: { lat: number; lon: number }[][] }[]
+  park?: { verbot: boolean; ringe: { lat: number; lon: number }[][] }[]
+  quelle: string            // Quellenangabe (Attribution der Karte)
+}
+
 // peilung: Fahrtrichtung der Seite A an der Marker-Stelle [Grad, 0 = Nord] → kleiner Pfeil am Kreis.
 export interface SectionMarker { num: number; lat: number; lon: number; peilung?: number }
 
@@ -94,7 +103,7 @@ const ORTHO = 'Orthofoto (swisstopo)'
 
 export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
                           attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
-                          teilModus = false, orthofoto = false, messung = null, obsStand }: {
+                          teilModus = false, orthofoto = false, messung = null, av = null, obsStand }: {
   cands: Cand[]
   onLineClick: (id: number, lat: number, lon: number) => void   // Linie angeklickt (an-/abwählen oder teilen)
   onMapClick?: (lat: number, lon: number) => void
@@ -109,11 +118,13 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   teilModus?: boolean                     // «Segment teilen» aktiv → Fadenkreuz über den Linien
   orthofoto?: boolean                     // true → Hintergrund aufs Orthofoto schalten (Breitenmessung); bleibt danach
   messung?: MessAnzeige | null            // Breitenmessung: Kanten, Punkte, Messlinie
+  av?: AvAnzeige | null                   // AV-Flächen eines Abschnitts (Aufteilung planen)
 }) {
   const elRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const layerRef = useRef<L.LayerGroup | null>(null)
   const messRef = useRef<L.LayerGroup | null>(null)                 // eigene Ebene der Breitenmessung
+  const avRef = useRef<L.LayerGroup | null>(null)                   // AV-Flächen (Planung)
   const basisRef = useRef<Record<string, L.TileLayer>>({})          // Hintergründe nach Name
   const aktiveBasis = useRef(ORTHO)                                 // gerade gezeigter Hintergrund
 
@@ -177,6 +188,12 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     messPane.style.zIndex = '450'
     messPane.style.pointerEvents = 'none'
     messRef.current = L.layerGroup().addTo(map)
+    // AV-Flächen unter den Segmentlinien (av 350 < Overlay 400), klick-durchlässig.
+    map.createPane('av')
+    const avPane = map.getPane('av')!
+    avPane.style.zIndex = '350'
+    avPane.style.pointerEvents = 'none'
+    avRef.current = L.layerGroup().addTo(map)
     // Klick auf freie Karte (nicht auf eine Linie) → Segment an der Stelle hinzufügen.
     map.on('click', (e: L.LeafletMouseEvent) => {
       if (suppress.current) { suppress.current = false; return }
@@ -188,7 +205,8 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       wheelEl.removeEventListener('wheel', onWheel)
       breit.removeEventListener('change', radSetzen)
       map.remove()
-      mapRef.current = null; layerRef.current = null; messRef.current = null; lineRef.current.clear(); lastFit.current = 0
+      mapRef.current = null; layerRef.current = null; messRef.current = null; avRef.current = null
+      lineRef.current.clear(); lastFit.current = 0
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -313,6 +331,26 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     b[aktiveBasis.current]?.remove()
     b[ORTHO].addTo(map)
   }, [orthofoto])
+
+  // AV-Flächen zeichnen (Planung), mit Quellenangabe, solange sie zu sehen sind.
+  useEffect(() => {
+    const map = mapRef.current, ag = avRef.current
+    if (!map || !ag || !av) return
+    const ll = (p: LLo) => [p.lat, p.lon] as [number, number]
+    for (const f of av.flaechen) {
+      const farbe = AV_FARBEN[f.art]
+      if (!farbe) continue
+      L.polygon(f.ringe.map(r => r.map(ll)), { pane: 'av', color: farbe, weight: 1, fillColor: farbe,
+        fillOpacity: AV_DECKKRAFT[f.art] ?? 0.25, interactive: false }).addTo(ag)
+    }
+    for (const f of av.park ?? []) {
+      const farbe = f.verbot ? PARKVERBOT_FARBE : PARK_FARBE
+      L.polygon(f.ringe.map(r => r.map(ll)), { pane: 'av', color: farbe, weight: 1.5, fillColor: farbe, fillOpacity: 0.35,
+        interactive: false }).addTo(ag)
+    }
+    map.attributionControl.addAttribution(av.quelle)
+    return () => { ag.clearLayers(); map.attributionControl.removeAttribution(av.quelle) }
+  }, [av])
 
   // Breitenmessung zeichnen: Bordsteinkanten orange, Punkte, Messlinie gestrichelt mit Wert.
   useEffect(() => {

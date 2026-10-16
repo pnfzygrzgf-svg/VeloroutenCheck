@@ -608,6 +608,19 @@ export const roundToHalf = (x: number): number =>
 // Formen ohne Breiten-Vorgabe (kein optimal/minimal in IST, z. B. Mischverkehr oder Einbahn
 // Velogegenverkehr ohne Markierung) brauchen keine Breiten-Eingabe — UI-Feld und Note-Guard
 // koppeln sich hieran, damit beide dieselben Formen ausnehmen.
+// Massgebliche Soll-Breite [m] einer Form: Optimal auf der Velohauptroute, Minimal auf der
+// Veloroute; stadtspezifischer Override je Feld, sonst Bern (IST). Dieselbe Regel wie in
+// fuehrungsformNote — herausgelöst für die Prüfung einer geplanten Aufteilung (aufteilung.ts).
+export function maxBreite(ist: IstFuehrungsform, breitenSoll?: BreitenSoll): number | undefined {
+  return breitenSoll?.maximal ?? IST[ist].maximal
+}
+
+export function sollBreite(ist: IstFuehrungsform, routentyp: Routentyp, breitenSoll?: BreitenSoll): number | undefined {
+  const meta = IST[ist]
+  const optimal = breitenSoll?.optimal ?? meta.optimal, minimal = breitenSoll?.minimal ?? meta.minimal
+  return routentyp === 'Velohauptroute' ? optimal : minimal
+}
+
 export function brauchtBreite(ist: IstFuehrungsform): boolean {
   const m = IST[ist]
   return m.optimal != null || m.minimal != null

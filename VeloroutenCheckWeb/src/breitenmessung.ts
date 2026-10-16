@@ -112,7 +112,7 @@ export const aufZentimeter = (m: number): number => Math.round(m * 100) / 100
 // Ausgelassen werden Querschnitte nahe den Segment-Enden (dort liegen meist Kreuzungen): je
 // ENDE_FREI_M, bei kurzen Segmenten nur je ein Achtel der Länge (wie der lokale Berner Rechner),
 // Punkte ausserhalb der Strassenfläche und Querschnitte ohne Kante innert QUER_MAX_M je Seite.
-// Gemessen wird die ganze Fläche «Strasse_Weg»: Parkstreifen, Busbuchten und Tramgleise zählen
+// Gemessen wird die ganze Fläche «Strasse_Weg»: Parkierung, Busbuchten und Tramgleise zählen
 // mit; eine Verkehrsinsel (Loch der Fläche) begrenzt den Strahl.
 export const QUER_SCHRITT_M = 5
 const ENDE_FREI_M = 12
@@ -136,11 +136,18 @@ function strahl(p: P, d: P, kanten: Kante[], maxM: number): number {
 
 export interface Fahrbahnbreite { median: number; min: number; max: number; n: number }
 
-// achsen: Geometrien der Segmente des Abschnitts in LV95 (je eine Polylinie).
-export function fahrbahnbreite(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen)): Fahrbahnbreite | null {
+function median(werte: number[]): number {
+  const s = [...werte].sort((x, y) => x - y), m = Math.floor(s.length / 2)
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+// Querschnitte alle QUER_SCHRITT_M auf der Strassenfläche, ohne die Segment-Enden: Punkt auf der
+// Achse und die Richtungen nach links und rechts (Einheitsvektoren, links/rechts in Linienrichtung).
+interface Querschnitt { p: P; links: P; rechts: P }
+function querschnitte(achsen: P[][], flaechen: AvFlaeche[]): Querschnitt[] {
   const strassen = flaechen.filter(f => f.art === 'Strasse_Weg').map(f => ({ f, box: box(f.ringe) }))
   const aufStrasse = (p: P) => strassen.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
-  const werte: number[] = []
+  const aus: Querschnitt[] = []
   for (const linie of achsen) {
     let gesamt = 0
     for (let i = 1; i < linie.length; i++) gesamt += Math.hypot(linie[i][0] - linie[i - 1][0], linie[i][1] - linie[i - 1][1])
@@ -156,16 +163,72 @@ export function fahrbahnbreite(achsen: P[][], flaechen: AvFlaeche[], kanten: Kan
         if (s < frei || s > gesamt - frei) continue
         const t = s - bisher
         const p: P = [a[0] + d[0] * t, a[1] + d[1] * t]
-        if (!aufStrasse(p)) continue
-        const w = strahl(p, links, kanten, QUER_MAX_M) + strahl(p, rechts, kanten, QUER_MAX_M)
-        if (Number.isFinite(w) && w >= BREITE_MIN_M && w <= BREITE_MAX_M) werte.push(w)
+        if (aufStrasse(p)) aus.push({ p, links, rechts })
       }
       bisher += l
     }
   }
+  return aus
+}
+
+// achsen: Geometrien der Segmente des Abschnitts in LV95 (je eine Polylinie).
+export function fahrbahnbreite(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen)): Fahrbahnbreite | null {
+  const werte: number[] = []
+  for (const { p, links, rechts } of querschnitte(achsen, flaechen)) {
+    const w = strahl(p, links, kanten, QUER_MAX_M) + strahl(p, rechts, kanten, QUER_MAX_M)
+    if (Number.isFinite(w) && w >= BREITE_MIN_M && w <= BREITE_MAX_M) werte.push(w)
+  }
   if (werte.length < 3) return null
-  const sortiert = [...werte].sort((x, y) => x - y)
-  const m = Math.floor(sortiert.length / 2)
-  const median = sortiert.length % 2 ? sortiert[m] : (sortiert[m - 1] + sortiert[m]) / 2
-  return { median, min: sortiert[0], max: sortiert[sortiert.length - 1], n: sortiert.length }
+  return { median: median(werte), min: Math.min(...werte), max: Math.max(...werte), n: werte.length }
+}
+
+// ── Trottoirbreiten aus der AV (seit 16.10.2026, Aufteilung planen Etappe 2) ──────
+// Dieselben Querschnitte wie die Fahrbahnbreite. Je Seite läuft der Strahl bis zur Bordsteinkante
+// und von dort weiter über die AV-Fläche «Trottoir» bis zu deren Ende; aneinanderstossende
+// Trottoirflächen zählen als eine. Liegt hinter dem Bord kein Trottoir (Vorplatz, Parkfläche,
+// Gebäude), zählt der Querschnitt als «ohne Trottoir». Eine Seite hat ein Trottoir, wenn es auf
+// mindestens TROTTOIR_ANTEIL ihrer Querschnitte (mit Bordsteinkante) gefunden wird, und mindestens
+// drei Werte; dann gilt der Median. Breiter als TROTTOIR_MAX_M (Platz) zählt nicht.
+const TROTTOIR_MAX_M = 8, TROTTOIR_MIN_M = 0.5, TROTTOIR_ANTEIL = 0.5
+const SCHRITT_UEBER_M = 0.05   // Prüfpunkt knapp hinter einer Kante
+
+export interface Trottoirbreiten { links: number | null; rechts: number | null }
+
+// Alle Abstände entlang d, an denen der Strahl ab p eine Kante der Ringe schneidet (aufsteigend).
+function schnitte(p: P, d: P, ringe: P[][][], maxM: number): number[] {
+  const ts: number[] = []
+  for (const rs of ringe) for (const r of rs) for (let i = 0; i < r.length; i++) {
+    const a = r[i], b = r[(i + 1) % r.length]
+    const ex = b[0] - a[0], ey = b[1] - a[1], nenner = d[0] * ey - d[1] * ex
+    if (Math.abs(nenner) < 1e-12) continue
+    const ax = a[0] - p[0], ay = a[1] - p[1]
+    const t = (ax * ey - ay * ex) / nenner, u = (ax * d[1] - ay * d[0]) / nenner
+    if (t > 0 && t <= maxM && u >= 0 && u <= 1) ts.push(t)
+  }
+  return ts.sort((x, y) => x - y)
+}
+
+export function trottoirbreiten(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen)): Trottoirbreiten {
+  const trottoirs = flaechen.filter(f => f.art === 'Trottoir').map(f => ({ f, box: box(f.ringe) }))
+  const aufTrottoir = (p: P) => trottoirs.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
+  const seite = { links: { n: 0, werte: [] as number[] }, rechts: { n: 0, werte: [] as number[] } }
+  for (const q of querschnitte(achsen, flaechen)) {
+    for (const k of ['links', 'rechts'] as const) {
+      const d = q[k]
+      const t = strahl(q.p, d, kanten, QUER_MAX_M)
+      if (!Number.isFinite(t)) continue
+      const bord: P = [q.p[0] + d[0] * t, q.p[1] + d[1] * t]
+      const bei = (s: number): P => [bord[0] + d[0] * s, bord[1] + d[1] * s]
+      seite[k].n++
+      if (!aufTrottoir(bei(SCHRITT_UEBER_M))) continue
+      // Nur Trottoirflächen in Reichweite schneiden; Ende = erste Kante, hinter der kein Trottoir liegt
+      const nah = trottoirs.filter(s => inBox(bei(0), [s.box[0] - TROTTOIR_MAX_M, s.box[1] - TROTTOIR_MAX_M,
+        s.box[2] + TROTTOIR_MAX_M, s.box[3] + TROTTOIR_MAX_M])).map(s => s.f.ringe)
+      const ende = schnitte(bord, d, nah, TROTTOIR_MAX_M).find(s => s > SCHRITT_UEBER_M && !aufTrottoir(bei(s + SCHRITT_UEBER_M)))
+      if (ende != null && ende >= TROTTOIR_MIN_M) seite[k].werte.push(ende)
+    }
+  }
+  const wert = (s: { n: number; werte: number[] }) =>
+    s.werte.length >= 3 && s.werte.length >= TROTTOIR_ANTEIL * s.n ? median(s.werte) : null
+  return { links: wert(seite.links), rechts: wert(seite.rechts) }
 }
