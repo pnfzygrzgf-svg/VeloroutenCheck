@@ -5,8 +5,9 @@
 // werden nicht auf die BBOX zugeschnitten. CORS offen (geprüft in fgsCheck, 10.10.2026).
 //
 // Nutzung nach den Betriebsbestimmungen von geodienste.ch (Fair Use: rund 10 WFS-Abfragen pro
-// Minute bei 1 MB); geladen wird nur beim Messen, ein Rechteck um den Abschnitt. Quellenangabe:
-// «Amtliche Vermessung, Kanton Bern, geodienste.ch».
+// Minute bei 1 MB); geladen wird nur beim Messen, ein Rechteck um den sichtbaren Ausschnitt.
+// Freigeschaltet für Bern, Zürich und Basel (Nutzerentscheid 16.10.2026); Luzern gibt die AV
+// über geodienste.ch nur mit Freigabe ab. Quellenangabe je Kanton (avQuelle).
 
 import type { P } from './lv95'
 import { holeJson } from './netz'
@@ -17,7 +18,7 @@ export interface AvFlaeche {
 }
 
 const WFS = 'https://geodienste.ch/db/av_0/deu'
-export const AV_QUELLE = 'Amtliche Vermessung, Kanton Bern, geodienste.ch'
+export const avQuelle = (kanton: string) => `Amtliche Vermessung, Kanton ${kanton}, geodienste.ch`
 
 export function avUrl(e: number, n: number, radiusM: number): string {
   const bbox = [e - radiusM, n - radiusM, e + radiusM, n + radiusM].map(v => v.toFixed(1)).join(',')

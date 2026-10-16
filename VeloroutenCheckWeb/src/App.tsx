@@ -9,7 +9,7 @@ import {
 } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, BREIT_MQ, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
 import { zuLv95, zuWgs, type P } from './lv95'
-import { ladeAv, AV_QUELLE } from './av'
+import { ladeAv, avQuelle } from './av'
 import { bordkanten, messeAbKante, abstand, aufZentimeter, FANG_M, type Kante } from './breitenmessung'
 import {
   candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
@@ -45,7 +45,9 @@ interface CityCfg {
   obsFile?: string                                // OpenBikeSensor-Snapshot (public/), falls vorhanden
   velostreifenFile?: string                       // lokaler Markierungs-Snapshot (nicht öffentlich), falls vorhanden
   luftbildFile?: string                           // Radstreifen aus dem Luftbild (öffentlicher Snapshot, nur Hinweis)
-  breitenMessung?: boolean                        // Breite am Luftbild messen (AV-Bordsteinkante; nur Bern)
+  // Breite am Luftbild messen: Kanton der amtlichen Vermessung (geodienste.ch) für die Quellenangabe.
+  // Fehlt er, gibt es die Messung nicht (Luzern: AV nur mit Freigabe).
+  avKanton?: string
   breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>  // stadtspezifische Breiten-Sollwerte (sonst Bern)
   breitenQuelle?: string                          // Quellenangabe der stadtspez. Breiten (sonst „Masterplan Bern")
   standardDoc: { titel: string; url: string }     // massgebendes Grundlagendokument (Rechnerseite)
@@ -58,7 +60,7 @@ const CITIES: Record<CityId, CityCfg> = {
     enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json',
     velostreifenFile: 'velostreifen_bern.json',   // lokaler Snapshot; im öffentlichen Build nicht vorhanden
     luftbildFile: 'luftbild_bern.json',           // öffentlich (tools/luftbild_bern.py); nur Bern
-    breitenMessung: true,                         // Nutzerentscheid 15.10.2026: nur Bern
+    avKanton: 'Bern',                             // Breitenmessung (seit 15.10.2026)
     standardDoc: {
       titel: 'Standards Masterplans Veloinfrastruktur Stadt Bern',
       url: 'https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur',
@@ -70,6 +72,7 @@ const CITIES: Record<CityId, CityCfg> = {
     attribution: 'Geodaten Stadt Zürich',
     enrichCands: zurich.enrichCands, loadOev: zurich.loadOev, obsFile: 'obs_zurich.json',
     breiten: BREITEN_ZUERICH, breitenQuelle: 'Velostandards Zürich',   // Rest → Bern-Fallback
+    avKanton: 'Zürich',                           // Breitenmessung (seit 16.10.2026)
     standardDoc: {
       titel: 'Velostandards Stadt Zürich',
       url: 'https://www.stadt-zuerich.ch/content/dam/web/de/aktuell/publikationen/2024/velostandards-stadt-zuerich/velostandards-stadt-zuerich.pdf',
@@ -84,6 +87,7 @@ const CITIES: Record<CityId, CityCfg> = {
     attribution: 'Geodaten Kanton Basel-Stadt',
     enrichCands: basel.enrichCands, loadOev: basel.loadOev,   // kein OBS-Snapshot
     breiten: BREITEN_BASEL, breitenQuelle: 'Standards Basel-Stadt',
+    avKanton: 'Basel-Stadt',                      // Breitenmessung (seit 16.10.2026)
     standardDoc: {
       titel: 'Standards Fuss- und Velo-Verkehrsinfrastruktur',
       url: 'https://media.bs.ch/original_file/72373a2c610e23b19ae61cd148ad22f35b3d1fe2/2024-09-27-standards-fvv-is-bs.pdf',
@@ -121,6 +125,8 @@ const STADT_KURZ: Record<CityId, string> = { bern: 'BE', zurich: 'ZH', basel: 'B
 
 // Quellenangabe der amtlichen Anreicherung für den Herkunfts-Chip (stadtabhängig).
 const AttribContext = createContext('Geoinformation Stadt Bern')
+// Quellenangabe der amtlichen Vermessung für den Chip «gemessen» (stadtabhängig, leer ohne Messung).
+const AvContext = createContext('')
 
 const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
   'Mischverkehr':                  { bg: '#9ca3af', fg: '#ffffff' },
@@ -221,13 +227,14 @@ const HALT_COLOR: Record<Haltestellenloesung, { bg: string; fg: string }> = {
 // bei „manuell"/leer kein Chip. Für leere Pflichtfelder ein rötlicher „Eingabe nötig"-Chip.
 function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
   const amtlichTitle = useContext(AttribContext)   // stadtabhängige Quellenangabe (Bern/Zürich)
+  const avTitle = useContext(AvContext)            // Quellenangabe der amtlichen Vermessung (Messung)
   const map: Record<string, { t: string; bg: string; fg: string; title?: string }> = {
     amtlich: { t: 'Geoportal', bg: '#dbeafe', fg: '#1e40af', title: amtlichTitle },
     osm: { t: 'OSM', bg: 'var(--border-subtle)', fg: 'var(--text-muted-strong)', title: 'OpenStreetMap' },
     fahrplan: { t: 'opentransportdata', bg: '#dcfce7', fg: '#166534', title: 'Fahrplan (opentransportdata.swiss / GTFS)' },
     markierung: { t: 'Markierung', bg: '#ffedd5', fg: '#9a3412', title: 'Aus der Fahrbahnmarkierung ermittelt (lokale Auswertung): Velostreifen auf dieser Seite — oder keiner, wenn die Striche nur auf der anderen Seite liegen' },
     luftbild: { t: 'Luftbild', bg: '#e0f2fe', fg: '#075985', title: 'Aus dem Luftbild-Hinweis übernommen (SWISSIMAGE © swisstopo, Erkennung mit dem Modell remote_velo der ETH Zürich) — bitte am Orthofoto prüfen' },
-    gemessen: { t: 'gemessen', bg: '#ede9fe', fg: '#5b21b6', title: `Am Luftbild gemessen: ab der Bordsteinkante der amtlichen Vermessung bis zur angeklickten Stelle der Markierung (Luftbild © swisstopo; ${AV_QUELLE})` },
+    gemessen: { t: 'gemessen', bg: '#ede9fe', fg: '#5b21b6', title: `Am Luftbild gemessen: ab der Bordsteinkante der amtlichen Vermessung bis zur angeklickten Stelle der Markierung (Luftbild © swisstopo; ${avTitle || 'Amtliche Vermessung, geodienste.ch'})` },
     angenommen: { t: '≤ 2000 angenommen', bg: '#fef9c3', fg: '#854d0e', title: 'Flächendeckende Verkehrsdaten Bern: kein Eintrag ⇒ DTV ≤ 2000 (ausserhalb Altstadt)' },
     fehlt: { t: 'Eingabe nötig', bg: '#fee2e2', fg: '#b91c1c' },
   }
@@ -328,7 +335,7 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen }: {
   onChange: (patch: Partial<Seite>) => void
   city: CityId
   oevAngebot: OevAngebot                // gilt für den Abschnitt; Haltestellenfelder nur, wenn ≠ keine
-  onMessen?: () => void                 // Breite am Luftbild messen (nur Bern)
+  onMessen?: () => void                 // Breite am Luftbild messen (Bern, Zürich, Basel)
 }) {
   const { ist } = felder
   return (
@@ -657,7 +664,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
   onChange: (patch: Partial<Section>) => void
   onTauschen: () => void
   onLuftbild: (welche: { a: boolean; b: boolean }) => void   // Luftbild-Hinweis übernehmen
-  onMessen?: (seite: 'A' | 'B') => void  // Breite am Luftbild messen (nur Bern)
+  onMessen?: (seite: 'A' | 'B') => void  // Breite am Luftbild messen (Bern, Zürich, Basel)
   onRemove: () => void
   canRemove: boolean
   onHover?: (hovering: boolean) => void
@@ -1052,12 +1059,14 @@ function SoFunktionierts() {
         <li><b>Übernehmen:</b> benachbarte Segmente gleicher Führungsform und gleichen Tempos werden zu Abschnitten gruppiert.</li>
         <li><b>Abschnitte prüfen:</b> je Abschnitt stehen Führungsform, Tempo und weitere Angaben aus OpenStreetMap und dem
           Geoportal der Stadt, mit Herkunft am Chip. Was nicht stimmt, lässt sich von Hand anpassen; die Bewertung rechnet sofort neu.</li>
-        <li><b>Luftbild (nur Bern):</b> Zeigt das Luftbild auf einer Seite einen Radstreifen, erscheint ein Hinweis zum
-          Übernehmen; eine Breite liefert er nicht. Die Breite lässt sich mit «📏 Am Luftbild messen» je Seite bestimmen:
-          Kartenhintergrund «Orthofoto» wählen, weit hineinzoomen und im Modus «Ab Bordsteinkante (AV)» auf die Markierung
-          klicken, bis zu der die Breite zählt; gemessen wird rechtwinklig bis zur Bordsteinkante der amtlichen Vermessung
-          (orange). Wo die AV keine Strassenfläche kennt, im Modus «Zwei Punkte» zuerst die Bordsteinkante und dann die
-          Markierung anklicken. «… m übernehmen» trägt den Wert ein, mit Herkunft «gemessen» am Chip.</li>
+        <li><b>Luftbild-Hinweis (nur Bern):</b> Zeigt das Luftbild auf einer Seite einen Radstreifen, erscheint ein Hinweis
+          zum Übernehmen; eine Breite liefert er nicht.</li>
+        <li><b>Breite messen (Bern, Zürich, Basel):</b> «📏 Am Luftbild messen» je Seite schaltet aufs Orthofoto, weit
+          hineinzoomen und im Modus «Ab Bordsteinkante (AV)» auf die Markierung klicken, bis zu der die Breite zählt;
+          gemessen wird rechtwinklig bis zur Bordsteinkante der amtlichen Vermessung (orange). Wo die AV keine
+          Strassenfläche kennt oder die Kante nicht auf dem Bordstein im Foto liegt, im Modus «Zwei Punkte» zuerst die
+          Bordsteinkante und dann die Markierung anklicken. «… m übernehmen» trägt den Wert ein, mit Herkunft «gemessen»
+          am Chip.</li>
         <li><b>Ergebnis lesen:</b> oben zwischen Schulnote (1 bis 6) und Erfüllungsgrad umschalten; die Bewertung gilt je Abschnitt
           und für die ganze Strecke. «Als CSV exportieren» sichert die Bewertung als Datei.</li>
       </ol>
@@ -1181,7 +1190,15 @@ function Landing({ onStart }: { onStart: () => void }) {
   )
 }
 
-// Breite am Luftbild messen (nur Bern): Zustand der laufenden Messung.
+// AV-Ausschnitt (LV95-Mitte und Halbseite) für ein Rechteck in Grad: deckt das Rechteck mit 20 m
+// Rand, mindestens ±120 m, höchstens ±300 m (Fair Use von geodienste.ch, Antwortgrösse).
+function avAusschnitt(s: number, w: number, n: number, o: number): { e: number; n: number; r: number } {
+  const [ea, na] = zuLv95(s, w), [eb, nb] = zuLv95(n, o)
+  const r = Math.min(300, Math.max(120, Math.max(Math.abs(eb - ea), Math.abs(nb - na)) / 2 + 20))
+  return { e: (ea + eb) / 2, n: (na + nb) / 2, r }
+}
+
+// Breite am Luftbild messen (Bern, Zürich, Basel): Zustand der laufenden Messung.
 interface Messung {
   secId: number
   seite: 'A' | 'B'
@@ -1478,7 +1495,7 @@ export default function App() {
   // Stabil (wie toggleCand): der aktuelle Modus und die aktuelle teilen-Funktion laufen über Refs.
   const teilenRef = useRef(teilen)
   teilenRef.current = teilen
-  // ── Breite am Luftbild messen (nur Bern, breitenmessung.ts) ─────────────────
+  // ── Breite am Luftbild messen (Bern, Zürich, Basel; breitenmessung.ts) ──────
   // Nutzerentscheid 15.10.2026: ab der Bordsteinkante der amtlichen Vermessung bis zur
   // angeklickten Stelle auf der Markierung; der Messwert ist die Breite an dieser Stelle.
   // Passt die AV-Kante nicht zum Bord (etwa Parkfelder dazwischen), misst man mit zwei Punkten.
@@ -1508,21 +1525,25 @@ export default function App() {
     setTeilModus(false)
     const idx = sections.findIndex(s => s.id === secId)
     if (idx < 0) return
-    // Auf den Abschnitt einpassen, wenn er von der Karte stammt; sonst bleibt die Ansicht.
+    // Zoom und Ausschnitt bleiben, solange der Abschnitt (ganz oder teilweise) im Bild ist — wer
+    // schon an der Messstelle steht, soll nicht herausgeworfen werden (Nutzer-Rückmeldung
+    // 16.10.2026; vorher passte die Karte sich immer an den ganzen Abschnitt an). Nur wenn er gar
+    // nicht zu sehen ist, springt die Karte hin. Die Bordsteinkanten kommen für das, was danach
+    // im Bild ist.
     const candById = new Map(candsRef.current.map(c => [c.id, c]))
     const pts = (sections[idx].candIds ?? []).flatMap(id => candById.get(id)?.geom ?? [])
-    let e: number, n: number, r = 150
+    let ziel: [[number, number], [number, number]] | null = null
     if (pts.length) {
       let s0 = Infinity, n0 = -Infinity, w0 = Infinity, e0 = -Infinity
       for (const p of pts) { s0 = Math.min(s0, p.lat); n0 = Math.max(n0, p.lat); w0 = Math.min(w0, p.lon); e0 = Math.max(e0, p.lon) }
-      map.fitBounds([[s0, w0], [n0, e0]], { padding: [40, 40], maxZoom: 19 })
-      const [ea, na] = zuLv95(s0, w0), [eb, nb] = zuLv95(n0, e0)
-      e = (ea + eb) / 2; n = (na + nb) / 2
-      r = Math.min(300, Math.max(120, Math.max(Math.abs(eb - ea), Math.abs(nb - na)) / 2 + 40))
-    } else {
-      const c = map.getCenter();
-      [e, n] = zuLv95(c.lat, c.lng)
+      if (!map.getBounds().intersects([[s0, w0], [n0, e0]])) {
+        ziel = [[s0, w0], [n0, e0]]
+        map.fitBounds(ziel, { padding: [40, 40], maxZoom: 19 })
+      }
     }
+    const b = map.getBounds()
+    const { e, n, r } = ziel ? avAusschnitt(ziel[0][0], ziel[0][1], ziel[1][0], ziel[1][1])
+      : avAusschnitt(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
     setMessung({ secId, seite, titel: `Abschnitt ${idx + 1}, Seite ${seite}`, modus: 'kante',
       kanten: [], laden: true, punkte: [] })
     void messAvLaden(e, n, r)
@@ -1535,8 +1556,8 @@ export default function App() {
     const onMove = () => {
       const m = messungRef.current
       if (!m || m.laden || !m.geladen) return
-      const c = map.getCenter(), [e, n] = zuLv95(c.lat, c.lng)
-      if (Math.hypot(e - m.geladen.e, n - m.geladen.n) > 0.6 * m.geladen.r) void messAvLaden(e, n, 150)
+      const b = map.getBounds(), neu = avAusschnitt(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
+      if (Math.hypot(neu.e - m.geladen.e, neu.n - m.geladen.n) > 0.6 * m.geladen.r) void messAvLaden(neu.e, neu.n, neu.r)
     }
     const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setMessung(null) }
     map.on('moveend', onMove)
@@ -1715,6 +1736,7 @@ export default function App() {
 
   return (
     <AttribContext.Provider value={cityCfg.attribution}>
+    <AvContext.Provider value={cityCfg.avKanton ? avQuelle(cityCfg.avKanton) : ''}>
     <div className={view === 'rechner' ? 'vrc-app-rechner' : undefined}
          style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)' }}>
       {/* Keine Kopfleiste (Standard der Check-Apps seit 16.10.2026): Logo, Name und Marke stehen im Panel bzw. auf der Startseite */}
@@ -1894,7 +1916,7 @@ export default function App() {
                   <button type="button" onClick={() => setMessung(null)} style={kleinKnopfStyle}>Abbrechen</button>
                 </div>
                 <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
-                  Luftbild © swisstopo · {AV_QUELLE}
+                  Luftbild © swisstopo · {avQuelle(cityCfg.avKanton ?? '')}
                 </div>
               </div>
             )}
@@ -2066,7 +2088,7 @@ export default function App() {
             onChange={patch => update(s.id, patch)}
             onTauschen={() => tauschen(s.id)}
             onLuftbild={welche => luftbildAnnehmen(s.id, welche)}
-            onMessen={cityCfg.breitenMessung ? (seite => messungStarten(s.id, seite)) : undefined}
+            onMessen={cityCfg.avKanton ? (seite => messungStarten(s.id, seite)) : undefined}
             onRemove={() => remove(s.id)}
             canRemove={sections.length > 1}
             onHover={h => setHoverSec(h ? s.id : null)}
@@ -2203,6 +2225,7 @@ export default function App() {
       </div>
       )}
     </div>
+    </AvContext.Provider>
     </AttribContext.Provider>
   )
 }

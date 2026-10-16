@@ -103,7 +103,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   center?: [number, number]               // Anfangs-Kartenmitte (stadtabhängig)
   fitKey?: number                         // ändert sich → Karte auf die Segmente einpassen (nur «Strasse laden»)
   teilModus?: boolean                     // «Segment teilen» aktiv → Fadenkreuz über den Linien
-  orthofoto?: boolean                     // Hintergrund Orthofoto erzwingen (Breitenmessung); danach zurück
+  orthofoto?: boolean                     // true → Hintergrund aufs Orthofoto schalten (Breitenmessung); bleibt danach
   messung?: MessAnzeige | null            // Breitenmessung: Kanten, Punkte, Messlinie
 }) {
   const elRef = useRef<HTMLDivElement>(null)
@@ -112,7 +112,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   const messRef = useRef<L.LayerGroup | null>(null)                 // eigene Ebene der Breitenmessung
   const basisRef = useRef<Record<string, L.TileLayer>>({})          // Hintergründe nach Name
   const aktiveBasis = useRef('CyclOSM')                             // gerade gezeigter Hintergrund
-  const vorOrtho = useRef<string | null>(null)                      // Hintergrund vor dem erzwungenen Orthofoto
+
   const lineRef = useRef<Map<number, L.Polyline>>(new Map())  // Cand-ID → Linie (für Highlight)
   const lastFit = useRef(0)            // zuletzt umgesetzter fitKey
   const suppress = useRef(false)        // Klick auf Linie soll keinen Karten-Klick auslösen
@@ -299,20 +299,14 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     mapRef.current?.getContainer().classList.toggle('vrc-teilmodus', teilModus)
   }, [teilModus])
 
-  // Orthofoto erzwingen (Breitenmessung) und danach den vorherigen Hintergrund zurückholen — es
-  // sei denn, der Nutzer hat inzwischen selbst einen anderen gewählt.
+  // Orthofoto einschalten (Breitenmessung). Es bleibt danach eingeschaltet: Zurück zu CyclOSM
+  // (höchstens Stufe 19) hätte die Karte nach einer Messung auf Stufe 20/21 herausgezoomt
+  // (16.10.2026). Den Hintergrund wechselt man oben rechts.
   useEffect(() => {
     const map = mapRef.current, b = basisRef.current
-    if (!map || !b[ORTHO]) return
-    if (orthofoto && aktiveBasis.current !== ORTHO) {
-      vorOrtho.current = aktiveBasis.current
-      b[aktiveBasis.current]?.remove()
-      b[ORTHO].addTo(map)
-    } else if (!orthofoto && vorOrtho.current) {
-      const zurueck = vorOrtho.current
-      vorOrtho.current = null
-      if (aktiveBasis.current === ORTHO && b[zurueck]) { b[ORTHO].remove(); b[zurueck].addTo(map) }
-    }
+    if (!map || !b[ORTHO] || !orthofoto || aktiveBasis.current === ORTHO) return
+    b[aktiveBasis.current]?.remove()
+    b[ORTHO].addTo(map)
   }, [orthofoto])
 
   // Breitenmessung zeichnen: Bordsteinkanten orange, Punkte, Messlinie gestrichelt mit Wert.

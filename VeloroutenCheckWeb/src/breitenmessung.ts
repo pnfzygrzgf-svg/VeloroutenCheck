@@ -1,4 +1,4 @@
-// ── Breite am Luftbild messen: ab Bordsteinkante (nur Bern) ───────────────────
+// ── Breite am Luftbild messen: ab Bordsteinkante (Bern, Zürich, Basel) ────────
 //
 // Nutzerentscheid 15.10.2026: Gemessen wird ab der Bordsteinkante bis zur Stelle der Markierung,
 // die der Nutzer auf dem Luftbild anklickt; der Messwert ist die Breite an dieser Stelle. Die
@@ -6,7 +6,8 @@
 // aus dem Berner Markierungsplan (velostreifen_dxf.py: rechtwinkliger Abstand der gelben Linie
 // zur Strassenkante der AV). Gerechnet wird in LV95 (Meter).
 //
-// Geprüft am 16.10.2026 an 2 634 Strichen des Markierungsplans in 12 Ausschnitten der Stadt: Der
+// Geprüft am 16.10.2026 in Bern (für Zürich und Basel fehlt ein Markierungsplan zum Vergleich;
+// die AV hat dort dieselbe Struktur), an 2 634 Strichen in 12 Ausschnitten der Stadt: Der
 // Abstand Strich → Bordsteinkante (hier, AV von geodienste.ch) wich von der Breite im Plan im
 // Median um 2,5 cm ab, bei 82 % um höchstens 10 cm. Die übrigen Abweichungen kommen vom
 // Datenstand der AV und von inneren Kanten, die der Plan mitzählt, diese Rechnung aber bewusst
