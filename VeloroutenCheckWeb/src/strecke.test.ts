@@ -366,3 +366,31 @@ describe('Breite am Luftbild gemessen', () => {
     expect([t.breite, t.gegen?.breite, t.gegen?.quelle.breite]).toEqual([1.8, 1.41, 'gemessen'])
   })
 })
+
+describe('Parkierung je Seite aus amtlichen Parkfeldern', () => {
+  const pk = (rechts: number, links: number) => ({ bern: { parken: { rechts, links } } })
+  it('nur rechts: Seite A «ja», Seite B «nein», Seiten werden verschieden', () => {
+    const s = candToSection(cand(1, 0, 100, pk(0.8, 0)))
+    expect([s.parkenRechts, s.quelle.parkenRechts]).toEqual(['ja', 'amtlich'])
+    expect([s.gegen?.parkenRechts, s.gegen?.quelle.parkenRechts]).toEqual(['nein', 'amtlich'])
+  })
+  it('beidseits: beide «ja», keine Gegenseite', () => {
+    const s = candToSection(cand(1, 0, 100, pk(0.5, 0.6)))
+    expect(s.parkenRechts).toBe('ja')
+    expect(s.gegen).toBeUndefined()
+  })
+  it('ohne Quelle bleibt «egal»', () => expect(candToSection(cand(1, 0, 100)).parkenRechts).toBe('egal'))
+  it('Way gegen die Strecke: die Seiten tauschen auch bei der Parkierung', () =>
+    expect(candToSection(cand(1, 0, 100, pk(0.8, 0)), false).parkenRechts).toBe('nein'))
+  it('Zusammenfassen gewichtet nach Länge', () => {
+    const bern = { speed: 30, dtv: 3000, dtvGeprueft: true }
+    const [r] = candsToSections([
+      cand(1, 0, 300, { bern: { ...bern, parken: { rechts: 0.2, links: 0 } } }),
+      cand(2, 300, 400, { bern: { ...bern, parken: { rechts: 0.6, links: 0 } } }),
+    ], 'bern')
+    // (300 · 0,2 + 100 · 0,6) / 400 = 0,3 → ja
+    expect(r.parkAnteil!.a).toBeCloseTo(0.3, 6)
+    expect(r.parkenRechts).toBe('ja')
+    expect(r.gegen?.parkenRechts).toBe('nein')
+  })
+})

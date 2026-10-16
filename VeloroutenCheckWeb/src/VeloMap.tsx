@@ -42,6 +42,9 @@ export interface Cand {
     // Radstreifen aus dem Luftbild (luftbild.ts, nur Bern): Anteil der Länge mit Fund je Seite,
     // bezogen auf die Way-Richtung. Nur Hinweis, setzt keine Form.
     luftbild?: { rechts: number; links: number }
+    // Amtliche Parkfelder (parkierung.ts, Bern/Zürich/Luzern): Anteil der Länge je Seite,
+    // bezogen auf die Way-Richtung. Belegt «Parkierung rechts» vor.
+    parken?: { rechts: number; links: number }
     oevHalt?: boolean                     // Haltestelle im Abschnitt (Geoportal Haltestellen)
     oevHaltName?: string                  // Name der nächsten Haltestelle
     oevTram?: boolean                     // Tram-Linie verläuft entlang (OeV_Linien)
@@ -91,7 +94,7 @@ const ORTHO = 'Orthofoto (swisstopo)'
 
 export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
                           attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
-                          teilModus = false, orthofoto = false, messung = null }: {
+                          teilModus = false, orthofoto = false, messung = null, obsStand }: {
   cands: Cand[]
   onLineClick: (id: number, lat: number, lon: number) => void   // Linie angeklickt (an-/abwählen oder teilen)
   onMapClick?: (lat: number, lon: number) => void
@@ -100,6 +103,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   highlightIds?: Set<number>              // Cand-IDs des gehoverten Abschnitts → hervorheben
   stops?: Stop[]                          // ÖV-Haltestellen im geladenen Bereich (Marker)
   attribution?: string                    // Quellenangabe der amtlichen Anreicherung (stadtabhängig)
+  obsStand?: string                       // Stand des OpenBikeSensor-Exports (Tooltip)
   center?: [number, number]               // Anfangs-Kartenmitte (stadtabhängig)
   fitKey?: number                         // ändert sich → Karte auf die Segmente einpassen (nur «Strasse laden»)
   teilModus?: boolean                     // «Segment teilen» aktiv → Fadenkreuz über den Linien
@@ -111,7 +115,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   const layerRef = useRef<L.LayerGroup | null>(null)
   const messRef = useRef<L.LayerGroup | null>(null)                 // eigene Ebene der Breitenmessung
   const basisRef = useRef<Record<string, L.TileLayer>>({})          // Hintergründe nach Name
-  const aktiveBasis = useRef('CyclOSM')                             // gerade gezeigter Hintergrund
+  const aktiveBasis = useRef(ORTHO)                                 // gerade gezeigter Hintergrund
 
   const lineRef = useRef<Map<number, L.Polyline>>(new Map())  // Cand-ID → Linie (für Highlight)
   const lastFit = useRef(0)            // zuletzt umgesetzter fitKey
@@ -121,7 +125,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   const readyCb = useRef(onReady)       // dito (onReady wird inline übergeben → neue Referenz je Render)
   readyCb.current = onReady
 
-  // Karte einmalig initialisieren (CyclOSM-Hintergrund); nur beim Mount — Callbacks laufen über
+  // Karte einmalig initialisieren (Hintergrund Orthofoto); nur beim Mount — Callbacks laufen über
   // Refs, das Zentrum bei Stadtwechsel über den Folge-Effekt. Cleanup beim Unmount (z. B.
   // Rechner → Startseite), sonst bleibt je Wechsel eine verwaiste Leaflet-Instanz zurück (Leck).
   useEffect(() => {
@@ -129,7 +133,8 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     const map = L.map(elRef.current).setView(center, 13)  // Anfangs-Mitte je Stadt
     // Drei Hintergründe zur Wahl: CyclOSM (Velo-Infrastruktur betont), Orthofoto (Führungsform
     // am Luftbild prüfbar — OSM-Tags sagen nicht immer, was gebaut ist), Hell (ruhiger Kontrast
-    // für die Linienfarben). swisstopo deckt alle vier Städte ab. CyclOSM bleibt der Default.
+    // für die Linienfarben). swisstopo deckt alle vier Städte ab. Standard ist seit 16.10.2026 das
+    // Orthofoto (Nutzerwunsch), vorher CyclOSM.
     const basemaps: Record<string, L.TileLayer> = {
       'CyclOSM': L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
         maxZoom: 19, attribution: '© OpenStreetMap-Mitwirkende · Stil: CyclOSM',
@@ -143,7 +148,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         maxZoom: 20, attribution: '© OpenStreetMap-Mitwirkende · © CARTO',
       }),
     }
-    basemaps['CyclOSM'].addTo(map)
+    basemaps[ORTHO].addTo(map)
     L.control.layers(basemaps, undefined, { position: 'topright' }).addTo(map)
     basisRef.current = basemaps
     // Die Ebenen-Auswahl meldet auch programmatische Wechsel (Leaflet: baselayerchange).
@@ -226,9 +231,9 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         c.bern.routentyp ?? null,
       ].filter(Boolean)
       const obsPart = c.obs && c.obs.count > 0
-        ? `<br>OpenBikeSensor: Median ${c.obs.median.toFixed(2)} m (n ${c.obs.count})`
+        ? `<br>OpenBikeSensor${obsStand ? ` (Export ${escapeHtml(obsStand)})` : ''}: Median ${c.obs.median.toFixed(2)} m (n ${c.obs.count})`
         : (c.obs && c.obs.usage > 0
-            ? `<br>OpenBikeSensor: befahren (n ${c.obs.usage}), keine Überholmessung`
+            ? `<br>OpenBikeSensor${obsStand ? ` (Export ${escapeHtml(obsStand)})` : ''}: befahren (n ${c.obs.usage}), keine Überholmessung`
             : '')
       // Leaflet setzt den Tooltip per innerHTML → Fremdtext (OSM-Name) maskieren, s. netz.ts.
       hit.bindTooltip(
@@ -292,7 +297,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       map.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 })
       lastFit.current = fitKey
     }
-  }, [cands, onLineClick, markers, stops, attribution, fitKey])
+  }, [cands, onLineClick, markers, stops, attribution, fitKey, obsStand])
 
   // Teil-Modus: Fadenkreuz über den Linien (CSS-Klasse am Karten-Container, index.css).
   useEffect(() => {

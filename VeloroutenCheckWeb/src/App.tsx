@@ -31,6 +31,7 @@ import { type OevInfo } from './bern'
 import { enrichObs, type ObsStats } from './obs'
 import { enrichVelostreifen, type VeloInfo } from './velostreifen'
 import { enrichLuftbild, LUFTBILD_SCHWELLE, type LuftbildInfo } from './luftbild'
+import { enrichParkierung, type ParkInfo, type ParkStadt } from './parkierung'
 
 // ── Städte-Registry: pro Stadt die Datenquellen + Beschriftungen bündeln ───────
 // Alle Adapter (bern/zurich/basel/luzern/stgallen.ts) tragen dieselben Schnittstellen.
@@ -44,6 +45,12 @@ interface CityCfg {
   enrichCands: (cands: Cand[]) => Promise<Anreicherung>
   loadOev: (cands: Cand[]) => Promise<LoadOevResult>
   obsFile?: string                                // OpenBikeSensor-Snapshot (public/), falls vorhanden
+  // Stand des OpenBikeSensor-Exports, angezeigt im Hinweis, Tooltip und CSV. Der Export selbst
+  // trägt kein Datum; «Juni 2026» stützt sich auf die Dateidaten (Bern 22.06., Zürich 27.06.2026).
+  obsStand?: string
+  // Parkierung je Seite aus amtlichen Parkfeldern vorbelegen (parkierung.ts); fehlt der Eintrag,
+  // gibt es keine Quelle (Basel: Parkfelder ohne Geometrie).
+  parkierung?: ParkStadt
   velostreifenFile?: string                       // lokaler Markierungs-Snapshot (nicht öffentlich), falls vorhanden
   luftbildFile?: string                           // Radstreifen aus dem Luftbild (öffentlicher Snapshot, nur Hinweis)
   // Breite am Luftbild messen: Kanton der amtlichen Vermessung (geodienste.ch) für die Quellenangabe.
@@ -58,7 +65,8 @@ const CITIES: Record<CityId, CityCfg> = {
   bern: {
     label: 'Bern', osmArea: 'Bern', center: [46.948, 7.447],
     attribution: 'Geoinformation Stadt Bern',
-    enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json',
+    enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json', obsStand: 'Juni 2026',
+    parkierung: 'bern',
     velostreifenFile: 'velostreifen_bern.json',   // lokaler Snapshot; im öffentlichen Build nicht vorhanden
     luftbildFile: 'luftbild_bern.json',           // öffentlich (tools/luftbild_bern.py); nur Bern
     avKanton: 'Bern',                             // Breitenmessung (seit 15.10.2026)
@@ -71,7 +79,8 @@ const CITIES: Record<CityId, CityCfg> = {
   zurich: {
     label: 'Zürich', osmArea: 'Zürich', center: [47.374, 8.541],
     attribution: 'Geodaten Stadt Zürich',
-    enrichCands: zurich.enrichCands, loadOev: zurich.loadOev, obsFile: 'obs_zurich.json',
+    enrichCands: zurich.enrichCands, loadOev: zurich.loadOev, obsFile: 'obs_zurich.json', obsStand: 'Juni 2026',
+    parkierung: 'zurich',
     breiten: BREITEN_ZUERICH, breitenQuelle: 'Velostandards Zürich',   // Rest → Bern-Fallback
     avKanton: 'Zürich',                           // Breitenmessung (seit 16.10.2026)
     standardDoc: {
@@ -102,6 +111,7 @@ const CITIES: Record<CityId, CityCfg> = {
     label: 'Luzern', osmArea: 'Luzern', center: [47.050, 8.307],
     attribution: 'Geodaten Stadt Luzern',
     enrichCands: luzern.enrichCands, loadOev: luzern.loadOev,   // kein Tram, kein OBS-Snapshot
+    parkierung: 'luzern',
     breiten: BREITEN_LUZERN, breitenQuelle: 'Standards Stadt Luzern',
     standardDoc: {
       titel: 'Standards Veloverkehr Stadt Luzern',
@@ -384,9 +394,7 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen }: {
       {/* Parkierung rechts (Dooring) bei Fahrbahn-Führungsformen (siehe PARKEN_RELEVANT) */}
       {PARKEN_RELEVANT.includes(ist as IstFuehrungsform) && (
         <label style={fieldStyle}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-            Parkierung rechts (Dooring)
-          </span>
+          <FieldLabel label="Parkierung rechts (Dooring)" chip={<QuelleChip q={quelle.parkenRechts} />} />
           <select value={felder.parkenRechts}
                   onChange={e => onChange({ parkenRechts: e.target.value as ParkenRechts })}
                   style={selectStyle}>
@@ -678,6 +686,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
   const q = section.quelle
   const routenOptions = CITIES[city].routenOptions ?? ROUTE_OPTIONS.map(v => ({ value: v, label: v }))
   const hatMarker = (section.candIds?.length ?? 0) > 0   // nur OSM-Abschnitte sind auf der Karte markiert
+  const obsStand = CITIES[city].obsStand
   const beide = section.richtung === 'beide'
   const abweichend = beide && !!section.gegen
   // Formen der bewerteten Seiten: DTV/Tempo sind Pflicht, sobald eine davon sie auswertet.
@@ -716,6 +725,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
     const quelle = { ...g.quelle }
     if ('ist' in patch) quelle.ist = 'manuell'
     if ('breite' in patch) quelle.breite = 'manuell'
+    if ('parkenRechts' in patch) quelle.parkenRechts = 'manuell'
     onChange({ gegen: { ...g, ...patch, quelle } })
   }
 
@@ -913,7 +923,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
           <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)', marginBottom: 8 }}>
             Beide Seiten gleich: Was hier steht, gilt für beide Fahrtrichtungen, mit einer gemeinsamen Note.
           </div>
-          <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite }}
+          <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite, parkenRechts: q.parkenRechts }}
                        onChange={onChange} city={city} oevAngebot={section.oevAngebot}
                        onMessen={onMessen && (() => onMessen('A'))} />
         </div>
@@ -930,7 +940,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
             ⇄ Seiten tauschen
           </button>
         </div>
-        <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite }}
+        <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite, parkenRechts: q.parkenRechts }}
                      onChange={onChange} city={city} oevAngebot={section.oevAngebot}
                        onMessen={onMessen && (() => onMessen('A'))} />
       </div>
@@ -1003,14 +1013,15 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
       ))}
 
       {/* OpenBikeSensor: gemessene Überholabstände — reine Zusatzinfo, kein Noteneinfluss.
-          Auch „befahren, aber nicht überholt" (nur usage) wird gezeigt. */}
+          Auch „befahren, aber nicht überholt" (nur usage) wird gezeigt. Mit Stand des Exports:
+          Die Werte sind ein gebündelter Snapshot, kein Live-Bezug (obs.ts). */}
       {section.obs && (section.obs.count > 0 || section.obs.usage > 0) && (
         <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10,
                       background: '#f0f9ff', border: '1px solid #bae6fd', color: '#075985',
                       fontSize: 13 }}>
           {section.obs.count > 0 ? (
             <>
-              <strong>OpenBikeSensor:</strong> Median Überholabstand{' '}
+              <strong>OpenBikeSensor{obsStand ? ` (Export ${obsStand})` : ''}:</strong> Median Überholabstand{' '}
               <strong>{numDE(section.obs.median, 2)} m</strong>
               {' · '}{Math.round(100 * section.obs.below150 / section.obs.count)} % unter 1,5 m
               {' · '}n = {section.obs.count}
@@ -1019,7 +1030,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
             </>
           ) : (
             <>
-              <strong>OpenBikeSensor:</strong> befahren ({section.obs.usage} Befahrungen),
+              <strong>OpenBikeSensor{obsStand ? ` (Export ${obsStand})` : ''}:</strong> befahren ({section.obs.usage} Befahrungen),
               aber keine Überholmessung aufgezeichnet
             </>
           )}
@@ -1342,7 +1353,7 @@ export default function App() {
     const fehler: string[] = []
     const neuIds = new Set(c.map(x => x.id))
     const alle = [...bestehende.filter(x => !neuIds.has(x.id)), ...c]
-    const [ec, obs, oev, velo, luftbild] = await Promise.all([
+    const [ec, obs, oev, velo, luftbild, park] = await Promise.all([
       cityCfg.enrichCands(c).catch(() => { fehler.push(cityCfg.attribution); return { cands: c, fehler: [] as string[] } }),
       cityCfg.obsFile
         ? enrichObs(alle, cityCfg.obsFile).catch(() => new Map<number, ObsStats>())
@@ -1354,13 +1365,16 @@ export default function App() {
       cityCfg.luftbildFile
         ? enrichLuftbild(c, cityCfg.luftbildFile).catch(() => new Map<number, LuftbildInfo>())
         : Promise.resolve(new Map<number, LuftbildInfo>()),
+      cityCfg.parkierung
+        ? enrichParkierung(c, cityCfg.parkierung).catch(() => { fehler.push('Parkfelder'); return new Map<number, ParkInfo>() })
+        : Promise.resolve(new Map<number, ParkInfo>()),
     ])
     fehler.push(...ec.fehler, ...oev.fehler)
     const bernById = new Map(ec.cands.map(x => [x.id, x.bern]))
     const cands = c.map(cand => {
-      const v = velo.get(cand.id), lb = luftbild.get(cand.id)
+      const v = velo.get(cand.id), lb = luftbild.get(cand.id), pk = park.get(cand.id)
       const bern = { ...bernById.get(cand.id), ...(oev.byId.get(cand.id) ?? {}),
-                     ...(v ? { radstreifen: v } : {}), ...(lb ? { luftbild: lb } : {}) }
+                     ...(v ? { radstreifen: v } : {}), ...(lb ? { luftbild: lb } : {}), ...(pk ? { parken: pk } : {}) }
       const o = obs.get(cand.id)
       const out: Cand = { ...cand }
       if (Object.keys(bern).length) out.bern = bern
@@ -1727,7 +1741,7 @@ export default function App() {
 
   // Manuelle Änderung eines getrackten Feldes setzt dessen Herkunft auf „manuell".
   const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram', 'strassentyp', 'richtung',
-    'fahrbahnbreite']
+    'fahrbahnbreite', 'parkenRechts']
   const update = (id: number, patch: Partial<Section>) =>
     setSections(prev => prev.map(s => {
       if (s.id !== id) return s
@@ -1928,7 +1942,7 @@ export default function App() {
             <VeloMap cands={cands} onLineClick={linieGeklickt} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
-                     attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey}
+                     attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} obsStand={cityCfg.obsStand}
                      teilModus={teilModus} orthofoto={messAktiv} messung={messAnzeige} />
             {/* Breitenmessung: Werkzeugleiste auf der Karte (klickbar, liegt über dem Kartenrand). */}
             {messung && (
@@ -2164,7 +2178,7 @@ export default function App() {
                          cursor: 'pointer', flex: 1, minWidth: 200 }}>
           + Abschnitt hinzufügen
         </button>
-        <button onClick={() => downloadCsv(buildCsv(sections, ergebnisse, streckeNote, city, cityCfg.label))}
+        <button onClick={() => downloadCsv(buildCsv(sections, ergebnisse, streckeNote, city, cityCfg.label, undefined, cityCfg.obsStand))}
                 title="Alle Abschnitte mit Werten, Herkunft und Note als CSV (Excel) herunterladen"
                 style={{ border: '1px solid var(--accent)', background: '#fff', color: 'var(--accent)',
                          borderRadius: 10, padding: '10px 16px', fontSize: 14, fontWeight: 600,

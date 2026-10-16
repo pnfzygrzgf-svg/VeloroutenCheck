@@ -48,6 +48,7 @@ const hsTypText = (f: Seite) => (f.ohneHaltestelle ? 'ohne Haltestelle' : f.halt
 export function buildCsv(
   sections: Section[], ergebnisse: AbschnittErgebnis[], streckeNote: number | null,
   city: Stadt, stadtLabel: string, abrufdatum = new Date().toISOString().slice(0, 10),
+  obsStand?: string,   // Stand des OpenBikeSensor-Exports (App.tsx, CITIES)
 ): string {
   const head = [
     'Abschnitt', 'Strecke/Herkunft', 'DTV [Fz/Tag]', 'DTV-Quelle', 'Tempo [km/h]', 'Tempo-Quelle',
@@ -67,6 +68,8 @@ export function buildCsv(
     'ÖV-Takt Seite B [Min]', 'Breite Haltestelle Seite B [m]', 'Note Seite B',
     // Fahrbahnbreite (16.10.2026), Information ohne Noteneinfluss.
     'Fahrbahnbreite [m]', 'Fahrbahnbreite-Quelle',
+    // Stand des OpenBikeSensor-Exports (16.10.2026): die OBS-Werte sind ein Snapshot.
+    'OBS Stand',
   ]
   const rows = sections.map((s, i) => {
     const e = ergebnisse[i]
@@ -111,6 +114,7 @@ export function buildCsv(
       b && s.oevAngebot !== 'keine' && !b.ohneHaltestelle ? numDE(b.haltestelleBreite, 2) : '',
       noteB ? numDE(noteB.note, 1) : '',
       numDE(s.fahrbahnbreite, 1), s.quelle.fahrbahnbreite ? QUELLE_LABEL[s.quelle.fahrbahnbreite] : '',
+      obs && obsStand ? obsStand : '',
     ]
   })
   // Schlusszeile: Strecken-Note (schlechtester Abschnitt). Spalten aus dem Kopf abgeleitet,

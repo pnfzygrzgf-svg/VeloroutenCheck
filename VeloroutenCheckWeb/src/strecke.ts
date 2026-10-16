@@ -12,6 +12,7 @@ import type { Cand } from './VeloMap'
 import type { OevInfo } from './bern'
 import { mergeObs, type ObsStats } from './obs'
 import { peilung, type LL } from './geo'
+import { PARK_SCHWELLE } from './parkierung'
 
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
 // Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
@@ -36,7 +37,7 @@ export function dtvEff(s: Section, city: Stadt): number {
 }
 // Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
 export type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram' | 'strassentyp' | 'richtung'
-  | 'fahrbahnbreite'
+  | 'fahrbahnbreite' | 'parkenRechts'
 
 // ── Seiten: die beiden Fahrtrichtungen eines Abschnitts (seit 14.10.2026) ──────
 // Seite A = Fahrtrichtung entlang der Strecke, Seite B = Gegenrichtung (Rechtsverkehr: je die
@@ -55,7 +56,7 @@ export interface Seite {
   haltestelleBreite: number    // NaN = leer
   ohneHaltestelle: boolean     // der Abschnitt hat eine Haltestelle, aber nicht auf dieser Seite
 }
-export type SeitenQuelle = Partial<Record<'ist' | 'breite', Quelle>>
+export type SeitenQuelle = Partial<Record<'ist' | 'breite' | 'parkenRechts', Quelle>>
 export interface GegenSeite extends Seite { quelle: SeitenQuelle }
 export type Richtung = 'beide' | 'eine'
 
@@ -78,6 +79,7 @@ export interface Section extends Seite {
   candsGegenA?: number[]       // Kandidaten, deren Way GEGEN Seite A läuft (Karten-Pfeil)
   osmVeloGegenverkehr?: boolean  // OSM: Einbahn mit Velo in der Gegenrichtung (Hinweis in der Maske)
   luftbild?: { a: number; b: number }  // Luftbild: Anteil der Länge mit Radstreifen-Fund je Seite (nur Hinweis)
+  parkAnteil?: { a: number; b: number }  // amtliche Parkfelder: Anteil der Länge je Seite (parkierung.ts)
   label?: string               // Herkunft/Beschriftung (z. B. aus OSM geladen)
   quelle: Partial<Record<QuelleFeld, Quelle>>   // gesetzt je Feld, sobald ein Wert vorliegt
   candIds?: number[]           // Kandidaten-Kennungen der Segmente dieses Abschnitts (für die Karten-Zuordnung)
@@ -113,6 +115,7 @@ function quelleA(s: Section): SeitenQuelle {
   const q: SeitenQuelle = {}
   if (s.quelle.ist) q.ist = s.quelle.ist
   if (s.quelle.breite) q.breite = s.quelle.breite
+  if (s.quelle.parkenRechts) q.parkenRechts = s.quelle.parkenRechts
   return q
 }
 // Seite B als eigene Gegenseite (Kopie von A, wenn sie bisher «gleich wie A» war).
@@ -140,7 +143,7 @@ export function tauscheSeiten(s: Section): Section {
   if (s.gegen) {
     const b = s.gegen
     Object.assign(neu, waehle(b))
-    for (const k of ['ist', 'breite'] as const) {
+    for (const k of ['ist', 'breite', 'parkenRechts'] as const) {
       if (b.quelle[k]) neu.quelle[k] = b.quelle[k]
       else delete neu.quelle[k]
     }
@@ -226,8 +229,15 @@ export function candToSection(c: Cand, gleich = true): Section {
   s.ist = a.ist; s.breite = a.breite
   if (a.quelle.ist) s.quelle.ist = a.quelle.ist
   if (a.quelle.breite) s.quelle.breite = a.quelle.breite
-  if (b.ist !== a.ist || !gleicheZahl(b.breite, a.breite))
-    s.gegen = { ...waehle(s), ist: b.ist, breite: b.breite, quelle: b.quelle }
+  // Parkierung je Seite aus den amtlichen Parkfeldern (parkierung.ts): ab PARK_SCHWELLE «ja»,
+  // sonst «nein» — nur wo die Stadt eine Quelle hat (sonst bleibt «egal»).
+  const pk = c.bern?.parken
+  const parkA = pk ? (pk[aWay] >= PARK_SCHWELLE ? 'ja' : 'nein') : undefined
+  const parkB = pk ? (pk[bWay] >= PARK_SCHWELLE ? 'ja' : 'nein') : undefined
+  if (pk) { s.parkenRechts = parkA!; s.quelle.parkenRechts = 'amtlich'; s.parkAnteil = { a: pk[aWay], b: pk[bWay] } }
+  if (b.ist !== a.ist || !gleicheZahl(b.breite, a.breite) || parkA !== parkB)
+    s.gegen = { ...waehle(s), ist: b.ist, breite: b.breite, ...(parkB ? { parkenRechts: parkB } : {}),
+      quelle: { ...b.quelle, ...(pk ? { parkenRechts: 'amtlich' as const } : {}) } }
   if (c.einbahn) {
     s.richtung = 'eine'; s.quelle.richtung = 'osm'
     if (c.veloGegenverkehr) s.osmVeloGegenverkehr = true
@@ -427,6 +437,20 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
       if (engsteB && seiteB(engsteB.sec).breite !== repB.breite) {
         const g0 = gegenVon(rep.sec), qb = gegenVon(engsteB.sec).quelle.breite
         rep.sec.gegen = { ...g0, breite: seiteB(engsteB.sec).breite, quelle: { ...g0.quelle, ...(qb ? { breite: qb } : {}) } }
+      }
+    }
+    // Parkierung je Seite über den Abschnitt: Anteil nach Länge gewichtet, dieselbe Schwelle.
+    const pa = g.filter(x => x.sec.parkAnteil)
+    const paLen = pa.reduce((m, x) => m + x.len, 0)
+    if (pa.length && paLen > 0) {
+      const a = pa.reduce((m, x) => m + x.len * x.sec.parkAnteil!.a, 0) / paLen
+      const b = pa.reduce((m, x) => m + x.len * x.sec.parkAnteil!.b, 0) / paLen
+      rep.sec.parkAnteil = { a, b }
+      rep.sec.parkenRechts = a >= PARK_SCHWELLE ? 'ja' : 'nein'; rep.sec.quelle.parkenRechts = 'amtlich'
+      const parkB = b >= PARK_SCHWELLE ? 'ja' : 'nein'
+      if (rep.sec.richtung === 'beide' && seiteB(rep.sec).parkenRechts !== parkB) {
+        const g0 = gegenVon(rep.sec)
+        rep.sec.gegen = { ...g0, parkenRechts: parkB, quelle: { ...g0.quelle, parkenRechts: 'amtlich' } }
       }
     }
     // Gegenseite, die nach dem Zusammenführen Seite A gleicht → «gleich wie Seite A».
