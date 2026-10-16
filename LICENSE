@@ -7,8 +7,8 @@ https://creativecommons.org/licenses/by/4.0/deed.de
 
 AUSNAHME: Die Daten-Snapshots VeloroutenCheckWeb/public/*.json stammen aus Drittquellen
 oder sind aus ihnen abgeleitet. Fuer sie gelten die Bedingungen der jeweiligen Quelle,
-einschliesslich der Pflicht zur Quellenangabe. luftbild_bern.json ist aus dem Luftbild
-SWISSIMAGE abgeleitet und verlangt die Angabe "© swisstopo". Quellen und Lizenzen je
+einschliesslich der Pflicht zur Quellenangabe. luftbild_bern.json, luftbild_zurich.json und
+luftbild_basel.json sind aus dem Luftbild SWISSIMAGE abgeleitet und verlangen die Angabe "© swisstopo". Quellen und Lizenzen je
 Datei stehen in README.md, Abschnitt "Datenlizenzen und Quellenangaben".
 
 AUSNAHME: Die Illustrationen im Ordner VeloroutenCheckWeb/public/streetmix/ (SVG-Dateien,

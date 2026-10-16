@@ -162,7 +162,19 @@ details.hilfe p { margin: 8px 0 2px; }
 }
 .bericht-skizze-titel { font-size: 9pt; font-weight: 700; margin-top: 4px; }
 
-/* Einklappbare Gruppen der Abschnittsmaske (App.tsx, Klappe): Zustand im Titel ausgeschrieben, damit die Klappe
-   als solche erkennbar ist (Nutzerbefund 16.10.2026). */
-.vrc-klappe > summary::after { content: '  · einklappen'; text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--accent); }
-.vrc-klappe:not([open]) > summary::after { content: '  · aufklappen'; }
+/* Alle Klappen gleich (Nutzerbefund 16.10.2026): eigener Pfeil ▾/▸ vor dem Titel, dahinter «· einklappen» bzw.
+   «· aufklappen» in der Akzentfarbe. Gilt für <details class="vrc-klappe"> und den Knopf des Abschnitts
+   (.vrc-klapp-knopf). Auf farbigem Grund (.auf-farbe) in der Textfarbe. «So funktioniert's» (.hilfe) bleibt beim
+   gemeinsamen Standard der Check-Apps. */
+.vrc-klappe > summary { list-style: none; cursor: pointer; user-select: none; }
+.vrc-klappe > summary::-webkit-details-marker { display: none; }
+.vrc-klappe > summary::before, .vrc-klapp-pfeil { content: '▾'; display: inline-block; width: 1.1em; font-size: 0.95em;
+  text-transform: none; color: var(--text-muted); }
+.vrc-klappe:not([open]) > summary::before { content: '▸'; }
+.vrc-klappe > summary::after, .vrc-klapp-zustand { content: ' · einklappen'; text-transform: none; letter-spacing: 0;
+  font-size: 12px; font-weight: 600; color: var(--accent); }
+.vrc-klappe:not([open]) > summary::after { content: ' · aufklappen'; }
+.vrc-klappe.auf-farbe > summary::before, .vrc-klappe.auf-farbe > summary::after { color: inherit; }
+.vrc-klapp-knopf { border: none; background: none; padding: 0; cursor: pointer; font: inherit; color: inherit;
+  display: inline-flex; align-items: baseline; gap: 4px; }
+.vrc-klapp-knopf .vrc-klapp-pfeil { width: auto; }

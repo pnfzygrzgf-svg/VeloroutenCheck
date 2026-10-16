@@ -1,7 +1,9 @@
-// ── Radstreifen aus dem Luftbild: Hinweis je Seite (nur Bern) ────────────────
+// ── Radstreifen aus dem Luftbild: Hinweis je Seite (Bern, Zürich, Basel) ─────
 //
-// Gebündelter Snapshot `public/luftbild_bern.json` (tools/luftbild_bern.py): Mittellinien der
-// Radstreifen-Funde des Modells «remote_velo» (ETH Zürich) auf SWISSIMAGE 2024, beide Modelle.
+// Gebündelte Snapshots `public/luftbild_<stadt>.json` (Bern: tools/luftbild_bern.py; Zürich und
+// Basel seit 16.10.2026: tools/luftbild_stadt.py): Mittellinien der Radstreifen-Funde des Modells
+// «remote_velo» (ETH Zürich) auf SWISSIMAGE, beide Modelle. Die Prüfung der Seiten unten stammt aus
+// Bern; für Zürich und Basel gibt es keine handverifizierten Seiten zum Vergleich.
 // Öffentlich — anders als der Markierungs-Snapshot (velostreifen.ts).
 //
 // Das Ergebnis ist NUR EIN HINWEIS (Nutzerentscheid 14.10.2026): Es setzt keine Führungsform

@@ -60,7 +60,7 @@ interface CityCfg {
   // gibt es keine Quelle (Basel: Parkfelder ohne Geometrie).
   parkierung?: ParkStadt
   velostreifenFile?: string                       // lokaler Markierungs-Snapshot (nicht öffentlich), falls vorhanden
-  luftbildFile?: string                           // Radstreifen aus dem Luftbild (öffentlicher Snapshot, nur Hinweis)
+  luftbildFile?: string                           // Radstreifen aus dem Luftbild (öffentlicher Snapshot, nur Hinweis; Bern, Zürich, Basel)
   // Breite am Luftbild messen: Kanton der amtlichen Vermessung (geodienste.ch) für die Quellenangabe.
   // Fehlt er, gibt es die Messung nicht (Luzern: AV nur mit Freigabe).
   avKanton?: string
@@ -78,7 +78,7 @@ const CITIES: Record<CityId, CityCfg> = {
     enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json', obsStand: 'Juni 2026',
     parkierung: 'bern',
     velostreifenFile: 'velostreifen_bern.json',   // lokaler Snapshot; im öffentlichen Build nicht vorhanden
-    luftbildFile: 'luftbild_bern.json',           // öffentlich (tools/luftbild_bern.py); nur Bern
+    luftbildFile: 'luftbild_bern.json',           // öffentlich (tools/luftbild_bern.py)
     avKanton: 'Bern',                             // Breitenmessung (seit 15.10.2026)
     aufteilung: true,                             // Aufteilung planen (seit 16.10.2026, Etappe 1)
     standardDoc: {
@@ -94,6 +94,7 @@ const CITIES: Record<CityId, CityCfg> = {
     parkierung: 'zurich',
     breiten: BREITEN_ZUERICH, breitenQuelle: 'Velostandards Zürich',   // Rest → Bern-Fallback
     avKanton: 'Zürich',                           // Breitenmessung (seit 16.10.2026)
+    luftbildFile: 'luftbild_zurich.json',         // öffentlich (tools/luftbild_stadt.py), seit 16.10.2026
     standardDoc: {
       titel: 'Velostandards Stadt Zürich',
       url: 'https://www.stadt-zuerich.ch/content/dam/web/de/aktuell/publikationen/2024/velostandards-stadt-zuerich/velostandards-stadt-zuerich.pdf',
@@ -109,6 +110,7 @@ const CITIES: Record<CityId, CityCfg> = {
     enrichCands: basel.enrichCands, loadOev: basel.loadOev,   // kein OBS-Snapshot
     breiten: BREITEN_BASEL, breitenQuelle: 'Standards Basel-Stadt',
     avKanton: 'Basel-Stadt',                      // Breitenmessung (seit 16.10.2026)
+    luftbildFile: 'luftbild_basel.json',          // öffentlich (tools/luftbild_stadt.py), seit 16.10.2026
     standardDoc: {
       titel: 'Standards Fuss- und Velo-Verkehrsinfrastruktur',
       url: 'https://media.bs.ch/original_file/72373a2c610e23b19ae61cd148ad22f35b3d1fe2/2024-09-27-standards-fvv-is-bs.pdf',
@@ -522,7 +524,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, modus, ci
                    Basel «nicht konform» mit zu schmaler Breite zeigte eine Note unter 4, ohne
                    dass der Breitenabzug irgendwo stand. */}
           {/* Erklärung der Note einklappbar (Nutzerwunsch 16.10.2026); Soll und Ist bleiben sichtbar */}
-          <details style={{ marginTop: 4 }}>
+          <details className="vrc-klappe auf-farbe" style={{ marginTop: 4 }}>
             <summary style={{ cursor: 'pointer', userSelect: 'none', fontSize: 12.5, opacity: 0.9 }}>
               Details zur Note{bewertung.hinweis ? ' · ⚠ Hinweis' : ''}
             </summary>
@@ -671,7 +673,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, modus, ci
             </span>
           ))}
           {vergleich.some(v => v.gruende.length > 0) && (
-            <details style={{ marginTop: 4 }}>
+            <details className="vrc-klappe" style={{ marginTop: 4 }}>
               <summary style={{ cursor: 'pointer', userSelect: 'none', opacity: 0.85 }}>Warum?</summary>
               <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
                 {vergleich.filter(v => v.gruende.length > 0).map(v => (
@@ -732,11 +734,20 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
             Querschnitt von heute; welche Teile wie breit werden, legt man selbst fest. Die Note mit der neuen
             Aufteilung steht neben der von heute.
           </div>
+          {/* Ohne Abschnitt von der Karte fehlen Fahrbahnbreite, Trottoirs, AV und Parkfelder (Nutzerbefund 16.10.2026) */}
+          {!section.candIds?.length && (
+            <div style={{ fontSize: 12.5, color: '#92400e', marginTop: 4 }}>
+              Dieser Abschnitt stammt nicht von der Karte: Fahrbahnbreite, Trottoirs, amtliche Vermessung und Parkfelder
+              fehlen. Zuerst Segmente auf der Karte wählen und «Segmente in Strecke übernehmen» — oder von Hand planen.
+            </div>
+          )}
         </div>
         <button type="button" onClick={() => { onChange(startAufteilung(section)); av?.zeigen() }}
-                style={{ border: 'none', background: 'var(--accent)', color: '#fff', borderRadius: 8,
-                         padding: '8px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-          Aufteilung planen
+                style={section.candIds?.length
+                  ? { border: 'none', background: 'var(--accent)', color: '#fff', borderRadius: 8,
+                      padding: '8px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }
+                  : { ...kleinKnopfStyle, padding: '8px 12px' }}>
+          {section.candIds?.length ? 'Aufteilung planen' : 'Von Hand planen'}
         </button>
       </div>
     </div>
@@ -1010,16 +1021,25 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
           {Number.isFinite(b.rest) && b.rest < -0.005 &&
             <div style={{ color: '#991b1b' }}>Die Teile haben im verfügbaren Querschnitt keinen Platz; die Note setzt voraus, dass sie passen.</div>}
         </div>
+        {/* Erläuterung: ein Satz sichtbar, der Rest in einer Klappe (Nutzerentscheid 16.10.2026, aus der fgsCheck-Sitzung
+            weitergeleitet); im Bericht steht alles offen unter «Annahmen und Grenzen» und «Quellen». */}
         <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--text-muted)' }}>
-          Trottoirs werden gegen das Fussverkehrsnetz geprüft. Die Bilanz zählt den ganzen Querschnitt, sobald die Breite ausserhalb der Fahrbahn von heute bekannt ist; der Bordstein darf dabei wandern. Eine Kernfahrbahn ändert die
-          Note nicht; bewertet werden die Velostreifen an ihren Rändern. Nicht geprüft: Mittelinseln,
-          Abbiegespuren; von der Haltestelle nur die Breite (Wartehäuschen und Warteraum). DTV, Tempo,
-          Routentyp und die Bewertung der Haltestelle gelten wie oben eingegeben.
-          {!section.routentyp && ' Ohne Routentyp gelten für Velostreifen und Radweg die Werte der Veloroute.'}
-          {' '}Richtwerte und Vorgaben: {RICHTWERT_QUELLE}; Trottoirs nach dem Fussverkehrsnetz: Masterplan Fussverkehr Stadt Bern; Lichtraum von Lastwagen und Bus nach SN 640 201, Tram 2,80 m
-          (1,40 m ab Gleisachse, Masterplan). Jede Fahrspur ist ab 3,00 m gültig. Ein Velostreifen direkt neben einer
-          Trennung mit Pfosten gilt als geschützter Radstreifen; Veloabstellplatz und Parklet zählen nicht als Parkierung.
-          {av?.gezeigt && ` Karte: ${avQuelle(CITIES[city].avKanton ?? '')}${av.park && CITIES[city].parkierung ? `; Parkfelder: ${PARK_QUELLE[CITIES[city].parkierung!]}` : ''}.`}
+          Geprüft werden die Breiten nach den Masterplänen Velo- und Fussverkehr der Stadt Bern, dem Lichtraum nach
+          SN 640 201 und einzelnen eigenen Festlegungen; die Note rechnet wie oben.
+          <details className="vrc-klappe" style={{ marginTop: 4 }}>
+            <summary style={{ fontWeight: 600, color: 'var(--text-muted-strong)' }}>Was geprüft wird, Annahmen und Quellen</summary>
+            <div style={{ marginTop: 4 }}>
+            Trottoirs werden gegen das Fussverkehrsnetz geprüft. Die Bilanz zählt den ganzen Querschnitt, sobald die Breite ausserhalb der Fahrbahn von heute bekannt ist; der Bordstein darf dabei wandern. Eine Kernfahrbahn ändert die
+            Note nicht; bewertet werden die Velostreifen an ihren Rändern. Nicht geprüft: Mittelinseln,
+            Abbiegespuren; von der Haltestelle nur die Breite (Wartehäuschen und Warteraum). DTV, Tempo,
+            Routentyp und die Bewertung der Haltestelle gelten wie oben eingegeben.
+            {!section.routentyp && ' Ohne Routentyp gelten für Velostreifen und Radweg die Werte der Veloroute.'}
+            {' '}Richtwerte und Vorgaben: {RICHTWERT_QUELLE}; Trottoirs nach dem Fussverkehrsnetz: Masterplan Fussverkehr Stadt Bern; Lichtraum von Lastwagen und Bus nach SN 640 201, Tram 2,80 m
+            (1,40 m ab Gleisachse, Masterplan). Jede Fahrspur ist ab 3,00 m gültig. Ein Velostreifen direkt neben einer
+            Trennung mit Pfosten gilt als geschützter Radstreifen; Veloabstellplatz und Parklet zählen nicht als Parkierung.
+            {av?.gezeigt && ` Karte: ${avQuelle(CITIES[city].avKanton ?? '')}${av.park && CITIES[city].parkierung ? `; Parkfelder: ${PARK_QUELLE[CITIES[city].parkierung!]}` : ''}.`}
+            </div>
+          </details>
         </div>
       </div>
     </div>
@@ -1078,7 +1098,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
     else if (m === 'verschieden') onChange({ richtung: 'beide', gegen: section.gegen ?? gegenVon(section) })
     else onChange({ richtung: 'eine' })
   }
-  // Luftbild-Hinweis (nur Bern): welche Seiten zeigen im Luftbild einen Radstreifen, der in der
+  // Luftbild-Hinweis (Bern, Zürich, Basel): welche Seiten zeigen im Luftbild einen Radstreifen, der in der
   // Maske noch fehlt? Seite A und B werden für den Text getrennt benannt; bei gleichen Seiten mit
   // Fund auf beiden genügt «beide Seiten».
   const lbHinweis = luftbildHinweis(section, LUFTBILD_SCHWELLE)
@@ -1116,14 +1136,15 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
             {index + 1}
           </span>
         )}
-        {/* Ein-/Ausklappen deutlich als Knopf (Nutzerbefund 16.10.2026: ▾ allein war nicht als Klappe erkennbar) */}
-        {onKlappen && (
-          <button type="button" onClick={onKlappen} aria-expanded={!zu} title={zu ? 'Abschnitt aufklappen' : 'Abschnitt einklappen'}
-                  style={{ ...kleinKnopfStyle, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px' }}>
-            <span style={{ fontSize: 13, lineHeight: 1 }}>{zu ? '▸' : '▾'}</span>{zu ? 'Aufklappen' : 'Einklappen'}
+        {/* Ein-/Ausklappen in derselben Form wie alle Klappen (index.css, .vrc-klappe): «▾ Titel · einklappen» */}
+        {onKlappen ? (
+          <button type="button" onClick={onKlappen} aria-expanded={!zu} className="vrc-klapp-knopf"
+                  title={zu ? 'Abschnitt aufklappen' : 'Abschnitt einklappen'}>
+            <span className="vrc-klapp-pfeil">{zu ? '▸' : '▾'}</span>
+            <strong style={{ fontSize: 15 }}>Abschnitt {index + 1}</strong>
+            <span className="vrc-klapp-zustand">· {zu ? 'aufklappen' : 'einklappen'}</span>
           </button>
-        )}
-        <strong style={{ fontSize: 15, cursor: onKlappen ? 'pointer' : undefined }} onClick={onKlappen}>Abschnitt {index + 1}</strong>
+        ) : <strong style={{ fontSize: 15 }}>Abschnitt {index + 1}</strong>}
         {zu && ergebnis.note != null && (
           <span style={{ fontSize: 12, fontWeight: 800, borderRadius: 6, padding: '2px 8px',
                          background: noteColor(ergebnis.note).bg, color: noteColor(ergebnis.note).fg }}>
@@ -1140,7 +1161,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
           </span>
         )}
         <span style={{ flex: 1 }} />
-        {CITIES[city].aufteilung && (
+        {CITIES[city].aufteilung && (hatMarker || section.aufteilung) && (
           <button type="button"
                   onClick={() => {
                     if (!section.aufteilung) { onChange({ aufteilung: startAufteilung(section) }); av?.zeigen() }
@@ -1222,8 +1243,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
       </Klappe>
 
       {/* Eingaben — Gruppe 2: ÖV-Haltestelle im Abschnitt (Angebot gemeinsam, Typ je Seite) */}
-      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
-        <div style={groupLabelStyle}>ÖV-Haltestelle</div>
+      <Klappe titel="ÖV-Haltestelle" stil={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <label style={fieldStyle}>
           <FieldLabel label="ÖV-Angebot (Haltestelle)" chip={<QuelleChip q={q.oevAngebot} />} />
@@ -1247,7 +1267,6 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
           </span>
         )}
         </div>
-      </div>
 
       {/* ÖV-Hinweis: Tram → „Tram"; Bus → Frequenzband aus dem Fahrplan (Abendspitze). Typ manuell. */}
       {section.oev?.oevHalt && (() => {
@@ -1266,6 +1285,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
           </div>
         )
       })()}
+      </Klappe>
 
       {/* Eingaben — Gruppe 3: Seiten (Fahrtrichtungen). Seite A = Fahrtrichtung entlang der
           Strecke (auf einer Einbahn: die des Verkehrs), Seite B = Gegenrichtung. Sind beide gleich,
@@ -1296,7 +1316,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
               {lbKnopf}
             </button>
             <div style={{ marginTop: 6, fontSize: 11.5, opacity: 0.8 }}>
-              SWISSIMAGE 2024 © swisstopo · Erkennung: Modell remote_velo, ETH Zürich
+              SWISSIMAGE © swisstopo · Erkennung: Modell remote_velo, ETH Zürich
             </div>
           </div>
         )}
@@ -1497,7 +1517,7 @@ function SoFunktionierts() {
         <li><b>Übernehmen:</b> benachbarte Segmente gleicher Führungsform und gleichen Tempos werden zu Abschnitten gruppiert.</li>
         <li><b>Abschnitte prüfen:</b> je Abschnitt stehen Führungsform, Tempo und weitere Angaben aus OpenStreetMap und dem
           Geoportal der Stadt, mit Herkunft am Chip. Was nicht stimmt, lässt sich von Hand anpassen; die Bewertung rechnet sofort neu.</li>
-        <li><b>Luftbild-Hinweis (nur Bern):</b> Zeigt das Luftbild auf einer Seite einen Radstreifen, erscheint ein Hinweis
+        <li><b>Luftbild-Hinweis (Bern, Zürich, Basel):</b> Zeigt das Luftbild auf einer Seite einen Radstreifen, erscheint ein Hinweis
           zum Übernehmen; eine Breite liefert er nicht.</li>
         <li><b>Breite messen (Bern, Zürich, Basel):</b> «📏 Am Luftbild messen» je Seite schaltet aufs Orthofoto, weit
           hineinzoomen und im Modus «Ab Bordsteinkante (AV)» auf die Markierung klicken, bis zu der die Breite zählt;
@@ -1726,7 +1746,7 @@ export default function App() {
   useEffect(() => {
     if (view === 'rechner' && cityCfg.velostreifenFile) void enrichVelostreifen([], cityCfg.velostreifenFile).catch(() => {})
   }, [view, cityCfg.velostreifenFile])
-  // Luftbild-Snapshot (nur Bern) ebenso vorwärmen.
+  // Luftbild-Snapshot (Bern, Zürich, Basel) ebenso vorwärmen.
   useEffect(() => {
     if (view === 'rechner' && cityCfg.luftbildFile) void enrichLuftbild([], cityCfg.luftbildFile).catch(() => {})
   }, [view, cityCfg.luftbildFile])
@@ -2384,22 +2404,33 @@ export default function App() {
             </button>
           ))}
         </div>
-        {/* Aufteilung planen, gleich hier oben (Nutzerwunsch 16.10.2026); je Abschnitt ein Knopf */}
-        {cityCfg.aufteilung && sections.length > 0 && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginLeft: 8 }}>
-            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Aufteilung planen:</span>
-            {sections.map((s, i) => (
-              <button key={s.id} type="button" onClick={() => planungOeffnen(s.id)}
-                      title={s.label ? `Abschnitt ${i + 1}: ${s.label}` : `Abschnitt ${i + 1}`}
-                      style={{ border: '1px solid var(--accent)', background: s.aufteilung ? 'var(--accent)' : '#fff',
-                               color: s.aufteilung ? '#fff' : 'var(--accent)', borderRadius: 8, padding: '5px 10px',
-                               fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                {sections.length === 1 ? 'Abschnitt planen' : `Abschnitt ${i + 1}`}
-              </button>
-            ))}
-          </span>
-        )}
       </div>
+      {/* Aufteilung planen, gleich oben und hervorgehoben (Nutzerwünsche 16.10.2026); je Abschnitt von der Karte
+          ein Knopf. Ohne Abschnitt von der Karte lief das ins Leere (keine Geometrie, also keine AV, Trottoirs,
+          Parkfelder; «übernehmen» bildet die Abschnitte neu): dann nur der Hinweis, was zuerst zu tun ist. */}
+      {cityCfg.aufteilung && (
+        <div style={{ margin: '-8px 0 20px', padding: '10px 14px', borderRadius: 10, background: '#f0fdfa',
+                      border: '1px solid #99f6e4', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 220px' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-strong)' }}>Aufteilung der Strasse planen</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+              {sections.some(s => s.candIds?.length)
+                ? 'Querschnitt neu aufteilen, gegen die Vorgaben prüfen und als Bericht drucken.'
+                : 'Zuerst Segmente auf der Karte wählen und «Segmente in Strecke übernehmen», dann hier den Abschnitt wählen.'}
+            </div>
+          </div>
+          {sections.map((s, i) => !s.candIds?.length ? null : (
+            <button key={s.id} type="button" onClick={() => planungOeffnen(s.id)}
+                    title={s.label ? `Abschnitt ${i + 1}: ${s.label}` : `Abschnitt ${i + 1}`}
+                    style={{ border: s.aufteilung ? '1px solid var(--accent)' : 'none', background: s.aufteilung ? '#fff' : 'var(--accent)',
+                             color: s.aufteilung ? 'var(--accent)' : '#fff', borderRadius: 8, padding: '8px 14px',
+                             fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              {sections.filter(x => x.candIds?.length).length === 1 ? 'Abschnitt planen' : `Abschnitt ${i + 1} planen`}
+              {s.aufteilung ? ' ✓' : ''}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Sticky Ergebnis-Leiste: Strecken-Beurteilung jederzeit sichtbar (Punkt 1).
           Klick springt zum massgebenden bzw. ersten unvollständigen Abschnitt. Die volle
@@ -2644,7 +2675,7 @@ export default function App() {
             </div>
           )}
           {/* Legende Führungsform, einklappbar (Nutzerwunsch 16.10.2026) */}
-          <details style={{ marginTop: 6, fontSize: 12 }}>
+          <details className="vrc-klappe" style={{ marginTop: 6, fontSize: 12 }}>
             <summary style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--text-muted-strong)' }}>Legende Führungsform</summary>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
               {Object.entries(ISTCOLOR).map(([k, col]) => (
@@ -2666,7 +2697,7 @@ export default function App() {
             {streckeNote == null ? '–' : modus === 'erfuellung' ? erfuellungsgrad(streckeNote) : numDE(streckeNote, 1)}
           </span>
         </div>
-        <details style={{ fontSize: 13, opacity: 0.95, flex: 1, minWidth: 200 }}>
+        <details className="vrc-klappe auf-farbe" style={{ fontSize: 13, opacity: 0.95, flex: 1, minWidth: 200 }}>
           <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
             {streckeNote != null ? `${sections.length} ${sections.length === 1 ? 'Abschnitt' : 'Abschnitte'} · Details`
               : `Unvollständig — ${offen} von ${ergebnisse.length} ${ergebnisse.length === 1 ? 'Abschnitt braucht' : 'Abschnitten brauchen'} noch Eingaben`}
@@ -2757,9 +2788,8 @@ export default function App() {
       </div>
 
       {/* Referenz: Entscheidungstabellen + Hinweise — eingeklappt, um Scroll zu sparen (Punkt 6) */}
-      <details style={{ marginTop: 28 }}>
-        <summary style={{ cursor: 'pointer', fontSize: 16, fontWeight: 700, color: 'var(--text)',
-                          listStyle: 'revert', userSelect: 'none' }}>
+      <details className="vrc-klappe" style={{ marginTop: 28 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 16, fontWeight: 700, color: 'var(--text)', userSelect: 'none' }}>
           Referenz: Entscheidungstabellen &amp; Hinweise
         </summary>
         <div style={{ marginTop: 12 }}>
