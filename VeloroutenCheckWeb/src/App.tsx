@@ -7,10 +7,13 @@ import {
   type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
   type Stadt, type Strassentyp, type VergleichsNote,
 } from './fuehrungsform'
-import { VeloMap, ISTCOLOR, BREIT_MQ, type Cand, type SectionMarker, type Stop } from './VeloMap'
+import { VeloMap, ISTCOLOR, BREIT_MQ, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
+import { zuLv95, zuWgs, type P } from './lv95'
+import { ladeAv, AV_QUELLE } from './av'
+import { bordkanten, messeAbKante, abstand, aufZentimeter, FANG_M, type Kante } from './breitenmessung'
 import {
   candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
-  luftbildHinweis, luftbildUebernehmen,
+  luftbildHinweis, luftbildUebernehmen, setzeGemesseneBreite,
   type Quelle, type QuelleFeld, type Section, type Seite, type SeitenQuelle,
 } from './strecke'
 import { bewerteAbschnitt, type AbschnittErgebnis } from './bewertung'
@@ -42,6 +45,7 @@ interface CityCfg {
   obsFile?: string                                // OpenBikeSensor-Snapshot (public/), falls vorhanden
   velostreifenFile?: string                       // lokaler Markierungs-Snapshot (nicht öffentlich), falls vorhanden
   luftbildFile?: string                           // Radstreifen aus dem Luftbild (öffentlicher Snapshot, nur Hinweis)
+  breitenMessung?: boolean                        // Breite am Luftbild messen (AV-Bordsteinkante; nur Bern)
   breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>  // stadtspezifische Breiten-Sollwerte (sonst Bern)
   breitenQuelle?: string                          // Quellenangabe der stadtspez. Breiten (sonst „Masterplan Bern")
   standardDoc: { titel: string; url: string }     // massgebendes Grundlagendokument (Rechnerseite)
@@ -54,6 +58,7 @@ const CITIES: Record<CityId, CityCfg> = {
     enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json',
     velostreifenFile: 'velostreifen_bern.json',   // lokaler Snapshot; im öffentlichen Build nicht vorhanden
     luftbildFile: 'luftbild_bern.json',           // öffentlich (tools/luftbild_bern.py); nur Bern
+    breitenMessung: true,                         // Nutzerentscheid 15.10.2026: nur Bern
     standardDoc: {
       titel: 'Standards Masterplans Veloinfrastruktur Stadt Bern',
       url: 'https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur',
@@ -222,12 +227,14 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
     fahrplan: { t: 'opentransportdata', bg: '#dcfce7', fg: '#166534', title: 'Fahrplan (opentransportdata.swiss / GTFS)' },
     markierung: { t: 'Markierung', bg: '#ffedd5', fg: '#9a3412', title: 'Aus der Fahrbahnmarkierung ermittelt (lokale Auswertung): Velostreifen auf dieser Seite — oder keiner, wenn die Striche nur auf der anderen Seite liegen' },
     luftbild: { t: 'Luftbild', bg: '#e0f2fe', fg: '#075985', title: 'Aus dem Luftbild-Hinweis übernommen (SWISSIMAGE © swisstopo, Erkennung mit dem Modell remote_velo der ETH Zürich) — bitte am Orthofoto prüfen' },
+    gemessen: { t: 'gemessen', bg: '#ede9fe', fg: '#5b21b6', title: `Am Luftbild gemessen: ab der Bordsteinkante der amtlichen Vermessung bis zur angeklickten Stelle der Markierung (Luftbild © swisstopo; ${AV_QUELLE})` },
     angenommen: { t: '≤ 2000 angenommen', bg: '#fef9c3', fg: '#854d0e', title: 'Flächendeckende Verkehrsdaten Bern: kein Eintrag ⇒ DTV ≤ 2000 (ausserhalb Altstadt)' },
     fehlt: { t: 'Eingabe nötig', bg: '#fee2e2', fg: '#b91c1c' },
   }
   const key = fehlt ? 'fehlt'
     : q === 'amtlich' ? 'amtlich' : q === 'osm' ? 'osm' : q === 'fahrplan' ? 'fahrplan'
-    : q === 'markierung' ? 'markierung' : q === 'angenommen' ? 'angenommen' : q === 'luftbild' ? 'luftbild' : null
+    : q === 'markierung' ? 'markierung' : q === 'angenommen' ? 'angenommen' : q === 'luftbild' ? 'luftbild'
+    : q === 'gemessen' ? 'gemessen' : null
   if (!key) return null
   const c = map[key]
   return (
@@ -315,12 +322,13 @@ const kleinKnopfStyle: React.CSSProperties = {
 // ── Eingaben einer Fahrtrichtung (Seite A oder B, strecke.ts: Seite) ─────────
 // Was je Fahrtrichtung verschieden sein kann: Führungsform samt Breite, Parkierung rechts,
 // öV-Takt der Umweltspur, Haltestellentyp und -breite. Seite A und B nutzen dieselbe Maske.
-function SeiteFelder({ felder, quelle, onChange, city, oevAngebot }: {
+function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen }: {
   felder: Seite
   quelle: SeitenQuelle
   onChange: (patch: Partial<Seite>) => void
   city: CityId
   oevAngebot: OevAngebot                // gilt für den Abschnitt; Haltestellenfelder nur, wenn ≠ keine
+  onMessen?: () => void                 // Breite am Luftbild messen (nur Bern)
 }) {
   const { ist } = felder
   return (
@@ -354,6 +362,15 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot }: {
         <NumberField label="Breite der Führungsform" unit="m" value={felder.breite} step={0.1}
                      onChange={v => onChange({ breite: v })}
                      chip={<QuelleChip q={quelle.breite} fehlt={!Number.isFinite(felder.breite)} />} />
+      )}
+      {/* Breite am Luftbild messen: ab Bordsteinkante bis zur Markierung (App.tsx, Messung). */}
+      {ist !== '' && brauchtBreite(ist) && onMessen && (
+        <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+          <button type="button" onClick={onMessen} style={{ ...kleinKnopfStyle, padding: '8px 10px' }}
+                  title="Auf dem Luftbild ab der Bordsteinkante bis zur Markierung messen">
+            📏 Am Luftbild messen
+          </button>
+        </div>
       )}
       {/* Parkierung rechts (Dooring) bei Fahrbahn-Führungsformen (siehe PARKEN_RELEVANT) */}
       {PARKEN_RELEVANT.includes(ist as IstFuehrungsform) && (
@@ -631,7 +648,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, routentyp, modus, city, bre
 // gemeinsamer Kasten, solange beide gleich sind, sonst je ein Kasten für Seite A und Seite B
 // (eigene Werte oder nicht bewertet) — und das Ergebnis je bewertete Seite. Die Abschnittsnote
 // ist die schlechtere Seite (bewertung.ts).
-function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTauschen, onLuftbild, onRemove, canRemove, onHover, breitenQuelle, city }: {
+function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTauschen, onLuftbild, onMessen, onRemove, canRemove, onHover, breitenQuelle, city }: {
   index: number
   section: Section
   ergebnis: AbschnittErgebnis
@@ -640,6 +657,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
   onChange: (patch: Partial<Section>) => void
   onTauschen: () => void
   onLuftbild: (welche: { a: boolean; b: boolean }) => void   // Luftbild-Hinweis übernehmen
+  onMessen?: (seite: 'A' | 'B') => void  // Breite am Luftbild messen (nur Bern)
   onRemove: () => void
   canRemove: boolean
   onHover?: (hovering: boolean) => void
@@ -872,7 +890,8 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
             Beide Seiten gleich: Was hier steht, gilt für beide Fahrtrichtungen, mit einer gemeinsamen Note.
           </div>
           <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite }}
-                       onChange={onChange} city={city} oevAngebot={section.oevAngebot} />
+                       onChange={onChange} city={city} oevAngebot={section.oevAngebot}
+                       onMessen={onMessen && (() => onMessen('A'))} />
         </div>
       )}
 
@@ -888,7 +907,8 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
           </button>
         </div>
         <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite }}
-                     onChange={onChange} city={city} oevAngebot={section.oevAngebot} />
+                     onChange={onChange} city={city} oevAngebot={section.oevAngebot}
+                       onMessen={onMessen && (() => onMessen('A'))} />
       </div>
       )}
 
@@ -918,7 +938,8 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, onChange, onTau
         </div>
         {seitenModus === 'verschieden' && (
           <SeiteFelder felder={seiteB(section)} quelle={section.gegen!.quelle}
-                       onChange={aendereB} city={city} oevAngebot={section.oevAngebot} />
+                       onChange={aendereB} city={city} oevAngebot={section.oevAngebot}
+                       onMessen={onMessen && (() => onMessen('B'))} />
         )}
         {seitenModus === 'eine' && (
           <div style={{ fontSize: 13, color: 'var(--text-muted-strong)' }}>
@@ -1119,6 +1140,20 @@ function Landing({ onStart }: { onStart: () => void }) {
   )
 }
 
+// Breite am Luftbild messen (nur Bern): Zustand der laufenden Messung.
+interface Messung {
+  secId: number
+  seite: 'A' | 'B'
+  titel: string                                   // «Abschnitt 2, Seite A»
+  modus: 'kante' | 'hand'                         // ab AV-Bordsteinkante | zwei Punkte von Hand
+  kanten: Kante[]                                 // Bordsteinkanten der amtlichen Vermessung (LV95)
+  geladen?: { e: number; n: number; r: number }   // Mitte und Halbseite des geladenen AV-Ausschnitts
+  laden: boolean
+  fehler?: string
+  punkte: P[]                                     // gesetzte Punkte (zwei Punkte von Hand)
+  ergebnis?: { breite: number; von: P; bis: P }   // Messlinie Bordsteinkante → Markierung
+}
+
 export default function App() {
   const [sections, setSections] = useState<Section[]>([defaultSection()])
   const [street, setStreet] = useState('')
@@ -1143,6 +1178,7 @@ export default function App() {
     ladeGen.current++   // hängige Lade-Ketten (falls doch eine läuft) als veraltet markieren
     const hatte = sections.some(s => s.ist !== '' || Number.isFinite(s.dtv) || s.candIds?.length)
     setCity(c); setCands([]); setStops([]); setStreet(''); setSections([defaultSection()]); setTeilModus(false)
+    setMessung(null)
     setOsmBusy(false)      // eine evtl. hängige Ladung ist verworfen — nicht als „Lädt …" stehen lassen
     undoRef.current = null; setUndoLabel(null)   // Undo über den Stadtwechsel hinweg wäre falsch etikettiert
     setMsg(hatte ? 'Stadtwechsel: die übernommenen Abschnitte wurden geleert.' : '')
@@ -1295,6 +1331,7 @@ export default function App() {
       if (gen !== ladeGen.current) return          // inzwischen Stadtwechsel/neue Ladung → verwerfen
       setCands(c); setStops([])          // Segmente SOFORT zeigen (anklickbar) — Anreicherung folgt im Hintergrund
       setTeilModus(false)                // die Liste ist neu — ein angefangenes Teilen gilt nicht mehr
+      setMessung(null)
       setFitKey(k => k + 1)              // auf die geladene Strasse einpassen
       if (!c.length) {
         setMsg(`Keine Velo-relevanten Segmente für „${name}" (Stadt ${cityCfg.label}) gefunden.`, 'info')
@@ -1400,8 +1437,117 @@ export default function App() {
   // Stabil (wie toggleCand): der aktuelle Modus und die aktuelle teilen-Funktion laufen über Refs.
   const teilenRef = useRef(teilen)
   teilenRef.current = teilen
+  // ── Breite am Luftbild messen (nur Bern, breitenmessung.ts) ─────────────────
+  // Nutzerentscheid 15.10.2026: ab der Bordsteinkante der amtlichen Vermessung bis zur
+  // angeklickten Stelle auf der Markierung; der Messwert ist die Breite an dieser Stelle.
+  // Passt die AV-Kante nicht zum Bord (etwa Parkfelder dazwischen), misst man mit zwei Punkten.
+  // Die Bordsteinkanten kommen von geodienste.ch, nur beim Messen und nur um den Abschnitt
+  // (Fair Use); verschiebt man die Karte weit, wird um die neue Mitte nachgeladen.
+  const [messung, setMessung] = useState<Messung | null>(null)
+  const messungRef = useRef<Messung | null>(null)
+  messungRef.current = messung
+  const messGen = useRef(0)
+  const messAvLaden = async (e: number, n: number, r: number) => {
+    const gen = ++messGen.current
+    setMessung(m => m && { ...m, laden: true, fehler: undefined })
+    try {
+      const kanten = bordkanten(await ladeAv(e, n, r))
+      if (gen !== messGen.current) return
+      setMessung(m => m && { ...m, kanten, geladen: { e, n, r }, laden: false,
+        fehler: kanten.length ? undefined : 'Hier kennt die amtliche Vermessung keine Strassenfläche. Mit «Zwei Punkte» messen.' })
+    } catch (err) {
+      if (gen !== messGen.current) return
+      setMessung(m => m && { ...m, laden: false,
+        fehler: `Amtliche Vermessung nicht erreichbar (${(err as Error).message}). Mit «Zwei Punkte» messen.` })
+    }
+  }
+  const messungStarten = (secId: number, seite: 'A' | 'B') => {
+    const map = mapRef.current
+    if (!map) return
+    setTeilModus(false)
+    const idx = sections.findIndex(s => s.id === secId)
+    if (idx < 0) return
+    // Auf den Abschnitt einpassen, wenn er von der Karte stammt; sonst bleibt die Ansicht.
+    const candById = new Map(candsRef.current.map(c => [c.id, c]))
+    const pts = (sections[idx].candIds ?? []).flatMap(id => candById.get(id)?.geom ?? [])
+    let e: number, n: number, r = 150
+    if (pts.length) {
+      let s0 = Infinity, n0 = -Infinity, w0 = Infinity, e0 = -Infinity
+      for (const p of pts) { s0 = Math.min(s0, p.lat); n0 = Math.max(n0, p.lat); w0 = Math.min(w0, p.lon); e0 = Math.max(e0, p.lon) }
+      map.fitBounds([[s0, w0], [n0, e0]], { padding: [40, 40], maxZoom: 19 })
+      const [ea, na] = zuLv95(s0, w0), [eb, nb] = zuLv95(n0, e0)
+      e = (ea + eb) / 2; n = (na + nb) / 2
+      r = Math.min(300, Math.max(120, Math.max(Math.abs(eb - ea), Math.abs(nb - na)) / 2 + 40))
+    } else {
+      const c = map.getCenter();
+      [e, n] = zuLv95(c.lat, c.lng)
+    }
+    setMessung({ secId, seite, titel: `Abschnitt ${idx + 1}, Seite ${seite}`, modus: 'kante',
+      kanten: [], laden: true, punkte: [] })
+    void messAvLaden(e, n, r)
+  }
+  // Karte weit verschoben → Bordsteinkanten um die neue Mitte nachladen.
+  const messAktiv = messung != null
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !messAktiv) return
+    const onMove = () => {
+      const m = messungRef.current
+      if (!m || m.laden || !m.geladen) return
+      const c = map.getCenter(), [e, n] = zuLv95(c.lat, c.lng)
+      if (Math.hypot(e - m.geladen.e, n - m.geladen.n) > 0.6 * m.geladen.r) void messAvLaden(e, n, 150)
+    }
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setMessung(null) }
+    map.on('moveend', onMove)
+    window.addEventListener('keydown', onKey)
+    return () => { map.off('moveend', onMove); window.removeEventListener('keydown', onKey) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messAktiv])
+  const messKlick = (lat: number, lon: number) => {
+    const m = messungRef.current
+    if (!m) return
+    const p = zuLv95(lat, lon)
+    if (m.modus === 'kante') {
+      if (m.laden) return
+      const r = messeAbKante(p, m.kanten)
+      setMessung({ ...m, punkte: [],
+        ergebnis: r ? { breite: r.breite, von: r.fuss, bis: p } : undefined,
+        fehler: r ? undefined : `Keine Bordsteinkante innert ${FANG_M} m. Näher bei der Kante klicken oder mit «Zwei Punkte» messen.` })
+    } else {
+      const punkte = m.punkte.length >= 2 ? [p] : [...m.punkte, p]
+      setMessung({ ...m, punkte, fehler: undefined,
+        ergebnis: punkte.length === 2 ? { breite: abstand(punkte[0], punkte[1]), von: punkte[0], bis: punkte[1] } : undefined })
+    }
+  }
+  const messKlickRef = useRef(messKlick)
+  messKlickRef.current = messKlick
+  const messungUebernehmen = () => {
+    const m = messungRef.current
+    if (!m?.ergebnis) return
+    const wert = aufZentimeter(m.ergebnis.breite)
+    setSections(prev => prev.map(s => (s.id === m.secId ? setzeGemesseneBreite(s, m.seite, wert) : s)))
+    setMessung(null)
+    setMsg(`Breite ${numDE(wert, 2)} m gemessen (${m.titel}).`, 'ok')
+  }
+  // Für die Karte: Kanten nur bei neuem Ausschnitt umrechnen (viele tausend Strecken).
+  const messKantenWgs = useMemo(() => (messung?.kanten ?? []).map(k => [zuWgs(k.a[0], k.a[1]), zuWgs(k.b[0], k.b[1])]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messung?.kanten])
+  const messAnzeige: MessAnzeige | null = useMemo(() => {
+    if (!messung) return null
+    const w = (p: P) => zuWgs(p[0], p[1])
+    const erg = messung.ergebnis
+    return {
+      kanten: messung.modus === 'kante' ? messKantenWgs : [],
+      punkte: messung.modus === 'hand' && !erg ? messung.punkte.map(w) : [],
+      ...(erg ? { linie: [w(erg.von), w(erg.bis)] as [{ lat: number; lon: number }, { lat: number; lon: number }],
+                  label: `${numDE(erg.breite, 2)} m` } : {}),
+    }
+  }, [messung, messKantenWgs])
+
   const linieGeklickt = useCallback((id: number, lat: number, lon: number) => {
-    if (teilModusRef.current) void teilenRef.current(id, lat, lon)
+    if (messungRef.current) messKlickRef.current(lat, lon)   // Breitenmessung: Klick gilt der Messung
+    else if (teilModusRef.current) void teilenRef.current(id, lat, lon)
     else toggleCand(id)
   }, [toggleCand])
 
@@ -1409,6 +1555,7 @@ export default function App() {
   // Wie beim Strassen-/Ausschnitt-Laden mit den Stadt-Daten + OpenBikeSensor anreichern
   // (Klick ist der Hauptweg zum Strecken-Aufbau, daher müssen DTV/Tempo/Routentyp/OBS auch hier kommen).
   const klickHinzufuegen = async (lat: number, lon: number) => {
+    if (messung) { messKlick(lat, lon); return }
     if (teilModus) { setMsg('Teilen: bitte direkt auf die Linie tippen, die geteilt werden soll (Esc bricht ab).', 'info'); return }
     if (osmBusy) return                         // läuft schon eine Anfrage → Klick ignorieren (Rate-Limit schonen)
     const gen = ++ladeGen.current
@@ -1682,7 +1829,54 @@ export default function App() {
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
                      attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey}
-                     teilModus={teilModus} />
+                     teilModus={teilModus} orthofoto={messAktiv} messung={messAnzeige} />
+            {/* Breitenmessung: Werkzeugleiste auf der Karte (klickbar, liegt über dem Kartenrand). */}
+            {messung && (
+              <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 600,
+                            width: 'min(470px, calc(100% - 110px))', background: '#fff', borderRadius: 10,
+                            boxShadow: '0 4px 14px rgba(0,0,0,0.25)', padding: '10px 12px', fontSize: 12.5,
+                            color: 'var(--text)', lineHeight: 1.45 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-strong)', marginBottom: 6 }}>
+                  📏 Breite messen · {messung.titel}
+                </div>
+                <div role="group" aria-label="Messart"
+                     style={{ display: 'inline-flex', flexWrap: 'wrap', border: '1px solid var(--border)', borderRadius: 8,
+                              overflow: 'hidden', marginBottom: 6 }}>
+                  {([['kante', 'Ab Bordsteinkante (AV)'], ['hand', 'Zwei Punkte']] as const).map(([m, label]) => (
+                    <button key={m} type="button" aria-pressed={messung.modus === m}
+                            onClick={() => setMessung({ ...messung, modus: m, punkte: [], ergebnis: undefined,
+                              fehler: m === 'kante' && !messung.laden && messung.kanten.length === 0 ? messung.fehler : undefined })}
+                            style={{ border: 'none', padding: '5px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                                     background: messung.modus === m ? 'var(--accent)' : '#fff',
+                                     color: messung.modus === m ? '#fff' : 'var(--text)' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div>
+                  {messung.modus === 'kante'
+                    ? 'Weit hineinzoomen und auf die Markierung klicken, an der Stelle, bis zu der die Breite zählt. Gemessen wird rechtwinklig bis zur Bordsteinkante (orange).'
+                    : 'Weit hineinzoomen, zuerst die Bordsteinkante und dann die Markierung anklicken.'}
+                </div>
+                <div style={{ marginTop: 6, fontWeight: 600, color: messung.fehler ? '#b91c1c' : 'var(--text-strong)' }}>
+                  {messung.modus === 'kante' && messung.laden ? 'Lade Bordsteinkanten …'
+                    : messung.fehler ?? (messung.ergebnis ? `Breite: ${numDE(messung.ergebnis.breite, 2)} m`
+                      : messung.modus === 'hand' && messung.punkte.length === 1 ? 'Jetzt die Markierung anklicken.' : 'Noch nicht gemessen.')}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <button type="button" onClick={messungUebernehmen} disabled={!messung.ergebnis}
+                          style={{ border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600,
+                                   background: messung.ergebnis ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
+                                   cursor: messung.ergebnis ? 'pointer' : 'default' }}>
+                    {messung.ergebnis ? `${numDE(aufZentimeter(messung.ergebnis.breite), 2)} m übernehmen` : 'Übernehmen'}
+                  </button>
+                  <button type="button" onClick={() => setMessung(null)} style={kleinKnopfStyle}>Abbrechen</button>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                  Luftbild © swisstopo · {AV_QUELLE}
+                </div>
+              </div>
+            )}
             {/* Teil-Modus: Hinweis direkt auf der Karte (im Breitbild steht die Anleitung im Panel
                 rechts, weit weg von der Stelle, an der man tippen soll). Klick-transparent. */}
             {teilModus && (
@@ -1740,7 +1934,7 @@ export default function App() {
                         setTeilModus(true)
                         setMsg('Teilen: auf die Linie tippen, wo sie geteilt werden soll (Esc bricht ab).', 'info')
                       }}
-                      disabled={osmBusy}
+                      disabled={osmBusy || messAktiv}
                       aria-pressed={teilModus}
                       title="Ein Segment an der angeklickten Stelle in zwei Teile schneiden"
                       style={{ border: teilModus ? '1px solid var(--accent)' : '1px solid var(--border)',
@@ -1752,7 +1946,7 @@ export default function App() {
               </button>
             )}
             {cands.length > 0 && (
-              <button onClick={() => { undoMerken('Karte leeren rückgängig'); setCands([]); setStops([]); setMsg(''); setTeilModus(false) }}
+              <button onClick={() => { undoMerken('Karte leeren rückgängig'); setCands([]); setStops([]); setMsg(''); setTeilModus(false); setMessung(null) }}
                       style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
                                borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
                 Karte leeren
@@ -1851,6 +2045,7 @@ export default function App() {
             onChange={patch => update(s.id, patch)}
             onTauschen={() => tauschen(s.id)}
             onLuftbild={welche => luftbildAnnehmen(s.id, welche)}
+            onMessen={cityCfg.breitenMessung ? (seite => messungStarten(s.id, seite)) : undefined}
             onRemove={() => remove(s.id)}
             canRemove={sections.length > 1}
             onHover={h => setHoverSec(h ? s.id : null)}

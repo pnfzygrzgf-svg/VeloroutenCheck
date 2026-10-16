@@ -78,9 +78,20 @@ export const BREIT_MQ = 'screen and (min-width: 1100px)'
 // peilung: Fahrtrichtung der Seite A an der Marker-Stelle [Grad, 0 = Nord] → kleiner Pfeil am Kreis.
 export interface SectionMarker { num: number; lat: number; lon: number; peilung?: number }
 
+// Breitenmessung am Luftbild (App.tsx, breitenmessung.ts): was die Karte dazu zeigt — die
+// Bordsteinkanten der amtlichen Vermessung, gesetzte Punkte und die Messlinie samt Wert.
+type LLo = { lat: number; lon: number }
+export interface MessAnzeige {
+  kanten: LLo[][]           // Bordsteinkanten (orange)
+  punkte: LLo[]             // gesetzte Punkte (Messung mit zwei Punkten)
+  linie?: [LLo, LLo]        // Messlinie Bordsteinkante → Markierung
+  label?: string            // Messwert, z. B. «1,62 m»
+}
+const ORTHO = 'Orthofoto (swisstopo)'
+
 export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
                           attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
-                          teilModus = false }: {
+                          teilModus = false, orthofoto = false, messung = null }: {
   cands: Cand[]
   onLineClick: (id: number, lat: number, lon: number) => void   // Linie angeklickt (an-/abwählen oder teilen)
   onMapClick?: (lat: number, lon: number) => void
@@ -92,10 +103,16 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   center?: [number, number]               // Anfangs-Kartenmitte (stadtabhängig)
   fitKey?: number                         // ändert sich → Karte auf die Segmente einpassen (nur «Strasse laden»)
   teilModus?: boolean                     // «Segment teilen» aktiv → Fadenkreuz über den Linien
+  orthofoto?: boolean                     // Hintergrund Orthofoto erzwingen (Breitenmessung); danach zurück
+  messung?: MessAnzeige | null            // Breitenmessung: Kanten, Punkte, Messlinie
 }) {
   const elRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const layerRef = useRef<L.LayerGroup | null>(null)
+  const messRef = useRef<L.LayerGroup | null>(null)                 // eigene Ebene der Breitenmessung
+  const basisRef = useRef<Record<string, L.TileLayer>>({})          // Hintergründe nach Name
+  const aktiveBasis = useRef('CyclOSM')                             // gerade gezeigter Hintergrund
+  const vorOrtho = useRef<string | null>(null)                      // Hintergrund vor dem erzwungenen Orthofoto
   const lineRef = useRef<Map<number, L.Polyline>>(new Map())  // Cand-ID → Linie (für Highlight)
   const lastFit = useRef(0)            // zuletzt umgesetzter fitKey
   const suppress = useRef(false)        // Klick auf Linie soll keinen Karten-Klick auslösen
@@ -117,15 +134,20 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       'CyclOSM': L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
         maxZoom: 19, attribution: '© OpenStreetMap-Mitwirkende · Stil: CyclOSM',
       }),
-      'Orthofoto (swisstopo)': L.tileLayer(
+      // maxZoom 21 über der nativen Stufe 20 (10 cm): eine Stufe Vergrösserung zum genauen Klicken
+      // beim Messen der Breite.
+      [ORTHO]: L.tileLayer(
         'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',
-        { maxZoom: 20, attribution: '© swisstopo' }),
+        { maxZoom: 21, maxNativeZoom: 20, attribution: '© swisstopo' }),
       'Hell (Carto)': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 20, attribution: '© OpenStreetMap-Mitwirkende · © CARTO',
       }),
     }
     basemaps['CyclOSM'].addTo(map)
     L.control.layers(basemaps, undefined, { position: 'topright' }).addTo(map)
+    basisRef.current = basemaps
+    // Die Ebenen-Auswahl meldet auch programmatische Wechsel (Leaflet: baselayerchange).
+    map.on('baselayerchange', (e: L.LayersControlEvent) => { aktiveBasis.current = e.name })
     // Schmales Layout: Zoomen nur mit Ctrl/Cmd + Mausrad. Die Karte liegt mitten in einer scrollenden
     // Seite — ein «nacktes» Rad-Ereignis soll die Seite scrollen, nicht die Karte zoomen (Scroll-Falle).
     // Breitbild (BREIT_MQ, Karte links in voller Höhe, daneben scrollt nur das Panel): keine Scroll-Falle,
@@ -143,6 +165,13 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     }
     wheelEl.addEventListener('wheel', onWheel, { passive: false })
     layerRef.current = L.layerGroup().addTo(map)
+    // Breitenmessung in eigener Ebene über den Segmentlinien (Overlay 400 < messen 450 < Marker 600),
+    // klick-durchlässig: die Klicks gehören der Messung selbst.
+    map.createPane('messen')
+    const messPane = map.getPane('messen')!
+    messPane.style.zIndex = '450'
+    messPane.style.pointerEvents = 'none'
+    messRef.current = L.layerGroup().addTo(map)
     // Klick auf freie Karte (nicht auf eine Linie) → Segment an der Stelle hinzufügen.
     map.on('click', (e: L.LeafletMouseEvent) => {
       if (suppress.current) { suppress.current = false; return }
@@ -154,7 +183,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       wheelEl.removeEventListener('wheel', onWheel)
       breit.removeEventListener('change', radSetzen)
       map.remove()
-      mapRef.current = null; layerRef.current = null; lineRef.current.clear(); lastFit.current = 0
+      mapRef.current = null; layerRef.current = null; messRef.current = null; lineRef.current.clear(); lastFit.current = 0
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -269,6 +298,54 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   useEffect(() => {
     mapRef.current?.getContainer().classList.toggle('vrc-teilmodus', teilModus)
   }, [teilModus])
+
+  // Orthofoto erzwingen (Breitenmessung) und danach den vorherigen Hintergrund zurückholen — es
+  // sei denn, der Nutzer hat inzwischen selbst einen anderen gewählt.
+  useEffect(() => {
+    const map = mapRef.current, b = basisRef.current
+    if (!map || !b[ORTHO]) return
+    if (orthofoto && aktiveBasis.current !== ORTHO) {
+      vorOrtho.current = aktiveBasis.current
+      b[aktiveBasis.current]?.remove()
+      b[ORTHO].addTo(map)
+    } else if (!orthofoto && vorOrtho.current) {
+      const zurueck = vorOrtho.current
+      vorOrtho.current = null
+      if (aktiveBasis.current === ORTHO && b[zurueck]) { b[ORTHO].remove(); b[zurueck].addTo(map) }
+    }
+  }, [orthofoto])
+
+  // Breitenmessung zeichnen: Bordsteinkanten orange, Punkte, Messlinie gestrichelt mit Wert.
+  useEffect(() => {
+    const map = mapRef.current, mg = messRef.current
+    if (!map || !mg) return
+    mg.clearLayers()
+    map.getContainer().classList.toggle('vrc-messmodus', !!messung)
+    if (!messung) return
+    const ll = (p: LLo) => [p.lat, p.lon] as [number, number]
+    // Alle Kanten als EINE Linie mit vielen Teilen (ein SVG-Pfad statt tausender Ebenen).
+    if (messung.kanten.length)
+      L.polyline(messung.kanten.map(k => k.map(ll)), { pane: 'messen', color: '#f97316', weight: 2.5, opacity: 0.95, interactive: false }).addTo(mg)
+    for (const p of messung.punkte)
+      L.circleMarker(ll(p), { pane: 'messen', radius: 4, color: '#111827', weight: 2, fillColor: '#ffffff', fillOpacity: 1, interactive: false }).addTo(mg)
+    if (messung.linie) {
+      const [a, b] = messung.linie
+      L.polyline([ll(a), ll(b)], { pane: 'messen', color: '#ffffff', weight: 6, opacity: 0.85, interactive: false }).addTo(mg)
+      L.polyline([ll(a), ll(b)], { pane: 'messen', color: '#111827', weight: 2.5, dashArray: '5 4', interactive: false }).addTo(mg)
+      for (const p of [a, b])
+        L.circleMarker(ll(p), { pane: 'messen', radius: 3.5, color: '#111827', weight: 2, fillColor: '#ffffff', fillOpacity: 1, interactive: false }).addTo(mg)
+      if (messung.label) {
+        L.marker([(a.lat + b.lat) / 2, (a.lon + b.lon) / 2], {
+          interactive: false,
+          icon: L.divIcon({
+            className: '', iconSize: [70, 22], iconAnchor: [35, 30],
+            html: `<div style="background:#111827;color:#fff;font:700 12px/22px system-ui,sans-serif;` +
+              `text-align:center;border-radius:6px;box-shadow:0 0 0 2px #fff">${escapeHtml(messung.label)}</div>`,
+          }),
+        }).addTo(mg)
+      }
+    }
+  }, [messung])
 
   // Highlight des gehoverten Abschnitts: betroffene Linien dicker + nach vorn, ohne Neuzeichnen.
   // Nur gewählte Segmente anfassen (abgewählte behalten ihren dünnen, grauen Stil).

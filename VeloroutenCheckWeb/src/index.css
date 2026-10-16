@@ -100,3 +100,6 @@ select { max-width: 100%; }
 /* «Segment teilen» (App.tsx): Fadenkreuz über den anklickbaren Linien, solange der Modus aktiv
    ist. Zwei Klassen schlagen Leaflets `.leaflet-interactive { cursor: pointer }`. */
 .vrc-teilmodus .leaflet-interactive { cursor: crosshair; }
+
+/* Breite am Luftbild messen (App.tsx): Fadenkreuz auf der ganzen Karte, auch über den Linien. */
+.leaflet-container.vrc-messmodus, .vrc-messmodus .leaflet-interactive { cursor: crosshair; }

@@ -351,3 +351,18 @@ describe('Luftbild-Hinweis je Seite', () => {
     expect(r.luftbild!.b).toBe(0)
   })
 })
+
+import { setzeGemesseneBreite } from './strecke'
+describe('Breite am Luftbild gemessen', () => {
+  it('Seite A: Wert und Herkunft «gemessen»', () => {
+    const s = { ...defaultSection(), ist: 'Radstreifen' as const, breite: 1.8, quelle: { breite: 'osm' as const } }
+    const t = setzeGemesseneBreite(s, 'A', 1.62)
+    expect([t.breite, t.quelle.breite]).toEqual([1.62, 'gemessen'])
+    expect(t.gegen).toBeUndefined()
+  })
+  it('Seite B: nur die Gegenseite ändert sich', () => {
+    const s = { ...defaultSection(), ist: 'Radstreifen' as const, breite: 1.8 }
+    const t = setzeGemesseneBreite({ ...s, gegen: { ...seiteA(s), quelle: {} } }, 'B', 1.41)
+    expect([t.breite, t.gegen?.breite, t.gegen?.quelle.breite]).toEqual([1.8, 1.41, 'gemessen'])
+  })
+})

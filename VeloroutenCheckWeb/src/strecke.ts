@@ -16,7 +16,7 @@ import { peilung, type LL } from './geo'
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
 // Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
 // Fehlt ein Eintrag, ist das Feld leer (keine erfundenen Werte).
-export type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung' | 'angenommen' | 'luftbild'
+export type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung' | 'angenommen' | 'luftbild' | 'gemessen'
 
 // DTV-Annahme (nur Bern): fehlt der DTV, gilt bei bekanntem Tempo DTV ≤ 2000. Die „Flächendeckenden
 // Verkehrsdaten" Bern führen alle Strassen > 2000 + alle Altstadt-Strassen — kein Eintrag ⇒ ≤ 2000
@@ -457,6 +457,16 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
     }
     return rep.sec
   })
+}
+
+// ── Breite am Luftbild gemessen (breitenmessung.ts) ───────────────────────────
+// Der Messwert ist die Breite der Seite an der gemessenen Stelle (Nutzerentscheid 15.10.2026),
+// Herkunft «gemessen». Seite B nur, wenn sie eigene Werte hat; bei gleichen Seiten gilt Seite A
+// für beide.
+export function setzeGemesseneBreite(s: Section, seite: 'A' | 'B', breite: number): Section {
+  if (seite === 'A') return { ...s, breite, quelle: { ...s.quelle, breite: 'gemessen' } }
+  const g = gegenVon(s)
+  return { ...s, gegen: { ...g, breite, quelle: { ...g.quelle, breite: 'gemessen' } } }
 }
 
 // ── Radstreifen aus dem Luftbild: Hinweis und Übernehmen (luftbild.ts) ────────

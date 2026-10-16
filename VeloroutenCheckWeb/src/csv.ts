@@ -26,6 +26,7 @@ export const numDE = (x: number, dec = 0) => (Number.isFinite(x) ? x.toFixed(dec
 export const QUELLE_LABEL: Record<Quelle, string> = {
   amtlich: 'Geoportal', osm: 'OSM', manuell: 'manuell', fahrplan: 'opentransportdata',
   markierung: 'Markierung', angenommen: 'angenommen ≤2000', luftbild: 'Luftbild',
+  gemessen: 'gemessen (Luftbild/AV)',
 }
 
 // CSV-Feld maskieren (Semikolon-getrennt, de-CH/Excel).
