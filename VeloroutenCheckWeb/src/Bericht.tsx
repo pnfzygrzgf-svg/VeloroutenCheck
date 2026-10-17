@@ -16,7 +16,7 @@ import type { ParkFlaeche } from './parkierung'
 import type { AbschnittErgebnis, SeitenErgebnis } from './bewertung'
 import { erfuellungsgrad } from './fuehrungsform'
 import { dtvAssumed, type Quelle, type Section, type Seite } from './strecke'
-import type { Stadt } from './fuehrungsform'
+import type { Routentyp, Stadt } from './fuehrungsform'
 import { numDE } from './csv'
 import {
   bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, pruefeKernfahrbahn, pruefeTeil, pruefungText, startAufteilung, umfeldVon,
@@ -154,13 +154,14 @@ const formText = (f: Seite) => `${f.ist || '–'}${Number.isFinite(f.breite) ? `
 
 // Inhalt der Seite (ohne Leiste und Portal), auch ohne Browser darstellbar (Test der Seitenzahl).
 // Die Skizzen mit fester Druckbreite DRUCK_PX: A4 hoch mit 12 mm Rand, rund 186 mm.
-export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, modus, rA, rB, achsen, av, park, quellen, bez, setBez, onBild, basis }: {
+export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, routenLabel, modus, rA, rB, achsen, av, park, quellen, bez, setBez, onBild, basis }: {
   section: Section & { aufteilung: Aufteilung }
   nr: number                              // Abschnitt-Nummer (1-basiert)
   heute: AbschnittErgebnis
   city: Parameters<typeof bewerteAufteilung>[2]
   breiten?: Parameters<typeof bewerteAufteilung>[3]   // stadtspezifische Breiten-Sollwerte
   stadtName: string
+  routenLabel?: Partial<Record<Routentyp, string>>   // Namen der Routentypen in der Stadt (z. B. Zürich «Velovorzugsroute»)
   modus: 'note' | 'erfuellung'
   rA: string | null; rB: string | null
   achsen: P[][]                           // LV95, in Fahrtrichtung der Seite A
@@ -210,7 +211,8 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, mod
                 </td></tr>
                 <tr><td>Stadt</td><td>{stadtName}</td></tr>
                 <tr><td>Routentyp</td><td>{section.routentyp
-                  ? `${section.routentyp} (${quelleText(section.quelle.routentyp, ROUTENTYP_AMTLICH[city])})` : '– (geprüft wie Veloroute)'}</td></tr>
+                  ? `${routenLabel?.[section.routentyp] ?? section.routentyp} (${quelleText(section.quelle.routentyp, ROUTENTYP_AMTLICH[city])})`
+                  : `– (geprüft wie ${routenLabel?.Veloroute ?? 'Veloroute'})`}</td></tr>
                 <tr><td>DTV, Tempo</td><td>{Number.isFinite(section.dtv)
                     ? `${Math.round(section.dtv).toLocaleString('de-CH')} Fz/Tag (${quelleText(section.quelle.dtv, DTV_AMTLICH[city])})`
                     : dtvAssumed(section, city) ? `≤ 2'000 Fz/Tag (angenommen: kein Eintrag in den ${DTV_AMTLICH.bern})` : 'DTV –'}
@@ -343,13 +345,14 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, mod
   )
 }
 
-export default function Bericht({ section, nr, heute, city, breiten, stadtName, modus, rA, rB, achsen, av, park, quellen, schliessen }: {
+export default function Bericht({ section, nr, heute, city, breiten, stadtName, routenLabel, modus, rA, rB, achsen, av, park, quellen, schliessen }: {
   section: Section & { aufteilung: Aufteilung }
   nr: number                              // Abschnitt-Nummer (1-basiert)
   heute: AbschnittErgebnis
   city: Parameters<typeof bewerteAufteilung>[2]
   breiten?: Parameters<typeof bewerteAufteilung>[3]   // stadtspezifische Breiten-Sollwerte
   stadtName: string
+  routenLabel?: Partial<Record<Routentyp, string>>   // Namen der Routentypen in der Stadt (z. B. Zürich «Velovorzugsroute»)
   modus: 'note' | 'erfuellung'
   rA: string | null; rB: string | null
   achsen: P[][]                           // LV95, in Fahrtrichtung der Seite A
@@ -385,7 +388,7 @@ export default function Bericht({ section, nr, heute, city, breiten, stadtName, 
         <button className="bericht-knopf zweit" onClick={schliessen}>Zurück zur Planung</button>
         <span className="klein">Im Druckdialog «Als PDF sichern» bzw. «Microsoft Print to PDF» wählen; A4 hoch, Hintergrundgrafiken einschalten.</span>
       </div>
-      <BerichtSeite section={section} nr={nr} heute={heute} city={city} breiten={breiten} stadtName={stadtName} modus={modus}
+      <BerichtSeite section={section} nr={nr} heute={heute} city={city} breiten={breiten} stadtName={stadtName} routenLabel={routenLabel} modus={modus}
         rA={rA} rB={rB} achsen={achsen} av={av} park={park} quellen={quellen} bez={bez} setBez={setBez} onBild={setBild}
         basis={import.meta.env.BASE_URL} />
     </div>,
