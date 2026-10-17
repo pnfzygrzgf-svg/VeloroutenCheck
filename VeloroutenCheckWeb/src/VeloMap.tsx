@@ -76,6 +76,21 @@ export const ISTCOLOR: Record<string, string> = {
   'Einbahn Velogegenverkehr mit baulicher Trennung': '#15803d',
 }
 
+// «Zum eigenen Standort» (seit 17.10.2026, wie fgsCheck Karte.tsx): Knopf unter den Zoom-Knöpfen. Der
+// Standort wird nur auf der Karte gezeigt (Punkt + Genauigkeitskreis), nirgends gespeichert oder gesendet.
+const STANDORT_MS = 10000
+const STANDORT_ZOOM = 18
+const STANDORT_UNGENAU_M = 100           // ungenauer: ganzen Genauigkeitskreis zeigen statt auf STANDORT_ZOOM
+const STANDORT_FARBE = '#2563eb'
+const STANDORT_SYMBOL = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>' +
+  '<path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>'
+export function standortFehlerText(code: number): string {
+  if (code === 1) return 'Standort nicht freigegeben: Zugriff auf den Standort in den Einstellungen des Browsers erlauben.'
+  if (code === 3) return `Standort nicht innert ${STANDORT_MS / 1000} s bestimmt; nochmals versuchen.`
+  return 'Standort zurzeit nicht verfügbar (kein GPS- bzw. Netzempfang).'
+}
+
 // Nummern-Marker eines Abschnitts auf der Karte (num = Abschnitts-Nummer).
 // Ab dieser Fensterbreite zweispaltig (Karte | Panel); muss mit der Media-Query in index.css
 // übereinstimmen. «screen»: Drucken bleibt immer einspaltig.
@@ -106,7 +121,7 @@ const ORTHO = 'Orthofoto (swisstopo)'
 
 export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
                           attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
-                          teilModus = false, orthofoto = false, messung = null, av = null, obsStand, formen }: {
+                          teilModus = false, orthofoto = false, messung = null, av = null, obsStand, formen, onMeldung }: {
   cands: Cand[]
   onLineClick: (id: number, lat: number, lon: number) => void   // Linie angeklickt (an-/abwählen oder teilen)
   onMapClick?: (lat: number, lon: number) => void
@@ -125,6 +140,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   // Führungsform je Cand-ID aus dem übernommenen Abschnitt (seit 17.10.2026): Farbe nach Seite A, eine
   // abweichende Seite B gestrichelt darüber. Fehlt der Eintrag, gilt die Form aus OSM (c.ist).
   formen?: Map<number, { a: string; b?: string }>
+  onMeldung?: (text: string, art: 'info' | 'error') => void   // Meldungen der Standortbestimmung
 }) {
   const elRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -141,6 +157,8 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   clickCb.current = onMapClick
   const readyCb = useRef(onReady)       // dito (onReady wird inline übergeben → neue Referenz je Render)
   readyCb.current = onReady
+  const meldungCb = useRef(onMeldung)
+  meldungCb.current = onMeldung
 
   // Karte einmalig initialisieren (Hintergrund Orthofoto); nur beim Mount — Callbacks laufen über
   // Refs, das Zentrum bei Stadtwechsel über den Folge-Effekt. Cleanup beim Unmount (z. B.
@@ -200,6 +218,38 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     avPane.style.zIndex = '350'
     avPane.style.pointerEvents = 'none'
     avRef.current = L.layerGroup().addTo(map)
+    // «Zum eigenen Standort» unter den Zoom-Knöpfen (eigene Ebene, nicht anklickbar)
+    const standortEbene = L.layerGroup().addTo(map)
+    const standort = () => {
+      const melde = (t: string, art: 'info' | 'error') => meldungCb.current?.(t, art)
+      if (!window.isSecureContext) { melde('Standort nur über eine sichere Verbindung (https) abrufbar.', 'error'); return }
+      if (!('geolocation' in navigator)) { melde('Dieser Browser kann den Standort nicht bestimmen.', 'error'); return }
+      melde('Standort wird bestimmt …', 'info')
+      navigator.geolocation.getCurrentPosition(pos => {
+        if (mapRef.current !== map) return            // Karte inzwischen entfernt
+        const { latitude: lat, longitude: lon, accuracy } = pos.coords
+        standortEbene.clearLayers()
+        L.circle([lat, lon], { radius: accuracy, color: STANDORT_FARBE, weight: 1, fillColor: STANDORT_FARBE, fillOpacity: 0.12,
+          interactive: false }).addTo(standortEbene)
+        L.circleMarker([lat, lon], { radius: 6, color: '#ffffff', weight: 2, fillColor: STANDORT_FARBE, fillOpacity: 1, interactive: false })
+          .addTo(standortEbene)
+        if (accuracy > STANDORT_UNGENAU_M) map.fitBounds(L.latLng(lat, lon).toBounds(2 * accuracy))
+        else map.setView([lat, lon], STANDORT_ZOOM)
+        melde(`Standort gezeigt (Genauigkeit rund ${Math.round(accuracy)} m). Auf eine Strasse tippen, um ein Segment hinzuzufügen.`, 'info')
+      }, err => melde(standortFehlerText(err.code), 'error'),
+      { enableHighAccuracy: true, timeout: STANDORT_MS, maximumAge: 30000 })
+    }
+    const standortKnopf = new L.Control({ position: 'topleft' })
+    standortKnopf.onAdd = () => {
+      const div = L.DomUtil.create('div', 'leaflet-bar vrc-standort-knopf')
+      const a = L.DomUtil.create('a', '', div)
+      a.href = '#'; a.title = 'Zum eigenen Standort'; a.setAttribute('role', 'button'); a.setAttribute('aria-label', 'Zum eigenen Standort')
+      a.innerHTML = STANDORT_SYMBOL
+      L.DomEvent.disableClickPropagation(div)
+      L.DomEvent.on(a, 'click', e => { L.DomEvent.preventDefault(e); standort() })
+      return div
+    }
+    standortKnopf.addTo(map)
     // Klick auf freie Karte (nicht auf eine Linie) → Segment an der Stelle hinzufügen.
     map.on('click', (e: L.LeafletMouseEvent) => {
       if (suppress.current) { suppress.current = false; return }

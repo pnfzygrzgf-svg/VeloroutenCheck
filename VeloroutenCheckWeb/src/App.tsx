@@ -1551,7 +1551,8 @@ function SoFunktionierts() {
         <li><b>Stadt wählen:</b> oben auf der Karte. Die Bewertung folgt den Vorgaben der gewählten Stadt (z.&nbsp;B. Masterplan
           Veloinfrastruktur Bern); der Link über der Karte führt zur Grundlage.</li>
         <li><b>Strecke aufbauen:</b> auf die Karte klicken (nächstgelegenes Segment), oben auf der Karte eine Strasse suchen (beim
-          Tippen erscheinen Vorschläge; Vorschlag wählen oder Enter lädt die Strasse) oder «Segmente im Kartenausschnitt laden». Linien per Klick an- und abwählen (weiss gestrichelt = nicht in der Strecke);
+          Tippen erscheinen Vorschläge; Vorschlag wählen oder Enter lädt die Strasse) oder «Segmente im Kartenausschnitt laden». Der
+          Knopf unter den Zoom-Knöpfen springt zum eigenen Standort (nur auf der Karte gezeigt, nicht gespeichert). Linien per Klick an- und abwählen (weiss gestrichelt = nicht in der Strecke);
           «Segment teilen» schneidet ein langes Segment an der angeklickten Stelle.</li>
         <li><b>Übernehmen:</b> benachbarte Segmente gleicher Führungsform und gleichen Tempos werden zu Abschnitten gruppiert.</li>
         <li><b>Abschnitte prüfen:</b> je Abschnitt stehen Führungsform, Tempo und weitere Angaben aus OpenStreetMap und dem
@@ -2578,7 +2579,8 @@ export default function App() {
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
                      attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} obsStand={cityCfg.obsStand}
-                     teilModus={teilModus} orthofoto={messAktiv || planAv != null} messung={messAnzeige} av={planAvWgs} formen={formen} />
+                     teilModus={teilModus} orthofoto={messAktiv || planAv != null} messung={messAnzeige} av={planAvWgs} formen={formen}
+                     onMeldung={(t, art) => setMsg(t, art)} />
             {/* Kartenkopf: Stadt und Strassensuche (während einer Messung steht dort deren Werkzeugleiste) */}
             {!messung && (
               <div className="vrc-kartenkopf">

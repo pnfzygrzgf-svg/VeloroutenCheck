@@ -197,3 +197,6 @@ details.hilfe p { margin: 8px 0 2px; }
 .vrc-suche-liste li { padding: 6px 10px; cursor: pointer; line-height: 1.3; color: var(--text-strong); }
 .vrc-suche-liste li.aktiv { background: #e0f2fe; }
 .vrc-suche-liste li.vrc-suche-leer { cursor: default; color: var(--text-muted); }
+
+/* «Zum eigenen Standort» unter den Zoom-Knöpfen (VeloMap, wie fgsCheck .standort-knopf) */
+.vrc-standort-knopf a { display: flex !important; align-items: center; justify-content: center; color: #1e293b; }
