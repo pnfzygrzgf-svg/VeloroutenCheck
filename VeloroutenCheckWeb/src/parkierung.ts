@@ -119,11 +119,64 @@ async function bernLaden(box: Box): Promise<P[]> {
   return (await bernFelder(box)).flatMap(f => punkteAus(f.g))
 }
 
-// ── Parkfelder als Flächen für die Karte (Aufteilung planen, seit 16.10.2026; vorerst Bern) ──
+// ── Parkfelder als Flächen für die Karte (Aufteilung planen, seit 16.10.2026; Bern, Zürich, Luzern) ──
 // Dieselben Felder, die für die Vorbelegung zählen. verbot: Parkverbotsfeld (zählt ebenfalls).
 export interface ParkFlaeche { verbot: boolean; ringe: P[][] }
-export const PARK_QUELLE: Partial<Record<ParkStadt, string>> = { bern: 'Geodaten Stadt Bern, Parkplätze öffentlich' }
+// Zürich (seit 17.10.2026): Längsstreifen als Linien, als 2 m breite Streifen gezeichnet, und Einzelfelder
+// als Punkte, als 2 × 2 m grosse Quadrate (die Daten nennen nur Längs/Quer/Schräg, nicht den Winkel zur Strasse).
+// Luzern (seit 17.10.2026): Flächen wie für die Vorbelegung. Basel: keine Geometrie.
+export const PARK_QUELLE: Partial<Record<ParkStadt, string>> = {
+  bern: 'Geodaten Stadt Bern, Parkplätze öffentlich',
+  zurich: 'Stadt Zürich, öffentlich zugängliche Parkplätze (DAV), als Streifen bzw. Punkte',
+  luzern: '© Geoinformationszentrum Stadt Luzern, öffentliche Parkplätze',
+}
+// Linie als Streifen der Breite 2·halb [m]: je Stück ein Viereck (Überlappungen an Knicken sind gewollt einfach)
+export function streifen(linie: P[], halb: number): P[][] {
+  const aus: P[][] = []
+  for (let i = 1; i < linie.length; i++) {
+    const a = linie[i - 1], b = linie[i], de = b[0] - a[0], dn = b[1] - a[1], l = Math.hypot(de, dn)
+    if (l < 0.05) continue
+    const nx = -dn / l * halb, ny = de / l * halb
+    aus.push([[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]])
+  }
+  return aus
+}
+const quadrat = (p: P, h: number): P[] => [[p[0] - h, p[1] - h], [p[0] + h, p[1] - h], [p[0] + h, p[1] + h], [p[0] - h, p[1] + h]]
+async function zurichFlaechen([a, b, c, d]: Box): Promise<ParkFlaeche[]> {
+  const url = (t: string) => 'https://www.ogd.stadt-zuerich.ch/wfs/geoportal/oeffentlich_zugaengliche_Parkplaetze_DAV' +
+    `?SERVICE=WFS&VERSION=1.1.0&REQUEST=GetFeature&TYPENAME=${t}&SRSNAME=EPSG:2056` +
+    `&BBOX=${a},${b},${c},${d},EPSG:2056&OUTPUTFORMAT=application/vnd.geo%2Bjson`
+  const [pt, li] = await Promise.all([holeJson<GeoJson>(url('oeff_strassenparkierung_dav_p'), 30000),
+    holeJson<GeoJson>(url('oeff_strassenparkierung_dav_l'), 30000)])
+  const aus: ParkFlaeche[] = []
+  for (const f of (li.features ?? [])) {
+    const g = f.geometry
+    const linien = (g?.type === 'MultiLineString' ? g.coordinates : g?.type === 'LineString' ? [g.coordinates] : []) as number[][][]
+    for (const l of linien) for (const q of streifen(l.map(p => [p[0], p[1]] as P), 1.0)) aus.push({ verbot: false, ringe: [q] })
+  }
+  for (const f of pt.features ?? []) {
+    const g = f.geometry
+    const punkte = (g?.type === 'MultiPoint' ? g.coordinates : g?.type === 'Point' ? [g.coordinates] : []) as number[][]
+    for (const q of punkte) if (Number.isFinite(q?.[0]) && Number.isFinite(q?.[1])) aus.push({ verbot: false, ringe: [quadrat([q[0], q[1]], 1.0)] })
+  }
+  return aus
+}
+async function luzernFlaechen([a, b, c, d]: Box): Promise<ParkFlaeche[]> {
+  const p = new URLSearchParams({ geometry: `${a},${b},${c},${d}`, geometryType: 'esriGeometryEnvelope', inSR: '2056',
+    spatialRel: 'esriSpatialRelIntersects', outFields: 'SUBTYPE_TEXT', outSR: '2056', f: 'geojson', where: '1=1' })
+  const j = await holeJson<GeoJson>(`https://map.stadtluzern.ch/server/rest/services/OGD/oeffentlicher_parkplatz/MapServer/13/query?${p}`, 30000)
+  const ring = (xs: unknown): P[] => (Array.isArray(xs)
+    ? xs.filter(q => Array.isArray(q) && Number.isFinite(q[0]) && Number.isFinite(q[1])).map(q => [q[0], q[1]] as P) : [])
+  return (j.features ?? []).filter(f => !/zweirad|blaulicht/i.test(String(f.properties?.SUBTYPE_TEXT ?? ''))).flatMap(f => {
+    const g = f.geometry
+    if (!g || !Array.isArray(g.coordinates)) return []
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []
+    return (polys as unknown[]).filter(Array.isArray).map(poly => ({ verbot: false, ringe: (poly as unknown[]).map(ring) }))
+  })
+}
 export async function ladeParkflaechen(stadt: ParkStadt, box: Box): Promise<ParkFlaeche[]> {
+  if (stadt === 'zurich') return zurichFlaechen(box)
+  if (stadt === 'luzern') return luzernFlaechen(box)
   if (stadt !== 'bern') return []
   const ring = (xs: unknown): P[] => (Array.isArray(xs)
     ? xs.filter(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map(p => [p[0], p[1]] as P) : [])

@@ -1,4 +1,4 @@
-// ── Breite am Luftbild messen: ab Bordsteinkante (Bern, Zürich, Basel) ────────
+// ── Breite am Luftbild messen: ab Bordsteinkante (Bern, Zürich, Basel; Luzern: Strassenflächen der Stadt) ─
 //
 // Nutzerentscheid 15.10.2026: Gemessen wird ab der Bordsteinkante bis zur Stelle der Markierung,
 // die der Nutzer auf dem Luftbild anklickt; der Messwert ist die Breite an dieser Stelle. Die
@@ -231,4 +231,44 @@ export function trottoirbreiten(achsen: P[][], flaechen: AvFlaeche[], kanten: Ka
   const wert = (s: { n: number; werte: number[] }) =>
     s.werte.length >= 3 && s.werte.length >= TROTTOIR_ANTEIL * s.n ? median(s.werte) : null
   return { links: wert(seite.links), rechts: wert(seite.rechts) }
+}
+
+// ── Parkierung auf Trottoirniveau (seit 17.10.2026, Nutzerbefund Kanzleistrasse Zürich) ──────────
+// Manche Längsparkierung liegt hinter dem Randstein auf der Fläche, die die AV als «Trottoir» führt.
+// trottoirbreiten misst sie dann mit; die Ausgangslage der Planung setzte sie zusätzlich auf die
+// Fahrbahn (doppelt gezählt). Je Seite: Liegen die Parkfelder bis PARK_SEITE_M neben der Achse nach
+// Fläche mindestens zur Hälfte (Schwerpunkt) auf einer Trottoirfläche, steht die Parkierung dieser
+// Seite auf Trottoirniveau. Felder neben den Achsenenden (Querstrassen) zählen nicht. Die Seite folgt
+// der Achse: links bzw. rechts in Linienrichtung, wie bei den Querschnitten.
+const PARK_SEITE_M = 9            // wie PARK_MAX_M (parkierung.ts, Vorbelegung «Parkierung rechts»)
+const PARK_TROTTOIR_ANTEIL = 0.5
+
+export function parkierungAufTrottoir(achsen: P[][], flaechen: AvFlaeche[], park: { ringe: P[][] }[]): { links: boolean; rechts: boolean } {
+  const trottoirs = flaechen.filter(f => f.art === 'Trottoir').map(f => ({ f, box: box(f.ringe) }))
+  const aufTrottoir = (p: P) => trottoirs.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
+  const summe = { links: { tr: 0, alle: 0 }, rechts: { tr: 0, alle: 0 } }
+  for (const f of park) {
+    const r = f.ringe[0]
+    if (!r || r.length < 3) continue
+    let flaeche = 0, ce = 0, cn = 0
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) flaeche += r[j][0] * r[i][1] - r[i][0] * r[j][1]
+    for (const [e, n] of r) { ce += e; cn += n }
+    const c: P = [ce / r.length, cn / r.length], gewicht = Math.abs(flaeche) / 2
+    let best = Infinity, seite: 'links' | 'rechts' = 'links', innen = false
+    for (const l of achsen) for (let i = 1; i < l.length; i++) {
+      const a = l[i - 1], b = l[i], de = b[0] - a[0], dn = b[1] - a[1], ll = de * de + dn * dn
+      if (ll < 1e-6) continue
+      const u = ((c[0] - a[0]) * de + (c[1] - a[1]) * dn) / ll, uk = Math.max(0, Math.min(1, u))
+      const d = Math.hypot(c[0] - a[0] - uk * de, c[1] - a[1] - uk * dn)
+      if (d < best) {
+        best = d; seite = de * (c[1] - a[1]) - dn * (c[0] - a[0]) > 0 ? 'links' : 'rechts'
+        innen = (u > 0 || i > 1) && (u < 1 || i < l.length - 1)
+      }
+    }
+    if (best > PARK_SEITE_M || !innen || !gewicht) continue
+    summe[seite].alle += gewicht
+    if (aufTrottoir(c)) summe[seite].tr += gewicht
+  }
+  const ja = (x: { tr: number; alle: number }) => x.alle > 0 && x.tr >= PARK_TROTTOIR_ANTEIL * x.alle
+  return { links: ja(summe.links), rechts: ja(summe.rechts) }
 }

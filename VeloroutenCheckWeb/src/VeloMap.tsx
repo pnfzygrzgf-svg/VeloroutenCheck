@@ -58,17 +58,20 @@ export interface Cand {
 // ÖV-Haltestelle (Punkt) für die Karten-Marker.
 export interface Stop { lat: number; lon: number; name: string; bpuic?: string }
 
-// Farbe je Führungsform (Linien auf der Karte)
+// Farbe je Führungsform (Linien auf der Karte). Seit 17.10.2026 kein Grau mehr: Mischverkehr war grau
+// wie die abgewählten Segmente und auf dem Luftbild kaum zu sehen (Nutzerbefund). Abgewählt ist jetzt
+// gestrichelt (ABGEWAEHLT), jede gewählte Linie hat einen weissen Rand.
 export const ISTCOLOR: Record<string, string> = {
-  'Mischverkehr': '#9ca3af',
+  'Mischverkehr': '#7c3aed',
   'Radstreifen': '#eab308',
   'Radweg strassenbegleitend / Geschützter Radstreifen': '#4d7c0f',
   'Radweg abgesetzt': '#16a34a',
+  'Zweirichtungsradweg': '#be123c',   // fehlte bis 17.10.2026 (fiel auf das Ersatz-Petrol zurück)
   'Umweltspur': '#0891b2',
   'Velostrasse': '#2563eb',
   'Kombinierter Fuss-/Radweg': '#0d9488',
   'Fussweg Velo gestattet': '#ea580c',
-  'Einbahn Velogegenverkehr ohne Markierung': '#78716c',
+  'Einbahn Velogegenverkehr ohne Markierung': '#c026d3',
   'Einbahn Velogegenverkehr mit Markierung': '#d97706',
   'Einbahn Velogegenverkehr mit baulicher Trennung': '#15803d',
 }
@@ -103,7 +106,7 @@ const ORTHO = 'Orthofoto (swisstopo)'
 
 export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
                           attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
-                          teilModus = false, orthofoto = false, messung = null, av = null, obsStand }: {
+                          teilModus = false, orthofoto = false, messung = null, av = null, obsStand, formen }: {
   cands: Cand[]
   onLineClick: (id: number, lat: number, lon: number) => void   // Linie angeklickt (an-/abwählen oder teilen)
   onMapClick?: (lat: number, lon: number) => void
@@ -119,6 +122,9 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   orthofoto?: boolean                     // true → Hintergrund aufs Orthofoto schalten (Breitenmessung); bleibt danach
   messung?: MessAnzeige | null            // Breitenmessung: Kanten, Punkte, Messlinie
   av?: AvAnzeige | null                   // AV-Flächen eines Abschnitts (Aufteilung planen)
+  // Führungsform je Cand-ID aus dem übernommenen Abschnitt (seit 17.10.2026): Farbe nach Seite A, eine
+  // abweichende Seite B gestrichelt darüber. Fehlt der Eintrag, gilt die Form aus OSM (c.ist).
+  formen?: Map<number, { a: string; b?: string }>
 }) {
   const elRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -230,12 +236,13 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       const pts = c.geom.map(p => [p.lat, p.lon] as [number, number])
       if (pts.length < 2) continue
       // Sichtbare Linie = nur Anzeige; Klicks laufen über die breite Trefflinie darunter.
-      const line = L.polyline(pts, {
-        color: c.selected ? (ISTCOLOR[c.ist] || '#0f766e') : '#cbd5e1',
-        weight: c.selected ? 6 : 3,
-        opacity: c.selected ? 0.9 : 0.6,
-        interactive: false,
-      })
+      const f = formen?.get(c.id), istA = f?.a || c.ist, istB = f?.b && f.b !== istA ? f.b : undefined
+      // Gewählt: weisser Rand + Farbe der Führungsform; abgewählt: dunkler Rand + weiss gestrichelt (keine Legendenfarbe)
+      const rand = L.polyline(pts, c.selected ? { color: '#ffffff', weight: 9, opacity: 0.9, interactive: false }
+        : { color: '#1e293b', weight: 4.5, opacity: 0.55, interactive: false })
+      const line = L.polyline(pts, c.selected
+        ? { color: ISTCOLOR[istA] || '#0f766e', weight: 6, opacity: 0.95, interactive: false }
+        : { color: '#ffffff', weight: 2.5, opacity: 0.95, dashArray: '5 6', interactive: false })
       // Unsichtbare, breite Trefflinie → leichteres An-/Abwählen per Finger (und Maus).
       // Die Klickstelle geht mit: im Teil-Modus schneidet die App dort.
       const hit = L.polyline(pts, { color: '#000', weight: 16, opacity: 0 })
@@ -257,12 +264,15 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       hit.bindTooltip(
         `${escapeHtml(c.name)} · ${Math.round(c.len)} m` +
         (c.teil ? ` · Teil ${c.teil.nr}/${c.teil.anzahl}` : '') +
-        ` · ${escapeHtml(c.ist)}${c.selected ? '' : ' (abgewählt)'}` +
+        ` · ${escapeHtml(istB ? `Seite A ${istA} / Seite B ${istB}` : istA)}${c.selected ? '' : ' (abgewählt)'}` +
         (bernParts && bernParts.length ? `<br>${escapeHtml(attribution)}: ${escapeHtml(bernParts.join(' · '))}` : '') +
         obsPart,
         { sticky: true })
       hit.addTo(lg)         // unten (Trefffläche)
+      rand.addTo(lg)        // Rand für die Sichtbarkeit auf Karte und Luftbild
       line.addTo(lg)        // sichtbare Linie darüber
+      if (c.selected && istB)   // Seite B anders: gestrichelt in ihrer Farbe über der Linie der Seite A
+        L.polyline(pts, { color: ISTCOLOR[istB] || '#0f766e', weight: 6, opacity: 0.95, dashArray: '8 10', interactive: false }).addTo(lg)
       lineRef.current.set(c.id, line)
       pts.forEach(p => bounds.extend(p))
     }
@@ -315,7 +325,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       map.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 })
       lastFit.current = fitKey
     }
-  }, [cands, onLineClick, markers, stops, attribution, fitKey, obsStand])
+  }, [cands, onLineClick, markers, stops, attribution, fitKey, obsStand, formen])
 
   // Teil-Modus: Fadenkreuz über den Linien (CSS-Klasse am Karten-Container, index.css).
   useEffect(() => {
@@ -385,14 +395,14 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   }, [messung])
 
   // Highlight des gehoverten Abschnitts: betroffene Linien dicker + nach vorn, ohne Neuzeichnen.
-  // Nur gewählte Segmente anfassen (abgewählte behalten ihren dünnen, grauen Stil).
+  // Nur gewählte Segmente anfassen (abgewählte behalten ihren dünnen, gestrichelten Stil).
   useEffect(() => {
     const hl = highlightIds
     const selected = new Set(cands.filter(c => c.selected).map(c => c.id))
     for (const [id, line] of lineRef.current) {
       if (!selected.has(id)) continue
       const on = !!hl && hl.has(id)
-      line.setStyle({ weight: on ? 10 : 6, opacity: on ? 1 : 0.9 })
+      line.setStyle({ weight: on ? 10 : 6, opacity: on ? 1 : 0.95 })
       if (on) line.bringToFront()
     }
   }, [highlightIds, cands])

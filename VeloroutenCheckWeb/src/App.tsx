@@ -9,8 +9,9 @@ import {
 } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, BREIT_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
 import { zuLv95, zuWgs, type P } from './lv95'
-import { ladeAv, avQuelle } from './av'
-import { bordkanten, messeAbKante, abstand, aufZentimeter, fahrbahnbreite, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
+import { ladeAvFuer, avQuelle } from './av'
+import Strassensuche from './Strassensuche'
+import { bordkanten, messeAbKante, abstand, aufZentimeter, fahrbahnbreite, parkierungAufTrottoir, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
 import type { AvFlaeche } from './av'
 import {
   candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
@@ -20,10 +21,10 @@ import {
 import { bewerteAbschnitt, aufzaehlen, type AbschnittErgebnis } from './bewertung'
 import { QuerschnittSkizze, breiteCm } from './Querschnitt'
 import Bericht from './Bericht'
-import { ladeFussnetz, FUSSNETZ_GEOPORTAL } from './fussnetz'
+import { ladeFussnetz, ladeFussnetzBasel, FUSSNETZ_BASEL, FUSSNETZ_GEOPORTAL } from './fussnetz'
 import {
-  bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, linksDerMitte, markierungenFuer, pruefungText, richtungenFuer, richtungVon, FUSSNETZ, mitTrottoirs, pruefeKernfahrbahn, pruefeTeil, standardBreite, startAufteilung, umfeldVon,
-  BILDER, BILD_LABEL, MARKIERUNG_LABEL, TEIL_ARTEN, TEIL_LABEL, RICHTWERT_QUELLE,
+  bilanz, bilanzText, bewerteAufteilung, fussnetzOptionen, FUSS_QUELLE, STANDARD_QUELLE, mitSeitenraum, bildVon, linksDerMitte, markierungenFuer, pruefungText, richtungenFuer, richtungVon, FUSSNETZ, mitTrottoirs, pruefeKernfahrbahn, pruefeTeil, standardBreite, startAufteilung, umfeldVon,
+  BILDER, BILD_LABEL, MARKIERUNG_LABEL, TEIL_ARTEN, TEIL_LABEL,
   type Aufteilung, type Bild, type FussNetz, type Markierung, type Richtung, type Teil, type TeilArt, type TeilPruefung,
 } from './aufteilung'
 import { himmelsrichtung, peilung } from './geo'
@@ -62,9 +63,10 @@ interface CityCfg {
   velostreifenFile?: string                       // lokaler Markierungs-Snapshot (nicht öffentlich), falls vorhanden
   luftbildFile?: string                           // Radstreifen aus dem Luftbild (öffentlicher Snapshot, nur Hinweis; Bern, Zürich, Basel)
   // Breite am Luftbild messen: Kanton der amtlichen Vermessung (geodienste.ch) für die Quellenangabe.
-  // Fehlt er, gibt es die Messung nicht (Luzern: AV nur mit Freigabe).
+  // Fehlt er, gibt es die Messung nicht. Luzern gibt die AV nur mit Freigabe ab; dort dienen seit
+  // 17.10.2026 die offenen Strassenflächen der Stadt als Ersatz (av.ts, ladeAvLuzern).
   avKanton?: string
-  // Aufteilung planen (aufteilung.ts): vorerst nur Bern, die Richtwerte stammen aus dem Berner Masterplan.
+  // Aufteilung planen (aufteilung.ts): Vorgaben der Stadt, wo sie fehlen die Berner (als «Ersatz Bern» ausgewiesen).
   aufteilung?: boolean
   breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>  // stadtspezifische Breiten-Sollwerte (sonst Bern)
   breitenQuelle?: string                          // Quellenangabe der stadtspez. Breiten (sonst „Masterplan Bern")
@@ -94,6 +96,7 @@ const CITIES: Record<CityId, CityCfg> = {
     parkierung: 'zurich',
     breiten: BREITEN_ZUERICH, breitenQuelle: 'Velostandards Zürich',   // Rest → Bern-Fallback
     avKanton: 'Zürich',                           // Breitenmessung (seit 16.10.2026)
+    aufteilung: true,                             // Aufteilung planen (seit 17.10.2026, Etappe 4)
     luftbildFile: 'luftbild_zurich.json',         // öffentlich (tools/luftbild_stadt.py), seit 16.10.2026
     standardDoc: {
       titel: 'Velostandards Stadt Zürich',
@@ -110,6 +113,7 @@ const CITIES: Record<CityId, CityCfg> = {
     enrichCands: basel.enrichCands, loadOev: basel.loadOev,   // kein OBS-Snapshot
     breiten: BREITEN_BASEL, breitenQuelle: 'Standards Basel-Stadt',
     avKanton: 'Basel-Stadt',                      // Breitenmessung (seit 16.10.2026)
+    aufteilung: true,                             // Aufteilung planen (seit 17.10.2026, Etappe 4)
     luftbildFile: 'luftbild_basel.json',          // öffentlich (tools/luftbild_stadt.py), seit 16.10.2026
     standardDoc: {
       titel: 'Standards Fuss- und Velo-Verkehrsinfrastruktur',
@@ -126,6 +130,8 @@ const CITIES: Record<CityId, CityCfg> = {
     enrichCands: luzern.enrichCands, loadOev: luzern.loadOev,   // kein Tram, kein OBS-Snapshot
     parkierung: 'luzern',
     breiten: BREITEN_LUZERN, breitenQuelle: 'Standards Stadt Luzern',
+    avKanton: 'Luzern',                           // Strassenflächen der Stadt statt AV (seit 17.10.2026)
+    aufteilung: true,                             // Aufteilung planen (seit 17.10.2026, Etappe 4)
     standardDoc: {
       titel: 'Standards Veloverkehr Stadt Luzern',
       url: 'https://www.stadtluzern.ch/_docn/2965064/Standards_Veloverkehr.pdf',
@@ -153,7 +159,7 @@ const AttribContext = createContext('Geoinformation Stadt Bern')
 const AvContext = createContext('')
 
 const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
-  'Mischverkehr':                  { bg: '#9ca3af', fg: '#ffffff' },
+  'Mischverkehr':                  { bg: '#7c3aed', fg: '#ffffff' },   // wie auf der Karte (ISTCOLOR)
   'Velostrasse':                   { bg: '#2563eb', fg: '#ffffff' },
   'Radstreifen':                   { bg: '#eab308', fg: '#3b2f00' },
   'Radstreifen oder Radweg':       { bg: '#84a44b', fg: '#ffffff' },
@@ -373,7 +379,7 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen }: {
   onChange: (patch: Partial<Seite>) => void
   city: CityId
   oevAngebot: OevAngebot                // gilt für den Abschnitt; Haltestellenfelder nur, wenn ≠ keine
-  onMessen?: () => void                 // Breite am Luftbild messen (Bern, Zürich, Basel)
+  onMessen?: () => void                 // Breite am Luftbild messen (Städte mit avKanton)
 }) {
   const { ist } = felder
   return (
@@ -691,7 +697,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, modus, ci
   )
 }
 
-// ── Aufteilung planen (Etappe 1, nur Bern; aufteilung.ts) ────────────────────
+// ── Aufteilung planen (Etappen 1–4; aufteilung.ts) ────────────────────────────
 // Der Querschnitt wird von Hand aus Teilen zusammengestellt; die App schlägt nichts vor
 // (Nutzerentscheid 16.10.2026). Sie zeigt die Bilanz gegen die verfügbare Fahrbahnbreite, die
 // Prüfung je Teil und die Note mit dieser Aufteilung neben der von heute (dieselbe Bewertung).
@@ -742,7 +748,7 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
             </div>
           )}
         </div>
-        <button type="button" onClick={() => { onChange(startAufteilung(section)); av?.zeigen() }}
+        <button type="button" onClick={() => { onChange(startAufteilung(section, city, CITIES[city].breiten)); av?.zeigen() }}
                 style={section.candIds?.length
                   ? { border: 'none', background: 'var(--accent)', color: '#fff', borderRadius: 8,
                       padding: '8px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }
@@ -755,7 +761,7 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
 
   const breiten = CITIES[city].breiten
   const rt: Routentyp = section.routentyp || 'Veloroute'
-  const umfeld = umfeldVon(section, a.teile, a.fussnetz)
+  const umfeld = umfeldVon(section, a.teile, a.fussnetz, city)
   const einbahn = section.richtung === 'eine'
   const links = linksDerMitte(a.teile)
   const richtungText = (r: Richtung) => (r === 'beide' ? 'beide Richtungen (Gegenverkehr)'
@@ -787,12 +793,12 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
     setTeile(t)
   }
   const ziehEnde = () => { setZieh(null); setUeber(null) }
-  const ausgang = startAufteilung(section)
+  const ausgang = startAufteilung(section, city, CITIES[city].breiten)
   const massstab = Math.max(breiteCm(ausgang.teile), breiteCm(a.teile))
   const aq = mitSeitenraum(a, section), b = bilanz(aq), bt = bilanzText(aq, b)
   const plan = bewerteAufteilung(section, a, city, breiten)
   const planFehlt = [...new Set(plan.seiten.flatMap(se => se.fehlt))]
-  const kern = pruefeKernfahrbahn(section, a.teile)
+  const kern = pruefeKernfahrbahn(section, a.teile, city)
   const NoteMarke = ({ note }: { note: number | null }) => note == null
     ? <span style={{ fontWeight: 700, color: 'var(--text-muted)' }}>—</span>
     : <span style={{ background: noteColor(note).bg, color: noteColor(note).fg, borderRadius: 8,
@@ -812,23 +818,44 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
                        onChange={v => onChange({ ...a, fahrbahn: v })} />
           <NumberField label="Heute ausserhalb der Fahrbahn (Trottoirs beider Seiten)" unit="m" value={aq.seitenraum ?? NaN} step={0.1}
                        onChange={v => onChange({ ...a, seitenraum: v })} />
-          {/* Fussverkehrsnetz: bestimmt die Mindestbreite der Trottoirs (Masterplan Fussverkehr) */}
+          {/* Vorgabe der Trottoirs je Stadt: Bern Fussverkehrsnetz, Zürich Bedeutung des Stadtraums, Basel
+              Fusswegnetz (Auswahl); Luzern nach Tempo und Velostreifen (nur Hinweis, keine Auswahl) */}
+          {fussnetzOptionen(city).length > 0 ? (
           <label style={{ ...fieldStyle, flex: '1 1 200px' }}>
-            <FieldLabel label="Fussverkehrsnetz (Vorgabe Trottoir)" />
-            <select value={a.fussnetz ?? ''} style={selectStyle}
+            <FieldLabel label={city === 'zurich' ? 'Bedeutung des Stadtraums (Vorgabe Trottoir)'
+              : city === 'basel' ? 'Fusswegnetz (Vorgabe Trottoir)' : 'Fussverkehrsnetz (Vorgabe Trottoir)'} />
+            <select value={a.fussnetz && FUSSNETZ[a.fussnetz]?.stadt === city ? a.fussnetz : ''} style={selectStyle}
                     onChange={e => onChange({ ...a, fussnetz: (e.target.value || undefined) as FussNetz | undefined, fussnetzQuelle: undefined })}>
               <option value="">— nicht gewählt —</option>
-              {(Object.keys(FUSSNETZ) as FussNetz[]).map(k => (
+              {fussnetzOptionen(city).map(k => (
                 <option key={k} value={k}>{FUSSNETZ[k].label} (≥ {numDE(FUSSNETZ[k].min, 2)} m)</option>
               ))}
             </select>
-            {a.fussnetzQuelle === 'geoportal' && (
+            {a.fussnetzQuelle === 'geoportal' && city === 'bern' && (
               <span style={{ fontSize: 11.5, color: 'var(--text-muted-strong)' }}>
                 Aus dem Richtplan Fussverkehr ({a.fussnetz === 'basis' ? 'auf dem Basisnetz' : 'nicht auf dem Basisnetz'}).
                 «Publikumsintensiv» steht nicht in den Daten und ist von Hand zu wählen.
               </span>
             )}
+            {a.fussnetzQuelle === 'geoportal' && city === 'basel' && (
+              <span style={{ fontSize: 11.5, color: 'var(--text-muted-strong)' }}>
+                Aus dem Teilrichtplan Fuss- und Wanderwege ({a.fussnetz === 'bs_kanton' ? 'kantonales Netz'
+                  : a.fussnetz === 'bs_stadt' ? 'kommunales Netz' : 'nicht im Fusswegnetz'}).
+              </span>
+            )}
+            {city === 'zurich' && (
+              <span style={{ fontSize: 11.5, color: 'var(--text-muted-strong)' }}>
+                Lichte Breite nach dem Leitfaden Fussverkehr; dazu kommen Umfeldzuschläge (z. B. +0,50 m neben Tempo 50
+                ohne Radstreifen, +1,50 m bei ÖV-Haltestellen).
+              </span>
+            )}
           </label>
+          ) : city === 'luzern' ? (
+            <span style={{ flex: '1 1 200px', fontSize: 12, color: 'var(--text-muted-strong)', alignSelf: 'flex-end' }}>
+              Trottoir nach den Standards des Kantons Luzern: 2,50 m mit Velostreifen oder unter Tempo 50, sonst 3,00 m;
+              mindestens 2,00 m (Stadt Luzern).
+            </span>
+          ) : null}
           {onFahrbahnbreite && (
             <button type="button" onClick={onFahrbahnbreite} disabled={fbLaden}
                     title="Aus der amtlichen Vermessung: Median der Querschnitte alle 5 m entlang des Abschnitts"
@@ -844,7 +871,7 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
                 Bericht / PDF
               </button>
             )}
-            <button type="button" onClick={() => onChange(startAufteilung(section))} style={kleinKnopfStyle}
+            <button type="button" onClick={() => onChange(startAufteilung(section, city, CITIES[city].breiten))} style={kleinKnopfStyle}
                     title="Eigene Änderungen verwerfen und wieder vom Querschnitt von heute ausgehen">
               Auf heute zurücksetzen
             </button>
@@ -930,6 +957,14 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
                         style={{ ...selectStyle, flex: '0 1 160px', minWidth: 0 }}>
                   {marks.map(m => <option key={m} value={m}>{MARKIERUNG_LABEL[m]}</option>)}
                 </select>
+              )}
+              {t.art === 'Parkierung' && (
+                <label title="Parkierung hinter dem Randstein, auf der Trottoirfläche: ausserhalb der Fahrbahn (Bilanz, Skizze); bewertet weiter als Parkierung"
+                       style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--text)' }}>
+                  <input type="checkbox" checked={!!t.trottoirniveau}
+                         onChange={e => aendere(i, { ...t, trottoirniveau: e.target.checked || undefined })} />
+                  auf Trottoirniveau
+                </label>
               )}
               {richtungen.length > 1 && (
                 <select value={richtungVon(t, links[i], einbahn)} aria-label={`Richtung Teil ${i + 1}`}
@@ -1024,8 +1059,9 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
         {/* Erläuterung: ein Satz sichtbar, der Rest in einer Klappe (Nutzerentscheid 16.10.2026, aus der fgsCheck-Sitzung
             weitergeleitet); im Bericht steht alles offen unter «Annahmen und Grenzen» und «Quellen». */}
         <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--text-muted)' }}>
-          Geprüft werden die Breiten nach den Masterplänen Velo- und Fussverkehr der Stadt Bern, dem Lichtraum nach
-          SN 640 201 und einzelnen eigenen Festlegungen; die Note rechnet wie oben.
+          {city === 'bern'
+            ? 'Geprüft werden die Breiten nach den Masterplänen Velo- und Fussverkehr der Stadt Bern, dem Lichtraum nach SN 640 201 und einzelnen eigenen Festlegungen; die Note rechnet wie oben.'
+            : `Geprüft werden die Breiten nach den ${STANDARD_QUELLE[city]} und dem Lichtraum nach SN 640 201; was dort fehlt, nach dem Berner Masterplan (gekennzeichnet). Die Note rechnet wie oben.`}
           <details className="vrc-klappe" style={{ marginTop: 4 }}>
             <summary style={{ fontWeight: 600, color: 'var(--text-muted-strong)' }}>Was geprüft wird, Annahmen und Quellen</summary>
             <div style={{ marginTop: 4 }}>
@@ -1034,8 +1070,11 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
             Abbiegespuren; von der Haltestelle nur die Breite (Wartehäuschen und Warteraum). DTV, Tempo,
             Routentyp und die Bewertung der Haltestelle gelten wie oben eingegeben.
             {!section.routentyp && ' Ohne Routentyp gelten für Velostreifen und Radweg die Werte der Veloroute.'}
-            {' '}Richtwerte und Vorgaben: {RICHTWERT_QUELLE}; Trottoirs nach dem Fussverkehrsnetz: Masterplan Fussverkehr Stadt Bern; Lichtraum von Lastwagen und Bus nach SN 640 201, Tram 2,80 m
-            (1,40 m ab Gleisachse, Masterplan). Jede Fahrspur ist ab 3,00 m gültig. Ein Velostreifen direkt neben einer
+            {' '}Richtwerte und Vorgaben: {STANDARD_QUELLE[city]}
+            {city !== 'bern' && '; was diese nicht regeln, nach dem Masterplan Veloinfrastruktur Stadt Bern (in der Prüfung als «Ersatz Bern» gekennzeichnet)'};
+            Trottoirs: {FUSS_QUELLE[city]}; Lichtraum von Lastwagen und Bus nach SN 640 201, Tram 2,80 m
+            (1,40 m ab Gleisachse, Masterplan Bern).
+            {city !== 'bern' && ' Die Fahrbahn ohne Mittellinie wird nach den Mindestbreiten der Stadt geprüft.'} Jede Fahrspur ist ab 3,00 m gültig. Ein Velostreifen direkt neben einer
             Trennung mit Pfosten gilt als geschützter Radstreifen; Veloabstellplatz und Parklet zählen nicht als Parkierung.
             {av?.gezeigt && ` Karte: ${avQuelle(CITIES[city].avKanton ?? '')}${av.park && CITIES[city].parkierung ? `; Parkfelder: ${PARK_QUELLE[CITIES[city].parkierung!]}` : ''}.`}
             </div>
@@ -1055,7 +1094,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
   onBericht?: () => void                 // Bericht der Planung öffnen
   zu?: boolean                           // Abschnitt eingeklappt (nur Kopfzeile)
   onKlappen?: () => void
-  // Fahrbahnbreite aus der AV ermitteln (Bern, Zürich, Basel; nur Karten-Abschnitte); 'plan' = in die Aufteilung
+  // Fahrbahnbreite aus der AV ermitteln (Städte mit avKanton; nur Karten-Abschnitte); 'plan' = in die Aufteilung
   onFahrbahnbreite?: (ziel?: 'abschnitt' | 'plan') => void
   av?: PlanAv                            // AV auf der Karte während der Planung (nur Karten-Abschnitte)
   fbLaden?: boolean                      // Ermittlung läuft
@@ -1067,7 +1106,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
   onChange: (patch: Partial<Section>) => void
   onTauschen: () => void
   onLuftbild: (welche: { a: boolean; b: boolean }) => void   // Luftbild-Hinweis übernehmen
-  onMessen?: (seite: 'A' | 'B') => void  // Breite am Luftbild messen (Bern, Zürich, Basel)
+  onMessen?: (seite: 'A' | 'B') => void  // Breite am Luftbild messen (Städte mit avKanton)
   onRemove: () => void
   canRemove: boolean
   onHover?: (hovering: boolean) => void
@@ -1164,7 +1203,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
         {CITIES[city].aufteilung && (hatMarker || section.aufteilung) && (
           <button type="button"
                   onClick={() => {
-                    if (!section.aufteilung) { onChange({ aufteilung: startAufteilung(section) }); av?.zeigen() }
+                    if (!section.aufteilung) { onChange({ aufteilung: startAufteilung(section, city, CITIES[city].breiten) }); av?.zeigen() }
                     // nach dem Rendern zur Planung scrollen (sie steht unter dem Ergebnis)
                     setTimeout(() => document.getElementById(`plan-${section.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
                   }}
@@ -1433,7 +1472,7 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
         </div>
       ))}
 
-      {/* Aufteilung planen — nur Städte mit Richtwerten (vorerst Bern) */}
+      {/* Aufteilung planen — Städte mit aufteilung: true */}
       {CITIES[city].aufteilung && (
         <AufteilungPlanen section={section} heute={ergebnis} city={city} modus={modus} rA={rA} rB={rB}
                           onChange={aufteilung => { onChange({ aufteilung }); if (!aufteilung) av?.ausblenden() }} av={av}
@@ -1509,27 +1548,28 @@ function SoFunktionierts() {
     <details className="hilfe">
       <summary>So funktioniert's</summary>
       <ol>
-        <li><b>Stadt wählen:</b> Die Bewertung folgt den Vorgaben der gewählten Stadt (z.&nbsp;B. Masterplan Veloinfrastruktur
-          Bern); der Link unter der Auswahl führt zur Grundlage.</li>
-        <li><b>Strecke aufbauen:</b> auf die Karte klicken (nächstgelegenes Segment), einen Strassennamen eingeben und «Strasse
-          laden» oder «Segmente im Kartenausschnitt laden». Linien per Klick an- und abwählen (grau = nicht in der Strecke);
+        <li><b>Stadt wählen:</b> oben auf der Karte. Die Bewertung folgt den Vorgaben der gewählten Stadt (z.&nbsp;B. Masterplan
+          Veloinfrastruktur Bern); der Link über der Karte führt zur Grundlage.</li>
+        <li><b>Strecke aufbauen:</b> auf die Karte klicken (nächstgelegenes Segment), oben auf der Karte eine Strasse suchen (beim
+          Tippen erscheinen Vorschläge; Vorschlag wählen oder Enter lädt die Strasse) oder «Segmente im Kartenausschnitt laden». Linien per Klick an- und abwählen (weiss gestrichelt = nicht in der Strecke);
           «Segment teilen» schneidet ein langes Segment an der angeklickten Stelle.</li>
         <li><b>Übernehmen:</b> benachbarte Segmente gleicher Führungsform und gleichen Tempos werden zu Abschnitten gruppiert.</li>
         <li><b>Abschnitte prüfen:</b> je Abschnitt stehen Führungsform, Tempo und weitere Angaben aus OpenStreetMap und dem
           Geoportal der Stadt, mit Herkunft am Chip. Was nicht stimmt, lässt sich von Hand anpassen; die Bewertung rechnet sofort neu.</li>
         <li><b>Luftbild-Hinweis (Bern, Zürich, Basel):</b> Zeigt das Luftbild auf einer Seite einen Radstreifen, erscheint ein Hinweis
           zum Übernehmen; eine Breite liefert er nicht.</li>
-        <li><b>Breite messen (Bern, Zürich, Basel):</b> «📏 Am Luftbild messen» je Seite schaltet aufs Orthofoto, weit
+        <li><b>Breite messen:</b> «📏 Am Luftbild messen» je Seite schaltet aufs Orthofoto, weit
           hineinzoomen und im Modus «Ab Bordsteinkante (AV)» auf die Markierung klicken, bis zu der die Breite zählt;
           gemessen wird rechtwinklig bis zur Bordsteinkante der amtlichen Vermessung (orange). Wo die AV keine
           Strassenfläche kennt oder die Kante nicht auf dem Bordstein im Foto liegt, im Modus «Zwei Punkte» zuerst die
           Bordsteinkante und dann die Markierung anklicken. «… m übernehmen» trägt den Wert ein, mit Herkunft «gemessen»
           am Chip.</li>
-        <li><b>Aufteilung planen (nur Bern):</b> oben bei «Aufteilung planen» oder in der Kopfzeile eines Abschnitts. Die Planung
-          beginnt mit dem Querschnitt von heute (Fahrbahn und Trottoirs aus der amtlichen Vermessung, Parkierung, Velostreifen).
+        <li><b>Aufteilung planen:</b> oben bei «Aufteilung planen» oder in der Kopfzeile eines Abschnitts. Die Planung
+          beginnt mit dem Querschnitt von heute (Fahrbahn und Trottoirs aus der amtlichen Vermessung, in Luzern aus den
+          Strassenflächen der Stadt; Parkierung, Velostreifen).
           Teile wählen, mit «＋» einfügen, am Griff ⠿ verschieben und in der Breite ändern; die App prüft jedes Teil gegen die
-          Vorgaben, rechnet die Bilanz über den ganzen Querschnitt und zeigt die Note mit der Planung neben der von heute. Die Karte
-          zeigt dazu die amtliche Vermessung und die Parkfelder. «Bericht / PDF» druckt Karte, Skizzen, Prüfung und Bewertung.</li>
+          Vorgaben der Stadt (wo eine Stadt kein Mass nennt, gilt das Berner, mit «Ersatz Bern» ausgewiesen), rechnet die Bilanz über den ganzen Querschnitt und zeigt die Note mit der Planung neben der von heute. Die Karte
+          zeigt dazu die amtliche Vermessung und die Parkfelder (Basel: keine Parkfelder in den offenen Daten). «Bericht / PDF» druckt Karte, Skizzen, Prüfung und Bewertung.</li>
         <li><b>Ergebnis lesen:</b> oben zwischen Schulnote (1 bis 6) und Erfüllungsgrad umschalten; die Bewertung gilt je Abschnitt
           und für die ganze Strecke. «Als CSV exportieren» sichert die Bewertung als Datei.</li>
       </ol>
@@ -1560,13 +1600,19 @@ function Landing({ onStart }: { onStart: () => void }) {
         </button>
       </div>
       <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 14px' }}>
-        VeloroutenCheck bewertet die Qualität der Veloinfrastruktur anhand der Vorgaben der
-        jeweiligen Stadt (z.&nbsp;B. in Bern anhand des Masterplans Veloinfrastruktur). Die
-        Bewertung bezieht sich jeweils auf eine Velostrecke, die aus einem oder mehreren
-        Abschnitten bestehen kann.
+        <b>VeloroutenCheck bewertet Velostrecken nach den Vorgaben der jeweiligen Stadt:</b> in Bern
+        nach dem Masterplan Veloinfrastruktur, in Zürich, Basel und Luzern nach den städtischen
+        Velostandards. Die Strecke wählst du auf der Karte. Sie wird in Abschnitte gegliedert, und jeder
+        Abschnitt erhält eine Note für beide Fahrtrichtungen.
+      </p>
+      <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 14px' }}>
+        <b>Daten:</b> Führungsform, Tempo, Verkehrsmenge und Routentyp kommen aus OpenStreetMap und den
+        Geoportalen der Städte. Breiten lassen sich am Luftbild ab der Bordsteinkante messen, in Luzern
+        anhand der Strassenflächen der Stadt. In Bern, Zürich und Basel weist eine automatische
+        Luftbild-Erkennung (Modell der ETH Zürich) auf Radstreifen hin, die in den Daten fehlen.
       </p>
       <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
-        Entspricht die vorhandene Führungsform nicht dem vorgesehenen Soll-Zustand, wird
+        <b>Bewertungsgrundlage:</b> Entspricht die vorhandene Führungsform nicht dem vorgesehenen Soll-Zustand, wird
         berücksichtigt, wie stark sich dies auf das subjektive Sicherheitsgefühl auswirkt. Grundlage
         dafür sind die Feel-Safe-Werte aus der{' '}
         <a href="https://radwege-check.de/auswertung/"
@@ -1578,6 +1624,12 @@ function Landing({ onStart }: { onStart: () => void }) {
         Eine eigene Bildumfrage mit 5&nbsp;900 Bewertungen zu 51 Berner Szenen hat diese Werte
         überprüft: Die Rangfolge der Führungsformen bestätigt sich, und breitere Radstreifen werden
         als sicherer bewertet.
+      </p>
+      <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
+        <b>Neu: Aufteilung planen.</b> Den Querschnitt einer Strasse neu aufteilen, mit Fahrspuren,
+        Velostreifen, Parkierung, Trottoirs und Haltestelle. Jeder Teil wird gegen die Vorgaben der Stadt
+        geprüft; wo eine Stadt kein Mass nennt, gilt das Berner, mit Hinweis. Die Note der Planung steht
+        neben der von heute. Eine Skizze zeigt beide Querschnitte; der Bericht lässt sich als PDF drucken.
       </p>
 
       {/* Ergebnisbericht der Berner Bildumfrage (22.09.2026) */}
@@ -1631,12 +1683,15 @@ function Landing({ onStart }: { onStart: () => void }) {
                     background: '#f8fafc', border: '1px solid var(--border-subtle)',
                     fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, textAlign: 'left' }}>
         <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Datenspeicherung</div>
-        <div>Alle Berechnungen laufen vollständig im Browser. Eingaben und Ergebnisse werden nie an einen
-          Server übermittelt — es gibt keinen Server, der sie entgegennimmt.</div>
+        <div>Alle Berechnungen laufen vollständig im Browser. Eingaben und Ergebnisse bleiben im Browser. Um
+          Daten zu laden, schickt der Browser nur den Kartenausschnitt bzw. die Lage des Abschnitts und den
+          Suchtext der Strassensuche an die Datendienste (OpenStreetMap, Geoportale der Städte, swisstopo,
+          geodienste.ch).</div>
         <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>
           <li>Eingaben existieren nur im Arbeitsspeicher des Browsers und gehen beim Schliessen des Tabs verloren.</li>
           <li>CSV-Export: „Als CSV exportieren" lädt die Bewertung als CSV-Datei auf den
             lokalen Rechner — kein Upload, kein Cloud-Speicher. Ein Datei-Import ist derzeit nicht vorgesehen.</li>
+          <li>Bericht / PDF: entsteht über den Druckdialog des Browsers, ebenfalls ohne Upload.</li>
           <li>Nutzungsstatistik: Seitenaufrufe werden mit GoatCounter gezählt — datenschutzfreundlich: keine
             Cookies, keine Speicherung der IP-Adresse, keine personenbezogenen Daten. Übermittelt wird nur ein
             anonymer Seitenaufruf (mit groben Angaben wie Browser und Herkunftsland), nicht deine Eingaben oder
@@ -1661,7 +1716,7 @@ function avAusschnitt(s: number, w: number, n: number, o: number): { e: number; 
   return { e: (ea + eb) / 2, n: (na + nb) / 2, r }
 }
 
-// Breite am Luftbild messen (Bern, Zürich, Basel): Zustand der laufenden Messung.
+// Breite am Luftbild messen: Zustand der laufenden Messung.
 interface Messung {
   secId: number
   seite: 'A' | 'B'
@@ -1845,8 +1900,8 @@ export default function App() {
   // Anschliessend mit den amtlichen/öffentlichen Daten der gewählten Stadt anreichern
   // (Bern: Tempo/DTV/Routentyp/Velostrasse; Zürich: Routentyp); ein Fehler dabei darf den
   // OSM-Import nicht verhindern.
-  const ladeStrasse = async () => {
-    const name = street.trim()
+  const ladeStrasse = async (nameArg?: string) => {
+    const name = (nameArg ?? street).trim()
     if (!name) return
     const gen = ++ladeGen.current
     setOsmBusy(true); setMsg('Lade Segmente aus OpenStreetMap …')
@@ -1961,7 +2016,7 @@ export default function App() {
   // Stabil (wie toggleCand): der aktuelle Modus und die aktuelle teilen-Funktion laufen über Refs.
   const teilenRef = useRef(teilen)
   teilenRef.current = teilen
-  // ── Breite am Luftbild messen (Bern, Zürich, Basel; breitenmessung.ts) ──────
+  // ── Breite am Luftbild messen (Städte mit avKanton; breitenmessung.ts) ──────
   // Nutzerentscheid 15.10.2026: ab der Bordsteinkante der amtlichen Vermessung bis zur
   // angeklickten Stelle auf der Markierung; der Messwert ist die Breite an dieser Stelle.
   // Passt die AV-Kante nicht zum Bord (etwa Parkfelder dazwischen), misst man mit zwei Punkten.
@@ -1975,7 +2030,7 @@ export default function App() {
     const gen = ++messGen.current
     setMessung(m => m && { ...m, laden: true, fehler: undefined })
     try {
-      const kanten = bordkanten(await ladeAv(e, n, r))
+      const kanten = bordkanten(await ladeAvFuer(cityCfg.avKanton ?? '', e, n, r))
       if (gen !== messGen.current) return
       setMessung(m => m && { ...m, kanten, geladen: { e, n, r }, laden: false,
         fehler: kanten.length ? undefined : 'Hier kennt die amtliche Vermessung keine Strassenfläche. Mit «Zwei Punkte» messen.' })
@@ -1985,7 +2040,7 @@ export default function App() {
         fehler: `Amtliche Vermessung nicht erreichbar (${(err as Error).message}). Mit «Zwei Punkte» messen.` })
     }
   }
-  // ── Fahrbahnbreite aus der AV (Bern, Zürich, Basel; breitenmessung.ts) ──────
+  // ── Fahrbahnbreite aus der AV (Städte mit avKanton; breitenmessung.ts) ──────
   // Nur auf Knopfdruck (Fair Use von geodienste.ch). Lange Abschnitte in Kacheln zu höchstens
   // ±260 m, höchstens 6 Abfragen; dieselbe Fläche aus zwei Kacheln zählt einmal.
   const [fbLaden, setFbLaden] = useState<number | null>(null)
@@ -2017,7 +2072,7 @@ export default function App() {
     const flaechen: AvFlaeche[] = [], gesehen = new Set<string>()
     for (const [x, y] of kacheln.values()) {
       let liste: AvFlaeche[]
-      try { liste = await ladeAv(x * KACHEL + KACHEL / 2, y * KACHEL + KACHEL / 2, KACHEL / 2 + 10) }
+      try { liste = await ladeAvFuer(cityCfg.avKanton ?? '', x * KACHEL + KACHEL / 2, y * KACHEL + KACHEL / 2, KACHEL / 2 + 10) }
       catch (err) { throw new Error(`amtliche Vermessung nicht erreichbar (${(err as Error).message}).`) }
       for (const f of liste) {
         const sig = `${f.art}|${f.ringe[0]?.slice(0, 3).join(';')}|${f.ringe[0]?.length}`
@@ -2070,11 +2125,11 @@ export default function App() {
     return ziel
   }
 
-  // ── AV in der Planung (Aufteilung planen, nur Bern) ──────────────────────────
+  // ── AV in der Planung (Aufteilung planen) ────────────────────────────────────
   // Wie in fgsCheck: Strasse, Trottoir, Verkehrsinsel und Gebäude als Flächen über dem Orthofoto,
   // damit sich die Aufteilung am Bestand ablesen lässt. Gezeigt wird höchstens ein Abschnitt; die
   // Abfrage teilt sich den Zwischenspeicher mit der Fahrbahnbreite (avFuerAbschnitt).
-  // Dazu die amtlichen Parkfelder (parkierung.ts, ladeParkflaechen; vorerst Bern), je Abschnitt
+  // Dazu die amtlichen Parkfelder (parkierung.ts, ladeParkflaechen; Bern, Zürich, Luzern), je Abschnitt
   // zwischengespeichert. Fehlen sie, bleibt die AV trotzdem stehen.
   const [planAv, setPlanAv] = useState<{ secId: number; flaechen: AvFlaeche[]; park: ParkFlaeche[] } | null>(null)
   const [planAvLaden, setPlanAvLaden] = useState<number | null>(null)
@@ -2087,7 +2142,7 @@ export default function App() {
     if (!s) return
     setZuSec(z => { const n = new Set(z); n.delete(secId); return n })
     if (!s.aufteilung) {
-      update(secId, { aufteilung: startAufteilung(s) })
+      update(secId, { aufteilung: startAufteilung(s, city, cityCfg.breiten) })
       if (cityCfg.avKanton && s.candIds?.length) void planAvZeigen(secId)
     }
     setTimeout(() => document.getElementById(`plan-${secId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
@@ -2114,9 +2169,11 @@ export default function App() {
     if (mapRef.current) abschnittInsBild(mapRef.current, s)
     setPlanAvLaden(secId)
     const parkLaden = parkFuerAbschnitt(s).catch(() => null)   // parallel zur AV
-    // Fussverkehrsnetz (Richtplan Fussverkehr, nur Bern): Basisnetz oder Feinverteilernetz vorbelegen
-    const netzLaden = cityCfg.aufteilung && city === 'bern' && avAchsen(s).length
-      ? ladeFussnetz(avAchsen(s)).catch(() => null) : Promise.resolve(null)
+    // Fussverkehrsnetz vorbelegen: Bern Richtplan Fussverkehr, Basel Teilrichtplan Fuss- und Wanderwege
+    // Basel: Teilrichtplan Fuss- und Wanderwege (kantonal/kommunal); Zürich und Luzern: keine offenen Daten
+    const netzLaden = !cityCfg.aufteilung || !avAchsen(s).length ? Promise.resolve(null)
+      : city === 'bern' ? ladeFussnetz(avAchsen(s)).catch(() => null)
+      : city === 'basel' ? ladeFussnetzBasel(avAchsen(s)).catch(() => null) : Promise.resolve(null)
     try {
       const { flaechen } = await avFuerAbschnitt(s)
       const park = await parkLaden
@@ -2129,14 +2186,16 @@ export default function App() {
       // kommen die gemessenen an die Ränder (mitTrottoirs).
       const achsen = avAchsen(s, true), kanten = bordkanten(flaechen)
       const tr = trottoirbreiten(achsen, flaechen, kanten)
+      const pt = parkierungAufTrottoir(achsen, flaechen, park ?? [])   // Parkierung auf der Trottoirfläche je Seite
       const fb = Number.isFinite(s.fahrbahnbreite) ? null : fahrbahnbreite(achsen, flaechen, kanten)
       const netz = await netzLaden
       setSections(prev => prev.map(x => {
         if (x.id !== secId) return x
-        const neu: Section = { ...x, trottoir: { a: tr.rechts ?? NaN, b: tr.links ?? NaN } }
+        const neu: Section = { ...x, trottoir: { a: tr.rechts ?? NaN, b: tr.links ?? NaN,
+          ...(pt.rechts && tr.rechts != null ? { parkA: true } : {}), ...(pt.links && tr.links != null ? { parkB: true } : {}) } }
         if (fb) { neu.fahrbahnbreite = Math.round(fb.median * 10) / 10; neu.quelle = { ...x.quelle, fahrbahnbreite: 'av' } }
         if (netz) neu.fussnetzGeoportal = netz.netz
-        if (x.aufteilung && JSON.stringify(x.aufteilung) === JSON.stringify(startAufteilung(x))) neu.aufteilung = startAufteilung(neu)
+        if (x.aufteilung && JSON.stringify(x.aufteilung) === JSON.stringify(startAufteilung(x, city, cityCfg.breiten))) neu.aufteilung = startAufteilung(neu, city, cityCfg.breiten)
         else if (x.aufteilung) {
           neu.aufteilung = mitTrottoirs(x.aufteilung, neu.trottoir!)
           // ein schon gewähltes Netz bleibt; sonst das aus dem Geoportal
@@ -2145,7 +2204,8 @@ export default function App() {
         return neu
       }))
       const trText = (m: number | null) => (m != null ? `${numDE(m, 2)} m` : 'keines')
-      if (park != null) setMsg(`Amtliche Vermessung${park.length ? ' und Parkfelder' : ''} geladen. Trottoir Seite A ${trText(tr.rechts)}, Seite B ${trText(tr.links)}` +
+      const aufTr = (ja: boolean, m: number | null) => (ja && m != null ? ' (mit Parkierung auf Trottoirniveau)' : '')
+      if (park != null) setMsg(`Amtliche Vermessung${park.length ? ' und Parkfelder' : ''} geladen. Trottoir Seite A ${trText(tr.rechts)}${aufTr(pt.rechts, tr.rechts)}, Seite B ${trText(tr.links)}${aufTr(pt.links, tr.links)}` +
         `${fb ? `, Fahrbahnbreite ${numDE(Math.round(fb.median * 10) / 10, 1)} m` : ''} (Median der Querschnitte alle 5 m).`, 'ok')
     } catch (err) {
       const t = (err as Error).message
@@ -2339,6 +2399,19 @@ export default function App() {
   // Der Schlüssel trägt auch die Fahrtrichtung (Seiten tauschen dreht den Pfeil).
   const candIdsKey = sections.map(s =>
     `${s.id}:${(s.candIds ?? []).join('.')}:${(s.candsGegenA ?? []).join('.')}:${s.peilungA != null}`).join('|')
+  // Führungsform der übernommenen Abschnitte für die Linienfarbe (eine Änderung von Hand färbt die Karte mit)
+  // Schlüssel als Text: die Karte zeichnet nur neu, wenn sich eine Form ändert, nicht bei jeder Eingabe
+  const formenSchluessel = sections.map(s => `${(s.candIds ?? []).join(',')}:${seiteA(s).ist}|${s.richtung === 'beide' ? seiteB(s).ist : ''}`).join(';')
+  const formen = useMemo(() => {
+    const m = new Map<number, { a: string; b?: string }>()
+    for (const s of sections) {
+      const a = seiteA(s).ist, b = s.richtung === 'beide' ? seiteB(s).ist : ''
+      if (!a && !b) continue
+      for (const id of s.candIds ?? []) m.set(id, { a: a || b, ...(b && b !== a ? { b } : {}) })
+    }
+    return m
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formenSchluessel])
   const markers: SectionMarker[] = useMemo(() => {
     const candById = new Map(cands.map(c => [c.id, c]))
     return sections.flatMap((s, i) => {
@@ -2468,39 +2541,13 @@ export default function App() {
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end',
                     background: '#fff', padding: 14, borderRadius: 12, border: '1px solid var(--border-subtle)',
                     marginBottom: 18 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 130 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Stadt</span>
-          <select value={city} onChange={e => wechsleStadt(e.target.value as CityId)}
-                  disabled={osmBusy}   // Stadtwechsel während einer laufenden Ladung sperren (Race-Schutz)
-                  style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 16,
-                           background: '#fff' }}>
-            {(Object.keys(CITIES) as CityId[]).map(k => (
-              <option key={k} value={k}>{CITIES[k].label}</option>
-            ))}
-          </select>
-          <span style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>
-            Grundlage:{' '}
-            <a href={cityCfg.standardDoc.url} target="_blank" rel="noopener noreferrer"
-               style={{ color: 'var(--accent)' }}>
-              {cityCfg.standardDoc.titel}
-            </a>
-          </span>
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 200 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-            Strasse aus OpenStreetMap laden (Stadt {cityCfg.label})
-          </span>
-          <input value={street} onChange={e => setStreet(e.target.value)}
-                 onKeyDown={e => { if (e.key === 'Enter' && !osmBusy) ladeStrasse() }}
-                 placeholder="z. B. Thunstrasse"
-                 style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 16 }} />
-        </label>
-        <button onClick={ladeStrasse} disabled={osmBusy}
-                style={{ border: 'none', background: osmBusy ? 'var(--text-faint)' : 'var(--accent)', color: '#fff',
-                         borderRadius: 8, padding: '9px 16px', fontSize: 14, fontWeight: 600,
-                         cursor: osmBusy ? 'default' : 'pointer' }}>
-          {osmBusy ? 'Lädt …' : 'Strasse laden'}
-        </button>
+        {/* Stadt und Strassensuche stehen seit 17.10.2026 über der Karte (Kartenkopf, wie fgsCheck) */}
+        <div style={{ flexBasis: '100%', fontSize: 12, color: 'var(--text-muted-strong)' }}>
+          Grundlage {cityCfg.label}:{' '}
+          <a href={cityCfg.standardDoc.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+            {cityCfg.standardDoc.titel}
+          </a>
+        </div>
         {osmMsg && (() => {
           // Drei klare Zustände: Laden (info, neutral), Erfolg (ok, grün), Fehler (error, rot).
           const kind = osmBusy ? 'info' : osmKind
@@ -2519,7 +2566,7 @@ export default function App() {
         })()}
 
         {/* Karte: immer sichtbar. Strecke per Klick auf die Karte aufbauen (Segment hinzufügen),
-            Linien an-/abwählen, dann übernehmen. „Strasse laden" ist optional. */}
+            Linien an-/abwählen, dann übernehmen. Die Strassensuche oben auf der Karte ist optional. */}
         <div style={{ flexBasis: '100%' }}>
           {/* .vrc-karte (index.css): position relative + z-index 0 isoliert Leaflets interne
               z-Indizes (Controls bis 1000) im eigenen Stacking-Context — sie können die
@@ -2531,7 +2578,19 @@ export default function App() {
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
                      attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} obsStand={cityCfg.obsStand}
-                     teilModus={teilModus} orthofoto={messAktiv || planAv != null} messung={messAnzeige} av={planAvWgs} />
+                     teilModus={teilModus} orthofoto={messAktiv || planAv != null} messung={messAnzeige} av={planAvWgs} formen={formen} />
+            {/* Kartenkopf: Stadt und Strassensuche (während einer Messung steht dort deren Werkzeugleiste) */}
+            {!messung && (
+              <div className="vrc-kartenkopf">
+                <select value={city} onChange={e => wechsleStadt(e.target.value as CityId)} aria-label="Stadt"
+                        disabled={osmBusy}   // Stadtwechsel während einer laufenden Ladung sperren (Race-Schutz)
+                        title={`Grundlage: ${cityCfg.standardDoc.titel}`}>
+                  {(Object.keys(CITIES) as CityId[]).map(k => <option key={k} value={k}>{CITIES[k].label}</option>)}
+                </select>
+                <Strassensuche text={street} setText={setStreet} stadt={cityCfg.label} busy={osmBusy}
+                               onLaden={name => void ladeStrasse(name)} />
+              </div>
+            )}
             {/* Breitenmessung: Werkzeugleiste auf der Karte (klickbar, liegt über dem Kartenrand). */}
             {messung && (
               <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 600,
@@ -2608,7 +2667,7 @@ export default function App() {
                   </div>
                   <div style={{ opacity: 0.9 }}>
                     Auf eine Strasse tippen = nächstgelegenes Segment hinzufügen · Linie antippen =
-                    ab-/zuwählen · oder einen Strassennamen eingeben und „Strasse laden" klicken.
+                    ab-/zuwählen · oder oben eine Strasse suchen.
                   </div>
                   <div style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
                     Tippen schliesst diesen Hinweis.
@@ -2683,6 +2742,15 @@ export default function App() {
                   <span style={{ width: 16, height: 4, background: col, borderRadius: 2 }} />{k}
                 </span>
               ))}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted-strong)' }}>
+                <span style={{ width: 16, height: 4, borderRadius: 2, background: '#1e293b',
+                               backgroundImage: 'repeating-linear-gradient(90deg, #fff 0 4px, transparent 4px 8px)', backgroundClip: 'content-box',
+                               padding: 1 }} />nicht gewählt
+              </span>
+            </div>
+            <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+              Übernommene Abschnitte in der Führungsform des Rechners (auch von Hand geändert), sonst wie in OpenStreetMap;
+              ist Seite B anders, liegt sie gestrichelt darüber.
             </div>
           </details>
         </div>
@@ -2735,7 +2803,7 @@ export default function App() {
           `Abschnittsdaten (DTV, Tempo, Routentyp u. a.): ${cityCfg.attribution}`,
           ...(mitAv && cityCfg.avKanton ? [`Bodenbedeckung und Trottoirs: ${avQuelle(cityCfg.avKanton)}`] : []),
           ...(mitAv && planAv!.park.length && cityCfg.parkierung ? [`Parkfelder: ${PARK_QUELLE[cityCfg.parkierung]}`] : []),
-          ...(s.aufteilung.fussnetzQuelle === 'geoportal' ? [`Fussverkehrsnetz: ${FUSSNETZ_GEOPORTAL}`] : []),
+          ...(s.aufteilung.fussnetzQuelle === 'geoportal' ? [`Fussverkehrsnetz: ${city === 'basel' ? FUSSNETZ_BASEL : FUSSNETZ_GEOPORTAL}`] : []),
         ]
         return <Bericht section={{ ...s, aufteilung: s.aufteilung }} nr={i + 1} heute={ergebnisse[i]} city={city} breiten={cityCfg.breiten}
                         stadtName={cityCfg.label} modus={modus} rA={rA} rB={rB} achsen={avAchsen(s, true)}

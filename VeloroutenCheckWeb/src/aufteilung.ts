@@ -1,4 +1,4 @@
-// ── Aufteilung planen: Querschnitt von Hand, geprüft gegen die Vorgaben (Etappe 1, nur Bern) ──
+// ── Aufteilung planen: Querschnitt von Hand, geprüft gegen die Vorgaben (Bern; seit 17.10.2026 auch Zürich, Basel, Luzern) ──
 //
 // Nutzerentscheid 16.10.2026: Die App schlägt keine Massnahmen vor (anders als der lokale
 // Berner Rechner mit seinem Zielbild). Der Nutzer stellt den Querschnitt aus Teilen zusammen;
@@ -21,6 +21,13 @@
 // beiden Seiten, nicht auf der Einbahn, bis Tempo 50 und DTV unter 10 000 (optimal unter 5 000).
 // Mit Tramgleis nur ein Hinweis: Im Kern von 4,50 m bleibt zwischen Schiene und Velostreifen wenig
 // Platz. Die Note ändert die Kernfahrbahn nicht: Bewertet wird der Velostreifen.
+//
+// Zürich, Basel, Luzern (Etappe 4, Nutzerentscheide 17.10.2026): Vorgaben aus den Standards der
+// Stadt (STADT_VORGABE, mit Seitenangaben); was eine Stadt nicht regelt, gilt der Berner Wert mit
+// der Quelle «Ersatz Bern: …». Die Fahrbahn ohne Mittellinie wird nur dort geprüft, wo die Stadt ein
+// Mass nennt (nicht in Bern). Trottoirs: Zürich nach der Bedeutung des Stadtraums (Leitfaden
+// Fussverkehr, von Hand gewählt), Basel nach dem Fusswegnetz (Teilrichtplan, vorbelegt), Luzern
+// nach Tempo und Velostreifen (kantonale Standards).
 
 import {
   maxBreite, sollBreite, type BreitenSoll, type IstFuehrungsform, type ParkenRechts, type Routentyp, type Stadt,
@@ -38,15 +45,39 @@ export type Markierung = 'keine' | 'geradeaus' | 'links' | 'rechts'
 // Fahrtrichtung eines Teils (nur Skizze: Fahrzeug von vorne oder hinten, Richtung der Pfeile).
 // A = in Richtung der Seite A (vom Betrachter weg), B = entgegen, beide = Gegenverkehr im selben Teil.
 export type Richtung = 'A' | 'B' | 'beide'
-// Trottoir-Vorgabe nach dem Fussverkehrsnetz (Masterplan Fussverkehr Stadt Bern, Nutzerangabe 16.10.2026)
+// Trottoir-Vorgabe nach Netz bzw. Bedeutung, je Stadt:
+//   Bern    Masterplan Fussverkehr (Nutzerangabe 16.10.2026), Netz aus dem Richtplan Fussverkehr
+//   Zürich  Leitfaden «Standards Fussverkehr», Teil 1 Trottoirbreiten (Tiefbauamt, 01.12.2020), S. 13:
+//           lichte Breite nach der Bedeutung im Bedeutungsplan öffentliche Stadträume 2019, ohne
+//           Umfeldzuschläge (z. B. +0,50 neben Tempo 50 ohne Radstreifen, +1,50 bei ÖV-Haltestellen)
+//   Basel   Standards Fuss- und Veloverkehrsinfrastruktur (27.09.2024), Tab. 1: Standard (reduziert)
+//   Luzern  kein Netz, sondern nach Tempo und Velostreifen (pruefeTeil)
 export type FussNetz = 'basis_pi' | 'basis' | 'fein_pi' | 'fein'
-export const FUSSNETZ: Record<FussNetz, { label: string; min: number }> = {
-  basis_pi: { label: 'Basisnetz, publikumsintensiv', min: 3.5 }, basis: { label: 'Basisnetz', min: 2.5 },
-  fein_pi: { label: 'Feinverteilernetz, publikumsintensiv', min: 2.5 }, fein: { label: 'Feinverteilernetz', min: 2.0 },
+  | 'zh_land' | 'zh_stadt' | 'zh_quartier' | 'zh_nachbar' | 'bs_kanton' | 'bs_stadt' | 'bs_uebrige'
+export const FUSSNETZ: Record<FussNetz, { label: string; wert: number; min: number; stadt: Stadt }> = {
+  basis_pi: { label: 'Basisnetz, publikumsintensiv', wert: 3.5, min: 3.5, stadt: 'bern' },
+  basis: { label: 'Basisnetz', wert: 2.5, min: 2.5, stadt: 'bern' },
+  fein_pi: { label: 'Feinverteilernetz, publikumsintensiv', wert: 2.5, min: 2.5, stadt: 'bern' },
+  fein: { label: 'Feinverteilernetz', wert: 2.0, min: 2.0, stadt: 'bern' },
+  zh_land: { label: 'international/landesweit', wert: 3.0, min: 3.0, stadt: 'zurich' },
+  zh_stadt: { label: 'regional/stadtweit', wert: 2.4, min: 2.4, stadt: 'zurich' },
+  zh_quartier: { label: 'quartierweit', wert: 2.4, min: 2.4, stadt: 'zurich' },
+  zh_nachbar: { label: 'nachbarschaftlich', wert: 2.0, min: 2.0, stadt: 'zurich' },
+  bs_kanton: { label: 'kantonales Netz', wert: 2.4, min: 2.0, stadt: 'basel' },
+  bs_stadt: { label: 'Stadtnetz', wert: 2.2, min: 2.0, stadt: 'basel' },
+  bs_uebrige: { label: 'übrige', wert: 2.0, min: 1.8, stadt: 'basel' },
 }
 export const FUSSNETZ_QUELLE = 'Masterplan Fussverkehr Stadt Bern'
-// breite NaN = leer; angenommen: Breite heute unbekannt, Vorgabe eingesetzt (startAufteilung)
-export interface Teil { art: TeilArt; breite: number; bild?: Bild; markierung?: Markierung; richtung?: Richtung; angenommen?: boolean }
+export const FUSS_QUELLE: Record<Stadt, string> = {
+  bern: FUSSNETZ_QUELLE,
+  zurich: 'Leitfaden Standards Fussverkehr Stadt Zürich, lichte Breite ohne Umfeldzuschlag',
+  basel: 'Standards Fuss- und Veloverkehrsinfrastruktur Basel-Stadt, Tab. 1',
+  luzern: 'Standards Fuss- und Veloverkehr Kanton Luzern; Stadt Luzern mindestens 2,00 m',
+}
+export const fussnetzOptionen = (stadt: Stadt): FussNetz[] => (Object.keys(FUSSNETZ) as FussNetz[]).filter(k => FUSSNETZ[k].stadt === stadt)
+// breite NaN = leer; angenommen: Breite heute unbekannt, Vorgabe eingesetzt (startAufteilung);
+// trottoirniveau: Parkierung hinter dem Randstein, ausserhalb der Fahrbahn (seit 17.10.2026)
+export interface Teil { art: TeilArt; breite: number; bild?: Bild; markierung?: Markierung; richtung?: Richtung; angenommen?: boolean; trottoirniveau?: boolean }
 // fahrbahn: verfügbares Mass Bordstein–Bordstein [m], NaN = leer; fussnetz: Netz für die Trottoir-Vorgabe
 // fussnetzQuelle 'geoportal': aus dem Richtplan Fussverkehr vorbelegt (fussnetz.ts), sonst von Hand
 // seitenraum: Breite ausserhalb der Fahrbahn heute, beide Seiten zusammen [m] (Trottoirs aus der AV),
@@ -120,9 +151,68 @@ export const STANDARD_BREITE: Partial<Record<TeilArt, number>> = {
   Veloabstellplatz: 1.9, Parklet: 1.9, Gruen: 1.5, Trottoir: 2.0, Gemeinsam: 4.5,
 }
 export const KERN_DTV_MAX = 10000, KERN_DTV_OPT = 5000, KERN_KMH_MAX = 50
-export const RICHTWERT_QUELLE = 'Masterplan Veloinfrastruktur Stadt Bern'
+export const STANDARD_QUELLE: Record<Stadt, string> = {
+  bern: 'Masterplan Veloinfrastruktur Stadt Bern',
+  zurich: 'Velostandards Stadt Zürich',
+  basel: 'Standards Fuss- und Veloverkehrsinfrastruktur Basel-Stadt',
+  luzern: 'Standards Veloverkehr Stadt Luzern',
+}
+export const RICHTWERT_QUELLE = STANDARD_QUELLE.bern
 export const LICHTRAUM_QUELLE = 'SN 640 201 (Lichtraumprofil)'
 const FESTLEGUNG = 'Festlegung VeloroutenCheck 16.10.2026'
+const ersatz = (q: string) => `Ersatz Bern: ${q}`
+
+// Vorgaben je Stadt (Etappe 4, ausgewertet 17.10.2026). Fehlt ein Teil, gilt RICHTWERT als Ersatz.
+//   Zürich  Velostandards (22.03.2024): Sicherheitsabstand zur Parkierung + 0,75 (S. 16), Kernfahrbahn
+//           ab 4,50 (S. 45). Fahrstreifen, Parkfeld, Trennstreifen, Tram, Haltestelle: nicht geregelt.
+//   Basel   Standards FVV (27.09.2024): Längsparkierung 2,00 (Abb. 29/30), Abstand zur Parkierung
+//           0,50–0,75 (Tab. 5), Trennstreifen zum Radweg 0,30–0,50 (Tab. 5), Kern ≥ 4,50 (Abb. 34).
+//   Luzern  Standards Veloverkehr Stadt (12.01.2021): Fahrstreifen 3,25 / min. 3,00 (Q1a, S. 30),
+//           Parkfeld 1,90, Abstand 0,80 / min. 0,50 (S. 31), Kern 4,50–5,50 (Q5, S. 42), Perron mit
+//           Witterungsschutz ≥ 3,10 (HS1/HS2, S. 78–81).
+export interface Vorgabe { wert: number; min?: number; max?: number; quelle: string }
+const QZ = STANDARD_QUELLE.zurich, QB = STANDARD_QUELLE.basel, QL = STANDARD_QUELLE.luzern
+export const STADT_VORGABE: Record<Stadt, Partial<Record<TeilArt, Vorgabe>>> = {
+  bern: {},
+  zurich: {
+    Sicherheitsstreifen: { wert: 0.75, min: 0.75, quelle: QZ },
+    Kernfahrbahn: { wert: 4.5, min: 4.5, quelle: QZ },
+  },
+  basel: {
+    Parkierung: { wert: 2.0, quelle: QB },
+    Sicherheitsstreifen: { wert: 0.75, min: 0.5, quelle: QB },
+    Trennstreifen: { wert: 0.5, min: 0.3, quelle: QB },
+    Kernfahrbahn: { wert: 4.5, min: 4.5, quelle: QB },
+  },
+  luzern: {
+    Fahrspur: { wert: 3.25, min: 3.0, quelle: QL },
+    Parkierung: { wert: 1.9, quelle: QL },
+    Sicherheitsstreifen: { wert: 0.8, min: 0.5, quelle: QL },
+    Kernfahrbahn: { wert: 4.5, min: 4.5, max: 5.5, quelle: QL },
+    Haltestelle: { wert: 3.1, min: 3.1, quelle: QL },
+  },
+}
+// Vorgabe eines Teils in einer Stadt: eigene oder Berner Ersatz (Pfosten überall die Festlegung).
+export function vorgabe(art: TeilArt, stadt: Stadt = 'bern'): Vorgabe | undefined {
+  const eigen = STADT_VORGABE[stadt][art]
+  if (eigen) return eigen
+  const r = RICHTWERT[art]
+  if (!r) return undefined
+  const q = art === 'Pfosten' || art === 'Haltestelle' ? FESTLEGUNG : RICHTWERT_QUELLE
+  return { ...r, quelle: stadt === 'bern' || art === 'Pfosten' ? q : ersatz(q) }
+}
+// Fahrbahn ohne Mittellinie (Gegenverkehr, Mischverkehr) — nur wo die Stadt ein Mass nennt:
+//   Zürich  ≥ 4,40, auf Velovorzugsrouten 4,80; in der Regel unter 6,00 (Velostandards S. 18, 34, 43)
+//   Basel   4,50, reduziert 4,30, unter 1 000 Fz/Tag 4,00 (Standards FVV, Tab. 4)
+//   Luzern  ≥ 4,50 (Kanton, Dok. 90); über 7,50 Kernfahrbahn bzw. Radstreifen prüfen (Stadt, Q6 S. 44)
+function gemeinsamVorgabe(u: Umfeld): Vorgabe | undefined {
+  switch (u.stadt ?? 'bern') {
+    case 'zurich': { const m = u.routentyp === 'Velohauptroute' ? 4.8 : 4.4; return { wert: m, min: m, max: 6.0, quelle: QZ } }
+    case 'basel': return { wert: 4.5, min: u.dtv != null && u.dtv < 1000 ? 4.0 : 4.3, quelle: QB }
+    case 'luzern': return { wert: 4.5, min: 4.5, max: 7.5, quelle: 'Standards Fuss- und Veloverkehr Kanton Luzern; Stadt Luzern Q6' }
+    default: return undefined
+  }
+}
 
 // Lichtraum nach SN 640 201: Grundbreite + je Seite Bewegungsspielraum (nach Tempo, Tab. 5) und
 // Sicherheitszuschlag. Personenwagen 1,80 (Zuschlag 0,20), Lastwagen/Bus 2,50 (Zuschlag 0,30).
@@ -136,7 +226,9 @@ export function lichtraum(fahrzeug: 'auto' | 'lastwagen' | 'bus', kmh: number): 
 export const TRAM_LICHTRAUM_M = 2.8
 
 export const auf5cm = (m: number): number => Math.round(m * 20) / 20
-export const istFahrbahnTeil = (t: Teil): boolean => t.art !== 'Trottoir' && t.art !== 'Haltestelle' && t.art !== 'Gruen'
+export const istFahrbahnTeil = (t: Teil): boolean => t.art !== 'Trottoir' && t.art !== 'Haltestelle' && t.art !== 'Gruen' && !t.trottoirniveau
+// Name eines Teils in Liste und Bericht (mit dem Merkmal «auf Trottoirniveau»)
+export const teilName = (t: Teil): string => TEIL_LABEL[t.art] + (t.trottoirniveau ? ', auf Trottoirniveau' : '')
 
 // Summe der Fahrbahn-Teile und Rest gegenüber dem verfügbaren Mass (negativ = Fehlmass).
 // Bilanz über den ganzen Querschnitt (Nutzerentscheid 16.10.2026): Verfügbar sind die Fahrbahn
@@ -181,9 +273,13 @@ export function bilanz(a: Aufteilung): Bilanz {
 // Herleitung: sonst nur 0,65 m zwischen Schiene und Velostreifen); zu schmal unter dem Lichtraum 2,80.
 export type TeilStatus = 'leer' | 'ok' | 'zu schmal' | 'zu breit' | 'unter Richtwert' | 'keine Vorgabe'
 export interface TeilPruefung { soll?: number; min?: number; max?: number; status: TeilStatus; quelle?: string }
-export interface Umfeld { kmh?: number; einbahn?: boolean; radweg?: boolean; fussnetz?: FussNetz }
-export const umfeldVon = (s: Section, teile: Teil[], fussnetz?: FussNetz): Umfeld =>
-  ({ kmh: s.speed, einbahn: s.richtung === 'eine', radweg: teile.some(t => t.art === 'Radweg'), fussnetz })
+export interface Umfeld {
+  kmh?: number; einbahn?: boolean; radweg?: boolean; fussnetz?: FussNetz
+  stadt?: Stadt; dtv?: number; routentyp?: Routentyp | ''; velo?: boolean   // velo: Velostreifen oder Radweg in der Planung
+}
+export const umfeldVon = (s: Section, teile: Teil[], fussnetz?: FussNetz, stadt: Stadt = 'bern'): Umfeld =>
+  ({ kmh: s.speed, einbahn: s.richtung === 'eine', radweg: teile.some(t => t.art === 'Radweg'), fussnetz, stadt,
+     dtv: s.dtv, routentyp: s.routentyp, velo: teile.some(t => t.art === 'Velostreifen' || t.art === 'Radweg') })
 
 function band(t: Teil, v: { wert: number; min?: number; max?: number }, quelle: string): TeilPruefung {
   const p = { soll: v.wert, min: v.min, max: v.max, quelle }
@@ -205,23 +301,38 @@ export function pruefeTeil(t: Teil, routentyp: Routentyp, breiten?: Partial<Reco
     const soll = sollBreite('Velostrasse', routentyp, breiten?.Velostrasse) ?? 4.5
     return band(t, { wert: soll, min: soll, max: maxBreite('Velostrasse', breiten?.Velostrasse) }, breitenQuelle)
   }
+  const stadt = umfeld.stadt ?? 'bern'
   if (t.art === 'Fahrspur') {
+    // Grundwert der Stadt (Luzern 3,25 / min. 3,00), sonst Bern; neben einem Radweg 3,25 (Bern Q 2a/2b);
+    // mit Lastwagen oder Bus der Lichtraum, wenn er grösser ist
+    const v = vorgabe('Fahrspur', stadt)!
+    const grund = Math.max(v.wert, umfeld.radweg ? 3.25 : 0)
     const fz = bildVon(t) as 'auto' | 'lastwagen' | 'bus'
     const lr = fz === 'auto' ? 0 : lichtraum(fz, umfeld.kmh ?? NaN)
-    const wert = Math.max(umfeld.radweg ? 3.25 : 3.0, lr)
-    return band(t, { wert, min: 3.0 }, lr > (umfeld.radweg ? 3.25 : 3.0) ? LICHTRAUM_QUELLE : RICHTWERT_QUELLE)
+    return band(t, { wert: Math.max(grund, lr), min: v.min ?? 3.0 }, lr > grund ? LICHTRAUM_QUELLE : v.quelle)
   }
   if (t.art === 'Trottoir') {
-    if (!umfeld.fussnetz) return { status: Number.isFinite(t.breite) ? 'keine Vorgabe' : 'leer' }
-    const min = FUSSNETZ[umfeld.fussnetz].min
-    return band(t, { wert: min, min }, FUSSNETZ_QUELLE)
+    if (stadt === 'luzern') {
+      // Kanton Luzern (Dok. 45/51): 2,50 mit Velostreifen/Radweg oder unter Tempo 50, sonst 3,00; Stadt ≥ 2,00
+      const wert = (umfeld.kmh ?? 0) >= 50 && !umfeld.velo ? 3.0 : 2.5
+      return band(t, { wert, min: 2.0 }, FUSS_QUELLE.luzern)
+    }
+    const n = umfeld.fussnetz && FUSSNETZ[umfeld.fussnetz]?.stadt === stadt ? FUSSNETZ[umfeld.fussnetz] : undefined
+    if (!n) return { status: Number.isFinite(t.breite) ? 'keine Vorgabe' : 'leer' }
+    return band(t, { wert: n.wert, min: n.min }, FUSS_QUELLE[stadt])
   }
-  if (t.art === 'Tram')
-    return band(t, { wert: umfeld.einbahn ? 3.25 : 3.0, min: TRAM_LICHTRAUM_M },
-      umfeld.einbahn ? 'eigene Herleitung (Einbahn mit Gleis)' : RICHTWERT_QUELLE)
-  const r = RICHTWERT[t.art]
-  if (!r) return { status: Number.isFinite(t.breite) ? 'keine Vorgabe' : 'leer' }
-  return band(t, r, t.art === 'Pfosten' || t.art === 'Haltestelle' ? FESTLEGUNG : RICHTWERT_QUELLE)
+  if (t.art === 'Gemeinsam') {
+    const g = gemeinsamVorgabe(umfeld)
+    if (!g) return { status: Number.isFinite(t.breite) ? 'keine Vorgabe' : 'leer' }
+    return band(t, g, g.quelle)
+  }
+  if (t.art === 'Tram') {
+    const q = umfeld.einbahn ? 'eigene Herleitung (Einbahn mit Gleis)' : RICHTWERT_QUELLE
+    return band(t, { wert: umfeld.einbahn ? 3.25 : 3.0, min: TRAM_LICHTRAUM_M }, stadt === 'bern' ? q : ersatz(q))
+  }
+  const v = vorgabe(t.art, stadt)
+  if (!v) return { status: Number.isFinite(t.breite) ? 'keine Vorgabe' : 'leer' }
+  return band(t, v, v.quelle)
 }
 
 // Prüfung als Satz für Liste und Bericht (z. B. «✓ Richtwert 3,00 m», «Zu schmal · Vorgabe 2,50 m»).
@@ -232,9 +343,11 @@ export function pruefungText(t: Teil, p: TeilPruefung): string {
     return p.status === 'ok' ? `✓ ${v}` : p.status === 'leer' ? `Breite fehlt · ${v}` : `Zu schmal · ${v}`
   }
   if (t.art === 'Trottoir') {
-    if (p.soll == null) return 'Vorgabe nach Fussverkehrsnetz: oben das Netz wählen'
-    const v = `Vorgabe mindestens ${numDE(p.soll, 2)} m (${FUSSNETZ_QUELLE})`
-    return p.status === 'ok' ? `✓ ${v}` : p.status === 'leer' ? `Breite fehlt · ${v}` : `Zu schmal · ${v}`
+    if (p.soll == null) return 'Vorgabe nach Fussverkehrsnetz bzw. Bedeutung: oben wählen'
+    const v = (p.min != null && p.min < p.soll - 1e-9 ? `Richtwert ${numDE(p.soll, 2)} m, mindestens ${numDE(p.min, 2)} m`
+      : `Vorgabe mindestens ${numDE(p.soll, 2)} m`) + ` (${p.quelle})`
+    return p.status === 'ok' ? `✓ ${v}` : p.status === 'leer' ? `Breite fehlt · ${v}`
+      : p.status === 'unter Richtwert' ? `Unter dem Richtwert · ${v}` : `Zu schmal · ${v}`
   }
   if (p.soll == null) return p.status === 'leer' ? 'Breite fehlt' : 'keine Vorgabe'
   const velo = t.art === 'Velostreifen' || t.art === 'Radweg' || t.art === 'Velostrasse'
@@ -254,7 +367,7 @@ export function standardBreite(t: Teil, routentyp: Routentyp, breiten?: Partial<
 // Bedingungen der Kernfahrbahn (siehe Kopf). Leer, wenn keine Kernfahrbahn in den Teilen steht
 // oder alles passt; sonst je Befund ein Satz. `streng` = nicht zulässig (sonst nur Hinweis).
 export interface KernBefund { text: string; streng: boolean }
-export function pruefeKernfahrbahn(s: Section, teile: Teil[]): KernBefund[] {
+export function pruefeKernfahrbahn(s: Section, teile: Teil[], stadt: Stadt = 'bern'): KernBefund[] {
   const n = teile.filter(t => t.art === 'Kernfahrbahn').length
   if (!n) return []
   const b: KernBefund[] = []
@@ -266,6 +379,30 @@ export function pruefeKernfahrbahn(s: Section, teile: Teil[]): KernBefund[] {
     b.push({ text: 'Mit Tramgleis prüfen: Im Kern bleibt zwischen Schiene und Velostreifen wenig Platz.', streng: false })
   if (n > 1 || teile.some(t => t.art === 'Fahrspur' || t.art === 'Gemeinsam'))
     b.push({ text: 'Die Kernfahrbahn ersetzt die Fahrspuren beider Richtungen; es braucht nur eine und keine Fahrspur daneben.', streng: true })
+  // Grenzen je Stadt: Bern (Masterplan Q 5), Zürich (Velostandards S. 45: nur Tempo 30; Kern 4,50 bis
+  // 5 000 DTV, Kern 5,20 bis 7 500 DTV), Basel (Standards FVV: nicht ab 7 500 Fz/Tag), Luzern (Stadt Q5:
+  // DTV unter 10 000; Kanton: Tempo 30 empfohlen)
+  const dtvFehlt = (grenze: string) => b.push({ text: `DTV fehlt: Die Grenze (${grenze}) lässt sich nicht prüfen.`, streng: false })
+  if (stadt === 'zurich') {
+    const kern = Math.max(0, ...teile.filter(t => t.art === 'Kernfahrbahn').map(t => (Number.isFinite(t.breite) ? t.breite : 0)))
+    const grenze = kern >= 5.2 - 1e-9 ? 7500 : 5000
+    if (!Number.isFinite(s.dtv)) dtvFehlt('Kern 4,50 bis 5 000, Kern 5,20 bis 7 500')
+    else if (s.dtv > grenze) b.push({ text: `Nicht zulässig über DTV ${grenze === 7500 ? '7 500' : '5 000'}${grenze === 5000 ? ' (mit Kern 5,20 bis 7 500)' : ''}.`, streng: true })
+    if (!Number.isFinite(s.speed)) b.push({ text: 'Tempo fehlt: Die Kernfahrbahn ist nur bei Tempo 30 vorgesehen.', streng: false })
+    else if (s.speed > 30) b.push({ text: 'Nur bei Tempo 30 vorgesehen.', streng: true })
+    return b
+  }
+  if (stadt === 'basel') {
+    if (!Number.isFinite(s.dtv)) dtvFehlt('unter 7 500 Fz/Tag')
+    else if (s.dtv >= 7500) b.push({ text: 'Nicht empfohlen ab 7 500 Fahrzeugen pro Tag.', streng: true })
+    return b
+  }
+  if (stadt === 'luzern') {
+    if (!Number.isFinite(s.dtv)) dtvFehlt('unter 10 000')
+    else if (s.dtv >= KERN_DTV_MAX) b.push({ text: 'Nicht zulässig ab DTV 10 000.', streng: true })
+    if (Number.isFinite(s.speed) && s.speed > 30) b.push({ text: 'Der Kanton empfiehlt die Kernfahrbahn bei Tempo 30.', streng: false })
+    return b
+  }
   if (!Number.isFinite(s.dtv)) b.push({ text: 'DTV fehlt: Die Grenze (unter 10 000, optimal unter 5 000) lässt sich nicht prüfen.', streng: false })
   else if (s.dtv >= KERN_DTV_MAX) b.push({ text: 'Nicht zulässig ab DTV 10 000.', streng: true })
   else if (s.dtv >= KERN_DTV_OPT) b.push({ text: 'DTV über dem Optimalbereich (unter 5 000), aber unter 10 000 zulässig.', streng: false })
@@ -327,14 +464,24 @@ export function bewerteAufteilung(s: Section, a: Aufteilung, city: Stadt, breite
 // eine gemeinsame Fahrbahn ohne Mittellinie (Nutzerbefund 16.10.2026, Manuelstrasse: zwei
 // Spuren zu 2,05 m gibt es nicht).
 // Ganz aussen die Trottoirs, sobald sie aus der AV gemessen sind (auf 5 cm gerundet).
-const trottoir = (m?: number): Teil[] => (m != null && Number.isFinite(m) ? [{ art: 'Trottoir', breite: auf5cm(m) }] : [])
+const trottoir = (m?: number): Teil[] => (m != null && Number.isFinite(m) && m > 0.005 ? [{ art: 'Trottoir', breite: auf5cm(m) }] : [])
 
 // Gemessene Trottoirs in eine schon geänderte Aufteilung, die noch keines hat: ganz aussen,
-// links Seite B, rechts Seite A. Hat sie schon ein Trottoir, bleibt sie unverändert.
-export function mitTrottoirs(a: Aufteilung, tr: { a: number; b: number }): Aufteilung {
+// links Seite B, rechts Seite A. Hat sie schon ein Trottoir, bleibt sie unverändert. Liegt die
+// Parkierung einer Seite auf der Trottoirfläche (parkA/parkB) und ist das äusserste Teil dort eine
+// Parkierung, kommt sie auf Trottoirniveau und das Trottoir wird um ihre Breite schmaler.
+export function mitTrottoirs(a: Aufteilung, tr: { a: number; b: number; parkA?: boolean; parkB?: boolean }): Aufteilung {
   const mitRaum = a.seitenraum != null && Number.isFinite(a.seitenraum) ? a : { ...a, seitenraum: seitenraumVon(tr) }
   if (a.teile.some(t => t.art === 'Trottoir')) return mitRaum
-  return { ...mitRaum, teile: [...trottoir(tr.b), ...a.teile, ...trottoir(tr.a)] }
+  const teile = [...a.teile]
+  const rand = (i: number, park: boolean | undefined, m: number): number => {
+    const t = teile[i]
+    if (!park || !Number.isFinite(m) || t?.art !== 'Parkierung' || !Number.isFinite(t.breite)) return m
+    teile[i] = { ...t, trottoirniveau: true }
+    return Math.max(0, m - t.breite)
+  }
+  const b = rand(0, tr.parkB, tr.b), r = rand(teile.length - 1, tr.parkA, tr.a)
+  return { ...mitRaum, teile: [...trottoir(b), ...teile, ...trottoir(r)] }
 }
 // Aufteilung mit dem Seitenraum des Abschnitts, wo sie selbst keinen hat (etwa eine Planung, die vor
 // dem Feld angelegt wurde): Die Gesamtbreite ist bekannt, sobald die Trottoirs gemessen sind.
@@ -345,35 +492,43 @@ export function mitSeitenraum(a: Aufteilung, s: Section): Aufteilung {
 export const seitenraumVon = (tr?: { a: number; b: number }): number =>
   (tr ? (Number.isFinite(tr.a) ? auf5cm(tr.a) : 0) + (Number.isFinite(tr.b) ? auf5cm(tr.b) : 0) : NaN)
 
-export function startAufteilung(s: Section): Aufteilung {
-  const rand = (f: Seite): Teil[] => {
+export function startAufteilung(s: Section, stadt: Stadt = 'bern', breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>): Aufteilung {
+  // Parkierung auf der Trottoirfläche (s.trottoir.parkA/parkB, Kanzleistrasse): auf Trottoirniveau,
+  // ausserhalb der Fahrbahn; das gemessene Trottoir enthält sie, es wird um ihre Breite schmaler.
+  const pBreite = vorgabe('Parkierung', stadt)!.wert
+  const parkHat = (f: Seite) => f.parkenRechts === 'ja' && f.ist !== 'Radweg strassenbegleitend / Geschützter Radstreifen'
+  const aufTr = (f: Seite, park?: boolean, m?: number) => !!park && parkHat(f) && m != null && Number.isFinite(m)
+  const trA = aufTr(seiteA(s), s.trottoir?.parkA, s.trottoir?.a), trB = aufTr(seiteB(s), s.trottoir?.parkB, s.trottoir?.b)
+  const rand = (f: Seite, aufTrottoir: boolean): Teil[] => {
     const t: Teil[] = []
     const radweg = f.ist === 'Radweg strassenbegleitend / Geschützter Radstreifen'
-    if (!radweg && f.parkenRechts === 'ja') {
-      t.push({ art: 'Parkierung', breite: RICHTWERT.Parkierung!.wert })
-      if (f.parkenSicherheitsstreifen) t.push({ art: 'Sicherheitsstreifen', breite: RICHTWERT.Sicherheitsstreifen!.wert })
+    if (parkHat(f)) {
+      t.push(aufTrottoir ? { art: 'Parkierung', breite: pBreite, trottoirniveau: true } : { art: 'Parkierung', breite: pBreite })
+      if (f.parkenSicherheitsstreifen) t.push({ art: 'Sicherheitsstreifen', breite: vorgabe('Sicherheitsstreifen', stadt)!.wert })
     }
     // Breite heute unbekannt (online oft: OSM ohne Breite, nicht gemessen): Vorgabe einsetzen und als
     // angenommen kennzeichnen. Vorher zählte sie als 0 m, und die Fahrspuren bekamen den ganzen Rest
     // (Laubeggstrasse, Nutzerbefund 16.10.2026: 2 × 4,90 m statt Velostreifen + 2 Spuren).
     const velo = (art: 'Velostreifen' | 'Radweg', ist: IstFuehrungsform): Teil => (Number.isFinite(f.breite) ? { art, breite: f.breite }
-      : { art, breite: sollBreite(ist, s.routentyp || 'Veloroute') ?? NaN, angenommen: true })
+      : { art, breite: sollBreite(ist, s.routentyp || 'Veloroute', breiten?.[ist]) ?? NaN, angenommen: true })
     if (f.ist === 'Radstreifen' || f.ist === 'Einbahn Velogegenverkehr mit Markierung') t.push(velo('Velostreifen', 'Radstreifen'))
-    if (radweg) { t.push(velo('Radweg', f.ist as IstFuehrungsform)); t.push({ art: 'Trennstreifen', breite: RICHTWERT.Trennstreifen!.wert }) }
+    if (radweg) { t.push(velo('Radweg', f.ist as IstFuehrungsform)); t.push({ art: 'Trennstreifen', breite: vorgabe('Trennstreifen', stadt)!.wert }) }
     return t
   }
   // Trottoirs aus der AV (s.trottoir), sobald gemessen: ausserhalb der Fahrbahn, ganz aussen.
-  const links = [...trottoir(s.trottoir?.b), ...rand(seiteB(s))], rechts = [...rand(seiteA(s)).reverse(), ...trottoir(s.trottoir?.a)]
+  const ohnePark = (m: number | undefined, ja: boolean) => (ja ? Math.max(0, m! - pBreite) : m)
+  const links = [...trottoir(ohnePark(s.trottoir?.b, trB)), ...rand(seiteB(s), trB)]
+  const rechts = [...rand(seiteA(s), trA).reverse(), ...trottoir(ohnePark(s.trottoir?.a, trA))]
   const nSpuren = s.richtung === 'eine' ? 1 : 2
   // Fussverkehrsnetz aus dem Geoportal, sobald geladen (Trottoir-Vorgabe)
   const netz: Partial<Aufteilung> = s.fussnetzGeoportal ? { fussnetz: s.fussnetzGeoportal, fussnetzQuelle: 'geoportal' } : {}
   const art: TeilArt = s.tram ? 'Tram' : 'Fahrspur'
   const belegt = [...links, ...rechts].filter(istFahrbahnTeil).reduce((m, t) => m + (Number.isFinite(t.breite) ? t.breite : 0), 0)
   const rest = Number.isFinite(s.fahrbahnbreite) ? Math.max(0, s.fahrbahnbreite - belegt) : NaN
-  if (nSpuren === 2 && art === 'Fahrspur' && rest < 2 * RICHTWERT.Fahrspur!.wert - 1e-9)
+  if (nSpuren === 2 && art === 'Fahrspur' && rest < 2 * vorgabe('Fahrspur', stadt)!.wert - 1e-9)
     return { fahrbahn: s.fahrbahnbreite, teile: [...links, { art: 'Gemeinsam', breite: auf5cm(rest) }, ...rechts], seitenraum: seitenraumVon(s.trottoir), ...netz }
   // Ohne Fahrbahnbreite der Richtwert (neben einem Radweg 3,25; Tram auf der Einbahn 3,25)
-  const umfeld: Umfeld = { kmh: s.speed, einbahn: s.richtung === 'eine', radweg: [...links, ...rechts].some(t => t.art === 'Radweg') }
+  const umfeld: Umfeld = { kmh: s.speed, einbahn: s.richtung === 'eine', radweg: [...links, ...rechts].some(t => t.art === 'Radweg'), stadt }
   const jeSpur = Number.isFinite(rest) ? auf5cm(rest / nSpuren) : pruefeTeil({ art, breite: NaN }, 'Veloroute', undefined, umfeld).soll!
   const spuren: Teil[] = Array.from({ length: nSpuren }, () => ({ art, breite: jeSpur }))
   return { fahrbahn: s.fahrbahnbreite, teile: [...links, ...spuren, ...rechts], seitenraum: seitenraumVon(s.trottoir), ...netz }

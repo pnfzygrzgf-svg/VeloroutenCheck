@@ -12,7 +12,7 @@
 // (ResizeObserver), sonst würde sie bei breiten Strassen unlesbar klein.
 
 import { useEffect, useRef, useState } from 'react'
-import { bildVon, richtungVon, type Teil, type TeilArt } from './aufteilung'
+import { bildVon, istFahrbahnTeil, richtungVon, type Teil, type TeilArt } from './aufteilung'
 import { numDE } from './csv'
 
 const RAND_CM = 40           // seitlicher Rand der Zeichnung
@@ -37,8 +37,9 @@ const KUERZEST: Record<TeilArt, string> = {
   Trottoir: 'Tr.', Haltestelle: 'H', Gruen: 'G', Parkierung: 'P', Veloabstellplatz: 'VP', Parklet: 'Pl.', Sicherheitsstreifen: 'S', Velostreifen: 'Velo',
   Pfosten: 'Pf.', Radweg: 'Rw.', Trennstreifen: 'T', Fahrspur: 'MIV', Gemeinsam: 'MIV', Kernfahrbahn: 'Kern', Velostrasse: 'VS', Tram: 'Tram',
 }
-const fahrbahnTeil = (a: TeilArt) => a !== 'Trottoir' && a !== 'Haltestelle' && a !== 'Gruen'
-const erhoeht = (a: TeilArt) => (a === 'Trottoir' || a === 'Haltestelle' || a === 'Gruen' ? BORD_CM : a === 'Trennstreifen' ? 10 : 0)
+// Parkierung auf Trottoirniveau (seit 17.10.2026) liegt wie das Trottoir erhöht, ausserhalb der Fahrbahn
+const erhoeht = (t: Teil) => (t.art === 'Trottoir' || t.art === 'Haltestelle' || t.art === 'Gruen' || t.trottoirniveau ? BORD_CM
+  : t.art === 'Trennstreifen' ? 10 : 0)
 
 // Figuren je Teil (Datei ohne Endung, Grösse der Bilddatei in cm, Versatz dx zur Mitte des Teils)
 // und ab welcher Teilbreite sie passen. links: Teil liegt links der Fahrbahnmitte (Dateien
@@ -147,7 +148,7 @@ export function SkizzeSvg({ titel, teile, einbahn, massstabCm, px, basis }: Skiz
     x += b
     return l
   })
-  const fb = lage.filter(l => fahrbahnTeil(l.t.art) && l.b > 0)
+  const fb = lage.filter(l => istFahrbahnTeil(l.t) && l.b > 0)
   const fbVon = fb.length ? fb[0].x : NaN, fbBis = fb.length ? fb[fb.length - 1].x + fb[fb.length - 1].b : NaN
   const mitte = (fbVon + fbBis) / 2
   // Höhe über dem Boden nach der höchsten gezeigten Figur (Baum 630 cm, Tram 420 cm, Personen 220 cm)
@@ -155,7 +156,7 @@ export function SkizzeSvg({ titel, teile, einbahn, massstabCm, px, basis }: Skiz
     const links = l.x + l.b / 2 < mitte
     return figuren(l.t, l.b, links, einbahn, l.i).map(fg => ({ l, fg }))
   })
-  const yBoden = Math.max(230, ...figs.map(({ l, fg }) => fg.h + erhoeht(l.t.art))) + LUFT_CM
+  const yBoden = Math.max(230, ...figs.map(({ l, fg }) => fg.h + erhoeht(l.t))) + LUFT_CM
   // Markierungen in Draufsicht: eigener Streifen unter dem Boden, nur wenn es welche gibt
   const marks = lage.filter(l => l.b > 0 && (l.t.markierung ?? 'keine') in MARK_DATEI)
   const yMark = yBoden + BODEN_CM, hMark = marks.length ? MARK_CM : 0
@@ -177,7 +178,7 @@ export function SkizzeSvg({ titel, teile, einbahn, massstabCm, px, basis }: Skiz
           {/* Boden */}
           {lage.map(({ t, i, x, b }) => {
             if (b <= 0) return null
-            const hoch = erhoeht(t.art)
+            const hoch = erhoeht(t)
             return (
               <rect key={`b${i}`} x={x} y={yBoden - hoch} width={b} height={BODEN_CM + hoch}
                     fill={t.art === 'Sicherheitsstreifen' ? 'url(#vrc-schraffur)' : BODEN[t.art]}>
@@ -187,9 +188,9 @@ export function SkizzeSvg({ titel, teile, einbahn, massstabCm, px, basis }: Skiz
           })}
           {/* Markierungen: Mittellinie zwischen zwei Fahrspuren, gelbe Linie am Velostreifen */}
           {lage.slice(1).map(({ t, i, x }) => {
-            const vor = lage[i - 1].t.art
+            const vt = lage[i - 1].t, vor = vt.art
             const weiss = (vor === 'Fahrspur' || vor === 'Tram') && (t.art === 'Fahrspur' || t.art === 'Tram')
-            const gelb = (vor === 'Velostreifen') !== (t.art === 'Velostreifen') && fahrbahnTeil(vor) && fahrbahnTeil(t.art)
+            const gelb = (vor === 'Velostreifen') !== (t.art === 'Velostreifen') && istFahrbahnTeil(vt) && istFahrbahnTeil(t)
             if (!weiss && !gelb) return null
             return <rect key={`m${i}`} x={x - 7.5} y={yBoden - 2} width={15} height={4} fill={gelb ? '#facc15' : '#ffffff'} />
           })}
@@ -199,7 +200,7 @@ export function SkizzeSvg({ titel, teile, einbahn, massstabCm, px, basis }: Skiz
           {/* Figuren */}
           {figs.map(({ l: { t, i, x, b }, fg }, k) => (
             <image key={`f${i}-${k}`} href={`${basis}streetmix/${fg.datei}.svg`} x={x + b / 2 + fg.dx - fg.w / 2}
-                   y={yBoden - erhoeht(t.art) - fg.h} width={fg.w} height={fg.h} />
+                   y={yBoden - erhoeht(t) - fg.h} width={fg.w} height={fg.h} />
           ))}
           {/* Markierungen in Draufsicht (Pfeile) nach der Richtung des Teils: Seite B entgegen, Seite A weg */}
           {hMark > 0 && lage.filter(l => l.b > 0).map(({ t, i, x, b }) => (

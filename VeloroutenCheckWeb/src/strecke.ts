@@ -87,7 +87,8 @@ export interface Section extends Seite {
   obs?: ObsStats               // OpenBikeSensor-Überholabstände (Zusatzinfo, nicht in der Note)
   oev?: OevInfo                // ÖV-Erkennung (Geoportal): Haltestelle/Modus im Abschnitt
   aufteilung?: Aufteilung      // geplanter Querschnitt (aufteilung.ts; nur Bern, nicht in der Note von heute)
-  trottoir?: { a: number; b: number }  // Trottoirbreite je Seite aus der AV [m], NaN = keines (breitenmessung.ts)
+  trottoir?: { a: number; b: number; parkA?: boolean; parkB?: boolean }  // Trottoirbreite je Seite aus der AV [m], NaN = keines;
+                                       // parkA/B: Parkierung dieser Seite liegt auf der Trottoirfläche (parkierungAufTrottoir)
   fussnetzGeoportal?: FussNetz         // Fussverkehrsnetz aus dem Richtplan Fussverkehr (fussnetz.ts; nur Bern)
 }
 let nextId = 1
@@ -157,7 +158,10 @@ export function tauscheSeiten(s: Section): Section {
   if (s.luftbild) neu.luftbild = { a: s.luftbild.b, b: s.luftbild.a }
   // Die Aufteilung ist von links (Rand B) nach rechts (Rand A) geordnet: mit den Seiten spiegeln.
   if (s.aufteilung) neu.aufteilung = { ...s.aufteilung, teile: [...s.aufteilung.teile].reverse() }
-  if (s.trottoir) neu.trottoir = { a: s.trottoir.b, b: s.trottoir.a }
+  if (s.trottoir) {
+    const { parkA, parkB } = s.trottoir
+    neu.trottoir = { a: s.trottoir.b, b: s.trottoir.a, ...(parkB ? { parkA: true } : {}), ...(parkA ? { parkB: true } : {}) }
+  }
   if (s.candIds) {
     const gegen = new Set(s.candsGegenA ?? [])
     neu.candsGegenA = s.candIds.filter(id => !gegen.has(id))

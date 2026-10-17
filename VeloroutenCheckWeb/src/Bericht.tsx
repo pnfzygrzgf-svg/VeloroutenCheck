@@ -15,24 +15,51 @@ import type { AvFlaeche } from './av'
 import type { ParkFlaeche } from './parkierung'
 import type { AbschnittErgebnis, SeitenErgebnis } from './bewertung'
 import { erfuellungsgrad } from './fuehrungsform'
-import type { Section, Seite } from './strecke'
+import { dtvAssumed, type Quelle, type Section, type Seite } from './strecke'
+import type { Stadt } from './fuehrungsform'
 import { numDE } from './csv'
 import {
   bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, pruefeKernfahrbahn, pruefeTeil, pruefungText, startAufteilung, umfeldVon,
-  BILD_LABEL, FUSSNETZ, FUSSNETZ_QUELLE, MARKIERUNG_LABEL, RICHTWERT_QUELLE, LICHTRAUM_QUELLE, TEIL_LABEL, type Aufteilung,
+  BILD_LABEL, FUSSNETZ, FUSS_QUELLE, STANDARD_QUELLE, MARKIERUNG_LABEL, RICHTWERT_QUELLE, LICHTRAUM_QUELLE, teilName, type Aufteilung,
 } from './aufteilung'
 import { SkizzeSvg, breiteCm } from './Querschnitt'
 import { AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE } from './farben'
 import { ausschnitt, wmsBildUrl } from './kartenbild'
 
 const APP_URL = 'https://veloroutencheck.ch/'
+
+// Quelle von Routentyp, DTV und Tempo im Bericht: «amtlich» je Stadt mit dem Dienst (wie im README, Datenherkunft)
+const DTV_AMTLICH: Record<Stadt, string> = {
+  bern: 'Flächendeckende Verkehrsdaten, Geodaten Stadt Bern',
+  zurich: 'Verkehrsmessstellen, Kanton Zürich',
+  basel: 'Verkehrszähldaten, Kanton Basel-Stadt',
+  luzern: 'Verkehrszähldaten, Stadt Luzern',
+}
+const TEMPO_AMTLICH: Partial<Record<Stadt, string>> = {
+  bern: 'Signalisierte Höchstgeschwindigkeit, Geodaten Stadt Bern',
+  basel: 'Strassen und Wege, Kanton Basel-Stadt',
+}
+const ROUTENTYP_AMTLICH: Record<Stadt, string> = {
+  bern: 'Veloroutennetz Masterplan Veloinfrastruktur, Geodaten Stadt Bern',
+  zurich: 'Velonetzplanung, Stadt Zürich',
+  basel: 'Teilrichtplan Velo, Kanton Basel-Stadt',
+  luzern: 'Velonetz, Stadt Luzern',
+}
+function quelleText(q: Quelle | undefined, amtlich: string | undefined): string {
+  switch (q) {
+    case 'amtlich': return amtlich ?? 'Geoportal der Stadt'
+    case 'osm': return 'OpenStreetMap'
+    case 'manuell': return 'von Hand eingegeben'
+    default: return 'Quelle unbekannt'
+  }
+}
 const BILD_PX_MAX = 1400, BILD_PX_MIN = 1000
 const BILD_ZEITGRENZE_MS = 20000
 const VB = 1000                        // Breite der SVG-Zeichnung in Einheiten
 const DRUCK_PX = 700                   // Breite der Skizzen im Druck [px] (Schriftgrösse der Masse)
 
-function BerichtKarte({ achsen, av, park, onBereit }: {
-  achsen: P[][]; av: AvFlaeche[]; park: ParkFlaeche[]; onBereit: (s: 'laedt' | 'ok' | 'fehler') => void
+function BerichtKarte({ achsen, av, park, nr, onBereit }: {
+  achsen: P[][]; av: AvFlaeche[]; park: ParkFlaeche[]; nr: number; onBereit: (s: 'laedt' | 'ok' | 'fehler') => void
 }) {
   const box = useMemo(() => ausschnitt(achsen), [achsen])
   const [geladen, setGeladen] = useState<{ url: string; ok: boolean } | null>(null)
@@ -53,6 +80,16 @@ function BerichtKarte({ achsen, av, park, onBereit }: {
   const xy = (p: P) => `${((p[0] - e0) * s).toFixed(1)},${((n1 - p[1]) * s).toFixed(1)}`
   const pfad = (ringe: P[][]) => ringe.filter(r => r.length).map(r => 'M' + r.map(xy).join('L') + 'Z').join(' ')
   const imBild = (ringe: P[][]) => ringe[0]?.some(p => p[0] >= e0 && p[0] <= e1 && p[1] >= n0 && p[1] <= n1)
+  // Marker wie auf der Karte (VeloMap): Nummer des Abschnitts in der Mitte der längsten Linie, das Dreieck
+  // am Rand zeigt die Fahrtrichtung der Seite A (achsen laufen in dieser Richtung), die Blickrichtung der Skizzen
+  const laengste = achsen.reduce<P[]>((a, l) => (l.length >= 2 && strecke(l) > strecke(a) ? l : a), [])
+  const marker = (() => {
+    if (laengste.length < 2) return null
+    const k = Math.min(Math.floor(laengste.length / 2), laengste.length - 2)
+    const [p, q] = [laengste[k], laengste[k + 1]]
+    const winkel = Math.atan2(q[0] - p[0], q[1] - p[1]) * 180 / Math.PI   // Peilung: 0 = Norden, im Uhrzeigersinn
+    return { x: (p[0] - e0) * s, y: (n1 - p[1]) * s, winkel }
+  })()
   const mass = [10, 20, 25, 50, 100, 200].reduce((b, x) => (Math.abs(x - wM / 5) < Math.abs(b - wM / 5) ? x : b), 20)
 
   return (
@@ -79,17 +116,36 @@ function BerichtKarte({ achsen, av, park, onBereit }: {
             </g>
           ))}
 
+          {marker && (
+            <g transform={`translate(${marker.x.toFixed(1)}, ${marker.y.toFixed(1)})`} aria-label={`Abschnitt ${nr}, Pfeil: Fahrtrichtung Seite A`}>
+              <g transform={`rotate(${marker.winkel.toFixed(0)})`}>
+                <path d="M0,-30 L10,-14 L-10,-14 Z" fill="#1e293b" stroke="#ffffff" strokeWidth={2.5} strokeLinejoin="round" paintOrder="stroke" />
+              </g>
+              <circle r={15} fill="#1e293b" stroke="#ffffff" strokeWidth={3} />
+              <text y={6} fontSize={17} fontWeight={700} textAnchor="middle" fill="#ffffff">{nr}</text>
+            </g>
+          )}
+
+          {/* Nordpfeil: Bild in LV95, Norden oben (Gitternord, in der Schweiz unter 2° von geografisch Nord) */}
+          <g transform={`translate(${VB - 38}, 18)`} aria-label="Norden">
+            <path d="M0,0 L13,40 L0,31 L-13,40 Z" fill="#000000" stroke="#ffffff" strokeWidth={2.5} strokeLinejoin="round" />
+            <path d="M0,0 L0,31 L-13,40 Z" fill="#ffffff" />
+            <text x={0} y={62} fontSize={18} fontWeight={700} textAnchor="middle" fill="#000000" stroke="#ffffff" strokeWidth={4}
+                  paintOrder="stroke">N</text>
+          </g>
           <g>
             <rect x={14} y={vh - 30} width={mass * s} height={6} fill="#000000" stroke="#ffffff" strokeWidth={1.5} />
             <text x={14} y={vh - 36} fontSize={15} fill="#000000" stroke="#ffffff" strokeWidth={4} paintOrder="stroke">{mass} m</text>
           </g>
         </svg>
       </div>
-      <figcaption className="klein">Abschnitt rot. Luftbild © swisstopo (SWISSIMAGE)
+      <figcaption className="klein">Abschnitt rot; das Dreieck an der Nummer zeigt die Fahrtrichtung der Seite A und damit die Blickrichtung der Querschnitte. Luftbild © swisstopo (SWISSIMAGE)
         {av.length > 0 ? '; Bodenbedeckung der amtlichen Vermessung' : ''}{park.length > 0 ? '; Parkfelder blau, Parkverbotsfelder orange' : ''}.</figcaption>
     </figure>
   )
 }
+
+const strecke = (l: P[]) => l.reduce((m, p, i) => (i ? m + Math.hypot(p[0] - l[i - 1][0], p[1] - l[i - 1][1]) : 0), 0)
 
 const noteText = (n: number | null, modus: 'note' | 'erfuellung') =>
   n == null ? '–' : modus === 'erfuellung' ? erfuellungsgrad(n) : `${numDE(n, 1)} (${erfuellungsgrad(n)})`
@@ -116,11 +172,11 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, mod
 }) {
   const a = section.aufteilung
   const rt = section.routentyp || 'Veloroute'
-  const umfeld = umfeldVon(section, a.teile, a.fussnetz)
+  const umfeld = umfeldVon(section, a.teile, a.fussnetz, city)
   const plan = bewerteAufteilung(section, a, city, breiten)
   const aq = mitSeitenraum(a, section), b = bilanz(aq), bt = bilanzText(aq, b)
-  const kern = pruefeKernfahrbahn(section, a.teile)
-  const ausgang = startAufteilung(section)
+  const kern = pruefeKernfahrbahn(section, a.teile, city)
+  const ausgang = startAufteilung(section, city, breiten)
   const massstab = Math.max(breiteCm(ausgang.teile), breiteCm(a.teile))
   const einbahn = section.richtung === 'eine'
   const seiteName = (s: 'A' | 'B') => (s === 'A' ? `Seite A${rA ? ` (Richtung ${rA})` : ''}` : `Seite B${rB ? ` (Richtung ${rB})` : ''}`)
@@ -153,9 +209,13 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, mod
                   <span className="nur-drucken">{bez.trim() || '–'}</span>
                 </td></tr>
                 <tr><td>Stadt</td><td>{stadtName}</td></tr>
-                <tr><td>Routentyp</td><td>{section.routentyp || '– (geprüft wie Veloroute)'}</td></tr>
-                <tr><td>DTV, Tempo</td><td>{Number.isFinite(section.dtv) ? `${Math.round(section.dtv).toLocaleString('de-CH')} Fz/Tag` : 'DTV –'}
-                  {' · '}{Number.isFinite(section.speed) ? `${section.speed} km/h` : 'Tempo –'}</td></tr>
+                <tr><td>Routentyp</td><td>{section.routentyp
+                  ? `${section.routentyp} (${quelleText(section.quelle.routentyp, ROUTENTYP_AMTLICH[city])})` : '– (geprüft wie Veloroute)'}</td></tr>
+                <tr><td>DTV, Tempo</td><td>{Number.isFinite(section.dtv)
+                    ? `${Math.round(section.dtv).toLocaleString('de-CH')} Fz/Tag (${quelleText(section.quelle.dtv, DTV_AMTLICH[city])})`
+                    : dtvAssumed(section, city) ? `≤ 2'000 Fz/Tag (angenommen: kein Eintrag in den ${DTV_AMTLICH.bern})` : 'DTV –'}
+                  {' · '}{Number.isFinite(section.speed)
+                    ? `${section.speed} km/h (${quelleText(section.quelle.speed, TEMPO_AMTLICH[city])})` : 'Tempo –'}</td></tr>
                 <tr><td>Fahrbahnbreite</td><td>heute {Number.isFinite(section.fahrbahnbreite) ? `${numDE(section.fahrbahnbreite, 1)} m` : '–'}
                   {section.quelle.fahrbahnbreite === 'av' ? ' (amtliche Vermessung)' : ''} · verfügbar in der Planung ohne Randsteinanpassung
                   {' '}{Number.isFinite(a.fahrbahn) ? `${numDE(a.fahrbahn, 2)} m` : '–'}</td></tr>
@@ -163,14 +223,21 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, mod
                   {' · '}Seite B {Number.isFinite(section.trottoir.b) ? `${numDE(section.trottoir.b, 2)} m` : 'keines'}</td></tr>}
                 {Number.isFinite(b.verfuegbar) && b.ganz && <tr><td>Gesamtbreite</td><td>{numDE(b.verfuegbar, 2)} m (Fahrbahn und Breite
                   ausserhalb der Fahrbahn heute; verfügbar mit Randsteinanpassung)</td></tr>}
-                <tr><td>Fussverkehrsnetz</td><td>{a.fussnetz ? `${FUSSNETZ[a.fussnetz].label} (${a.fussnetzQuelle === 'geoportal' ? 'Richtplan Fussverkehr' : 'gewählt'}), `
-                  + `Trottoir mindestens ${numDE(FUSSNETZ[a.fussnetz].min, 2)} m (${FUSSNETZ_QUELLE})`
-                  : 'nicht gewählt (Trottoirs ohne Vorgabe geprüft)'}</td></tr>
+                {city === 'luzern' ? (
+                  <tr><td>Trottoir</td><td>2,50 m mit Velostreifen oder unter Tempo 50, sonst 3,00 m; mindestens 2,00 m ({FUSS_QUELLE.luzern})</td></tr>
+                ) : (
+                <tr><td>{city === 'zurich' ? 'Bedeutung des Stadtraums' : city === 'basel' ? 'Fusswegnetz' : 'Fussverkehrsnetz'}</td><td>
+                  {a.fussnetz && FUSSNETZ[a.fussnetz]?.stadt === city
+                    ? `${FUSSNETZ[a.fussnetz].label} (${a.fussnetzQuelle === 'geoportal' ? (city === 'basel' ? 'Teilrichtplan Fuss- und Wanderwege' : 'Richtplan Fussverkehr') : 'gewählt'}), `
+                      + `Trottoir ${FUSSNETZ[a.fussnetz].min < FUSSNETZ[a.fussnetz].wert ? `${numDE(FUSSNETZ[a.fussnetz].wert, 2)} m, mindestens ${numDE(FUSSNETZ[a.fussnetz].min, 2)} m`
+                        : `mindestens ${numDE(FUSSNETZ[a.fussnetz].min, 2)} m`} (${FUSS_QUELLE[city]})`
+                    : 'nicht gewählt (Trottoirs ohne Vorgabe geprüft)'}</td></tr>
+                )}
                 <tr><td>Fahrtrichtungen</td><td>{einbahn ? 'nur Seite A bewertet (Einbahn)' : 'beide Seiten'}{rA ? ` · Seite A Richtung ${rA}` : ''}</td></tr>
               </tbody></table>
             </section>
 
-            {achsen.length > 0 && <BerichtKarte achsen={achsen} av={av} park={park} onBereit={onBild} />}
+            {achsen.length > 0 && <BerichtKarte achsen={achsen} av={av} park={park} nr={nr} onBereit={onBild} />}
 
             {/* Seite 1: Angaben und Kartenbild; ab hier Seite 2 (index.css, .bericht-neue-seite) */}
             <section className="bericht-block bericht-neue-seite">
@@ -197,7 +264,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, mod
                     return (
                       <tr key={i}>
                         <td>{i + 1}</td>
-                        <td>{TEIL_LABEL[t.art]}{zusatz && <div className="klein">{zusatz}</div>}</td>
+                        <td>{teilName(t)}{zusatz && <div className="klein">{zusatz}</div>}</td>
                         <td style={{ whiteSpace: 'nowrap' }}>{Number.isFinite(t.breite) ? `${numDE(t.breite, 2)} m` : '–'}
                           {t.angenommen && <div className="klein">angenommen*</div>}</td>
                         <td className="klein">{pruefungText(t, pruefeTeil(t, rt, breiten, umfeld))}</td>
@@ -242,7 +309,10 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, mod
                 <li>Nicht geprüft: Mittelinseln, Abbiegespuren, Längsgefälle, Sichtweiten. Von der Haltestelle prüft die Planung nur die Breite von Wartehäuschen und Warteraum; ihre Bewertung bleibt wie im Rechner eingegeben.</li>
                 <li>Die Bilanz zählt den ganzen Querschnitt: verfügbar sind die Fahrbahn und die Breite ausserhalb der Fahrbahn von heute
                   (Trottoirs aus der AV). Trottoirbreiten können angepasst werden. Ist diese Breite unbekannt, gilt die Bilanz nur für die Fahrbahn.</li>
-                <li>Trottoirs werden gegen das Fussverkehrsnetz geprüft (Masterplan Fussverkehr); Grünstreifen haben keine Vorgabe.</li>
+                <li>Trottoirs werden geprüft nach: {FUSS_QUELLE[city]}; Grünstreifen haben keine Vorgabe.</li>
+                {city !== 'bern' && <li>Was die {STANDARD_QUELLE[city]} nicht regeln, wird nach dem Masterplan Veloinfrastruktur Stadt Bern
+                  geprüft und in der Prüfung als «Ersatz Bern» gekennzeichnet. Die Fahrbahn ohne Mittellinie wird nach den Mindestbreiten
+                  der Stadt geprüft.</li>}
                 <li>Jede Fahrspur ist ab 3,00 m gültig; mit Lastwagen oder Bus gilt der Lichtraum als Richtwert.</li>
                 <li>Ein Velostreifen direkt neben einer Trennung mit Pfosten gilt als geschützter Radstreifen; Veloabstellplatz und Parklet
                   zählen nicht als Parkierung.</li>
@@ -252,7 +322,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, mod
             <section className="bericht-block">
               <h2>Quellen</h2>
               <ul className="klein">
-                <li>Richtwerte und Vorgaben: {RICHTWERT_QUELLE}; Trottoirs: {FUSSNETZ_QUELLE}; Lichtraum von Lastwagen und Bus: {LICHTRAUM_QUELLE}; Tram 2,80 m
+                <li>Richtwerte und Vorgaben: {STANDARD_QUELLE[city]}{city !== 'bern' ? `; Ersatz: ${RICHTWERT_QUELLE}` : ''}; Trottoirs: {FUSS_QUELLE[city]}; Lichtraum von Lastwagen und Bus: {LICHTRAUM_QUELLE}; Tram 2,80 m
                   (1,40 m ab Gleisachse, Masterplan); Haltestelle 3,10 m und Trennung mit Pfosten 0,70 m: Festlegung VeloroutenCheck.</li>
                 <li>Luftbild: © swisstopo, SWISSIMAGE (wms.geo.admin.ch)</li>
                 {quellen.map(q => <li key={q}>{q}</li>)}

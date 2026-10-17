@@ -53,3 +53,34 @@ export async function ladeFussnetz(achsen: P[][]): Promise<{ netz: FussNetz; ant
   const anteil = anteilNahe(achsen, punkte)
   return { netz: netzAusAnteil(anteil), anteil }
 }
+
+// ── Basel: Teilrichtplan Fuss- und Wanderwege (wfs.geo.bs.ch, seit 17.10.2026) ──
+// Layer TF_Fusswegnetz_{KantonBS|Basel}_Bestand_{ohne|mit}Anschluss, kantonales bzw. kommunales
+// Netz. Geprüft an fünf Strassen: Die kantonalen Linien liegen auf der Strassenachse (Median rund
+// 1 m daneben), wie in Bern. Kantonal → «kantonales Netz», kommunal → «Stadtnetz», sonst «übrige»
+// (Standards FVV, Tab. 1). Quellenangabe «Geodaten Kanton Basel-Stadt».
+export const FUSSNETZ_BASEL = 'Geodaten Kanton Basel-Stadt, Teilrichtplan Fuss- und Wanderwege'
+async function baselLinien(behoerde: 'KantonBS' | 'Basel', env: string): Promise<P[]> {
+  const pts: P[] = []
+  for (const anschluss of ['ohneAnschluss', 'mitAnschluss']) {
+    const u = 'https://wfs.geo.bs.ch/?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature' +
+      `&TYPENAMES=ms:TF_Fusswegnetz_${behoerde}_Bestand_${anschluss}&OUTPUTFORMAT=geojson` +
+      `&BBOX=${env},urn:ogc:def:crs:EPSG::2056&SRSNAME=urn:ogc:def:crs:EPSG::2056`
+    const j = await holeJson<{ features?: { geometry?: { type?: string; coordinates?: unknown } }[] }>(u, 30000)
+    for (const f of j.features ?? []) {
+      const g = f.geometry
+      const linien = (g?.type === 'MultiLineString' ? g.coordinates : g?.type === 'LineString' ? [g.coordinates] : []) as number[][][]
+      for (const l of linien) pts.push(...verdichten(l.filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1])).map(p => [p[0], p[1]] as P)))
+    }
+  }
+  return pts
+}
+export async function ladeFussnetzBasel(achsen: P[][]): Promise<{ netz: FussNetz; anteil: number }> {
+  const pts = achsen.flat(), r = 20
+  const env = [Math.min(...pts.map(p => p[0])) - r, Math.min(...pts.map(p => p[1])) - r,
+    Math.max(...pts.map(p => p[0])) + r, Math.max(...pts.map(p => p[1])) + r].map(v => v.toFixed(1)).join(',')
+  const kanton = anteilNahe(achsen, await baselLinien('KantonBS', env))
+  if (kanton >= BASIS_ANTEIL) return { netz: 'bs_kanton', anteil: kanton }
+  const kommunal = anteilNahe(achsen, await baselLinien('Basel', env))
+  return kommunal >= BASIS_ANTEIL ? { netz: 'bs_stadt', anteil: kommunal } : { netz: 'bs_uebrige', anteil: Math.max(kanton, kommunal) }
+}
