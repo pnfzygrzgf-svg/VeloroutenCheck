@@ -173,10 +173,11 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
 }) {
   const a = section.aufteilung
   const rt = section.routentyp || 'Veloroute'
-  const umfeld = umfeldVon(section, a.teile, a.fussnetz, city)
+  const sTempo = a.tempo != null ? { ...section, speed: a.tempo } : section   // Tempo mit der Planung (Vorschlag «Tempo 30»)
+  const umfeld = umfeldVon(sTempo, a.teile, a.fussnetz, city)
   const plan = bewerteAufteilung(section, a, city, breiten)
   const aq = mitSeitenraum(a, section), b = bilanz(aq), bt = bilanzText(aq, b)
-  const kern = pruefeKernfahrbahn(section, a.teile, city)
+  const kern = pruefeKernfahrbahn(sTempo, a.teile, city)
   const ausgang = startAufteilung(section, city, breiten)
   const massstab = Math.max(breiteCm(ausgang.teile), breiteCm(a.teile))
   const einbahn = section.richtung === 'eine'
@@ -217,7 +218,9 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                     ? `${Math.round(section.dtv).toLocaleString('de-CH')} Fz/Tag (${quelleText(section.quelle.dtv, DTV_AMTLICH[city])})`
                     : dtvAssumed(section, city) ? `≤ 2'000 Fz/Tag (angenommen: kein Eintrag in den ${DTV_AMTLICH.bern})` : 'DTV –'}
                   {' · '}{Number.isFinite(section.speed)
-                    ? `${section.speed} km/h (${quelleText(section.quelle.speed, TEMPO_AMTLICH[city])})` : 'Tempo –'}</td></tr>
+                    ? `${section.speed} km/h (${quelleText(section.quelle.speed, TEMPO_AMTLICH[city])})` : 'Tempo –'}
+                  {a.tempo != null && ` · mit der Planung Tempo ${a.tempo}`}</td></tr>
+                {a.vorschlag && <tr><td>Ausgangspunkt</td><td>Massnahmenvorschlag: {a.vorschlag}</td></tr>}
                 <tr><td>Fahrbahnbreite</td><td>heute {Number.isFinite(section.fahrbahnbreite) ? `${numDE(section.fahrbahnbreite, 1)} m` : '–'}
                   {section.quelle.fahrbahnbreite === 'av' ? ' (amtliche Vermessung)' : ''} · verfügbar in der Planung ohne Randsteinanpassung
                   {' '}{Number.isFinite(a.fahrbahn) ? `${numDE(a.fahrbahn, 2)} m` : '–'}</td></tr>

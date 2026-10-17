@@ -35,6 +35,7 @@ import {
 import { bewerteAbschnitt, type AbschnittErgebnis } from './bewertung'
 import { gegenVon, seiteA, seiteB, seitenGleich, type Section, type Seite } from './strecke'
 import { numDE } from './csv'
+import { PARK_SCHWELLE } from './parkierung'
 
 export type TeilArt = 'Trottoir' | 'Haltestelle' | 'Gruen' | 'Parkierung' | 'Veloabstellplatz' | 'Parklet' | 'Sicherheitsstreifen' | 'Velostreifen'
   | 'Pfosten' | 'Radweg' | 'Trennstreifen' | 'Fahrspur' | 'Gemeinsam' | 'Kernfahrbahn' | 'Velostrasse' | 'Tram'
@@ -82,7 +83,10 @@ export interface Teil { art: TeilArt; breite: number; bild?: Bild; markierung?: 
 // fussnetzQuelle 'geoportal': aus dem Richtplan Fussverkehr vorbelegt (fussnetz.ts), sonst von Hand
 // seitenraum: Breite ausserhalb der Fahrbahn heute, beide Seiten zusammen [m] (Trottoirs aus der AV),
 // NaN oder fehlend = unbekannt; dann gilt die Bilanz nur für die Fahrbahn.
-export interface Aufteilung { fahrbahn: number; teile: Teil[]; seitenraum?: number; fussnetz?: FussNetz; fussnetzQuelle?: 'geoportal' }
+// tempo: Tempo mit der Planung, wenn es von heute abweicht (Massnahmenvorschlag «Tempo 30», vorschlag.ts);
+// vorschlag: Text des übernommenen Massnahmenvorschlags (Bericht), seit 17.10.2026
+export interface Aufteilung { fahrbahn: number; teile: Teil[]; seitenraum?: number; fussnetz?: FussNetz; fussnetzQuelle?: 'geoportal'
+  tempo?: number; vorschlag?: string }
 
 export const TEIL_ARTEN: TeilArt[] = ['Trottoir', 'Haltestelle', 'Gruen', 'Parkierung', 'Veloabstellplatz', 'Parklet', 'Sicherheitsstreifen', 'Velostreifen',
   'Pfosten', 'Radweg', 'Trennstreifen', 'Fahrspur', 'Gemeinsam', 'Kernfahrbahn', 'Velostrasse', 'Tram']
@@ -446,7 +450,7 @@ export function abschnittMitAufteilung(s: Section, a: Aufteilung): Section {
   const setze = (f: Seite, x: SeitenForm | null): Seite => (x ? { ...f, ist: x.ist, breite: x.breite, parkenRechts: x.parkenRechts, parkenSicherheitsstreifen: x.sicherheitsstreifen } : f)
   const neuA = setze(seiteA(s), fa), neuB = setze(seiteB(s), fb)
   const tram = a.teile.some(t => t.art === 'Tram')
-  const neu: Section = { ...s, ...neuA, tram, quelle: { ...s.quelle } }
+  const neu: Section = { ...s, ...neuA, tram, quelle: { ...s.quelle }, ...(a.tempo != null ? { speed: a.tempo } : {}) }
   if (s.richtung === 'beide' && !seitenGleich(neuA, neuB)) neu.gegen = { ...gegenVon(s), ...neuB }
   else delete neu.gegen
   return neu
@@ -492,13 +496,17 @@ export function mitSeitenraum(a: Aufteilung, s: Section): Aufteilung {
 export const seitenraumVon = (tr?: { a: number; b: number }): number =>
   (tr ? (Number.isFinite(tr.a) ? auf5cm(tr.a) : 0) + (Number.isFinite(tr.b) ? auf5cm(tr.b) : 0) : NaN)
 
+// Einbahn: liegt links (Seite B der Achse) Parkierung? Aus den amtlichen Parkfeldern (parkAnteil, Vorbelegung)
+export const einbahnParkLinks = (s: Section): boolean => s.richtung === 'eine' && (s.parkAnteil?.b ?? 0) >= PARK_SCHWELLE
 export function startAufteilung(s: Section, stadt: Stadt = 'bern', breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>): Aufteilung {
   // Parkierung auf der Trottoirfläche (s.trottoir.parkA/parkB, Kanzleistrasse): auf Trottoirniveau,
   // ausserhalb der Fahrbahn; das gemessene Trottoir enthält sie, es wird um ihre Breite schmaler.
   const pBreite = vorgabe('Parkierung', stadt)!.wert
   const parkHat = (f: Seite) => f.parkenRechts === 'ja' && f.ist !== 'Radweg strassenbegleitend / Geschützter Radstreifen'
   const aufTr = (f: Seite, park?: boolean, m?: number) => !!park && parkHat(f) && m != null && Number.isFinite(m)
-  const trA = aufTr(seiteA(s), s.trottoir?.parkA, s.trottoir?.a), trB = aufTr(seiteB(s), s.trottoir?.parkB, s.trottoir?.b)
+  const trA = aufTr(seiteA(s), s.trottoir?.parkA, s.trottoir?.a)
+  const trB = s.richtung === 'eine' ? !!s.trottoir?.parkB && einbahnParkLinks(s) && Number.isFinite(s.trottoir?.b ?? NaN)
+    : aufTr(seiteB(s), s.trottoir?.parkB, s.trottoir?.b)
   const rand = (f: Seite, aufTrottoir: boolean): Teil[] => {
     const t: Teil[] = []
     const radweg = f.ist === 'Radweg strassenbegleitend / Geschützter Radstreifen'
@@ -517,7 +525,11 @@ export function startAufteilung(s: Section, stadt: Stadt = 'bern', breiten?: Par
   }
   // Trottoirs aus der AV (s.trottoir), sobald gemessen: ausserhalb der Fahrbahn, ganz aussen.
   const ohnePark = (m: number | undefined, ja: boolean) => (ja ? Math.max(0, m! - pBreite) : m)
-  const links = [...trottoir(ohnePark(s.trottoir?.b, trB)), ...rand(seiteB(s), trB)]
+  // Einbahn (nur Seite A): links kein Velostreifen; Parkierung links nur, wenn die amtlichen Parkfelder dort
+  // eine zeigen (Nutzerbefund 17.10.2026: vorher stand die Seite A gespiegelt auch links, samt Velostreifen)
+  const links = [...trottoir(ohnePark(s.trottoir?.b, trB)), ...(s.richtung === 'eine'
+    ? (einbahnParkLinks(s) ? [{ art: 'Parkierung', breite: pBreite, ...(trB ? { trottoirniveau: true } : {}) } as Teil] : [])
+    : rand(seiteB(s), trB))]
   const rechts = [...rand(seiteA(s), trA).reverse(), ...trottoir(ohnePark(s.trottoir?.a, trA))]
   const nSpuren = s.richtung === 'eine' ? 1 : 2
   // Fussverkehrsnetz aus dem Geoportal, sobald geladen (Trottoir-Vorgabe)

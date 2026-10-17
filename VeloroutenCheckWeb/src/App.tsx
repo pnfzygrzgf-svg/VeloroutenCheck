@@ -11,6 +11,7 @@ import { VeloMap, ISTCOLOR, BREIT_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, t
 import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeAvFuer, avQuelle } from './av'
 import Strassensuche from './Strassensuche'
+import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, fahrbahnMitRandstein, RANG_TEXT, type TrottoirAnpassung, type Vorschlag } from './vorschlag'
 import { bordkanten, messeAbKante, abstand, aufZentimeter, fahrbahnbreite, parkierungAufTrottoir, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
 import type { AvFlaeche } from './av'
 import {
@@ -710,6 +711,78 @@ const TEIL_FARBE: Record<TeilPruefung['status'], string> = {
 interface PlanAv { gezeigt: boolean; laden: boolean; park: boolean; zeigen: () => void; ausblenden: () => void }
 const AV_LEGENDE: [string, string][] = [['Strasse_Weg', 'Strasse'], ['Trottoir', 'Trottoir'], ['Verkehrsinsel', 'Verkehrsinsel'], ['Gebaeude', 'Gebäude']]
 
+// ── Massnahmenvorschlag (nur Bern, seit 17.10.2026; vorschlag.ts) ─────────────
+// Erste Massnahme in der Rangfolge, die die Note auf 4,5 bringt (Portierung des lokalen Berner Rechners).
+// Je eine Zeile ohne und mit Randsteinanpassung; «Als Planung übernehmen» ersetzt die Teile (danach frei änderbar).
+function VorschlagKasten({ section, a, onChange }: { section: Section; a: Aufteilung; onChange: (a: Aufteilung) => void }) {
+  const ta = trottoirAnpassung(section, a)
+  const aendert = !!ta && ta.frei.A + ta.frei.B + ta.fehlt.A + ta.fehlt.B > 0.001
+  // verfügbare Fahrbahnbreite der Planung (Feld oben), sonst die des Abschnitts
+  const fb = Number.isFinite(a.fahrbahn) ? a.fahrbahn : section.fahrbahnbreite
+  const ohne = useMemo(() => vorschlagRechnen(section, Number.isFinite(fb) ? fb : null), [section, fb])
+  const mit = useMemo(() => (ta && aendert && Number.isFinite(fb) ? vorschlagRechnen(section, fahrbahnMitRandstein(fb, ta)) : null),
+    [section, fb, a.fussnetz])   // eslint-disable-line react-hooks/exhaustive-deps
+  // Was die Randsteinanpassung an den Trottoirs tut, je Seite
+  const trText = ta && aendert ? (['A', 'B'] as const).filter(s => Number.isFinite(ta.ist[s])).map(s =>
+    ta.fehlt[s] > 0.001 ? `Seite ${s} ${numDE(ta.ist[s], 2)} → ${numDE(ta.vorgabe, 2)} m`
+      : ta.frei[s] > 0.001 ? `Seite ${s} ${numDE(ta.ist[s], 2)} m, bis ${numDE(ta.vorgabe, 2)} m schmaler möglich`
+      : `Seite ${s} ${numDE(ta.ist[s], 2)} m wie die Vorgabe`).join(' · ') : ''
+  const zeile = (titel: string, v: Vorschlag | null, randstein: TrottoirAnpassung | null, ersatz?: string, zusatz?: string) => {
+    if (!v) return (
+      <div style={{ padding: '6px 0', borderTop: '1px solid var(--border-subtle)' }}>
+        <b>{titel}:</b> <span style={{ color: 'var(--text-muted-strong)' }}>{ersatz}</span>
+      </div>
+    )
+    const plan = v.erreicht && v.rang ? aufteilungAusVorschlag(section, a, v, randstein) : null
+    const planNote = plan ? bewerteAufteilung(section, plan, 'bern').note : null
+    return (
+      <div style={{ padding: '6px 0', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+          <b>{titel}:</b>{' '}
+          {v.erreicht === true && v.rang === 0 && <span>Die Note erreicht schon {numDE(4.5, 1)}; keine Massnahme nötig.</span>}
+          {v.erreicht === true && v.rang != null && v.rang > 0 && (
+            <span>{v.text} <span style={{ color: 'var(--text-muted-strong)' }}>(Rang {v.rang}, {RANG_TEXT[v.rang]}; Note {
+              v.noteVor != null ? numDE(v.noteVor, 1) : '–'} → {v.noteNach != null ? numDE(v.noteNach, 1) : '–'})</span></span>
+          )}
+          {v.erreicht !== true && <span style={{ color: '#92400e' }}>kein Vorschlag: {v.blocker}</span>}
+          {zusatz && <div style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>Trottoirs auf die Vorgabe: {zusatz}</div>}
+          {v.alternative && <div style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>Alternative: {v.alternative}</div>}
+          {v.vermerk && <div style={{ fontSize: 12, color: '#92400e' }}>{v.vermerk}</div>}
+          {plan && planNote !== v.noteNach && (
+            <div style={{ fontSize: 12, color: '#92400e' }}>
+              In der Planung ergibt sich Note {planNote != null ? numDE(planNote, 1) : '–'}: Führungen ausserhalb der Fahrbahn (abgesetzter
+              Radweg, Fuss-/Radweg) kennt die Planung nicht als Teil.
+            </div>
+          )}
+        </div>
+        {v.erreicht && v.rang != null && v.rang > 0 && (
+          <button type="button" disabled={!plan} onClick={() => plan && onChange(plan)}
+                  title={plan ? 'Ersetzt die Teile der Planung durch den Vorschlag; danach frei änderbar'
+                    : 'Verfügbare Fahrbahnbreite fehlt: zuerst «aus AV ermitteln» oder eintragen'}
+                  style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: plan ? 'var(--accent)' : 'var(--text-faint)',
+                           cursor: plan ? 'pointer' : 'default' }}>
+            Als Planung übernehmen
+          </button>
+        )}
+      </div>
+    )
+  }
+  return (
+    <details className="vrc-klappe" open style={{ background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 8,
+                                                  padding: '8px 12px', marginBottom: 10, fontSize: 13 }}>
+      <summary style={{ fontWeight: 700, color: 'var(--text-strong)' }}>Vorschlag</summary>
+      <div style={{ fontSize: 12, color: 'var(--text-muted-strong)', margin: '4px 0 6px' }}>
+        Die erste Massnahme, die die Note auf mindestens 4,5 bringt, in der Rangfolge Markierung, Kernfahrbahn, Parkierung
+        aufheben, Velostrasse, Radweg bauen, Tempo 30. Ein Startpunkt: übernehmen und danach frei ändern.
+      </div>
+      {zeile('Ohne Randsteinanpassung', ohne, null)}
+      {zeile('Mit Randsteinanpassung', mit, ta, !ta
+        ? 'Fussverkehrsnetz wählen (oben); die Trottoirs kommen dann auf dessen Vorgabe.'
+        : 'Die Trottoirs entsprechen genau der Vorgabe des Fussverkehrsnetzes; wie ohne Randsteinanpassung.', trText)}
+    </details>
+  )
+}
+
 function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, onFahrbahnbreite, fbLaden, onBericht }: {
   section: Section
   heute: AbschnittErgebnis               // Bewertung des Abschnitts wie eingegeben
@@ -761,7 +834,9 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
 
   const breiten = CITIES[city].breiten
   const rt: Routentyp = section.routentyp || 'Veloroute'
-  const umfeld = umfeldVon(section, a.teile, a.fussnetz, city)
+  // Mit Tempo aus dem Vorschlag («Tempo 30») gelten Lichtraum, Trottoir und Kernfahrbahn für das neue Tempo
+  const sp = a.tempo != null ? { ...section, speed: a.tempo } : section
+  const umfeld = umfeldVon(sp, a.teile, a.fussnetz, city)
   const einbahn = section.richtung === 'eine'
   const links = linksDerMitte(a.teile)
   const richtungText = (r: Richtung) => (r === 'beide' ? 'beide Richtungen (Gegenverkehr)'
@@ -798,7 +873,7 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
   const aq = mitSeitenraum(a, section), b = bilanz(aq), bt = bilanzText(aq, b)
   const plan = bewerteAufteilung(section, a, city, breiten)
   const planFehlt = [...new Set(plan.seiten.flatMap(se => se.fehlt))]
-  const kern = pruefeKernfahrbahn(section, a.teile, city)
+  const kern = pruefeKernfahrbahn(sp, a.teile, city)
   const NoteMarke = ({ note }: { note: number | null }) => note == null
     ? <span style={{ fontWeight: 700, color: 'var(--text-muted)' }}>—</span>
     : <span style={{ background: noteColor(note).bg, color: noteColor(note).fg, borderRadius: 8,
@@ -880,6 +955,15 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
             </button>
           </div>
         </div>
+        {city === 'bern' && <VorschlagKasten section={section} a={a} onChange={onChange} />}
+        {a.tempo != null && (
+          <div style={{ fontSize: 12.5, marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a',
+                        color: '#92400e', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ flex: 1 }}>Mit der Planung gilt Tempo {a.tempo} statt {Number.isFinite(section.speed) ? section.speed : '–'} km/h
+              (aus dem Vorschlag); Note und Prüfung rechnen damit.</span>
+            <button type="button" onClick={() => onChange({ ...a, tempo: undefined })} style={kleinKnopfStyle}>Tempo wie heute</button>
+          </div>
+        )}
         {/* AV auf der Karte: Bestand zum Ablesen der Aufteilung */}
         {av && (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8, fontSize: 12.5 }}>
@@ -1570,7 +1654,9 @@ function SoFunktionierts() {
           Strassenflächen der Stadt; Parkierung, Velostreifen).
           Teile wählen, mit «＋» einfügen, am Griff ⠿ verschieben und in der Breite ändern; die App prüft jedes Teil gegen die
           Vorgaben der Stadt (wo eine Stadt kein Mass nennt, gilt das Berner, mit «Ersatz Bern» ausgewiesen), rechnet die Bilanz über den ganzen Querschnitt und zeigt die Note mit der Planung neben der von heute. Die Karte
-          zeigt dazu die amtliche Vermessung und die Parkfelder (Basel: keine Parkfelder in den offenen Daten). «Bericht / PDF» druckt Karte, Skizzen, Prüfung und Bewertung.</li>
+          zeigt dazu die amtliche Vermessung und die Parkfelder (Basel: keine Parkfelder in den offenen Daten). In Bern schlägt der Kasten «Vorschlag»
+          die erste Massnahme vor, die die Note auf 4,5 bringt, ohne und mit Randsteinanpassung (dann kommen die Trottoirs auf
+          die Vorgabe des Fussverkehrsnetzes); «Als Planung übernehmen» setzt sie als Startpunkt. «Bericht / PDF» druckt Karte, Skizzen, Prüfung und Bewertung.</li>
         <li><b>Ergebnis lesen:</b> oben zwischen Schulnote (1 bis 6) und Erfüllungsgrad umschalten; die Bewertung gilt je Abschnitt
           und für die ganze Strecke. «Als CSV exportieren» sichert die Bewertung als Datei.</li>
       </ol>
@@ -1675,6 +1761,21 @@ function Landing({ onStart }: { onStart: () => void }) {
           <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>fgsCheck</span><br />
           <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
             Sichtprüfung an Fussgängerstreifen.
+          </span>
+        </span>
+      </a>
+
+      {/* Querverweis auf SichtweitenCheck */}
+      <a href="https://sichtweitencheck.ch/" target="_blank" rel="noopener noreferrer"
+         style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14, textDecoration: 'none',
+                  background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 10,
+                  padding: '12px 16px', color: 'var(--text)' }}>
+        <img src={import.meta.env.BASE_URL + 'sichtweitencheck.svg'} alt="" width={56} height={56}
+             style={{ flexShrink: 0, borderRadius: 8, background: '#fff' }} />
+        <span>
+          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>SichtweitenCheck</span><br />
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            Sichtprüfung an Knoten und Grundstückzufahrten.
           </span>
         </span>
       </a>

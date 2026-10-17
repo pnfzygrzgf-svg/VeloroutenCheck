@@ -350,6 +350,8 @@ const IST: Record<IstFuehrungsform, IstMeta> = {
   'Einbahn Velogegenverkehr mit Markierung':         { q: 'Q7', rank: 1, feelClass: 'Radstreifen', optimal: 2.0, minimal: 1.8 },
   'Einbahn Velogegenverkehr mit baulicher Trennung': { q: 'Q7', rank: 2, feelClass: 'Radweg',      optimal: 2.0, minimal: 1.8 },
 }
+// Separationsrang einer Ist-Form (0 Mischverkehr … 2 Radweg); für den Massnahmenvorschlag (vorschlag.ts)
+export const istRang = (ist: IstFuehrungsform): number => IST[ist]?.rank ?? 0
 
 // ── Stadtspezifische Breiten-Sollwerte (optionaler Override je Führungsform) ──────
 // Die Führungsform-WAHL (DTV×Tempo) und die feel-safe-Logik bleiben für alle Städte
