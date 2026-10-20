@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bordkanten, messeAbKante, abstand, aufZentimeter, type Kante } from './breitenmessung'
+import { bordkanten, messeAbKante, messeFlaeche, mittelinsel, parkierungTiefe, parkierungVersetzt, abstand, aufZentimeter, type Kante } from './breitenmessung'
 import { zuLv95, zuWgs, type P } from './lv95'
 import type { AvFlaeche } from './av'
 
@@ -106,4 +106,61 @@ describe('trottoirbreiten — ab Bordsteinkante über die Trottoirfläche', () =
     expect(trottoirbreiten([achse], [strasseF, trottoir(rechteck(40, -2, 60, 0))]).rechts).toBeNull())
   it('Fläche breiter als 8 m (Platz) zählt nicht', () =>
     expect(trottoirbreiten([achse], [strasseF, trottoir(rechteck(0, 8, 100, 20))]).links).toBeNull())
+})
+
+describe('messeFlaeche — ganze Fläche von Kante zu Kante (Velostrasse, Wege)', () => {
+  const kanten = [{ a: [0, 0] as [number, number], b: [50, 0] as [number, number] }, { a: [0, 5.2] as [number, number], b: [50, 5.2] as [number, number] }]
+  it('Klick in die Fläche: Breite zwischen beiden Kanten', () => {
+    expect(messeFlaeche([20, 1.5], kanten)?.breite).toBeCloseTo(5.2, 6)
+    expect(messeFlaeche([20, 4.9], kanten)?.breite).toBeCloseTo(5.2, 6)
+  })
+  it('ohne gegenüberliegende Kante kein Ergebnis', () => {
+    expect(messeFlaeche([20, 1.5], [kanten[0]])).toBeNull()
+  })
+})
+
+describe('parkierungTiefe — Tiefe und Anordnung der Parkierung je Seite (Egghölzlistrasse)', () => {
+  const achse: P[] = [[0, 0], [100, 0]]
+  const reihe = (n0: number, n1: number, e0 = 10, e1 = 90): P[] => [[e0, n0], [e1, n0], [e1, n1], [e0, n1]]
+  it('Schrägreihe links 5,10 m, Längsreihe rechts 2,00 m', () => {
+    const r = parkierungTiefe([achse], [{ ringe: [reihe(3, 8.1)] }, { ringe: [reihe(-5, -3)] }])
+    expect(r.links).toEqual({ tiefe: 5.1, art: 'tief' })
+    expect(r.rechts).toEqual({ tiefe: 2, art: 'laengs' })
+  })
+  it('mit der Anzahl Felder: schräg 45° (3,5 m je Feld), 60° (2,95 m) oder senkrecht (2,5 m je Feld)', () => {
+    expect(parkierungTiefe([achse], [{ ringe: [reihe(3, 8.1, 10, 45)], anzahl: 10 }]).links).toEqual({ tiefe: 5.1, art: 'schraeg', winkel: 45 })
+    expect(parkierungTiefe([achse], [{ ringe: [reihe(3, 8.1, 10, 39.5)], anzahl: 10 }]).links).toEqual({ tiefe: 5.1, art: 'schraeg', winkel: 60 })
+    expect(parkierungTiefe([achse], [{ ringe: [reihe(3, 8.1, 10, 35)], anzahl: 10 }]).links).toEqual({ tiefe: 5.1, art: 'quer' })
+  })
+  it('versetzt: Parkierung links und rechts an verschiedenen Stellen → die weniger tiefe Seite zählt nicht', () => {
+    const l = reihe(3, 5, 5, 40), r = reihe(-8.25, -3, 55, 95)
+    expect(parkierungVersetzt([achse], [{ ringe: [l] }, { ringe: [r] }], { rechts: { tiefe: 5.25, art: 'schraeg' } })).toBe('links')
+    // gegenüber (gleiche Stelle): nicht versetzt
+    expect(parkierungVersetzt([achse], [{ ringe: [l] }, { ringe: [reihe(-5, -3, 5, 40)] }])).toBeNull()
+    // nur eine Seite: nicht versetzt
+    expect(parkierungVersetzt([achse], [{ ringe: [l] }])).toBeNull()
+  })
+  it('Zürcher Symbole: Anordnung aus den Daten, Tiefe angenommen', () => {
+    const q = (e: number): P[] => [[e - 1, 3], [e + 1, 3], [e + 1, 5], [e - 1, 5]]
+    const r = parkierungTiefe([achse], [20, 30, 40].map(e => ({ ringe: [q(e)], art: 'schraeg' as const, symbol: true })))
+    expect(r.links).toEqual({ tiefe: 5.25, art: 'schraeg', angenommen: true })
+    expect(r.rechts).toBeUndefined()
+  })
+})
+
+describe('Mittelinsel (Nutzerbefund Laubeggstrasse, 20.10.2026)', () => {
+  // Strasse 100 × 10 m (N 0…10), Achse auf N 2 (eine Richtung), Insel 2 m breit in der Mitte (N 4…6), 8 m lang
+  const achse: P[] = [[0, 2], [100, 2]]
+  const av: AvFlaeche[] = [strasse([rechteck(0, 0, 100, 10), rechteck(46, 4, 54, 6)]), { art: 'Verkehrsinsel', ringe: [rechteck(46, 4, 54, 6)] }]
+  it('erkannt: Breite, Länge, Fahrbahn samt Insel', () => {
+    expect(mittelinsel([achse], av)).toEqual({ breite: 2, laenge: 8, fahrbahn: 10, anzahl: 1 })
+  })
+  it('die Fahrbahnbreite läuft über die Insel bis zum Bord der Gegenseite', () => {
+    const lange = [strasse([rechteck(0, 0, 100, 10), rechteck(5, 4, 95, 6)]), { art: 'Verkehrsinsel', ringe: [rechteck(5, 4, 95, 6)] }]
+    expect(fahrbahnbreite([achse], lange)?.median).toBeCloseTo(10, 1)
+  })
+  it('eine Insel am Rand (dahinter keine Strasse) ist keine Mittelinsel', () => {
+    const rand: AvFlaeche[] = [strasse([rechteck(0, 0, 100, 8)]), { art: 'Verkehrsinsel', ringe: [rechteck(46, 8, 54, 10)] }]
+    expect(mittelinsel([achse], rand)).toBeNull()
+  })
 })

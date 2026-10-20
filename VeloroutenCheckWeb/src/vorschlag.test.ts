@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, fahrbahnMitRandstein, ZIEL } from './vorschlag'
-import { bewerteAufteilung, bilanz, startAufteilung, type Aufteilung } from './aufteilung'
+import { bewerteAufteilung, bilanz, pruefeTeil, startAufteilung, teilName, type Aufteilung } from './aufteilung'
 import { defaultSection, gegenVon, type Section } from './strecke'
 
 // Massnahmenvorschlag (Bern), Portierung des lokalen Zielbild-Rechners; abgeglichen am 17.10.2026
@@ -37,9 +37,19 @@ describe('vorschlagRechnen', () => {
     expect(a.tempo).toBe(30)
     expect(planNote(s, a)).toBe(v.noteNach)
   })
-  it('ohne Breite eines Radstreifens keine Note: Grund nennen', () => {
+  it('ohne Ist-Breite trotzdem ein Vorschlag, die Breite als angenommen vermerkt (Nutzerentscheid 20.10.2026)', () => {
     const v = vorschlagRechnen(abschnitt({ dtv: 6000, speed: 50, ist: 'Radstreifen', fahrbahnbreite: 10 }))
-    expect(v.blocker).toMatch(/^Note von heute fehlt/)
+    expect(v.blocker).toBe('')
+    expect(v.vermerk).toMatch(/^Ist nicht vollständig erfasst: Breite Seite A \(Radstreifen\) mit der Vorgabe 1,80 m angenommen/)
+    expect(v.erreicht).not.toBeNull()
+  })
+  it('Alternativen tragen ihre Eingaben zum Übernehmen', () => {
+    const s = abschnitt({ dtv: 6000, speed: 50, ist: 'Mischverkehr', parkenRechts: 'ja', fahrbahnbreite: 11 })
+    const v = vorschlagRechnen(s)
+    for (const alt of v.alternativen) {
+      const a = aufteilungAusVorschlag(s, startAufteilung(s), { ...v, text: alt.text, noteNach: alt.noteNach, k: alt.k }, null)!
+      expect(planNote(s, a)).toBe(alt.noteNach)
+    }
   })
 })
 
@@ -98,5 +108,92 @@ describe('ohne Lösung', () => {
     const v = vorschlagRechnen(abschnitt({ dtv: 3000, speed: 50, ist: 'Mischverkehr', fahrbahnbreite: 6 }))
     expect(v.erreicht).toBe(false)
     expect(v.blocker).toBe('Fahrbahn zu schmal: auch ohne Parkierung fehlen 1,50 m für einen Radstreifen (6,0 von 7,50 m)')
+  })
+})
+
+describe('Wege ohne Fahrbahn (Nutzerbefund Familienspaziergang, 20.10.2026)', () => {
+  const weg = (x: Partial<Section>) => abschnitt({ ist: 'Fussweg Velo gestattet', ohneFahrbahn: true, ...x })
+  it('Ausgangslage: nur der Weg, mit der gemessenen Breite', () => {
+    const a = startAufteilung(weg({ fahrbahnbreite: 2.8 }))
+    expect(a.teile).toEqual([{ art: 'FusswegVelo', breite: 2.8 }])
+    expect(a.fahrbahn).toBe(0)
+  })
+  it('kein «Velo in die Fahrbahn»; zu schmal: verbreitern, Trennen als Alternative', () => {
+    const s = weg({ fahrbahnbreite: 2.8, dtv: 1000, speed: 30 })
+    const v = vorschlagRechnen(s)
+    expect(v.text).toBe('Fuss-/Radweg auf 3,50 m verbreitern (Q 11)')
+    expect(v.vermerk).toMatch(/Platz neben dem Weg nicht geprüft/)
+    expect(v.alternativen.map(x => x.text)).toEqual(['Fuss- und Veloverkehr trennen: Zweirichtungsradweg 3,20 m + Fussweg 2,00 m'])
+    const a = aufteilungAusVorschlag(s, startAufteilung(s), v, null)!
+    expect(a.teile).toEqual([{ art: 'FussRadweg', breite: 3.5 }])
+    expect(planNote(s, a)).toBe(v.noteNach)
+  })
+  it('breit genug: als Fuss-/Radweg signalisieren (Rang 1)', () => {
+    const v = vorschlagRechnen(weg({ fahrbahnbreite: 3.6, dtv: 1000, speed: 30 }))
+    expect(v).toMatchObject({ rang: 1, text: 'Als Fuss-/Radweg signalisieren (Q 11)' })
+  })
+  it('ohne DTV und Tempo: ohne Motorfahrzeugverkehr gerechnet', () => {
+    const v = vorschlagRechnen(weg({ fahrbahnbreite: 2.8 }))
+    expect(v.erreicht).toBe(true)
+    expect(v.vermerk).toMatch(/ohne Motorfahrzeugverkehr/)
+  })
+  it('getrennt: Zweirichtungsradweg und Fussweg nebeneinander', () => {
+    const s = weg({ fahrbahnbreite: 2.8, dtv: 1000, speed: 30 })
+    const v = vorschlagRechnen(s), alt = v.alternativen[0]
+    const a = aufteilungAusVorschlag(s, startAufteilung(s), { ...v, text: alt.text, noteNach: alt.noteNach, k: alt.k }, null)!
+    expect(a.teile.map(t => t.art)).toEqual(['Zweirichtungsradweg', 'Trottoir'])
+    expect(planNote(s, a)).toBe(alt.noteNach)
+  })
+})
+
+describe('Schräg- und Querparkierung (Nutzerbefund Egghölzlistrasse, 20.10.2026)', () => {
+  const s = abschnitt({ dtv: 6000, speed: 50, ist: 'Mischverkehr', parkenRechts: 'ja', fahrbahnbreite: 16,
+    parkTiefe: { a: { tiefe: 5.05, art: 'tief' }, b: { tiefe: 5.25, art: 'tief' } } })
+  it('Ausgangslage mit der gemessenen Tiefe, ohne Längs-Vorgabe', () => {
+    const p = startAufteilung(s).teile.filter(t => t.art === 'Parkierung')
+    expect(p.map(t => [t.breite, t.parkart])).toEqual([[5.25, 'tief'], [5.05, 'tief']])
+    expect(teilName(p[0])).toBe('Schräg- oder Senkrechtparkierung (Autos)')
+    expect(pruefeTeil(p[0], 'Veloroute').status).toBe('keine Vorgabe')
+  })
+  it('der Vorschlag rechnet mit der Tiefe', () => {
+    const v = vorschlagRechnen(s)
+    const a = aufteilungAusVorschlag(s, startAufteilung(s), v, null)!
+    expect(bilanz(a).fahrbahnSumme).toBeLessThanOrEqual(16 + 1e-9)
+    expect(planNote(s, a)).toBe(v.noteNach)
+  })
+})
+
+describe('Mittelinsel in Ausgangslage und Vorschlag', () => {
+  const s = abschnitt({ dtv: 6000, speed: 50, ist: 'Mischverkehr', fahrbahnbreite: 9, routentyp: 'Velohauptroute',
+    mittelinsel: { breite: 2, laenge: 8, fahrbahn: 12, anzahl: 1 } })
+  it('Ausgangslage: Spuren beidseits der Insel, Fahrbahn samt Insel', () => {
+    const a = startAufteilung(s)
+    expect(a.fahrbahn).toBe(12)
+    expect(a.teile).toEqual([{ art: 'Fahrspur', breite: 5 }, { art: 'Mittelinsel', breite: 2 }, { art: 'Fahrspur', breite: 5 }])
+  })
+  it('Vorschlag: keine Kernfahrbahn, die Insel bleibt in der Planung', () => {
+    const v = vorschlagRechnen(s, 12)
+    expect(v.text).not.toMatch(/Kernfahrbahn/)
+    const a = aufteilungAusVorschlag(s, startAufteilung(s), v, null)
+    if (a) {
+      expect(a.teile.some(t => t.art === 'Mittelinsel')).toBe(true)
+      expect(bilanz(a).fahrbahnSumme).toBeLessThanOrEqual(12 + 1e-9)
+      expect(planNote(s, a)).toBe(v.noteNach)
+    }
+  })
+})
+
+describe('Vorschlag mit versetzter Parkierung (abwechselnd Seite A und B, seit 20.10.2026)', () => {
+  const s = abschnitt({ dtv: 3000, speed: 50, ist: 'Mischverkehr', fahrbahnbreite: 10.55, routentyp: 'Velohauptroute', parkenRechts: 'ja',
+    parkTiefe: { a: { tiefe: 5.25, art: 'schraeg', winkel: 60 } }, parkVersetzt: 'b',
+    gegen: { ...gegenVon(defaultSection()), ist: 'Mischverkehr', parkenRechts: 'ja' } })
+  it('die versetzte Seite braucht keinen Platz; die Planung behält sie als versetzt', () => {
+    const v = vorschlagRechnen(s)
+    expect(v.k?.parkVersetzt).toBe('B')
+    const a = aufteilungAusVorschlag(s, startAufteilung(s), v, null)
+    if (!a) return
+    expect(bilanz(a).rest).toBeGreaterThanOrEqual(-0.005)
+    const parkB = a.teile.filter(t => t.art === 'Parkierung' && t.versetzt)
+    expect(parkB.length).toBeLessThanOrEqual(1)
   })
 })

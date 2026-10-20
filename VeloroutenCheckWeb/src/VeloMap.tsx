@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { ObsStats } from './obs'
+import type { Spuren } from './osm'
 import { escapeHtml } from './netz'
 
 // Ein OSM-Rohsegment (Kandidat) — auf der Karte anklickbar, vor dem Zusammenfassen.
@@ -21,6 +22,8 @@ export interface Cand {
   seiten?: { rechts: string; links: string }
   breiteSeiten?: { rechts?: number; links?: number }   // nur an Strassen (cycleway:right/left:width)
   einbahn?: 'vor' | 'rueck'               // OSM-Einbahn: in bzw. gegen die Way-Richtung
+  ohneFahrbahn?: boolean                  // Weg ohne Fahrbahn (OSM highway=cycleway/footway/path), seit 20.10.2026
+  spuren?: Spuren                         // Fahrspuren je Richtung mit Pfeilen (OSM lanes/turn:lanes), seit 20.10.2026
   veloGegenverkehr?: boolean              // Einbahn, Velo in der Gegenrichtung erlaubt (oneway:bicycle=no)
   speed?: number                          // nur wenn ein maxspeed-Tag vorhanden ist
   breite?: number                         // nur wenn ein width-/cycleway:width-Tag vorhanden ist

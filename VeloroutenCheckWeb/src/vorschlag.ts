@@ -28,11 +28,12 @@
 // (FUSSNETZ, Masterplan Fussverkehr) — schmalere werden auf die Vorgabe verbreitert (zulasten der Fahrbahn),
 // breitere dürfen bis auf die Vorgabe schmaler werden. Ohne gewähltes Netz gibt es diese Variante nicht.
 
-import { fuehrungsart, istRang, sollBreite, type Fuehrungsart, type IstFuehrungsform, type Routentyp } from './fuehrungsform'
+import { brauchtBreite, fuehrungsart, istRang, sollBreite, type Fuehrungsart, type IstFuehrungsform, type Routentyp } from './fuehrungsform'
 import { bewerteAbschnitt } from './bewertung'
 import { dtvEff, gegenVon, seiteA, seiteB, type Section } from './strecke'
-import { FUSSNETZ, KERN_DTV_MAX, KERN_KMH_MAX, auf5cm, einbahnParkLinks, type Aufteilung, type Teil } from './aufteilung'
+import { FUSSNETZ, KERN_DTV_MAX, KERN_KMH_MAX, WEG_TEIL, auf5cm, einbahnParkLinks, type Aufteilung, type Teil } from './aufteilung'
 import { numDE } from './csv'
+import type { ParkTiefe } from './breitenmessung'
 
 export const ZIEL = 4.5
 const RS: IstFuehrungsform = 'Radstreifen'
@@ -41,6 +42,10 @@ const MISCH: IstFuehrungsform = 'Mischverkehr'
 const VELOSTRASSE: IstFuehrungsform = 'Velostrasse'
 const FUSSWEG: IstFuehrungsform = 'Fussweg Velo gestattet'
 const UMWELTSPUR: IstFuehrungsform = 'Umweltspur'
+const KOMBI: IstFuehrungsform = 'Kombinierter Fuss-/Radweg'
+const ZWEIRICHTUNG: IstFuehrungsform = 'Zweirichtungsradweg'
+const RW_ABGESETZT: IstFuehrungsform = 'Radweg abgesetzt'
+const FUSS_NEBEN_M = 2.0      // Fussweg neben dem getrennten Radweg (Standardbreite des Trottoirs)
 const SOLL_MIT_RS: Fuehrungsart[] = ['Radstreifen', 'Radstreifen oder Radweg']
 
 // Masse (querschnitt.py; Masterplan Veloinfrastruktur, Querschnittsblätter Q 1, Q 2a/2b, Q 5)
@@ -64,22 +69,40 @@ export interface Eingaben {
   breite: Record<S, number | null>
   park: Record<S, boolean>                                       // Parkreihe am Rand dieser Seite
   parkFb: Record<S, boolean>                                     // … und sie liegt in der Fahrbahn (nicht auf Trottoirniveau)
+  parkTiefe: Record<S, number>                                   // Tiefe der Parkreihe (gemessen, sonst 1,90 m; seit 20.10.2026)
+  parkArt: Partial<Record<S, ParkTiefe>>                         // Anordnung aus den Parkfeldern (für die Planung)
+  parkVersetzt?: S                                               // Parkierung abwechselnd A und B: diese Seite zählt nicht (seit 20.10.2026)
   sich: Record<S, boolean>                                       // Sicherheitsstreifen neben der Parkreihe
   einbahn: boolean; route: Routentyp; dtv: number | null; kmh: number | null; tram: boolean
   dtvBelegt: boolean                                             // DTV gemessen/eingegeben, nicht «≤ 2000 angenommen»
   fahrbahn: number | null; halt: boolean; uTakt: boolean
   ohnePlatz?: boolean; parkWeg?: boolean; quer?: Quer
+  angenommen?: string[]                                          // Ist-Breiten, die fehlten und mit der Vorgabe angenommen sind
+  // Angenommene Breite je Seite: nur für die Note (wie die Ausgangslage der Planung); für Platz und Regeln gilt
+  // die Breite als unbekannt wie im lokalen Rechner (Abgleich 20.10.2026)
+  annahme?: Partial<Record<S, { form: IstFuehrungsform; breite: number }>>
+  ohneFahrbahn: boolean                                          // Weg ohne Fahrbahn (OSM-Rad-/Fussweg)
+  insel: number                                                  // Mittelinsel (AV) in der Fahrbahn [m]; 0 = keine. fahrbahn ist ohne sie
+  fussNeben?: Partial<Record<S, number>>                         // eigener Fussweg neben dem Radweg (Wege trennen)
+  platzOffen?: boolean                                           // Weg verbreitert: Platz daneben nicht geprüft
 }
 type Kand = { rang: number; text: string; k: Eingaben; weg: 0 | 1 | 2 }   // weg: 0 nichts, 1 eine Reihe, 2 alle
 
-const kopie = (e: Eingaben): Eingaben => ({ ...e, breite: { ...e.breite }, park: { ...e.park }, parkFb: { ...e.parkFb }, sich: { ...e.sich }, quer: undefined })
+const kopie = (e: Eingaben): Eingaben => ({ ...e, breite: { ...e.breite }, park: { ...e.park }, parkFb: { ...e.parkFb }, sich: { ...e.sich },
+  parkTiefe: { ...e.parkTiefe },
+  annahme: { ...e.annahme },
+  fussNeben: { ...e.fussNeben }, quer: undefined })
 const m2 = (x: number) => `${numDE(x, 2)} m`
 const abrunden = (x: number) => Math.round(Math.floor(x / 0.05 + 1e-9) * 5) / 100
 const r2 = (x: number) => Math.round(x * 100) / 100
 const seitenVon = (e: Eingaben): S[] => (e.einbahn ? ['A'] : ['A', 'B'])
 const formVon = (e: Eingaben, s: S) => (s === 'A' ? e.ist : e.geg)
 const parkseiten = (e: Eingaben) => (e.park.A ? 1 : 0) + (e.park.B ? 1 : 0)
-const parkFbBreite = (e: Eingaben) => PARK_M * ((e.park.A && e.parkFb.A ? 1 : 0) + (e.park.B && e.parkFb.B ? 1 : 0))
+const tief = (p?: ParkTiefe) => (p && p.art !== 'laengs' ? p : undefined)
+// Versetzte Parkierung (abwechselnd A und B): die Seite parkVersetzt braucht keinen Platz, solange gegenüber parkiert wird
+const versetztZaehlt = (e: Eingaben, s: S) => !(e.parkVersetzt === s && e.park[s === 'A' ? 'B' : 'A'])
+const parkFbBreite = (e: Eingaben) => (e.park.A && e.parkFb.A && versetztZaehlt(e, 'A') ? e.parkTiefe.A : 0)
+  + (e.park.B && e.parkFb.B && versetztZaehlt(e, 'B') ? e.parkTiefe.B : 0)
 const sollVon = (e: Eingaben): Fuehrungsart | null =>
   (e.dtv != null && e.kmh != null ? fuehrungsart(e.dtv, e.kmh, 'bern', e.route) : null)
 
@@ -102,7 +125,7 @@ function bedarf(form: IstFuehrungsform, e: Eingaben, stufe: Stufe, kern: boolean
   return { summe: r2(mv + velo + trennung + parkFbBreite(e) + sicherheit), velo, miv: mv }
 }
 const kernErlaubt = (form: IstFuehrungsform, e: Eingaben) =>
-  form === RS && !e.einbahn && !e.tram && e.dtvBelegt && e.dtv != null && e.dtv < KERN_DTV_MAX && e.kmh != null && e.kmh <= KERN_KMH_MAX
+  form === RS && !e.einbahn && !e.tram && !e.insel && e.dtvBelegt && e.dtv != null && e.dtv < KERN_DTV_MAX && e.kmh != null && e.kmh <= KERN_KMH_MAX
 function passt(e: Eingaben, form: IstFuehrungsform, stufe: Stufe, kern: boolean, summe: number | null, sichNoetig: boolean): boolean {
   if (kern && !kernErlaubt(form, e)) return false
   if (e.ohnePlatz) return true
@@ -148,7 +171,7 @@ function inDieFahrbahn(e: Eingaben): Eingaben | null {
 }
 function velostrasse(e: Eingaben): Eingaben | null {
   if (e.ist !== MISCH || (e.geg && e.geg !== MISCH)) return null
-  if (e.kmh !== 30 || e.fahrbahn == null || sollVon(e) !== 'Mischverkehr' || e.tram || e.halt || e.uTakt) return null
+  if (e.kmh !== 30 || e.fahrbahn == null || sollVon(e) !== 'Mischverkehr' || e.tram || e.halt || e.uTakt || e.insel) return null
   const netto = r2(e.fahrbahn - parkFbBreite(e))
   if (netto < 4.5 - 1e-9 || netto > 6.5 + 1e-9) return null
   let k = formSetzen(e, 'A', VELOSTRASSE, netto)
@@ -296,9 +319,42 @@ function kernVarianten(e: Eingaben): Kand[] {
 }
 const gegenSchiene = (e: Eingaben) => e.tram && (e.ist === MISCH || e.geg === MISCH)
 
+// ── Wege ohne bzw. neben der Fahrbahn (Nutzerentscheid 20.10.2026; nicht im Katalog des lokalen Rechners) ──
+// Fussweg mit Velo bzw. gemeinsamer Fuss-/Radweg: Rang 1 als Fuss-/Radweg signalisieren, wenn er die Vorgabe
+// (Q 11) schon hat; Rang 6 auf die Vorgabe verbreitern oder Fuss- und Veloverkehr trennen (Zweirichtungsradweg
+// Q 10 auf dem Weg ohne Fahrbahn, sonst abgesetzter Radweg Q 3, dazu ein Fussweg von 2,00 m). Den Platz neben dem
+// Weg kennt die App nicht: Ein Vorschlag, der verbreitert, trägt den Vermerk.
+function wegVarianten(e: Eingaben): Kand[] {
+  const seiten = seitenVon(e).filter(s => formVon(e, s) === FUSSWEG || formVon(e, s) === KOMBI)
+  if (!seiten.length) return []
+  const out: Kand[] = []
+  const soll = sollBreite(KOMBI, e.route) ?? 3.5
+  const breit = (s: S) => (e.breite[s] ?? 0) + 1e-9 >= soll
+  const setzen = (form: IstFuehrungsform, breite: (s: S) => number) => {
+    let k = e
+    for (const s of seiten) k = formSetzen(k, s, form, breite(s))
+    return k
+  }
+  if (seiten.some(s => formVon(e, s) === FUSSWEG) && seiten.every(breit))
+    out.push({ rang: 1, text: 'Als Fuss-/Radweg signalisieren (Q 11)', k: setzen(KOMBI, s => e.breite[s]!), weg: 0 })
+  if (!seiten.every(breit)) {
+    const k = setzen(KOMBI, s => Math.max(e.breite[s] ?? 0, soll)); k.platzOffen = true
+    out.push({ rang: 6, text: `Fuss-/Radweg auf ${m2(soll)} verbreitern (Q 11)`, k, weg: 0 })
+  }
+  const velo = e.ohneFahrbahn ? ZWEIRICHTUNG : RW_ABGESETZT
+  const vb = sollBreite(velo, e.route) ?? 2.5
+  const k = setzen(velo, () => vb)
+  k.fussNeben = Object.fromEntries((e.ohneFahrbahn ? ['A'] : seiten).map(s => [s, FUSS_NEBEN_M]))
+  k.platzOffen = true
+  out.push({ rang: 6, k, weg: 0, text: `Fuss- und Veloverkehr trennen: ${velo === ZWEIRICHTUNG ? 'Zweirichtungsradweg' : 'Radweg abgesetzt'} ${m2(vb)}`
+    + ` + Fussweg ${m2(FUSS_NEBEN_M)}` })
+  return out
+}
+
 // ── Ränge ──
 function rang12(e: Eingaben): Kand[] {
   const out: Kand[] = []
+  if (e.ohneFahrbahn) return wegVarianten(e).filter(c => c.rang === 1)   // ohne Fahrbahn keine Markierung auf der Strasse
   const f = inDieFahrbahn(e)
   if (f) out.push({ rang: 1, text: 'Velo in die Fahrbahn (Mischverkehr statt Fussweg)', k: f, weg: 0 })
   out.push(...sicherheitsstreifen(e), ...verbreitern(e), ...kernVarianten(e))
@@ -321,6 +377,7 @@ export interface Vorschlag {
   noteVor: number | null
   noteNach?: number
   alternative: string
+  alternativen: { text: string; noteNach: number; k: Eingaben }[]   // zum Übernehmen (Nutzerwunsch 20.10.2026)
   blocker: string
   vermerk: string
   varianten: number                 // geprüfte Varianten
@@ -335,30 +392,62 @@ export const RANG_TEXT: Record<number, string> = {
 export function eingabenVon(s: Section): Eingaben {
   const a = seiteA(s), b = seiteB(s), einbahn = s.richtung === 'eine'
   const form = (f: typeof a) => (f.ist || null) as IstFuehrungsform | null
-  const breite = (f: typeof a) => (Number.isFinite(f.breite) && f.ist !== MISCH ? f.breite : null)
+  // Fehlt eine Ist-Breite, gilt wie in der Ausgangslage der Planung die Vorgabe, als «angenommen» vermerkt
+  // (Nutzerentscheid 20.10.2026: Planen auch ohne vollständige Ist-Angaben)
+  const angenommen: string[] = []
+  const annahme: Partial<Record<S, { form: IstFuehrungsform; breite: number }>> = {}
+  const breite = (f: typeof a, seite: S) => {
+    if (f.ist === MISCH || !f.ist) return null
+    if (Number.isFinite(f.breite)) return f.breite
+    // Weg ohne Fahrbahn: die gemessene «Fahrbahnbreite» ist die Wegfläche der AV
+    if (s.ohneFahrbahn && WEG_TEIL[f.ist] && Number.isFinite(s.fahrbahnbreite)) return s.fahrbahnbreite
+    if (!brauchtBreite(f.ist)) return null
+    const v = sollBreite(f.ist, s.routentyp || 'Veloroute')
+    if (v == null) return null
+    angenommen.push(`Breite Seite ${seite} (${f.ist}) mit der Vorgabe ${m2(v)} angenommen`)
+    annahme[seite] = { form: f.ist, breite: v }
+    return null
+  }
   const parkJa = (f: typeof a) => f.parkenRechts === 'ja' && f.ist !== RW
   const dtv = dtvEff(s, 'bern')
+  const inselB = s.mittelinsel && !einbahn && a.ist !== VELOSTRASSE ? s.mittelinsel.breite : 0
   return {
     ist: form(a), geg: einbahn ? null : form(b),
-    breite: { A: breite(a), B: einbahn ? null : breite(b) },
+    breite: { A: breite(a, 'A'), B: einbahn ? null : breite(b, 'B') },
     park: { A: parkJa(a), B: einbahn ? einbahnParkLinks(s) : parkJa(b) },
     parkFb: { A: !s.trottoir?.parkA, B: !s.trottoir?.parkB },
+    // Schräg- und Querparkierung mit gemessener Tiefe, Längsparkierung mit 1,90 m (wie die Ausgangslage)
+    parkTiefe: { A: tief(s.parkTiefe?.a)?.tiefe ?? PARK_M, B: tief(s.parkTiefe?.b)?.tiefe ?? PARK_M },
+    parkArt: { ...(tief(s.parkTiefe?.a) ? { A: s.parkTiefe!.a } : {}), ...(tief(s.parkTiefe?.b) ? { B: s.parkTiefe!.b } : {}) },
+    ...(s.parkVersetzt && !einbahn ? { parkVersetzt: s.parkVersetzt === 'a' ? 'A' as S : 'B' as S } : {}),
     sich: { A: parkJa(a) && a.parkenSicherheitsstreifen, B: !einbahn && parkJa(b) && b.parkenSicherheitsstreifen },
     einbahn, route: s.routentyp || 'Veloroute', dtv: Number.isFinite(dtv) ? dtv : null, kmh: Number.isFinite(s.speed) ? s.speed : null,
     dtvBelegt: Number.isFinite(s.dtv),   // Kernfahrbahn nur mit belegtem DTV (querschnitt.kern_erlaubt)
-    tram: s.tram, fahrbahn: Number.isFinite(s.fahrbahnbreite) ? s.fahrbahnbreite : null,
+    // Mit Mittelinsel: der Querschnitt durch die Insel (wie die Ausgangslage), die Insel selbst steht nicht zur Verfügung
+    tram: s.tram, insel: inselB,
+    fahrbahn: inselB ? s.mittelinsel!.fahrbahn - inselB : Number.isFinite(s.fahrbahnbreite) ? s.fahrbahnbreite : null,
     halt: s.oevAngebot !== 'keine' || [a, b].some(f => f.haltestellentyp !== 'keine'),
     uTakt: [a, b].some(f => Number.isFinite(f.oevTakt)),
+    angenommen, annahme,
+    ohneFahrbahn: !!s.ohneFahrbahn,
   }
 }
 
 // Der Abschnitt, wie er mit den Eingaben einer Variante wäre (für die Note)
+const breiteFuerNote = (e: Eingaben, s: S): number => {
+  const an = e.annahme?.[s]
+  return e.breite[s] ?? (an && an.form === formVon(e, s) ? an.breite : NaN)
+}
 export function abschnittAus(base: Section, e: Eingaben): Section {
   const sb = { ...base, routentyp: e.route, quelle: { ...base.quelle } }
-  const s: Section = { ...sb, ist: e.ist ?? '', breite: e.breite.A ?? NaN, parkenRechts: e.park.A ? 'ja' : 'nein',
+  const s: Section = { ...sb, ist: e.ist ?? '', breite: breiteFuerNote(e, 'A'), parkenRechts: e.park.A ? 'ja' : 'nein',
     parkenSicherheitsstreifen: e.park.A && e.sich.A, speed: e.kmh ?? NaN }
+  // Weg ohne Fahrbahn ohne Verkehrsdaten: ohne Motorfahrzeugverkehr rechnen (DTV 0, Tempo 30); sonst bleibt
+  // ein Fuss-/Radweg oder Zweirichtungsradweg ohne Note
+  if (e.ohneFahrbahn && !Number.isFinite(dtvEff(base, 'bern'))) { s.dtv = 0; s.dtvGeprueft = false }
+  if (e.ohneFahrbahn && !Number.isFinite(s.speed)) s.speed = 30
   if (e.einbahn) delete s.gegen
-  else s.gegen = { ...gegenVon(sb), ist: e.geg ?? '', breite: e.breite.B ?? NaN, parkenRechts: e.park.B ? 'ja' : 'nein',
+  else s.gegen = { ...gegenVon(sb), ist: e.geg ?? '', breite: breiteFuerNote(e, 'B'), parkenRechts: e.park.B ? 'ja' : 'nein',
     parkenSicherheitsstreifen: e.park.B && e.sich.B }
   return s
 }
@@ -388,16 +477,19 @@ function fehltText(e: Eingaben): string {
 // Der Vorschlag für einen Abschnitt; fahrbahn: verfügbares Mass (mit Randsteinanpassung grösser)
 export function vorschlagRechnen(base: Section, fahrbahn?: number | null): Vorschlag {
   const e = eingabenVon(base)
-  if (fahrbahn !== undefined) e.fahrbahn = fahrbahn
+  if (fahrbahn !== undefined) e.fahrbahn = fahrbahn == null ? null : r2(fahrbahn - e.insel)
   const nv = noten(base, e), n0 = nv.n
-  const res: Vorschlag = { erreicht: null, text: '', noteVor: n0, alternative: '', blocker: '', vermerk: '', varianten: 0 }
+  const res: Vorschlag = { erreicht: null, text: '', noteVor: n0, alternative: '', alternativen: [], blocker: '', vermerk: '', varianten: 0 }
   const vermerke: string[] = []
+  if (e.angenommen?.length) vermerke.push(`Ist nicht vollständig erfasst: ${e.angenommen.join('; ')}`)
   if (!base.routentyp) vermerke.push('Routentyp fehlt: gerechnet als Veloroute')
+  if (e.ohneFahrbahn && (!Number.isFinite(dtvEff(base, 'bern')) || !Number.isFinite(base.speed)))
+    vermerke.push('Weg ohne Fahrbahn ohne DTV oder Tempo: gerechnet ohne Motorfahrzeugverkehr')
   if (!e.ist) { res.blocker = 'keine Führungsform erfasst'; return res }
-  if (n0 != null && n0 >= ZIEL) { Object.assign(res, { erreicht: true, rang: 0, text: RANG_TEXT[0], noteNach: n0 }); return res }
+  if (n0 != null && n0 >= ZIEL) { Object.assign(res, { erreicht: true, rang: 0, text: RANG_TEXT[0], noteNach: n0, vermerk: vermerke.join(' · ') }); return res }
   // Die Note braucht online bei Formen mit Breitenvorgabe die Breite (lokal nicht): dann zuerst ergänzen
   if (n0 == null) { res.blocker = `Note von heute fehlt: ${nv.fehlt.join(', ') || 'Eingaben unvollständig'}`; return res }
-  if (!sollVon(e)) { res.blocker = 'kein Soll (DTV oder Tempo fehlt)'; return res }
+  if (!sollVon(e) && !e.ohneFahrbahn) { res.blocker = 'kein Soll (DTV oder Tempo fehlt)'; return res }
   const e0 = e.fahrbahn == null ? { ...kopie(e), ohnePlatz: true } : e
   const schlechtere = (x: Eingaben): S => { const r = noten(base, x); return r.b != null && r.a != null && r.b < r.a ? 'B' : 'A' }
   const mitPark = (rang: number, x: Eingaben, f: (k: Eingaben) => Kand[]): Kand[] =>
@@ -416,16 +508,18 @@ export function vorschlagRechnen(base: Section, fahrbahn?: number | null): Vorsc
     return out
   }
   const rang6 = (x: Eingaben): Kand[] => {
+    // Wege-Regeln nur für Wege ohne Fahrbahn (Nutzerentscheid 20.10.2026); an Strassen gilt der Katalog des lokalen Rechners
+    if (x.ohneFahrbahn) return wegVarianten(x).filter(c => c.rang === 6)
     if (![x.ist, x.geg].some(f => f === MISCH || f === RS || f === FUSSWEG || f === UMWELTSPUR)) return []
     return [...veloVarianten(x, 6, RW), ...mitPark(6, x, k => veloVarianten(k, 6, RW))]
   }
   const rang7 = (x: Eingaben): Kand[] => {
-    const t = tempo30(x)
+    const t = x.ohneFahrbahn ? null : tempo30(x)
     if (!t) return []
     const davor = (c: Kand): Kand => ({ ...c, rang: 7, text: `Tempo 30 + ${c.text}` })
     return [{ rang: 7, text: 'Tempo 30', k: t, weg: 0 }, ...rang12(t).map(davor), ...rang3(t).map(davor), ...rang4(t).map(davor), ...rang6(t).map(davor)]
   }
-  const kand = [...rang12(e0), ...rang3(e0), ...rang4(e0), ...rang6(e0), ...rang7(e0)]
+  const kand = e.ohneFahrbahn ? [...rang12(e), ...rang6(e)] : [...rang12(e0), ...rang3(e0), ...rang4(e0), ...rang6(e0), ...rang7(e0)]
   res.varianten = kand.length
   const treffer = kand.map(c => ({ ...c, n: noten(base, c.k).n }))
     .filter((c): c is Kand & { n: number } => c.n != null && c.n >= ZIEL)
@@ -436,18 +530,24 @@ export function vorschlagRechnen(base: Section, fahrbahn?: number | null): Vorsc
   const altText = (t: Kand & { n: number }) => `${t.text} → ${numDE(t.n, 1)}`
   if (!haupt.length) {
     res.erreicht = false
-    res.blocker = fehltText(e) || ([e.ist, e.geg].includes(UMWELTSPUR)
+    res.blocker = (e.ohneFahrbahn ? '' : fehltText(e)) || ([e.ist, e.geg].includes(UMWELTSPUR)
       ? 'Umweltspur bei dichtem Bus-Takt (Massnahme liegt beim ÖV)' : 'mit keiner Massnahme des Katalogs auf 4,5')
-    if (piloten.length) res.alternative = `nur im Pilot möglich: ${altText(piloten[0])}`
+    if (piloten.length) {
+      res.alternative = `nur im Pilot möglich: ${altText(piloten[0])}`
+      res.alternativen = [{ text: piloten[0].text, noteNach: piloten[0].n, k: piloten[0].k }]
+    }
     res.vermerk = vermerke.join(' · ')
     return res
   }
   const r1 = haupt[0]
   Object.assign(res, { erreicht: true, rang: r1.rang, text: r1.text, noteNach: r1.n, k: r1.k })
-  if (e.fahrbahn == null && !/^(Tempo 30|Velo in die Fahrbahn)/.test(r1.text.replace(/^Tempo 30 \+ /, '')))
+  if (r1.k.platzOffen) vermerke.push('Platz neben dem Weg nicht geprüft: die App kennt die Fläche daneben nicht')
+  else if (e.fahrbahn == null && !e.ohneFahrbahn && !/^(Tempo 30|Velo in die Fahrbahn)/.test(r1.text.replace(/^Tempo 30 \+ /, '')))
     vermerke.push('Fahrbahnbreite unbekannt: Platz nicht geprüft, der Vorschlag nennt nur die nötige Führungsform')
   res.vermerk = vermerke.join(' · ')
-  const alt = haupt.slice(1).find(t => t.text !== r1.text && (t.rang !== r1.rang || t.weg !== r1.weg))
+  // Alternative: anderer Rang, andere Parkierung oder (bei Wegen) Trennen statt Verbreitern
+  const trennt = (x: string) => x.startsWith('Fuss- und Veloverkehr trennen')
+  const alt = haupt.slice(1).find(t => t.text !== r1.text && (t.rang !== r1.rang || t.weg !== r1.weg || trennt(t.text) !== trennt(r1.text)))
   let alts = alt ? [alt] : []
   if (r1.text.includes('als Kernfahrbahn (Kern')) {
     const stamm = r1.text.split('als Kernfahrbahn')[0].split(' beidseitig')[0]
@@ -457,6 +557,7 @@ export function vorschlagRechnen(base: Section, fahrbahn?: number | null): Vorsc
   const spar = piloten.find(t => t.weg < r1.weg && !alts.includes(t))
   if (spar) alts.push(spar)
   res.alternative = alts.map(altText).join('; oder: ')
+  res.alternativen = alts.map(x => ({ text: x.text, noteNach: x.n, k: x.k }))
   return res
 }
 
@@ -469,7 +570,7 @@ const trottoirHeute = (s: Section, seite: S): number => {
   if (m == null || !Number.isFinite(m)) return NaN
   const park = seite === 'A' ? s.trottoir?.parkA && seiteA(s).parkenRechts === 'ja'
     : s.trottoir?.parkB && (s.richtung === 'eine' ? einbahnParkLinks(s) : seiteB(s).parkenRechts === 'ja')
-  return auf5cm(park ? m - PARK_M : m)
+  return auf5cm(park ? m - (tief(s.parkTiefe?.[seite === 'A' ? 'a' : 'b'])?.tiefe ?? PARK_M) : m)
 }
 export function trottoirAnpassung(s: Section, a: Aufteilung): TrottoirAnpassung | null {
   const v = a.fussnetz ? FUSSNETZ[a.fussnetz] : undefined
@@ -487,16 +588,35 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
   const k = v.k
   // verfügbar ist das Mass der Planung (Feld «Verfügbare Fahrbahnbreite»), sonst das des Abschnitts
   const fb0 = Number.isFinite(a0.fahrbahn) ? a0.fahrbahn : base.fahrbahnbreite
-  if (!k || !Number.isFinite(fb0)) return null
+  if (!k) return null
+  const wegTeile = (s: S): Teil[] => {
+    const f = s === 'B' && k.einbahn ? null : formVon(k, s)
+    const art = f ? WEG_TEIL[f] : undefined
+    if (!art) return []
+    const an = k.annahme?.[s]
+    const b = k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? sollBreite(f!, k.route) ?? NaN
+    return [...(k.fussNeben?.[s] ? [{ art: 'Trottoir', breite: k.fussNeben[s]! } as Teil] : []), { art, breite: b }]
+  }
+  // Weg ohne Fahrbahn: nur der Weg (ein Teil für beide Richtungen), getrennt mit dem Fussweg daneben
+  if (k.ohneFahrbahn) {
+    const teile = wegTeile('A').reverse()
+    if (!k.einbahn && formVon(k, 'B') !== formVon(k, 'A')) teile.unshift(...wegTeile('B').filter(x => x.art !== 'Trottoir'))
+    return { ...a0, fahrbahn: 0, teile, tempo: undefined, vorschlag: v.text }
+  }
+  if (!Number.isFinite(fb0)) return null
   const q = k.quer
   const rand = (s: S): Teil[] => {
-    const t: Teil[] = []
+    const t: Teil[] = [...wegTeile(s)]
     if (k.park[s]) {
-      t.push(k.parkFb[s] ? { art: 'Parkierung', breite: PARK_M } : { art: 'Parkierung', breite: PARK_M, trottoirniveau: true })
+      const pa = k.parkArt[s]
+      t.push({ art: 'Parkierung', breite: k.parkTiefe[s], ...(pa && pa.art !== 'laengs' ? { parkart: pa.art, ...(pa.winkel ? { winkel: pa.winkel } : {}) } : {}),
+        ...(pa && pa.art !== 'laengs' ? (pa.angenommen ? { angenommen: true } : { tiefeGemessen: true }) : {}), ...(k.parkFb[s] ? {} : { trottoirniveau: true }),
+        ...(versetztZaehlt(k, s) ? {} : { versetzt: true }) })
       if (k.sich[s]) t.push({ art: 'Sicherheitsstreifen', breite: q?.sichJe || SICHERHEIT.standard })
     }
     const f = s === 'B' && k.einbahn ? null : formVon(k, s)
-    const b = k.breite[s] ?? q?.ersatz ?? velobreite(RS, k.route, 'minimal')
+    const an = k.annahme?.[s]
+    const b = k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? q?.ersatz ?? velobreite(RS, k.route, 'minimal')
     if (f === RS) t.push({ art: 'Velostreifen', breite: b })
     if (f === RW) { t.push({ art: 'Radweg', breite: b }); t.push({ art: 'Trennstreifen', breite: TRENNUNG_M }) }
     return t
@@ -505,7 +625,7 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
   const imFb = (t: Teil) => !t.trottoirniveau
   const seitlich = r2([...links, ...rechts].filter(imFb).reduce((x, t) => x + t.breite, 0))
   const velostr = q?.form === VELOSTRASSE
-  const mittelMin = velostr ? 4.5 : q?.kern ? q.kernM! : miv(q?.form === RW ? RW : RS, k, false)
+  const mittelMin = (velostr ? 4.5 : q?.kern ? q.kernM! : miv(q?.form === RW ? RW : RS, k, false)) + k.insel
   // Trottoirs: heute gemessen (ohne Parkierung auf Trottoirniveau, auf 5 cm wie der Seitenraum der Bilanz).
   // Mit Randsteinanpassung zuerst die zu schmalen auf die Vorgabe (zulasten der Fahrbahn), dann von den zu
   // breiten nur den nötigen Teil, anteilig nach ihrem Überschuss.
@@ -522,9 +642,12 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
       trA = r2(trA - nimmA); trB = r2(trB - nimmB); fb = r2(fb + nimmA + nimmB)
     }
   }
-  const mitte = r2(fb - seitlich)
+  const mitte = r2(fb - seitlich - k.insel)
   let kern: Teil[]
-  if (velostr) kern = [{ art: 'Velostrasse', breite: mitte }]
+  if (k.insel && !velostr) {
+    const art = k.tram ? 'Tram' : 'Fahrspur'
+    kern = [{ art, breite: abrunden(mitte / 2) }, { art: 'Mittelinsel', breite: k.insel }, { art, breite: abrunden(mitte / 2) }] as Teil[]
+  } else if (velostr) kern = [{ art: 'Velostrasse', breite: mitte }]
   else if (q?.kern) kern = [{ art: 'Kernfahrbahn', breite: q.kernM! }]
   else {
     const n = k.einbahn ? 1 : 2, art = k.tram ? 'Tram' : 'Fahrspur'

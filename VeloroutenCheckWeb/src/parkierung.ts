@@ -103,7 +103,7 @@ const BERN_TYPEN = ['Parkfeld_Gebuehrenpflichtig', 'Parkfeld_blau_APK', 'Parkfel
 export const bernSpezialAusgeschlossen = (pr: Record<string, unknown>): boolean =>
   /polizei|lastwagen|lkw|sanit|ambulanz|feuerwehr/i.test(`${pr.Art_beschrieb ?? ''} ${pr.Subgruppe_beschrieb ?? ''} ${pr.Gruppe_beschrieb ?? ''}`)
 // Die zählenden Felder je Flächen-Typ (für die Vorbelegung als Punkte, für die Karte als Flächen).
-async function bernFelder([a, b, c, d]: Box): Promise<{ typ: string; g: { type?: string; coordinates?: unknown } | null | undefined }[]> {
+async function bernFelder([a, b, c, d]: Box): Promise<{ typ: string; g: { type?: string; coordinates?: unknown } | null | undefined; anzahl?: number }[]> {
   const ant = await Promise.all(BERN_TYPEN.map(t => holeJson<GeoJson & { crs?: { properties?: { name?: string } } }>(
     'https://map.bern.ch/arcgis/services/Geoportal/Parkplaetze_oeffentlich/MapServer/WFSServer?SERVICE=WFS&VERSION=2.0.0' +
     `&REQUEST=GetFeature&TYPENAMES=Geoportal_Parkplaetze_oeffentlich_2:${t}&OUTPUTFORMAT=GEOJSON` +
@@ -113,7 +113,10 @@ async function bernFelder([a, b, c, d]: Box): Promise<{ typ: string; g: { type?:
     throw new Error('Parkfelder Bern nicht in LV95')
   return ant.flatMap((j, i) => (j.features ?? [])
     .filter(f => BERN_TYPEN[i] !== 'Spezialfeld' || !bernSpezialAusgeschlossen(f.properties ?? {}))
-    .map(f => ({ typ: BERN_TYPEN[i], g: f.geometry })))
+    .map(f => {
+      const n = Number(f.properties?.ANZAHL_PARKFELDER)   // Felder der Reihe (für die Anordnung, parkierungTiefe)
+      return { typ: BERN_TYPEN[i], g: f.geometry, ...(Number.isFinite(n) && n > 0 ? { anzahl: n } : {}) }
+    }))
 }
 async function bernLaden(box: Box): Promise<P[]> {
   return (await bernFelder(box)).flatMap(f => punkteAus(f.g))
@@ -121,7 +124,11 @@ async function bernLaden(box: Box): Promise<P[]> {
 
 // ── Parkfelder als Flächen für die Karte (Aufteilung planen, seit 16.10.2026; Bern, Zürich, Luzern) ──
 // Dieselben Felder, die für die Vorbelegung zählen. verbot: Parkverbotsfeld (zählt ebenfalls).
-export interface ParkFlaeche { verbot: boolean; ringe: P[][] }
+// art: Anordnung aus den Daten (Zürich: orientierung LPU/SCHPU/QPU); symbol: Fläche nur gezeichnet (Zürcher Linien
+// als 2-m-Streifen, Punkte als Quadrate), ihre Tiefe ist nicht messbar (seit 20.10.2026, parkierungTiefe)
+export type ParkArt = 'laengs' | 'schraeg' | 'quer'
+// anzahl: Felder der Reihe (Bern ANZAHL_PARKFELDER): Länge je Feld unterscheidet schräg und senkrecht (seit 20.10.2026)
+export interface ParkFlaeche { verbot: boolean; ringe: P[][]; art?: ParkArt; symbol?: boolean; anzahl?: number }
 // Zürich (seit 17.10.2026): Längsstreifen als Linien, als 2 m breite Streifen gezeichnet, und Einzelfelder
 // als Punkte, als 2 × 2 m grosse Quadrate (die Daten nennen nur Längs/Quer/Schräg, nicht den Winkel zur Strasse).
 // Luzern (seit 17.10.2026): Flächen wie für die Vorbelegung. Basel: keine Geometrie.
@@ -152,12 +159,15 @@ async function zurichFlaechen([a, b, c, d]: Box): Promise<ParkFlaeche[]> {
   for (const f of (li.features ?? [])) {
     const g = f.geometry
     const linien = (g?.type === 'MultiLineString' ? g.coordinates : g?.type === 'LineString' ? [g.coordinates] : []) as number[][][]
-    for (const l of linien) for (const q of streifen(l.map(p => [p[0], p[1]] as P), 1.0)) aus.push({ verbot: false, ringe: [q] })
+    for (const l of linien) for (const q of streifen(l.map(p => [p[0], p[1]] as P), 1.0)) aus.push({ verbot: false, ringe: [q], art: 'laengs', symbol: true })
   }
+  const zhArt = (o: unknown): ParkArt | undefined => (o === 'LPU' ? 'laengs' : o === 'SCHPU' ? 'schraeg' : o === 'QPU' ? 'quer' : undefined)
   for (const f of pt.features ?? []) {
     const g = f.geometry
     const punkte = (g?.type === 'MultiPoint' ? g.coordinates : g?.type === 'Point' ? [g.coordinates] : []) as number[][]
-    for (const q of punkte) if (Number.isFinite(q?.[0]) && Number.isFinite(q?.[1])) aus.push({ verbot: false, ringe: [quadrat([q[0], q[1]], 1.0)] })
+    const art = zhArt(f.properties?.orientierung)
+    for (const q of punkte) if (Number.isFinite(q?.[0]) && Number.isFinite(q?.[1]))
+      aus.push({ verbot: false, ringe: [quadrat([q[0], q[1]], 1.0)], symbol: true, ...(art ? { art } : {}) })
   }
   return aus
 }
@@ -180,10 +190,11 @@ export async function ladeParkflaechen(stadt: ParkStadt, box: Box): Promise<Park
   if (stadt !== 'bern') return []
   const ring = (xs: unknown): P[] => (Array.isArray(xs)
     ? xs.filter(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map(p => [p[0], p[1]] as P) : [])
-  return (await bernFelder(box)).flatMap(({ typ, g }) => {
+  return (await bernFelder(box)).flatMap(({ typ, g, anzahl }) => {
     if (!g || !Array.isArray(g.coordinates)) return []
     const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []
-    return (polys as unknown[]).filter(Array.isArray).map(poly => ({ verbot: typ === 'Parkverbot', ringe: (poly as unknown[]).map(ring) }))
+    return (polys as unknown[]).filter(Array.isArray).map(poly => ({ verbot: typ === 'Parkverbot', ringe: (poly as unknown[]).map(ring),
+      ...(anzahl && polys.length === 1 ? { anzahl } : {}) }))
   })
 }
 

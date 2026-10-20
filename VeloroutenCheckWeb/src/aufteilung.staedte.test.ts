@@ -116,6 +116,20 @@ describe('startAufteilung je Stadt', () => {
     expect(startAufteilung(s, 'luzern').teile).toEqual([T('Gemeinsam', 6.3)])
     expect(startAufteilung(s, 'bern').teile).toEqual([T('Fahrspur', 3.15), T('Fahrspur', 3.15)])
   })
+  it('versetzte Parkierung (abwechselnd A und B): nur die tiefere zählt, die andere bleibt für die Bewertung', () => {
+    const s: Section = { ...defaultSection(), ist: 'Mischverkehr', parkenRechts: 'ja', fahrbahnbreite: 10.55,
+      parkTiefe: { a: { tiefe: 5.25, art: 'schraeg', winkel: 60 } }, parkVersetzt: 'b',
+      gegen: { ...gegenVon(defaultSection()), ist: 'Mischverkehr', parkenRechts: 'ja' } }
+    const a = startAufteilung(s, 'bern')
+    expect(a.teile.map(t => [t.art, t.breite, !!t.versetzt])).toEqual([
+      ['Parkierung', 1.9, true], ['Gemeinsam', 5.3, false], ['Parkierung', 5.25, false]])
+    expect(bilanz(a).rest).toBeCloseTo(0, 6)
+    expect(teilName(a.teile[0])).toBe('Längsparkierung (Autos), versetzt')
+    expect(formJeSeite(a.teile, 'B')?.parkenRechts).toBe('ja')
+    // ohne Parkierung gegenüber ist nichts versetzt
+    const b = startAufteilung({ ...s, parkenRechts: 'nein' }, 'bern')
+    expect(b.teile.some(t => t.versetzt)).toBe(false)
+  })
   it('Luzern ohne Fahrbahnbreite: Fahrspur 3,25', () => {
     const s: Section = { ...defaultSection(), ist: 'Mischverkehr', richtung: 'eine' }
     expect(startAufteilung(s, 'luzern').teile).toEqual([T('Fahrspur', 3.25)])

@@ -15,8 +15,10 @@ Pflanzen, Velos, Veloständer) sowie Mitwirkende des Streetmix-Projekts: Marcin 
 Poller), Jon Reese (Markierungen) u. a.
 
 Übernommene Dateien: people-02, -03, -04, -06, -07, -09, -11, -13, -15, -27, -31, biker-01-inbound/-outbound,
-car-inbound/-outbound, truck-inbound/-outbound, bus-inbound/-outbound,
+car-inbound/-outbound, car-sideways-left/-right, car-angled-front-left,
+car-angled-rear-left/-right (Schräg- und Senkrechtparkierung), truck-inbound/-outbound, bus-inbound/-outbound,
 streetcar-inbound/-outbound, bike-rack-perpendicular-left/-right,
 yerba-buena-parklet-left/-right, bench-left/-right, transit-shelter-01-left/-right,
-bollard, tree, bush, flowers-red sowie die Markierungen straight-, left- und
-right-inbound/-outbound.
+bollard, tree, bush, flowers-red sowie die Pfeilmarkierungen straight-, left-, right-,
+left-straight-, right-straight-, both- und left-right-straight-outbound (für Seite B um 180°
+gedreht dargestellt).

@@ -12,7 +12,7 @@ import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeAvFuer, avQuelle } from './av'
 import Strassensuche from './Strassensuche'
 import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, fahrbahnMitRandstein, RANG_TEXT, type TrottoirAnpassung, type Vorschlag } from './vorschlag'
-import { bordkanten, messeAbKante, abstand, aufZentimeter, fahrbahnbreite, parkierungAufTrottoir, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
+import { bordkanten, messeAbKante, messeFlaeche, abstand, aufZentimeter, fahrbahnbreite, mittelinsel, parkierungAufTrottoir, parkierungTiefe, parkierungVersetzt, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
 import type { AvFlaeche } from './av'
 import {
   candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
@@ -25,8 +25,8 @@ import Bericht from './Bericht'
 import { ladeFussnetz, ladeFussnetzBasel, FUSSNETZ_BASEL, FUSSNETZ_GEOPORTAL } from './fussnetz'
 import {
   bilanz, bilanzText, bewerteAufteilung, fussnetzOptionen, FUSS_QUELLE, STANDARD_QUELLE, mitSeitenraum, bildVon, linksDerMitte, markierungenFuer, pruefungText, richtungenFuer, richtungVon, FUSSNETZ, mitTrottoirs, pruefeKernfahrbahn, pruefeTeil, standardBreite, startAufteilung, umfeldVon,
-  BILDER, BILD_LABEL, MARKIERUNG_LABEL, TEIL_ARTEN, TEIL_LABEL,
-  type Aufteilung, type Bild, type FussNetz, type Markierung, type Richtung, type Teil, type TeilArt, type TeilPruefung,
+  BILDER, BILD_LABEL, MARKIERUNG_LABEL, PFEILE, markierungAus, parkTiefeVorbelegt, pfeileVon, TEIL_GRUPPEN, TEIL_LABEL, auf5cm,
+  type Aufteilung, type Bild, type FussNetz, type Pfeil, type Richtung, type Teil, type TeilArt, type TeilPruefung,
 } from './aufteilung'
 import { himmelsrichtung, peilung } from './geo'
 import { loadBboxCandidates, loadNearestCandidate, loadStreetCandidates, teileInListe, MIN_TEIL_M } from './osm'
@@ -711,9 +711,18 @@ const TEIL_FARBE: Record<TeilPruefung['status'], string> = {
 interface PlanAv { gezeigt: boolean; laden: boolean; park: boolean; zeigen: () => void; ausblenden: () => void }
 const AV_LEGENDE: [string, string][] = [['Strasse_Weg', 'Strasse'], ['Trottoir', 'Trottoir'], ['Verkehrsinsel', 'Verkehrsinsel'], ['Gebaeude', 'Gebäude']]
 
+// Auswahl der Teile, thematisch gruppiert (TEIL_GRUPPEN)
+function TeilOptionen() {
+  return <>{TEIL_GRUPPEN.map(([g, xs]) => (
+    <optgroup key={g} label={g}>{xs.map(x => <option key={x} value={x}>{TEIL_LABEL[x]}</option>)}</optgroup>
+  ))}</>
+}
+const PFEIL_ZEICHEN: Record<Pfeil, string> = { links: '←', geradeaus: '↑', rechts: '→' }
+const PFEIL_NAME: Record<Pfeil, string> = { links: 'links', geradeaus: 'geradeaus', rechts: 'rechts' }
+
 // ── Massnahmenvorschlag (nur Bern, seit 17.10.2026; vorschlag.ts) ─────────────
 // Erste Massnahme in der Rangfolge, die die Note auf 4,5 bringt (Portierung des lokalen Berner Rechners).
-// Je eine Zeile ohne und mit Randsteinanpassung; «Als Planung übernehmen» ersetzt die Teile (danach frei änderbar).
+// Je eine Zeile ohne und mit Randsteinanpassung; «Übernehmen» ersetzt die Teile (danach frei änderbar), ebenso bei jeder Alternative.
 function VorschlagKasten({ section, a, onChange }: { section: Section; a: Aufteilung; onChange: (a: Aufteilung) => void }) {
   const ta = trottoirAnpassung(section, a)
   const aendert = !!ta && ta.frei.A + ta.frei.B + ta.fehlt.A + ta.fehlt.B > 0.001
@@ -746,12 +755,27 @@ function VorschlagKasten({ section, a, onChange }: { section: Section; a: Auftei
           )}
           {v.erreicht !== true && <span style={{ color: '#92400e' }}>kein Vorschlag: {v.blocker}</span>}
           {zusatz && <div style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>Trottoirs auf die Vorgabe: {zusatz}</div>}
-          {v.alternative && <div style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>Alternative: {v.alternative}</div>}
+          {v.alternativen.map((alt, j) => {
+            const altPlan = aufteilungAusVorschlag(section, a, { ...v, text: alt.text, noteNach: alt.noteNach, k: alt.k }, randstein)
+            return (
+              <div key={j} style={{ fontSize: 12, color: 'var(--text-muted-strong)', display: 'flex', gap: 8, alignItems: 'center',
+                                    flexWrap: 'wrap', marginTop: 3 }}>
+                <span style={{ flex: '1 1 220px' }}>{v.erreicht ? 'Alternative' : 'Nur im Pilot möglich'}: {alt.text} → {numDE(alt.noteNach, 1)}</span>
+                <button type="button" disabled={!altPlan} onClick={() => altPlan && onChange(altPlan)}
+                        title={altPlan ? 'Ersetzt die Teile der Planung durch diese Alternative; danach frei änderbar'
+                          : 'Verfügbare Fahrbahnbreite fehlt: zuerst «aus AV ermitteln» oder eintragen'}
+                        style={{ ...kleinKnopfStyle, fontSize: 12, padding: '3px 8px', color: altPlan ? 'var(--accent)' : 'var(--text-faint)',
+                                 borderColor: 'var(--accent)', cursor: altPlan ? 'pointer' : 'default' }}>
+                  Alternative übernehmen
+                </button>
+              </div>
+            )
+          })}
           {v.vermerk && <div style={{ fontSize: 12, color: '#92400e' }}>{v.vermerk}</div>}
           {plan && planNote !== v.noteNach && (
             <div style={{ fontSize: 12, color: '#92400e' }}>
-              In der Planung ergibt sich Note {planNote != null ? numDE(planNote, 1) : '–'}: Führungen ausserhalb der Fahrbahn (abgesetzter
-              Radweg, Fuss-/Radweg) kennt die Planung nicht als Teil.
+              In der Planung ergibt sich Note {planNote != null ? numDE(planNote, 1) : '–'}: Umweltspur und Einbahn mit Velogegenverkehr
+              kennt die Planung nicht als eigenes Teil; sie liest dort Fahrspur bzw. Velostreifen.
             </div>
           )}
         </div>
@@ -761,7 +785,7 @@ function VorschlagKasten({ section, a, onChange }: { section: Section; a: Auftei
                     : 'Verfügbare Fahrbahnbreite fehlt: zuerst «aus AV ermitteln» oder eintragen'}
                   style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: plan ? 'var(--accent)' : 'var(--text-faint)',
                            cursor: plan ? 'pointer' : 'default' }}>
-            Als Planung übernehmen
+            Übernehmen
           </button>
         )}
       </div>
@@ -799,6 +823,7 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
   // Ziehen einer Zeile (Drag and Drop): gezogenes Teil und Zeile, über der es gerade schwebt
   const [zieh, setZieh] = useState<number | null>(null)
   const [ueber, setUeber] = useState<number | null>(null)
+  const [planHinweis, setPlanHinweis] = useState('')   // z. B. «Kernfahrbahn ersetzt die zweite Fahrspur»
   const kopf = <div style={groupLabelStyle}>Aufteilung planen</div>
   // Einstieg hervorgehoben (Nutzerbefund 16.10.2026: als graue Zeile am Kartenende schlecht
   // auffindbar); dazu der Knopf in der Kopfzeile der Abschnittskarte.
@@ -849,6 +874,24 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
   }
   const setTeile = (teile: Teil[]) => onChange({ ...a, teile })
   const aendere = (i: number, t: Teil) => setTeile(a.teile.map((x, j) => (j === i ? t : x)))
+  // Breite in 10-cm-Schritten (auf 5 cm gerundet, nicht unter 0); leer → ab der Vorgabe
+  const schritt = (i: number, t: Teil, d: number) => {
+    const basis = Number.isFinite(t.breite) ? t.breite : vorgabe(t.art, t.bild)
+    if (Number.isFinite(basis)) aendere(i, { ...t, breite: Math.max(0, auf5cm(basis + d)), angenommen: undefined })
+  }
+  // Andere Art; eine Kernfahrbahn ersetzt die Fahrspuren beider Richtungen (Nutzerwunsch 20.10.2026):
+  // die übrigen Fahrspuren, Fahrbahnen ohne Mittellinie und Tramspuren fallen weg, ihre Breite geht in den
+  // Kern (4,50–5,50 m); ein Rest bleibt in der Bilanz sichtbar.
+  const artWechsel = (i: number, art: TeilArt) => {
+    if (art !== 'Kernfahrbahn') { aendere(i, { art, breite: vorgabe(art) }); setPlanHinweis(''); return }
+    const spur = (x: Teil) => x.art === 'Fahrspur' || x.art === 'Gemeinsam' || x.art === 'Tram' || x.art === 'Kernfahrbahn'
+    const weg = a.teile.filter((x, j) => j !== i && spur(x))
+    const summe = [a.teile[i], ...weg].filter(spur).reduce((m, x) => m + (Number.isFinite(x.breite) ? x.breite : 0), 0)
+    const kern: Teil = { art, breite: Math.min(5.5, Math.max(4.5, auf5cm(summe))) }
+    setTeile(a.teile.flatMap((x, j) => (j === i ? [kern] : spur(x) ? [] : [x])))
+    setPlanHinweis(weg.length ? `Kernfahrbahn ersetzt ${weg.length === 1 ? 'die zweite Fahrspur' : `${weg.length} weitere Fahrspuren`}; `
+      + `ihre Breite ist im Kern (${numDE(kern.breite, 2)} m).` : '')
+  }
   const einfuegen = (an: number, art: TeilArt) => {
     if (!art) return
     const t = [...a.teile]; t.splice(an, 0, { art, breite: vorgabe(art) })
@@ -991,12 +1034,20 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
           <QuerschnittSkizze titel="Planung" teile={a.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} />
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
             «Heute» ist die Ausgangslage aus den Eingaben des Abschnitts{section.trottoir ? ' und den Trottoirs aus der AV' : ''}.
-            Illustrationen (Personen, Velos, Fahrzeuge vom Auto bis zum Tram, Ausstattung, Markierungen): <a href="https://streetmix.net" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>Streetmix</a>,{' '}
+            Illustrationen (Personen, Velos, Fahrzeuge vom Auto bis zum Tram, auch schräg und seitlich parkierte Autos, Ausstattung,
+            Pfeilmarkierungen): <a href="https://streetmix.net" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>Streetmix</a>,{' '}
             <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.de" target="_blank" rel="noopener noreferrer"
-               style={{ color: 'inherit' }}>CC BY-SA 4.0</a>.
+               style={{ color: 'inherit' }}>CC BY-SA 4.0</a>. Boden, Masse und Markierungsstriche sind eigene Zeichnung.
           </div>
         </div>
 
+        {planHinweis && (
+          <div role="status" style={{ fontSize: 12.5, marginBottom: 6, padding: '6px 10px', borderRadius: 8, background: '#eff6ff',
+                                      border: '1px solid #bfdbfe', color: '#1e3a8a', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ flex: 1 }}>{planHinweis}</span>
+            <button type="button" onClick={() => setPlanHinweis('')} style={kleinKnopfStyle} aria-label="Hinweis schliessen">✕</button>
+          </div>
+        )}
         {/* Teile: ziehen am Griff ⠿ (Drag and Drop) oder mit den Pfeilen verschieben */}
         {a.teile.map((t, i) => {
           const p = pruefeTeil(t, rt, breiten, umfeld)
@@ -1022,11 +1073,17 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
                     style={{ cursor: 'grab', fontSize: 16, color: 'var(--text-muted)', padding: '0 2px', userSelect: 'none' }}>⠿</span>
               <span style={{ width: 18, fontSize: 12, color: 'var(--text-muted)', textAlign: 'right' }}>{i + 1}</span>
               <select value={t.art} aria-label={`Teil ${i + 1}`} style={{ ...selectStyle, flex: '1 1 200px', minWidth: 0 }}
-                      onChange={e => { const art = e.target.value as TeilArt; aendere(i, { art, breite: vorgabe(art) }) }}>
-                {TEIL_ARTEN.map(x => <option key={x} value={x}>{TEIL_LABEL[x]}</option>)}
+                      onChange={e => artWechsel(i, e.target.value as TeilArt)}>
+                <TeilOptionen />
               </select>
-              <NumberField kompakt label={`Breite Teil ${i + 1}`} unit="m" value={t.breite} step={0.05}
-                           onChange={v => aendere(i, { ...t, breite: v, angenommen: undefined })} />
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                <button type="button" onClick={() => schritt(i, t, -0.1)} style={{ ...kleinKnopfStyle, padding: '5px 8px' }}
+                        aria-label={`Teil ${i + 1} 10 cm schmaler`} title="10 cm schmaler">−</button>
+                <NumberField kompakt label={`Breite Teil ${i + 1}`} unit="m" value={t.breite} step={0.05}
+                             onChange={v => aendere(i, { ...t, breite: v, angenommen: undefined })} />
+                <button type="button" onClick={() => schritt(i, t, 0.1)} style={{ ...kleinKnopfStyle, padding: '5px 8px' }}
+                        aria-label={`Teil ${i + 1} 10 cm breiter`} title="10 cm breiter">+</button>
+              </span>
               {/* Bild (was darauf steht) und Markierung, wo es eine Wahl gibt */}
               {bilder && (
                 <select value={bildVon(t)} aria-label={`Bild Teil ${i + 1}`} title="Was auf dem Teil steht (Skizze; bei der Fahrspur auch die Vorgabe)"
@@ -1034,12 +1091,52 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
                   {bilder.map(b => <option key={b} value={b}>{BILD_LABEL[b]}</option>)}
                 </select>
               )}
-              {marks.length > 0 && (
-                <select value={t.markierung && marks.includes(t.markierung) ? t.markierung : 'keine'} aria-label={`Markierung Teil ${i + 1}`}
-                        title="Markierung auf dem Teil (Skizze)"
-                        onChange={e => aendere(i, { ...t, markierung: e.target.value as Markierung })}
-                        style={{ ...selectStyle, flex: '0 1 160px', minWidth: 0 }}>
-                  {marks.map(m => <option key={m} value={m}>{MARKIERUNG_LABEL[m]}</option>)}
+              {/* Pfeil auf dem Teil als Knopfgruppe (Nutzerentscheid 20.10.2026: «keine Markierung» als Auswahl war missverständlich);
+                  die Richtungen einzeln ein- und ausschalten, damit auch «geradeaus und rechts» geht (OSM turn:lanes) */}
+              {marks.length > 0 && (() => {
+                const an = pfeileVon(t.markierung)
+                return (
+                  <span role="group" aria-label={`Pfeil auf Teil ${i + 1}`} title={`Pfeil auf dem Teil (Skizze): ${MARKIERUNG_LABEL[markierungAus(an)]}`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+                    Pfeil
+                    <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                      {PFEILE.map(pf => {
+                        const ein = an.includes(pf)
+                        return (
+                          <button key={pf} type="button" aria-pressed={ein} title={`${PFEIL_NAME[pf]} ${ein ? 'aus' : 'ein'}`}
+                                  onClick={() => aendere(i, { ...t, markierung: markierungAus(ein ? an.filter(x => x !== pf) : [...an, pf]) })}
+                                  style={{ border: 'none', padding: '4px 9px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                                           background: ein ? 'var(--accent)' : '#fff', color: ein ? '#fff' : 'var(--text)' }}>
+                            {PFEIL_ZEICHEN[pf]}
+                          </button>
+                        )
+                      })}
+                    </span>
+                  </span>
+                )
+              })()}
+              {/* Anordnung der Parkierung (Nutzerwunsch 20.10.2026): längs, schräg, senkrecht; gemessen «schräg oder senkrecht» */}
+              {t.art === 'Parkierung' && (
+                <select value={t.parkart === 'schraeg' && t.winkel ? `s${t.winkel}` : t.parkart ?? 'laengs'} aria-label={`Anordnung Parkierung Teil ${i + 1}`}
+                        title="Anordnung der Parkfelder"
+                        onChange={e => {
+                          const wahl = e.target.value as 'laengs' | 's45' | 's60' | 'schraeg' | 'quer' | 'tief'
+                          // Längs: Vorgabe. Schräg/senkrecht: eine gemessene Tiefe bleibt (Nutzerentscheid 20.10.2026), sonst
+                          // nach den Normalien Stadt Bern vorbelegt (schräg 45° 4,90, 60° 5,25, senkrecht 5,00 m)
+                          const { parkart: _a, tiefeGemessen: _b, winkel: _w, ...rest } = t
+                          if (wahl === 'laengs') { aendere(i, { ...rest, breite: vorgabe('Parkierung'), angenommen: undefined }); return }
+                          const pa = wahl === 's45' || wahl === 's60' ? 'schraeg' : wahl
+                          const winkel = wahl === 's45' ? 45 : wahl === 's60' ? 60 : undefined
+                          aendere(i, { ...rest, parkart: pa, ...(winkel ? { winkel } : {}), ...(t.tiefeGemessen ? { tiefeGemessen: true } : {}),
+                            angenommen: undefined, breite: t.tiefeGemessen || pa === 'tief' ? t.breite : parkTiefeVorbelegt(pa, winkel) })
+                        }}
+                        style={{ ...selectStyle, flex: '0 1 170px', minWidth: 0 }}>
+                  <option value="laengs">längs</option>
+                  <option value="s60">schräg 60°</option>
+                  <option value="s45">schräg 45°</option>
+                  {t.parkart === 'schraeg' && !t.winkel && <option value="schraeg">schräg (Winkel offen)</option>}
+                  <option value="quer">senkrecht</option>
+                  {(t.parkart === 'tief' || t.tiefeGemessen) && <option value="tief">schräg oder senkrecht (offen)</option>}
                 </select>
               )}
               {t.art === 'Parkierung' && (
@@ -1048,6 +1145,15 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
                   <input type="checkbox" checked={!!t.trottoirniveau}
                          onChange={e => aendere(i, { ...t, trottoirniveau: e.target.checked || undefined })} />
                   auf Trottoirniveau
+                </label>
+              )}
+              {/* Versetzte Parkierung (Nutzerbefund 20.10.2026): abwechselnd Seite A und B */}
+              {(t.art === 'Parkierung' || (t.art === 'Sicherheitsstreifen' && t.versetzt)) && (
+                <label title="Parkierung an anderer Stelle als die Parkierung gegenüber (abwechselnd Seite A und B): zählt nicht zur Breite des Querschnitts und wird nicht gezeichnet; bewertet weiter als Parkierung"
+                       style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--text)' }}>
+                  <input type="checkbox" checked={!!t.versetzt}
+                         onChange={e => aendere(i, { ...t, versetzt: e.target.checked || undefined })} />
+                  versetzt
                 </label>
               )}
               {richtungen.length > 1 && (
@@ -1071,7 +1177,7 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
                         aria-label={`Neues Teil rechts von Teil ${i + 1} einfügen`} title="Neues Teil rechts davon einfügen"
                         style={{ ...kleinKnopfStyle, width: 40, textAlign: 'center' }}>
                   <option value="" disabled hidden>＋</option>
-                  {TEIL_ARTEN.map(x => <option key={x} value={x}>{TEIL_LABEL[x]}</option>)}
+                  <TeilOptionen />
                 </select>
               </span>
               <span style={{ flex: '1 1 100%', paddingLeft: 26, fontSize: 12.5, fontWeight: 600, color: TEIL_FARBE[p.status] }}>
@@ -1092,12 +1198,12 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
               <select value="" onChange={e => einfuegen(0, e.target.value as TeilArt)} aria-label="Neues Teil ganz links einfügen"
                       style={{ ...kleinKnopfStyle, width: 40, textAlign: 'center' }}>
                 <option value="" disabled hidden>＋</option>
-                {TEIL_ARTEN.map(x => <option key={x} value={x}>{TEIL_LABEL[x]}</option>)}
+                <TeilOptionen />
               </select></>
           ) : (
             <select value="" onChange={e => einfuegen(0, e.target.value as TeilArt)} aria-label="Teil hinzufügen" style={selectStyle}>
               <option value="" disabled hidden>+ Teil hinzufügen …</option>
-              {TEIL_ARTEN.map(x => <option key={x} value={x}>{TEIL_LABEL[x]}</option>)}
+              <TeilOptionen />
             </select>
           )}
         </div>
@@ -1353,6 +1459,14 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
         <NumberField label="Fahrbahnbreite (Bordstein–Bordstein)" unit="m" value={section.fahrbahnbreite} step={0.1}
                      onChange={v => onChange({ fahrbahnbreite: v })}
                      chip={<QuelleChip q={q.fahrbahnbreite} />} />
+        {/* Mittelinsel aus der AV: nur Hinweis, nicht in der Note (Nutzerentscheid 20.10.2026) */}
+        {section.mittelinsel && (
+          <div style={{ flexBasis: '100%', fontSize: 12, color: 'var(--text-muted-strong)' }}>
+            Mittelinsel (AV): {numDE(section.mittelinsel.breite, 2)} m breit, {section.mittelinsel.laenge} m lang
+            {section.mittelinsel.anzahl > 1 ? ` (die längste von ${section.mittelinsel.anzahl})` : ''}; Fahrbahn an der Insel
+            {' '}{numDE(section.mittelinsel.fahrbahn, 1)} m von Bord zu Bord samt Insel. Nur Hinweis, nicht in der Note.
+          </div>
+        )}
         {onFahrbahnbreite && (
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
             <button type="button" onClick={() => onFahrbahnbreite()} disabled={fbLaden}
@@ -1647,16 +1761,19 @@ function SoFunktionierts() {
           hineinzoomen und im Modus «Ab Bordsteinkante (AV)» auf die Markierung klicken, bis zu der die Breite zählt;
           gemessen wird rechtwinklig bis zur Bordsteinkante der amtlichen Vermessung (orange). Wo die AV keine
           Strassenfläche kennt oder die Kante nicht auf dem Bordstein im Foto liegt, im Modus «Zwei Punkte» zuerst die
-          Bordsteinkante und dann die Markierung anklicken. «… m übernehmen» trägt den Wert ein, mit Herkunft «gemessen»
+          Bordsteinkante und dann die Markierung anklicken. Bei Velostrasse und Wegen misst «Ganze Fläche»: in die Fläche
+          klicken, gemessen wird von Kante zu Kante. «… m übernehmen» trägt den Wert ein, mit Herkunft «gemessen»
           am Chip.</li>
         <li><b>Aufteilung planen:</b> oben bei «Aufteilung planen» oder in der Kopfzeile eines Abschnitts. Die Planung
           beginnt mit dem Querschnitt von heute (Fahrbahn und Trottoirs aus der amtlichen Vermessung, in Luzern aus den
           Strassenflächen der Stadt; Parkierung, Velostreifen).
-          Teile wählen, mit «＋» einfügen, am Griff ⠿ verschieben und in der Breite ändern; die App prüft jedes Teil gegen die
+          Teile wählen, mit «＋» einfügen, am Griff ⠿ verschieben und in der Breite ändern (Feld oder «−»/«+» in 10-cm-Schritten);
+          eine Mittelinsel aus der AV und Schräg- oder Querparkierung mit ihrer Tiefe stehen schon in der Ausgangslage. Die App prüft jedes Teil gegen die
           Vorgaben der Stadt (wo eine Stadt kein Mass nennt, gilt das Berner, mit «Ersatz Bern» ausgewiesen), rechnet die Bilanz über den ganzen Querschnitt und zeigt die Note mit der Planung neben der von heute. Die Karte
           zeigt dazu die amtliche Vermessung und die Parkfelder (Basel: keine Parkfelder in den offenen Daten). In Bern schlägt der Kasten «Vorschlag»
           die erste Massnahme vor, die die Note auf 4,5 bringt, ohne und mit Randsteinanpassung (dann kommen die Trottoirs auf
-          die Vorgabe des Fussverkehrsnetzes); «Als Planung übernehmen» setzt sie als Startpunkt. «Bericht / PDF» druckt Karte, Skizzen, Prüfung und Bewertung.</li>
+          die Vorgabe des Fussverkehrsnetzes); «Übernehmen» bzw. «Alternative übernehmen» setzt sie als Startpunkt. «Bericht / PDF» druckt Karte, Skizzen, Prüfung und Bewertung. Im Breitbild lässt sich der
+          Eingabebereich am Trenner zur Karte breiter ziehen; bei offener Planung ist er schon breiter.</li>
         <li><b>Ergebnis lesen:</b> oben zwischen Schulnote (1 bis 6) und Erfüllungsgrad umschalten; die Bewertung gilt je Abschnitt
           und für die ganze Strecke. «Als CSV exportieren» sichert die Bewertung als Datei.</li>
       </ol>
@@ -1818,12 +1935,14 @@ function avAusschnitt(s: number, w: number, n: number, o: number): { e: number; 
   return { e: (ea + eb) / 2, n: (na + nb) / 2, r }
 }
 
+// Formen, deren Breite die ganze Fläche von Kante zu Kante ist (Messart «Ganze Fläche», seit 20.10.2026)
+const FLAECHEN_FORMEN: IstFuehrungsform[] = ['Velostrasse', 'Fussweg Velo gestattet', 'Kombinierter Fuss-/Radweg', 'Zweirichtungsradweg', 'Radweg abgesetzt']
 // Breite am Luftbild messen: Zustand der laufenden Messung.
 interface Messung {
   secId: number
   seite: 'A' | 'B'
   titel: string                                   // «Abschnitt 2, Seite A»
-  modus: 'kante' | 'hand'                         // ab AV-Bordsteinkante | zwei Punkte von Hand
+  modus: 'kante' | 'flaeche' | 'hand'             // ab AV-Bordsteinkante | ganze Fläche Kante–Kante | zwei Punkte von Hand
   kanten: Kante[]                                 // Bordsteinkanten der amtlichen Vermessung (LV95)
   geladen?: { e: number; n: number; r: number }   // Mitte und Halbseite des geladenen AV-Ausschnitts
   laden: boolean
@@ -1920,6 +2039,46 @@ export default function App() {
     mq.addEventListener('change', neuMessen)
     return () => { mq.removeEventListener('change', neuMessen); cancelAnimationFrame(raf) }
   }, [view])
+  // Breite des Panels im Breitbild (Nutzerwunsch 20.10.2026): mit dem Trenner verschiebbar zwischen der
+  // Standardbreite (Minimum) und der doppelten (höchstens 70 % des Fensters); im Planmodus (eine Planung offen)
+  // automatisch breiter. Die gezogene Breite merkt sich der Browser je Modus (nur Bequemlichkeit, localStorage).
+  const planModus = sections.some(s => s.aufteilung)
+  const [panelBreite, setPanelBreite] = useState<{ normal?: number; plan?: number }>(() => {
+    try { return JSON.parse(localStorage.getItem('vrc.panelBreite') ?? '{}') ?? {} } catch { return {} }
+  })
+  const [fensterB, setFensterB] = useState(() => (typeof window === 'undefined' ? 1400 : window.innerWidth))
+  useEffect(() => {
+    const on = () => setFensterB(window.innerWidth)
+    window.addEventListener('resize', on)
+    return () => window.removeEventListener('resize', on)
+  }, [])
+  const panelMin = Math.min(Math.max(400, 0.34 * fensterB), 560)
+  const panelMax = Math.max(panelMin, Math.min(2 * panelMin, 0.7 * fensterB))
+  const panelW = Math.round(Math.min(panelMax, Math.max(panelMin,
+    planModus ? panelBreite.plan ?? Math.min(panelMax, 1.6 * panelMin) : panelBreite.normal ?? panelMin)))
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => mapRef.current?.invalidateSize())
+    return () => cancelAnimationFrame(raf)
+  }, [panelW])
+  const panelSetzen = (w: number | undefined, merken: boolean) => {
+    setPanelBreite(prev => {
+      const neu = { ...prev, [planModus ? 'plan' : 'normal']: w == null ? undefined : Math.round(Math.min(panelMax, Math.max(panelMin, w))) }
+      if (merken) try { localStorage.setItem('vrc.panelBreite', JSON.stringify(neu)) } catch { /* ohne Speicher: nur für diese Sitzung */ }
+      return neu
+    })
+  }
+  const trennerZiehen = (ev: React.PointerEvent<HTMLDivElement>) => {
+    ev.preventDefault()
+    const el = ev.currentTarget
+    el.setPointerCapture(ev.pointerId)
+    const rand = el.parentElement!.getBoundingClientRect().right
+    const move = (e: PointerEvent) => panelSetzen(rand - e.clientX, false)
+    const up = (e: PointerEvent) => {
+      panelSetzen(rand - e.clientX, true)
+      el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up)
+    }
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up)
+  }
   // Lade-Generation gegen Races: Stadtwechsel (und jeder neue Load) erhöht den Zähler; eine
   // hängige await-Kette erkennt am veralteten Wert, dass ihr Ergebnis nicht mehr in den State
   // gehört, und verwirft es still. Das Stadt-Select ist während osmBusy zusätzlich gesperrt —
@@ -2199,13 +2358,15 @@ export default function App() {
       }
       const { achsen, flaechen } = av
       const r = fahrbahnbreite(achsen, flaechen)
+      const insel = mittelinsel(achsen, flaechen)
       if (!r) { setMsg('Fahrbahnbreite: Die amtliche Vermessung liefert hier keine eindeutige Strassenfläche (zu kurz, Platz oder Kreuzung). Bitte von Hand eintragen.', 'info'); return }
       const wert = Math.round(r.median * 10) / 10
       setSections(prev => prev.map(x => (x.id !== secId ? x
         : ziel === 'plan' ? (x.aufteilung ? { ...x, aufteilung: { ...x.aufteilung, fahrbahn: wert } } : x)
-        : { ...x, fahrbahnbreite: wert, quelle: { ...x.quelle, fahrbahnbreite: 'av' } })))
+        : { ...x, fahrbahnbreite: wert, mittelinsel: insel, quelle: { ...x.quelle, fahrbahnbreite: 'av' } })))
       setMsg(`Fahrbahnbreite ${numDE(wert, 1)} m: Median aus ${r.n} Querschnitten, Spannweite ${numDE(r.min, 1)}–${numDE(r.max, 1)} m. ` +
-        'Die Fläche umfasst auch Parkierung, Busbuchten und Tramgleise.', 'ok')
+        'Die Fläche umfasst auch Parkierung, Busbuchten und Tramgleise.'
+        + (insel ? ` Mittelinsel ${numDE(insel.breite, 2)} m breit, ${insel.laenge} m lang; an ihr ${numDE(insel.fahrbahn, 1)} m von Bord zu Bord.` : ''), 'ok')
     } catch (err) {
       setMsg(`Fahrbahnbreite: amtliche Vermessung nicht erreichbar (${(err as Error).message}).`, 'error')
     } finally { setFbLaden(null) }
@@ -2289,6 +2450,9 @@ export default function App() {
       const achsen = avAchsen(s, true), kanten = bordkanten(flaechen)
       const tr = trottoirbreiten(achsen, flaechen, kanten)
       const pt = parkierungAufTrottoir(achsen, flaechen, park ?? [])   // Parkierung auf der Trottoirfläche je Seite
+      const tiefe = parkierungTiefe(achsen, park ?? [])                 // Tiefe und Anordnung der Parkierung je Seite
+      const versetzt = parkierungVersetzt(achsen, park ?? [], tiefe)    // Parkierung abwechselnd A und B
+      const insel = mittelinsel(achsen, flaechen, kanten)              // Mittelinsel (auch kurze Schutzinsel)
       const fb = Number.isFinite(s.fahrbahnbreite) ? null : fahrbahnbreite(achsen, flaechen, kanten)
       const netz = await netzLaden
       setSections(prev => prev.map(x => {
@@ -2296,6 +2460,10 @@ export default function App() {
         const neu: Section = { ...x, trottoir: { a: tr.rechts ?? NaN, b: tr.links ?? NaN,
           ...(pt.rechts && tr.rechts != null ? { parkA: true } : {}), ...(pt.links && tr.links != null ? { parkB: true } : {}) } }
         if (fb) { neu.fahrbahnbreite = Math.round(fb.median * 10) / 10; neu.quelle = { ...x.quelle, fahrbahnbreite: 'av' } }
+        neu.mittelinsel = insel
+        if (tiefe.links || tiefe.rechts) neu.parkTiefe = { ...(tiefe.rechts ? { a: tiefe.rechts } : {}), ...(tiefe.links ? { b: tiefe.links } : {}) }
+        if (versetzt) neu.parkVersetzt = versetzt === 'rechts' ? 'a' : 'b'
+        else delete neu.parkVersetzt
         if (netz) neu.fussnetzGeoportal = netz.netz
         if (x.aufteilung && JSON.stringify(x.aufteilung) === JSON.stringify(startAufteilung(x, city, cityCfg.breiten))) neu.aufteilung = startAufteilung(neu, city, cityCfg.breiten)
         else if (x.aufteilung) {
@@ -2307,8 +2475,12 @@ export default function App() {
       }))
       const trText = (m: number | null) => (m != null ? `${numDE(m, 2)} m` : 'keines')
       const aufTr = (ja: boolean, m: number | null) => (ja && m != null ? ' (mit Parkierung auf Trottoirniveau)' : '')
+      const pText = (x?: { tiefe: number; art: string; winkel?: number; angenommen?: boolean }, seite?: string) => (x && x.art !== 'laengs'
+        ? ` · Parkierung Seite ${seite} ${x.art === 'schraeg' ? `schräg${x.winkel ? ` ${x.winkel}°` : ''}` : x.art === 'quer' ? 'senkrecht' : 'schräg oder senkrecht'} ${numDE(x.tiefe, 2)} m${x.angenommen ? ' (angenommen)' : ''}` : '')
       if (park != null) setMsg(`Amtliche Vermessung${park.length ? ' und Parkfelder' : ''} geladen. Trottoir Seite A ${trText(tr.rechts)}${aufTr(pt.rechts, tr.rechts)}, Seite B ${trText(tr.links)}${aufTr(pt.links, tr.links)}` +
-        `${fb ? `, Fahrbahnbreite ${numDE(Math.round(fb.median * 10) / 10, 1)} m` : ''} (Median der Querschnitte alle 5 m).`, 'ok')
+        `${fb ? `, Fahrbahnbreite ${numDE(Math.round(fb.median * 10) / 10, 1)} m` : ''} (Median der Querschnitte alle 5 m)`
+        + `${pText(tiefe.rechts, 'A')}${pText(tiefe.links, 'B')}`
+        + `${versetzt ? ` · Parkierung versetzt (abwechselnd Seite A und B; Seite ${versetzt === 'rechts' ? 'A' : 'B'} zählt im Querschnitt nicht)` : ''}.`, 'ok')
     } catch (err) {
       const t = (err as Error).message
       setMsg(`Amtliche Vermessung: ${t}`, t.includes('nicht erreichbar') ? 'error' : 'info')
@@ -2338,7 +2510,10 @@ export default function App() {
     const b = map.getBounds()
     const { e, n, r } = ziel ? avAusschnitt(ziel[0][0], ziel[0][1], ziel[1][0], ziel[1][1])
       : avAusschnitt(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
-    setMessung({ secId, seite, titel: `Abschnitt ${idx + 1}, Seite ${seite}`, modus: 'kante',
+    // Formen, deren Breite die ganze Fläche ist (Velostrasse, Wege): Messart «Ganze Fläche» vorgewählt
+    const f = seite === 'A' ? seiteA(sections[idx]) : seiteB(sections[idx])
+    const flaeche = FLAECHEN_FORMEN.includes(f.ist as IstFuehrungsform)
+    setMessung({ secId, seite, titel: `Abschnitt ${idx + 1}, Seite ${seite}`, modus: flaeche ? 'flaeche' : 'kante',
       kanten: [], laden: true, punkte: [] })
     void messAvLaden(e, n, r)
   }
@@ -2363,7 +2538,12 @@ export default function App() {
     const m = messungRef.current
     if (!m) return
     const p = zuLv95(lat, lon)
-    if (m.modus === 'kante') {
+    if (m.modus === 'flaeche') {
+      if (m.laden) return
+      const r = messeFlaeche(p, m.kanten)
+      setMessung({ ...m, punkte: [], ergebnis: r ? { breite: r.breite, von: r.von, bis: r.bis } : undefined,
+        fehler: r ? undefined : `Keine zwei Kanten gefunden: in die Fläche klicken, höchstens ${FANG_M} m von einer Kante, oder mit «Zwei Punkte» messen.` })
+    } else if (m.modus === 'kante') {
       if (m.laden) return
       const r = messeAbKante(p, m.kanten)
       setMessung({ ...m, punkte: [],
@@ -2380,10 +2560,15 @@ export default function App() {
   const messungUebernehmen = () => {
     const m = messungRef.current
     if (!m?.ergebnis) return
-    const wert = aufZentimeter(m.ergebnis.breite)
+    // Velostrasse: die Breite ist das Fahrband ohne Parkierung (Q 9) → je Seite mit Parkierung 1,90 m weg
+    const s = sections.find(x => x.id === m.secId)
+    const f = s && (m.seite === 'A' ? seiteA(s) : seiteB(s))
+    const parkWeg = m.modus === 'flaeche' && s && f?.ist === 'Velostrasse'
+      ? 1.9 * ([seiteA(s), ...(s.richtung === 'beide' ? [seiteB(s)] : [])].filter(x => x.parkenRechts === 'ja').length) : 0
+    const wert = aufZentimeter(Math.max(0, m.ergebnis.breite - parkWeg))
     setSections(prev => prev.map(s => (s.id === m.secId ? setzeGemesseneBreite(s, m.seite, wert) : s)))
     setMessung(null)
-    setMsg(`Breite ${numDE(wert, 2)} m gemessen (${m.titel}).`, 'ok')
+    setMsg(`Breite ${numDE(wert, 2)} m gemessen (${m.titel})${parkWeg ? `, ohne Parkierung ${numDE(parkWeg, 2)} m` : ''}.`, 'ok')
   }
   // Für die Karte: Kanten nur bei neuem Ausschnitt umrechnen (viele tausend Strecken).
   const messKantenWgs = useMemo(() => (messung?.kanten ?? []).map(k => [zuWgs(k.a[0], k.a[1]), zuWgs(k.b[0], k.b[1])]),
@@ -2394,7 +2579,7 @@ export default function App() {
     const w = (p: P) => zuWgs(p[0], p[1])
     const erg = messung.ergebnis
     return {
-      kanten: messung.modus === 'kante' ? messKantenWgs : [],
+      kanten: messKantenWgs,   // auch bei «Zwei Punkte» sichtbar (Nutzerwunsch 20.10.2026)
       punkte: messung.modus === 'hand' && !erg ? messung.punkte.map(w) : [],
       ...(erg ? { linie: [w(erg.von), w(erg.bis)] as [{ lat: number; lon: number }, { lat: number; lon: number }],
                   label: `${numDE(erg.breite, 2)} m` } : {}),
@@ -2546,7 +2731,8 @@ export default function App() {
     <AttribContext.Provider value={cityCfg.attribution}>
     <AvContext.Provider value={cityCfg.avKanton ? avQuelle(cityCfg.avKanton) : ''}>
     <div className={view === 'rechner' ? 'vrc-app-rechner' : undefined}
-         style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)' }}>
+         style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)',
+                  ...(view === 'rechner' ? { '--vrc-panel-w': `${panelW}px` } as React.CSSProperties : {}) }}>
       {/* Keine Kopfleiste (Standard der Check-Apps seit 16.10.2026): Logo, Name und Marke stehen im Panel bzw. auf der Startseite */}
 
       {view === 'home' && <Landing onStart={() => go('rechner')} />}
@@ -2556,6 +2742,15 @@ export default function App() {
           haben dieselbe Elementstruktur, nur das CSS unterscheidet sich (index.css). */}
       {view === 'rechner' && (
       <div className="vrc-rechner">
+      {/* Trenner zwischen Karte und Panel (nur Breitbild, index.css): ziehen, Pfeiltasten, Doppelklick = Standard */}
+      <div className="vrc-trenner" role="separator" aria-orientation="vertical" aria-label="Breite des Eingabebereichs"
+           aria-valuemin={Math.round(panelMin)} aria-valuemax={Math.round(panelMax)} aria-valuenow={panelW} tabIndex={0}
+           title="Ziehen: Eingabebereich breiter oder schmaler · Doppelklick: Standardbreite"
+           onPointerDown={trennerZiehen} onDoubleClick={() => panelSetzen(undefined, true)}
+           onKeyDown={e => {
+             if (e.key === 'ArrowLeft') { e.preventDefault(); panelSetzen(panelW + 40, true) }
+             if (e.key === 'ArrowRight') { e.preventDefault(); panelSetzen(panelW - 40, true) }
+           }} />
       <div className="vrc-panel" style={{ padding: '20px 16px 64px' }}>
         <h1 className="vrc-h1">
           <button className="logo-knopf" onClick={() => go('home')} title="Zur Startseite" aria-label="Zur Startseite">
@@ -2706,10 +2901,10 @@ export default function App() {
                 <div role="group" aria-label="Messart"
                      style={{ display: 'inline-flex', flexWrap: 'wrap', border: '1px solid var(--border)', borderRadius: 8,
                               overflow: 'hidden', marginBottom: 6 }}>
-                  {([['kante', 'Ab Bordsteinkante (AV)'], ['hand', 'Zwei Punkte']] as const).map(([m, label]) => (
+                  {([['kante', 'Ab Bordsteinkante (AV)'], ['flaeche', 'Ganze Fläche'], ['hand', 'Zwei Punkte']] as const).map(([m, label]) => (
                     <button key={m} type="button" aria-pressed={messung.modus === m}
                             onClick={() => setMessung({ ...messung, modus: m, punkte: [], ergebnis: undefined,
-                              fehler: m === 'kante' && !messung.laden && messung.kanten.length === 0 ? messung.fehler : undefined })}
+                              fehler: m !== 'hand' && !messung.laden && messung.kanten.length === 0 ? messung.fehler : undefined })}
                             style={{ border: 'none', padding: '5px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
                                      background: messung.modus === m ? 'var(--accent)' : '#fff',
                                      color: messung.modus === m ? '#fff' : 'var(--text)' }}>
@@ -2720,10 +2915,12 @@ export default function App() {
                 <div>
                   {messung.modus === 'kante'
                     ? 'Weit hineinzoomen und auf die Markierung klicken, an der Stelle, bis zu der die Breite zählt. Gemessen wird rechtwinklig bis zur Bordsteinkante (orange).'
+                    : messung.modus === 'flaeche'
+                    ? 'In die Fläche klicken (Velostrasse, Weg): gemessen wird rechtwinklig von der nächsten Kante bis zur gegenüberliegenden (orange). Bei der Velostrasse zählt die Parkierung nicht mit.'
                     : 'Weit hineinzoomen, zuerst die Bordsteinkante und dann die Markierung anklicken.'}
                 </div>
                 <div style={{ marginTop: 6, fontWeight: 600, color: messung.fehler ? '#b91c1c' : 'var(--text-strong)' }}>
-                  {messung.modus === 'kante' && messung.laden ? 'Lade Bordsteinkanten …'
+                  {messung.modus !== 'hand' && messung.laden ? 'Lade Bordsteinkanten …'
                     : messung.fehler ?? (messung.ergebnis ? `Breite: ${numDE(messung.ergebnis.breite, 2)} m`
                       : messung.modus === 'hand' && messung.punkte.length === 1 ? 'Jetzt die Markierung anklicken.' : 'Noch nicht gemessen.')}
                 </div>

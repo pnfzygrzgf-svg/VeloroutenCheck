@@ -36,13 +36,29 @@ import { bewerteAbschnitt, type AbschnittErgebnis } from './bewertung'
 import { gegenVon, seiteA, seiteB, seitenGleich, type Section, type Seite } from './strecke'
 import { numDE } from './csv'
 import { PARK_SCHWELLE } from './parkierung'
+import { PARK_TIEFE_ANNAHME, PARK_WINKEL_TIEFE, type ParkWinkel } from './breitenmessung'
 
 export type TeilArt = 'Trottoir' | 'Haltestelle' | 'Gruen' | 'Parkierung' | 'Veloabstellplatz' | 'Parklet' | 'Sicherheitsstreifen' | 'Velostreifen'
-  | 'Pfosten' | 'Radweg' | 'Trennstreifen' | 'Fahrspur' | 'Gemeinsam' | 'Kernfahrbahn' | 'Velostrasse' | 'Tram'
+  | 'Pfosten' | 'Radweg' | 'Trennstreifen' | 'Fahrspur' | 'Gemeinsam' | 'Kernfahrbahn' | 'Velostrasse' | 'Tram' | 'Mittelinsel'
+  | 'FussRadweg' | 'Zweirichtungsradweg' | 'RadwegAbgesetzt' | 'FusswegVelo'
 // Bild: was auf dem Teil steht (Skizze; bei der Fahrspur auch die Vorgabe). Markierung: Draufsicht
 // auf dem Teil (nur Skizze). Fehlt eines, gilt das erste der Liste in BILDER bzw. 'keine'.
 export type Bild = 'fuss' | 'sitzbank' | 'baum' | 'strauch' | 'blumen' | 'auto' | 'lastwagen' | 'bus'
-export type Markierung = 'keine' | 'geradeaus' | 'links' | 'rechts'
+// Pfeil auf dem Teil, auch kombiniert (seit 20.10.2026, Nutzerbefund Kirchenfeldstrasse: OSM turn:lanes «left|through;right»)
+export type Markierung = 'keine' | 'geradeaus' | 'links' | 'rechts' | 'links-geradeaus' | 'geradeaus-rechts' | 'links-rechts' | 'alle'
+export type Pfeil = 'links' | 'geradeaus' | 'rechts'
+export const PFEILE: Pfeil[] = ['links', 'geradeaus', 'rechts']
+// Die Richtungen einer Markierung und zurück
+export function pfeileVon(m: Markierung | undefined): Pfeil[] {
+  if (!m || m === 'keine') return []
+  if (m === 'alle') return [...PFEILE]
+  return PFEILE.filter(p => m.split('-').includes(p))
+}
+export function markierungAus(ps: Iterable<Pfeil>): Markierung {
+  const s = new Set(ps), l = s.has('links'), g = s.has('geradeaus'), r = s.has('rechts')
+  return l && g && r ? 'alle' : l && g ? 'links-geradeaus' : g && r ? 'geradeaus-rechts' : l && r ? 'links-rechts'
+    : l ? 'links' : g ? 'geradeaus' : r ? 'rechts' : 'keine'
+}
 // Fahrtrichtung eines Teils (nur Skizze: Fahrzeug von vorne oder hinten, Richtung der Pfeile).
 // A = in Richtung der Seite A (vom Betrachter weg), B = entgegen, beide = Gegenverkehr im selben Teil.
 export type Richtung = 'A' | 'B' | 'beide'
@@ -78,7 +94,11 @@ export const FUSS_QUELLE: Record<Stadt, string> = {
 export const fussnetzOptionen = (stadt: Stadt): FussNetz[] => (Object.keys(FUSSNETZ) as FussNetz[]).filter(k => FUSSNETZ[k].stadt === stadt)
 // breite NaN = leer; angenommen: Breite heute unbekannt, Vorgabe eingesetzt (startAufteilung);
 // trottoirniveau: Parkierung hinter dem Randstein, ausserhalb der Fahrbahn (seit 17.10.2026)
-export interface Teil { art: TeilArt; breite: number; bild?: Bild; markierung?: Markierung; richtung?: Richtung; angenommen?: boolean; trottoirniveau?: boolean }
+// parkart: Parkierung schräg, quer oder «schräg oder quer» (tief); fehlt = längs (seit 20.10.2026);
+// winkel: Schrägparkierung 45° oder 60°, fehlt = Winkel offen; versetzt: Parkierung an anderer Stelle als die
+// gegenüber (abwechselnd Seite A und B): zählt für die Bewertung, aber nicht in Bilanz und Skizze des Querschnitts
+export interface Teil { art: TeilArt; breite: number; bild?: Bild; markierung?: Markierung; richtung?: Richtung; angenommen?: boolean; trottoirniveau?: boolean
+  parkart?: 'schraeg' | 'quer' | 'tief'; winkel?: ParkWinkel; tiefeGemessen?: boolean; versetzt?: boolean }   // tiefeGemessen: Tiefe aus den Parkfeldern (bleibt beim Umstellen)
 // fahrbahn: verfügbares Mass Bordstein–Bordstein [m], NaN = leer; fussnetz: Netz für die Trottoir-Vorgabe
 // fussnetzQuelle 'geoportal': aus dem Richtplan Fussverkehr vorbelegt (fussnetz.ts), sonst von Hand
 // seitenraum: Breite ausserhalb der Fahrbahn heute, beide Seiten zusammen [m] (Trottoirs aus der AV),
@@ -89,14 +109,37 @@ export interface Aufteilung { fahrbahn: number; teile: Teil[]; seitenraum?: numb
   tempo?: number; vorschlag?: string }
 
 export const TEIL_ARTEN: TeilArt[] = ['Trottoir', 'Haltestelle', 'Gruen', 'Parkierung', 'Veloabstellplatz', 'Parklet', 'Sicherheitsstreifen', 'Velostreifen',
-  'Pfosten', 'Radweg', 'Trennstreifen', 'Fahrspur', 'Gemeinsam', 'Kernfahrbahn', 'Velostrasse', 'Tram']
+  'Pfosten', 'Radweg', 'Trennstreifen', 'Fahrspur', 'Gemeinsam', 'Kernfahrbahn', 'Velostrasse', 'Tram', 'Mittelinsel',
+  'FussRadweg', 'Zweirichtungsradweg', 'RadwegAbgesetzt', 'FusswegVelo']
 export const TEIL_LABEL: Record<TeilArt, string> = {
   Trottoir: 'Trottoir', Haltestelle: 'Haltestelle (Wartehäuschen und Warteraum)', Gruen: 'Grünstreifen', Parkierung: 'Längsparkierung (Autos)', Veloabstellplatz: 'Veloabstellplatz',
   Parklet: 'Parklet', Sicherheitsstreifen: 'Sicherheitsstreifen zur Parkierung', Velostreifen: 'Velostreifen',
   Pfosten: 'Trennung mit Pfosten', Radweg: 'Radweg (baulich getrennt)', Trennstreifen: 'Trennstreifen zum Radweg',
   Fahrspur: 'Fahrspur', Gemeinsam: 'Fahrbahn ohne Mittellinie (Gegenverkehr)', Kernfahrbahn: 'Kernfahrbahn (ohne Mittellinie, beide Richtungen)',
-  Velostrasse: 'Velostrasse (ganze Fahrbahn)', Tram: 'Fahrspur mit Tramgleis',
+  Velostrasse: 'Velostrasse (ganze Fahrbahn)', Tram: 'Fahrspur mit Tramgleis', Mittelinsel: 'Mittelinsel',
+  FussRadweg: 'Fuss-/Radweg (gemeinsam)', Zweirichtungsradweg: 'Zweirichtungsradweg', RadwegAbgesetzt: 'Radweg abgesetzt',
+  FusswegVelo: 'Fussweg, Velo gestattet',
 }
+// Wege ausserhalb der Fahrbahn (seit 20.10.2026, Nutzerbefund Familienspaziergang): Teil → Führungsform der Bewertung
+export const WEG_FORM: Partial<Record<TeilArt, IstFuehrungsform>> = {
+  FussRadweg: 'Kombinierter Fuss-/Radweg', Zweirichtungsradweg: 'Zweirichtungsradweg', RadwegAbgesetzt: 'Radweg abgesetzt',
+  FusswegVelo: 'Fussweg Velo gestattet',
+}
+export const WEG_TEIL: Partial<Record<IstFuehrungsform, TeilArt>> = Object.fromEntries(
+  Object.entries(WEG_FORM).map(([t, f]) => [f, t])) as Partial<Record<IstFuehrungsform, TeilArt>>
+export const istWeg = (t: Teil): boolean => WEG_FORM[t.art] != null
+// Auswahlliste der Teile, thematisch gruppiert, innerhalb der Gruppe alphabetisch (Nutzerwunsch 20.10.2026)
+const GRUPPEN: [string, TeilArt[]][] = [
+  ['Fussverkehr', ['Trottoir', 'Haltestelle', 'Mittelinsel']],
+  ['Velo', ['Velostreifen', 'Radweg', 'Velostrasse']],
+  ['Wege ausserhalb der Fahrbahn', ['FussRadweg', 'Zweirichtungsradweg', 'RadwegAbgesetzt', 'FusswegVelo']],
+  ['Trennung', ['Sicherheitsstreifen', 'Trennstreifen', 'Pfosten']],
+  ['Fahrbahn', ['Fahrspur', 'Gemeinsam', 'Kernfahrbahn', 'Tram']],
+  ['Parkierung und Aufenthalt', ['Parkierung', 'Veloabstellplatz', 'Parklet']],
+  ['Grün', ['Gruen']],
+]
+export const TEIL_GRUPPEN: [string, TeilArt[]][] = GRUPPEN.map(([g, xs]) =>
+  [g, [...xs].sort((x, y) => TEIL_LABEL[x].localeCompare(TEIL_LABEL[y], 'de-CH'))])
 export const BILDER: Partial<Record<TeilArt, Bild[]>> = {
   // Das Wartehäuschen gehört zur Haltestelle, nicht zum Trottoir (Nutzerbefund 16.10.2026)
   Trottoir: ['fuss', 'sitzbank'], Gruen: ['baum', 'strauch', 'blumen'],
@@ -112,14 +155,16 @@ export const bildVon = (t: Teil): Bild | undefined =>
 // Schweizer Markierung. Doppelpfeil (je einer in jede Richtung) nur für Teile, die beide
 // Richtungen tragen, und nicht auf der Einbahn.
 export const MARKIERUNG_LABEL: Record<Markierung, string> = {
-  keine: 'keine Markierung', geradeaus: 'Pfeil geradeaus', links: 'Pfeil links', rechts: 'Pfeil rechts',
+  keine: 'kein Pfeil', geradeaus: 'Pfeil geradeaus', links: 'Pfeil links', rechts: 'Pfeil rechts',
+  'links-geradeaus': 'Pfeil links und geradeaus', 'geradeaus-rechts': 'Pfeil geradeaus und rechts', 'links-rechts': 'Pfeil links und rechts',
+  alle: 'Pfeil links, geradeaus und rechts',
 }
 // Teile mit Verkehr: Richtung und Markierung wählbar. Gegenverkehr im selben Teil nur bei den
 // Teilen ohne Mittellinie und nicht auf der Einbahn; dann zeigt die Skizze je ein Fahrzeug von
 // vorne und von hinten und die Pfeile in beide Richtungen (ersetzt den Doppelpfeil).
 const MIT_VERKEHR: TeilArt[] = ['Velostreifen', 'Radweg', 'Fahrspur', 'Gemeinsam', 'Kernfahrbahn', 'Velostrasse', 'Tram']
 const BEIDE_RICHTUNGEN: TeilArt[] = ['Gemeinsam', 'Kernfahrbahn', 'Velostrasse']
-export const markierungenFuer = (art: TeilArt): Markierung[] => (MIT_VERKEHR.includes(art) ? ['keine', 'geradeaus', 'links', 'rechts'] : [])
+export const markierungenFuer = (art: TeilArt): Markierung[] => (MIT_VERKEHR.includes(art) ? Object.keys(MARKIERUNG_LABEL) as Markierung[] : [])
 export const richtungenFuer = (art: TeilArt, einbahn: boolean): Richtung[] =>
   !MIT_VERKEHR.includes(art) ? [] : einbahn ? ['A'] : BEIDE_RICHTUNGEN.includes(art) ? ['beide', 'A', 'B'] : ['A', 'B']
 // Liegt das Teil links der Fahrbahnmitte (Mitte der Fahrbahnteile nach Breite)? Wie in der Skizze.
@@ -152,7 +197,7 @@ export const RICHTWERT: Partial<Record<TeilArt, { wert: number; min?: number; ma
 }
 // Vorbelegte Breite für Teile ohne Vorgabe (Nutzerentscheid 16.10.2026: Veloabstellplatz 1,90)
 export const STANDARD_BREITE: Partial<Record<TeilArt, number>> = {
-  Veloabstellplatz: 1.9, Parklet: 1.9, Gruen: 1.5, Trottoir: 2.0, Gemeinsam: 4.5,
+  Veloabstellplatz: 1.9, Parklet: 1.9, Gruen: 1.5, Trottoir: 2.0, Gemeinsam: 4.5, Mittelinsel: 2.0,
 }
 export const KERN_DTV_MAX = 10000, KERN_DTV_OPT = 5000, KERN_KMH_MAX = 50
 export const STANDARD_QUELLE: Record<Stadt, string> = {
@@ -230,9 +275,17 @@ export function lichtraum(fahrzeug: 'auto' | 'lastwagen' | 'bus', kmh: number): 
 export const TRAM_LICHTRAUM_M = 2.8
 
 export const auf5cm = (m: number): number => Math.round(m * 20) / 20
-export const istFahrbahnTeil = (t: Teil): boolean => t.art !== 'Trottoir' && t.art !== 'Haltestelle' && t.art !== 'Gruen' && !t.trottoirniveau
+export const istFahrbahnTeil = (t: Teil): boolean => t.art !== 'Trottoir' && t.art !== 'Haltestelle' && t.art !== 'Gruen' && !t.trottoirniveau && !istWeg(t)
 // Name eines Teils in Liste und Bericht (mit dem Merkmal «auf Trottoirniveau»)
-export const teilName = (t: Teil): string => TEIL_LABEL[t.art] + (t.trottoirniveau ? ', auf Trottoirniveau' : '')
+// Anordnung der Parkierung (Nutzerwunsch 20.10.2026: in der Planung wählbar; «quer» heisst in der App senkrecht)
+export const PARKART_LABEL = { schraeg: 'Schrägparkierung (Autos)', quer: 'Senkrechtparkierung (Autos)', tief: 'Schräg- oder Senkrechtparkierung (Autos)' }
+// Vorbelegte Tiefe beim Wechsel der Anordnung, nur ohne gemessene Tiefe: Normalien Stadt Bern 2.10.22 (schräg 60°
+// 5,25 m, senkrecht 5,00 m; wie bei den Zürcher Parkfeldern ohne Tiefe, breitenmessung.ts)
+export const parkTiefeVorbelegt = (parkart: 'schraeg' | 'quer', winkel?: ParkWinkel): number =>
+  parkart === 'quer' ? PARK_TIEFE_ANNAHME.quer : winkel ? PARK_WINKEL_TIEFE[winkel] : PARK_TIEFE_ANNAHME.schraeg
+const parkName = (t: Teil) => (t.parkart === 'schraeg' && t.winkel ? `Schrägparkierung ${t.winkel}° (Autos)` : PARKART_LABEL[t.parkart!])
+export const teilName = (t: Teil): string => (t.art === 'Parkierung' && t.parkart ? parkName(t) : TEIL_LABEL[t.art])
+  + (t.trottoirniveau ? ', auf Trottoirniveau' : '') + (t.versetzt ? ', versetzt' : '')
 
 // Summe der Fahrbahn-Teile und Rest gegenüber dem verfügbaren Mass (negativ = Fehlmass).
 // Bilanz über den ganzen Querschnitt (Nutzerentscheid 16.10.2026): Verfügbar sind die Fahrbahn
@@ -260,9 +313,10 @@ export function bilanzText(a: Aufteilung, b: Bilanz): { kopf: string; ergebnis: 
 
 export function bilanz(a: Aufteilung): Bilanz {
   const sum = (ts: Teil[]) => ts.reduce((s, t) => s + (Number.isFinite(t.breite) ? t.breite : 0), 0)
-  const fb = a.teile.filter(istFahrbahnTeil)
+  const imQuerschnitt = a.teile.filter(t => !t.versetzt)    // versetzte Parkierung liegt an anderer Stelle
+  const fb = imQuerschnitt.filter(istFahrbahnTeil)
   const ganz = a.seitenraum != null && Number.isFinite(a.seitenraum)
-  const zaehlt = ganz ? a.teile : fb
+  const zaehlt = ganz ? imQuerschnitt : fb
   const summe = sum(zaehlt)
   const verfuegbar = Number.isFinite(a.fahrbahn) ? a.fahrbahn + (ganz ? a.seitenraum! : 0) : NaN
   return { summe, verfuegbar, rest: verfuegbar - summe, offen: zaehlt.filter(t => !Number.isFinite(t.breite)).length, ganz, fahrbahnSumme: sum(fb) }
@@ -295,8 +349,8 @@ function band(t: Teil, v: { wert: number; min?: number; max?: number }, quelle: 
 
 export function pruefeTeil(t: Teil, routentyp: Routentyp, breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>,
   umfeld: Umfeld = {}, breitenQuelle = RICHTWERT_QUELLE): TeilPruefung {
-  if (t.art === 'Velostreifen' || t.art === 'Radweg') {
-    const ist: IstFuehrungsform = t.art === 'Velostreifen' ? 'Radstreifen' : 'Radweg strassenbegleitend / Geschützter Radstreifen'
+  if (t.art === 'Velostreifen' || t.art === 'Radweg' || istWeg(t)) {
+    const ist: IstFuehrungsform = t.art === 'Velostreifen' ? 'Radstreifen' : t.art === 'Radweg' ? 'Radweg strassenbegleitend / Geschützter Radstreifen' : WEG_FORM[t.art]!
     const soll = sollBreite(ist, routentyp, breiten?.[ist])
     if (!Number.isFinite(t.breite)) return { soll, status: 'leer', quelle: breitenQuelle }
     return { soll, status: soll != null && t.breite < soll - 1e-9 ? 'zu schmal' : 'ok', quelle: breitenQuelle }
@@ -334,6 +388,8 @@ export function pruefeTeil(t: Teil, routentyp: Routentyp, breiten?: Partial<Reco
     const q = umfeld.einbahn ? 'eigene Herleitung (Einbahn mit Gleis)' : RICHTWERT_QUELLE
     return band(t, { wert: umfeld.einbahn ? 3.25 : 3.0, min: TRAM_LICHTRAUM_M }, stadt === 'bern' ? q : ersatz(q))
   }
+  // Schräg- und Querparkierung: die Vorgabe gilt der Längsparkierung; die Tiefe ist gemessen bzw. angenommen
+  if (t.art === 'Parkierung' && t.parkart) return { status: Number.isFinite(t.breite) ? 'keine Vorgabe' : 'leer' }
   const v = vorgabe(t.art, stadt)
   if (!v) return { status: Number.isFinite(t.breite) ? 'keine Vorgabe' : 'leer' }
   return band(t, v, v.quelle)
@@ -342,6 +398,12 @@ export function pruefeTeil(t: Teil, routentyp: Routentyp, breiten?: Partial<Reco
 // Prüfung als Satz für Liste und Bericht (z. B. «✓ Richtwert 3,00 m», «Zu schmal · Vorgabe 2,50 m»).
 export function pruefungText(t: Teil, p: TeilPruefung): string {
   if (t.art === 'Gruen') return 'ausserhalb der Fahrbahn, keine Vorgabe'
+  if (t.art === 'Parkierung' && t.parkart) {
+    const normal = t.parkart === 'quer' ? 'senkrecht 5,00 m' : t.parkart === 'schraeg' && t.winkel ? `schräg ${t.winkel}° ${numDE(PARK_WINKEL_TIEFE[t.winkel], 2)} m`
+      : 'schräg 60° 5,25 m, 45° 4,90 m, senkrecht 5,00 m'
+    return t.angenommen ? `Tiefe nach den Normalien der Stadt Bern angenommen (in den Daten nicht enthalten; ${normal}), keine Vorgabe`
+      : `${t.tiefeGemessen ? 'Tiefe aus den Parkfeldern gemessen, ' : ''}keine Vorgabe (Normalien Stadt Bern: ${normal})`
+  }
   if (t.art === 'Haltestelle' && p.soll != null) {
     const v = `Vorgabe mindestens ${numDE(p.soll, 2)} m für Wartehäuschen und Warteraum (${p.quelle})`
     return p.status === 'ok' ? `✓ ${v}` : p.status === 'leer' ? `Breite fehlt · ${v}` : `Zu schmal · ${v}`
@@ -354,7 +416,7 @@ export function pruefungText(t: Teil, p: TeilPruefung): string {
       : p.status === 'unter Richtwert' ? `Unter dem Richtwert · ${v}` : `Zu schmal · ${v}`
   }
   if (p.soll == null) return p.status === 'leer' ? 'Breite fehlt' : 'keine Vorgabe'
-  const velo = t.art === 'Velostreifen' || t.art === 'Radweg' || t.art === 'Velostrasse'
+  const velo = t.art === 'Velostreifen' || t.art === 'Radweg' || t.art === 'Velostrasse' || istWeg(t)
   const quelle = p.quelle && p.quelle !== RICHTWERT_QUELLE ? ` (${p.quelle})` : ''
   const vorgabe = (p.max != null ? `Vorgabe ${numDE(p.min ?? p.soll, 2)}–${numDE(p.max, 2)} m`
     : `${velo ? 'Vorgabe' : 'Richtwert'} ${numDE(p.soll, 2)} m${p.min != null && p.min < p.soll - 1e-9 ? `, mindestens ${numDE(p.min, 2)} m` : ''}`) + quelle
@@ -427,6 +489,8 @@ export function formJeSeite(teile: Teil[], seite: 'A' | 'B'): SeitenForm | null 
   let parken = false, sicher = false
   for (let i = 0; i < vomRand.length; i++) {
     const t = vomRand[i]
+    // Weg ausserhalb der Fahrbahn: die Führungsform dieser Seite (vom Rand her der erste)
+    if (istWeg(t)) return { ist: WEG_FORM[t.art]!, breite: t.breite, parkenRechts: 'nein', sicherheitsstreifen: false }
     if (t.art === 'Trottoir' || t.art === 'Haltestelle' || t.art === 'Gruen' || t.art === 'Veloabstellplatz' || t.art === 'Parklet') continue
     if (t.art === 'Parkierung' && !parken) { parken = true; continue }
     if (t.art === 'Sicherheitsstreifen' && parken) { sicher = true; continue }
@@ -502,17 +566,47 @@ export function startAufteilung(s: Section, stadt: Stadt = 'bern', breiten?: Par
   // Parkierung auf der Trottoirfläche (s.trottoir.parkA/parkB, Kanzleistrasse): auf Trottoirniveau,
   // ausserhalb der Fahrbahn; das gemessene Trottoir enthält sie, es wird um ihre Breite schmaler.
   const pBreite = vorgabe('Parkierung', stadt)!.wert
+  // Schräg- und Querparkierung mit der Tiefe aus den Parkfeldern (parkierungTiefe); Längsparkierung mit der Vorgabe
+  const quer = (seite: 'a' | 'b') => { const pt = s.parkTiefe?.[seite]; return pt && pt.art !== 'laengs' ? pt : undefined }
+  const parkTeil = (seite: 'a' | 'b', trottoirniveau: boolean): Teil => {
+    const pt = quer(seite)
+    return { art: 'Parkierung', breite: pt?.tiefe ?? pBreite, ...(pt ? { parkart: pt.art as 'schraeg' | 'quer' | 'tief' } : {}),
+      ...(pt?.winkel ? { winkel: pt.winkel } : {}), ...(pt?.angenommen ? { angenommen: true } : pt ? { tiefeGemessen: true } : {}), ...(trottoirniveau ? { trottoirniveau: true } : {}),
+      ...(versetzt === seite ? { versetzt: true } : {}) }
+  }
+  const pTiefe = (seite: 'a' | 'b') => quer(seite)?.tiefe ?? pBreite
   const parkHat = (f: Seite) => f.parkenRechts === 'ja' && f.ist !== 'Radweg strassenbegleitend / Geschützter Radstreifen'
+  // Versetzte Parkierung (parkierungVersetzt): nur wenn gegenüber auch Parkierung steht
+  const versetzt = s.parkVersetzt && s.richtung === 'beide' && parkHat(seiteA(s)) && parkHat(seiteB(s)) ? s.parkVersetzt : undefined
   const aufTr = (f: Seite, park?: boolean, m?: number) => !!park && parkHat(f) && m != null && Number.isFinite(m)
   const trA = aufTr(seiteA(s), s.trottoir?.parkA, s.trottoir?.a)
   const trB = s.richtung === 'eine' ? !!s.trottoir?.parkB && einbahnParkLinks(s) && Number.isFinite(s.trottoir?.b ?? NaN)
     : aufTr(seiteB(s), s.trottoir?.parkB, s.trottoir?.b)
-  const rand = (f: Seite, aufTrottoir: boolean): Teil[] => {
+  // Breite heute unbekannt: Vorgabe, als angenommen gekennzeichnet (siehe velo unten)
+  const wegTeil = (f: Seite, b: number): Teil => {
+    const art = WEG_TEIL[f.ist as IstFuehrungsform]!
+    return Number.isFinite(b) ? { art, breite: b }
+      : { art, breite: sollBreite(f.ist as IstFuehrungsform, s.routentyp || 'Veloroute', breiten?.[f.ist as IstFuehrungsform]) ?? NaN, angenommen: true }
+  }
+  // Weg ohne Fahrbahn (OSM-Rad-/Fussweg, Nutzerbefund Familienspaziergang 20.10.2026): nur der Weg selbst; seine
+  // Breite ist die Breite der Führungsform oder die gemessene «Fahrbahnbreite» (= Wegfläche der AV)
+  if (s.ohneFahrbahn && WEG_TEIL[seiteA(s).ist as IstFuehrungsform]) {
+    const a = seiteA(s), b = seiteB(s)
+    const breite = Number.isFinite(a.breite) ? a.breite : s.fahrbahnbreite
+    const teile = [wegTeil(a, breite)]
+    if (s.richtung === 'beide' && b.ist !== a.ist && WEG_TEIL[b.ist as IstFuehrungsform]) teile.unshift(wegTeil(b, b.breite))
+    const netz: Partial<Aufteilung> = s.fussnetzGeoportal ? { fussnetz: s.fussnetzGeoportal, fussnetzQuelle: 'geoportal' } : {}
+    return { fahrbahn: 0, teile, seitenraum: teile.reduce((m, t) => m + (Number.isFinite(t.breite) ? t.breite : 0), 0), ...netz }
+  }
+  const rand = (f: Seite, aufTrottoir: boolean, seite: 'a' | 'b'): Teil[] => {
     const t: Teil[] = []
+    // Weg ausserhalb der Fahrbahn (abgesetzter Radweg, Fuss-/Radweg …): ganz aussen auf dieser Seite
+    if (WEG_TEIL[f.ist as IstFuehrungsform]) t.push(wegTeil(f, f.breite))
     const radweg = f.ist === 'Radweg strassenbegleitend / Geschützter Radstreifen'
     if (parkHat(f)) {
-      t.push(aufTrottoir ? { art: 'Parkierung', breite: pBreite, trottoirniveau: true } : { art: 'Parkierung', breite: pBreite })
-      if (f.parkenSicherheitsstreifen) t.push({ art: 'Sicherheitsstreifen', breite: vorgabe('Sicherheitsstreifen', stadt)!.wert })
+      t.push(parkTeil(seite, aufTrottoir))
+      if (f.parkenSicherheitsstreifen) t.push({ art: 'Sicherheitsstreifen', breite: vorgabe('Sicherheitsstreifen', stadt)!.wert,
+        ...(versetzt === seite ? { versetzt: true } : {}) })
     }
     // Breite heute unbekannt (online oft: OSM ohne Breite, nicht gemessen): Vorgabe einsetzen und als
     // angenommen kennzeichnen. Vorher zählte sie als 0 m, und die Fahrspuren bekamen den ganzen Rest
@@ -524,24 +618,62 @@ export function startAufteilung(s: Section, stadt: Stadt = 'bern', breiten?: Par
     return t
   }
   // Trottoirs aus der AV (s.trottoir), sobald gemessen: ausserhalb der Fahrbahn, ganz aussen.
-  const ohnePark = (m: number | undefined, ja: boolean) => (ja ? Math.max(0, m! - pBreite) : m)
+  const ohnePark = (m: number | undefined, ja: boolean, seite: 'a' | 'b') => (ja ? Math.max(0, m! - pTiefe(seite)) : m)
   // Einbahn (nur Seite A): links kein Velostreifen; Parkierung links nur, wenn die amtlichen Parkfelder dort
   // eine zeigen (Nutzerbefund 17.10.2026: vorher stand die Seite A gespiegelt auch links, samt Velostreifen)
-  const links = [...trottoir(ohnePark(s.trottoir?.b, trB)), ...(s.richtung === 'eine'
-    ? (einbahnParkLinks(s) ? [{ art: 'Parkierung', breite: pBreite, ...(trB ? { trottoirniveau: true } : {}) } as Teil] : [])
-    : rand(seiteB(s), trB))]
-  const rechts = [...rand(seiteA(s), trA).reverse(), ...trottoir(ohnePark(s.trottoir?.a, trA))]
-  const nSpuren = s.richtung === 'eine' ? 1 : 2
+  const links = [...trottoir(ohnePark(s.trottoir?.b, trB, 'b')), ...(s.richtung === 'eine'
+    ? (einbahnParkLinks(s) ? [parkTeil('b', trB)] : [])
+    : rand(seiteB(s), trB, 'b'))]
+  const rechts = [...rand(seiteA(s), trA, 'a').reverse(), ...trottoir(ohnePark(s.trottoir?.a, trA, 'a'))]
+  // Fahrspuren aus OSM (s.spuren, lanes/turn:lanes; Nutzerbefund 20.10.2026, Kirchenfeldstrasse: eine Spur Richtung B,
+  // zwei Richtung A mit «←» und «↑→»): Anzahl je Seite und Pfeile; sonst eine auf der Einbahn, zwei bei Gegenverkehr
+  const osm = s.spuren && s.spuren.a.length > 0 && (s.richtung === 'eine' || s.spuren.b.length > 0) ? s.spuren : undefined
+  const nSpuren = osm ? osm.a.length + (s.richtung === 'eine' ? 0 : osm.b.length) : s.richtung === 'eine' ? 1 : 2
+  const mitPfeil = !!osm && [...osm.a, ...osm.b].some(m => m !== 'keine')
+  // Spuren je Seite in der Reihenfolge der Skizze (links Rand B, rechts Rand A): Seite B kommt entgegen, ihre linke
+  // Spur liegt zur Mitte hin; das Tram fährt auf der innersten Spur jeder Richtung
+  const spurenMit = (breite: number, art: TeilArt): { b: Teil[]; a: Teil[] } => {
+    if (!osm) return { b: [], a: Array.from({ length: nSpuren }, () => ({ art, breite })) }
+    const spur = (m: Markierung, r: 'A' | 'B', innen: boolean): Teil => ({ art: art === 'Tram' && !innen ? 'Fahrspur' : art, breite,
+      ...(s.richtung === 'eine' ? {} : { richtung: r }), ...(m !== 'keine' ? { markierung: m } : {}) })
+    return { b: s.richtung === 'eine' ? [] : osm.b.map((m, k) => spur(m, 'B', k === 0)).reverse(), a: osm.a.map((m, k) => spur(m, 'A', k === 0)) }
+  }
+  // Mehr als zwei Spuren: der Rundungsrest (auf 5 cm) auf die erste Spur, damit die Bilanz aufgeht
+  const mitRest = (sp: { b: Teil[]; a: Teil[] }, verfuegbar: number): { b: Teil[]; a: Teil[] } => {
+    const alle = [...sp.b, ...sp.a]
+    if (!osm || alle.length < 3 || !Number.isFinite(verfuegbar)) return sp
+    const erste = { ...alle[0], breite: auf5cm(verfuegbar - alle.slice(1).reduce((m, t) => m + t.breite, 0)) }
+    return sp.b.length ? { b: [erste, ...sp.b.slice(1)], a: sp.a } : { b: [], a: [erste, ...sp.a.slice(1)] }
+  }
+  // Heute ausserhalb der Fahrbahn: Trottoirs aus der AV und die Wege daneben (sonst Fehlmass in der Bilanz)
+  const wege = [...links, ...rechts].filter(istWeg).reduce((m, x) => m + (Number.isFinite(x.breite) ? x.breite : 0), 0)
+  const seitenraum = seitenraumVon(s.trottoir) + wege
   // Fussverkehrsnetz aus dem Geoportal, sobald geladen (Trottoir-Vorgabe)
   const netz: Partial<Aufteilung> = s.fussnetzGeoportal ? { fussnetz: s.fussnetzGeoportal, fussnetzQuelle: 'geoportal' } : {}
   const art: TeilArt = s.tram ? 'Tram' : 'Fahrspur'
-  const belegt = [...links, ...rechts].filter(istFahrbahnTeil).reduce((m, t) => m + (Number.isFinite(t.breite) ? t.breite : 0), 0)
+  const belegt = [...links, ...rechts].filter(t => istFahrbahnTeil(t) && !t.versetzt).reduce((m, t) => m + (Number.isFinite(t.breite) ? t.breite : 0), 0)
   const rest = Number.isFinite(s.fahrbahnbreite) ? Math.max(0, s.fahrbahnbreite - belegt) : NaN
-  if (nSpuren === 2 && art === 'Fahrspur' && rest < 2 * vorgabe('Fahrspur', stadt)!.wert - 1e-9)
-    return { fahrbahn: s.fahrbahnbreite, teile: [...links, { art: 'Gemeinsam', breite: auf5cm(rest) }, ...rechts], seitenraum: seitenraumVon(s.trottoir), ...netz }
+  // Mittelinsel aus der AV (Nutzerentscheid 20.10.2026: Teil der Fahrbahn): Ausgangslage im Querschnitt durch die
+  // Insel — Fahrbahn von Bord zu Bord samt Insel, je eine Fahrspur links und rechts davon
+  const mi = s.mittelinsel
+  if (mi && s.richtung === 'beide' && seiteA(s).ist !== 'Velostrasse') {
+    const fb = mi.fahrbahn
+    const jeSpur = auf5cm(Math.max(0, fb - belegt - mi.breite) / nSpuren)
+    const sp = osm ? mitRest(spurenMit(jeSpur, art), Math.max(0, fb - belegt - mi.breite)) : { b: [{ art, breite: jeSpur }], a: [{ art, breite: jeSpur }] }
+    return { fahrbahn: fb, teile: [...links, ...sp.b, { art: 'Mittelinsel', breite: mi.breite }, ...sp.a, ...rechts], seitenraum, ...netz }
+  }
+  // Velostrasse: die ganze Fahrbahn zwischen den Rändern (Nutzerbefund 20.10.2026, Schlösslistrasse: stand als Fahrspur)
+  if (seiteA(s).ist === 'Velostrasse' && (s.richtung === 'eine' || seiteB(s).ist === 'Velostrasse')) {
+    const b = Number.isFinite(rest) ? auf5cm(rest) : seiteA(s).breite
+    const vs: Teil = Number.isFinite(b) ? { art: 'Velostrasse', breite: b }
+      : { art: 'Velostrasse', breite: sollBreite('Velostrasse', s.routentyp || 'Veloroute', breiten?.Velostrasse) ?? 4.5, angenommen: true }
+    return { fahrbahn: s.fahrbahnbreite, teile: [...links, vs, ...rechts], seitenraum, ...netz }
+  }
+  if (nSpuren === 2 && !mitPfeil && s.richtung === 'beide' && art === 'Fahrspur' && rest < 2 * vorgabe('Fahrspur', stadt)!.wert - 1e-9)
+    return { fahrbahn: s.fahrbahnbreite, teile: [...links, { art: 'Gemeinsam', breite: auf5cm(rest) }, ...rechts], seitenraum, ...netz }
   // Ohne Fahrbahnbreite der Richtwert (neben einem Radweg 3,25; Tram auf der Einbahn 3,25)
   const umfeld: Umfeld = { kmh: s.speed, einbahn: s.richtung === 'eine', radweg: [...links, ...rechts].some(t => t.art === 'Radweg'), stadt }
   const jeSpur = Number.isFinite(rest) ? auf5cm(rest / nSpuren) : pruefeTeil({ art, breite: NaN }, 'Veloroute', undefined, umfeld).soll!
-  const spuren: Teil[] = Array.from({ length: nSpuren }, () => ({ art, breite: jeSpur }))
-  return { fahrbahn: s.fahrbahnbreite, teile: [...links, ...spuren, ...rechts], seitenraum: seitenraumVon(s.trottoir), ...netz }
+  const sp = mitRest(spurenMit(jeSpur, art), rest)
+  return { fahrbahn: s.fahrbahnbreite, teile: [...links, ...sp.b, ...sp.a, ...rechts], seitenraum, ...netz }
 }

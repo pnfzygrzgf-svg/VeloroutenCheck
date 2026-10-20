@@ -224,6 +224,8 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                 <tr><td>Fahrbahnbreite</td><td>heute {Number.isFinite(section.fahrbahnbreite) ? `${numDE(section.fahrbahnbreite, 1)} m` : '–'}
                   {section.quelle.fahrbahnbreite === 'av' ? ' (amtliche Vermessung)' : ''} · verfügbar in der Planung ohne Randsteinanpassung
                   {' '}{Number.isFinite(a.fahrbahn) ? `${numDE(a.fahrbahn, 2)} m` : '–'}</td></tr>
+                {section.mittelinsel && <tr><td>Mittelinsel (AV)</td><td>{numDE(section.mittelinsel.breite, 2)} m breit,
+                  {' '}{section.mittelinsel.laenge} m lang; Fahrbahn an der Insel {numDE(section.mittelinsel.fahrbahn, 1)} m von Bord zu Bord</td></tr>}
                 {section.trottoir && <tr><td>Trottoirs (AV)</td><td>Seite A {Number.isFinite(section.trottoir.a) ? `${numDE(section.trottoir.a, 2)} m` : 'keines'}
                   {' · '}Seite B {Number.isFinite(section.trottoir.b) ? `${numDE(section.trottoir.b, 2)} m` : 'keines'}</td></tr>}
                 {Number.isFinite(b.verfuegbar) && b.ganz && <tr><td>Gesamtbreite</td><td>{numDE(b.verfuegbar, 2)} m (Fahrbahn und Breite
@@ -255,7 +257,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                 <div className="bericht-skizze-titel">Planung</div>
                 <SkizzeSvg titel="Planung" teile={a.teile} einbahn={einbahn} massstabCm={massstab} px={DRUCK_PX} basis={basis} />
               </div>
-              <p className="klein">Illustrationen: Streetmix (streetmix.net), CC BY-SA 4.0.</p>
+              <p className="klein">Illustrationen: Streetmix (streetmix.net), CC BY-SA 4.0. Boden, Masse und Markierungsstriche: eigene Zeichnung.</p>
             </section>
 
             <section className="bericht-block">
@@ -332,7 +334,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                 <li>Luftbild: © swisstopo, SWISSIMAGE (wms.geo.admin.ch)</li>
                 {quellen.map(q => <li key={q}>{q}</li>)}
                 <li>Strassennetz: © OpenStreetMap-Mitwirkende, ODbL</li>
-                <li>Illustrationen der Skizze: Streetmix (streetmix.net), CC BY-SA 4.0</li>
+                <li>Illustrationen der Skizze (Personen, Fahrzeuge, Ausstattung, Pfeilmarkierungen): Streetmix (streetmix.net), CC BY-SA 4.0; Boden, Masse und Markierungsstriche: eigene Zeichnung</li>
               </ul>
             </section>
 

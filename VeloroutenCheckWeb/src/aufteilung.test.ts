@@ -212,7 +212,7 @@ describe('Neue Teile, Bilder und Lichtraum (Entscheide 16.10.2026)', () => {
 
 describe('Markierungen, Richtung, Trottoir-Vorgabe, angenommene Breite', () => {
   it('Markierungen ohne Velo-Piktogramm und ohne Doppelpfeil (Gegenverkehr kommt aus der Richtung)', () => {
-    expect(markierungenFuer('Fahrspur')).toEqual(['keine', 'geradeaus', 'links', 'rechts'])
+    expect(markierungenFuer('Fahrspur')).toEqual(['keine', 'geradeaus', 'links', 'rechts', 'links-geradeaus', 'geradeaus-rechts', 'links-rechts', 'alle'])
     expect(markierungenFuer('Trottoir')).toEqual([])
   })
   it('Richtung: Gegenverkehr nur ohne Mittellinie und nicht auf der Einbahn; sonst nach der Lage', () => {

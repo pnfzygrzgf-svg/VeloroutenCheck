@@ -6,6 +6,7 @@
 
 import type { IstFuehrungsform } from './fuehrungsform'
 import type { Cand } from './VeloMap'
+import type { Markierung } from './aufteilung'
 import { distPointToLineM, teileLinie } from './geo'
 import { overpassAbgebrochen } from './cityShared'
 
@@ -89,6 +90,41 @@ export function einbahnAusTags(t: Record<string, string>): 'vor' | 'rueck' | und
 
 export interface OsmWay { id: number; tags?: Record<string, string>; geometry?: LL[] }
 
+// Fahrspuren je Richtung mit ihren Pfeilen (seit 20.10.2026, Nutzerbefund Kirchenfeldstrasse): vor = in Way-Richtung,
+// rueck = dagegen; je Spur von links nach rechts in Fahrtrichtung. Aus lanes, lanes:forward/backward und
+// turn:lanes(:forward/:backward). Ohne Angabe je Richtung: bei Gegenverkehr die Hälfte von lanes (nur gerade Zahl).
+// Busspuren zählt OSM in lanes mit; sie werden nicht abgezogen.
+export interface Spuren { vor: Markierung[]; rueck: Markierung[] }
+const PFEIL_OSM: Record<string, 'links' | 'geradeaus' | 'rechts'> = {
+  left: 'links', slight_left: 'links', sharp_left: 'links', through: 'geradeaus', right: 'rechts', slight_right: 'rechts', sharp_right: 'rechts',
+}
+function pfeilAusOsm(spur: string): Markierung {
+  const ps = new Set(spur.split(';').map(x => PFEIL_OSM[x.trim()]).filter(Boolean))
+  const l = ps.has('links'), g = ps.has('geradeaus'), r = ps.has('rechts')
+  return l && g && r ? 'alle' : l && g ? 'links-geradeaus' : g && r ? 'geradeaus-rechts' : l && r ? 'links-rechts'
+    : l ? 'links' : g ? 'geradeaus' : r ? 'rechts' : 'keine'
+}
+export function spurenAusTags(t: Record<string, string>, einbahn: 'vor' | 'rueck' | undefined): Spuren | undefined {
+  const zahl = (v?: string) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : undefined }
+  const pfeile = (v?: string) => (v ? v.split('|').map(pfeilAusOsm) : undefined)
+  const richtung = (n: number | undefined, p: Markierung[] | undefined): Markierung[] | undefined => {
+    const k = n ?? p?.length
+    return k ? Array.from({ length: k }, (_, i) => (p && p.length === k ? p[i] : 'keine')) : undefined
+  }
+  if (einbahn) {
+    const s = einbahn === 'vor' ? 'forward' : 'backward'
+    const r = richtung(zahl(t.lanes) ?? zahl(t[`lanes:${s}`]), pfeile(t['turn:lanes'] ?? t[`turn:lanes:${s}`]))
+    return r ? (einbahn === 'vor' ? { vor: r, rueck: [] } : { vor: [], rueck: r }) : undefined
+  }
+  const pv = pfeile(t['turn:lanes:forward']), pr = pfeile(t['turn:lanes:backward']), n = zahl(t.lanes)
+  let nv = zahl(t['lanes:forward']) ?? pv?.length, nr = zahl(t['lanes:backward']) ?? pr?.length
+  if (n != null && nv == null && nr != null && n > nr) nv = n - nr
+  if (n != null && nr == null && nv != null && n > nv) nr = n - nv
+  if (n != null && nv == null && nr == null && n % 2 === 0) nv = nr = n / 2
+  const vor = richtung(nv, pv), rueck = richtung(nr, pr)
+  return vor && rueck ? { vor, rueck } : undefined
+}
+
 // OSM-Breitenangabe → Meter. OSM schreibt «1.5», «1.5 m», vereinzelt «1,5» — parseFloat las
 // das Komma als Ende der Zahl («1,5» → 1 m). Andere Einheiten (ft, ', ") werden nicht geraten.
 export function osmBreite(roh: string | undefined): number | undefined {
@@ -121,10 +157,11 @@ export function wayToCand(w: OsmWay): Cand | null {
   const brSeite = (s: 'right' | 'left') =>
     osmBreite(t[`cycleway:${s}:width`] || t['cycleway:both:width'] || t['cycleway:width'])
   const einbahn = einbahnAusTags(t)
+  const spuren = isRoad ? spurenAusTags(t, einbahn) : undefined
   return {
     id: w.id, wayId: w.id, ist: istFromTags(t, hw), seiten: istSeiten(t, hw),
-    ...(isRoad ? { breiteSeiten: { rechts: brSeite('right'), links: brSeite('left') } } : {}),
-    ...(einbahn ? { einbahn } : {}),
+    ...(isRoad ? { breiteSeiten: { rechts: brSeite('right'), links: brSeite('left') } } : { ohneFahrbahn: true }),
+    ...(einbahn ? { einbahn } : {}), ...(spuren ? { spuren } : {}),
     ...(einbahn && t['oneway:bicycle'] === 'no' ? { veloGegenverkehr: true } : {}),
     speed: isFinite(sp) && sp > 0 ? sp : undefined,
     breite: osmBreite(cwW || ((isCycle || isFootBike) ? t.width : undefined)),

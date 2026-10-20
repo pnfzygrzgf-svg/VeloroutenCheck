@@ -84,6 +84,8 @@ details.hilfe p { margin: 8px 0 2px; }
 .vrc-velomap { height: min(380px, 60vh); border-radius: 12px; overflow: hidden;
   border: 1px solid var(--border-subtle); }
 
+.vrc-trenner { display: none; }   /* nur im Breitbild sichtbar (unten) */
+
 @media screen and (min-width: 1100px) {
   .vrc-app-rechner { --vrc-panel-w: clamp(400px, 34vw, 560px);
     display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
@@ -96,6 +98,12 @@ details.hilfe p { margin: 8px 0 2px; }
     overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--border); }
   .vrc-karte { position: absolute; top: 0; bottom: 0; left: 0; right: var(--vrc-panel-w); }
   .vrc-karte .vrc-velomap { height: 100%; border: none; border-radius: 0; }
+  /* Trenner zwischen Karte und Panel (seit 20.10.2026): 10 px breit über der Panelkante, Linie beim Zeigen */
+  .vrc-trenner { display: block; position: absolute; top: 0; bottom: 0; right: calc(var(--vrc-panel-w) - 5px); width: 10px;
+    z-index: 5; cursor: col-resize; touch-action: none; }
+  .vrc-trenner::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: transparent; }
+  .vrc-trenner:hover::after, .vrc-trenner:focus-visible::after { background: var(--accent); }
+  .vrc-trenner:focus-visible { outline: none; }
 }
 
 /* «Segment teilen» (App.tsx): Fadenkreuz über den anklickbaren Linien, solange der Modus aktiv

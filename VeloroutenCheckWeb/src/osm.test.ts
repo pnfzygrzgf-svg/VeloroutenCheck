@@ -202,3 +202,35 @@ describe('wayToCand — Seiten, Breite je Seite, Einbahn', () => {
     expect(c.veloGegenverkehr).toBe(true)
   })
 })
+
+import { spurenAusTags } from './osm'
+import { candToSection } from './strecke'
+import { startAufteilung, pfeileVon, markierungAus } from './aufteilung'
+describe('Fahrspuren und Pfeile aus OSM (lanes, turn:lanes; Kirchenfeldstrasse, way 44425592)', () => {
+  const kirchenfeld = { highway: 'primary', name: 'Kirchenfeldstrasse', 'cycleway:both': 'lane', lanes: '3', 'lanes:forward': '2',
+    'lanes:backward': '1', maxspeed: '50', 'turn:lanes:forward': 'left|through;right' }
+  it('je Richtung Anzahl und Pfeile, von links nach rechts', () => {
+    expect(spurenAusTags(kirchenfeld, undefined)).toEqual({ vor: ['links', 'geradeaus-rechts'], rueck: ['keine'] })
+    expect(spurenAusTags({ lanes: '4' }, undefined)).toEqual({ vor: ['keine', 'keine'], rueck: ['keine', 'keine'] })
+    expect(spurenAusTags({ lanes: '3' }, undefined)).toBeUndefined()            // ungerade, ohne Aufteilung: offen
+    expect(spurenAusTags({ lanes: '3', 'lanes:backward': '1' }, undefined)).toEqual({ vor: ['keine', 'keine'], rueck: ['keine'] })
+    expect(spurenAusTags({ lanes: '2', 'turn:lanes': 'left|through' }, 'vor')).toEqual({ vor: ['links', 'geradeaus'], rueck: [] })
+    expect(spurenAusTags({ highway: 'residential' }, undefined)).toBeUndefined()
+  })
+  it('Pfeile kombiniert und zurück', () => {
+    expect(pfeileVon('geradeaus-rechts')).toEqual(['geradeaus', 'rechts'])
+    expect(markierungAus(['rechts', 'links', 'geradeaus'])).toBe('alle')
+    expect(markierungAus([])).toBe('keine')
+  })
+  const geom = [{ lat: 46.9401504, lon: 7.4502236 }, { lat: 46.9401713, lon: 7.4508273 }]
+  it('Ausgangslage: links eine Spur entgegen, rechts zwei mit «←» und «↑→»; gegen die Way-Richtung gespiegelt', () => {
+    const c = wayToCand({ id: 44425592, tags: kirchenfeld, geometry: geom })!
+    const s = { ...candToSection(c), fahrbahnbreite: 13.0 }
+    expect(s.spuren).toEqual({ a: ['links', 'geradeaus-rechts'], b: ['keine'] })
+    const spuren = startAufteilung(s, 'bern').teile.filter(t => t.art === 'Fahrspur')
+    expect(spuren.map(t => [t.richtung, t.markierung ?? 'keine'])).toEqual([['B', 'keine'], ['A', 'links'], ['A', 'geradeaus-rechts']])
+    expect(spuren.map(t => t.breite)).toEqual([3.1, 3.15, 3.15])   // 9,40 m auf drei Spuren, der Rest links
+    const g = candToSection(c, false)
+    expect(g.spuren).toEqual({ a: ['keine'], b: ['links', 'geradeaus-rechts'] })
+  })
+})

@@ -10,10 +10,11 @@ import {
 } from './fuehrungsform'
 import type { Cand } from './VeloMap'
 import type { OevInfo } from './bern'
-import type { Aufteilung, FussNetz } from './aufteilung'
+import type { Aufteilung, FussNetz, Markierung } from './aufteilung'
 import { mergeObs, type ObsStats } from './obs'
 import { peilung, type LL } from './geo'
 import { PARK_SCHWELLE } from './parkierung'
+import type { Mittelinsel, ParkTiefe } from './breitenmessung'
 
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
 // Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
@@ -90,6 +91,13 @@ export interface Section extends Seite {
   trottoir?: { a: number; b: number; parkA?: boolean; parkB?: boolean }  // Trottoirbreite je Seite aus der AV [m], NaN = keines;
                                        // parkA/B: Parkierung dieser Seite liegt auf der Trottoirfläche (parkierungAufTrottoir)
   fussnetzGeoportal?: FussNetz         // Fussverkehrsnetz aus dem Richtplan Fussverkehr (fussnetz.ts; nur Bern)
+  ohneFahrbahn?: boolean               // Weg ohne Fahrbahn (OSM-Rad-/Fussweg): die Fahrbahnbreite ist die Wegbreite
+  parkTiefe?: { a?: ParkTiefe; b?: ParkTiefe }   // Tiefe und Anordnung der Parkierung je Seite (parkierungTiefe, seit 20.10.2026)
+  parkVersetzt?: 'a' | 'b'   // Parkierung abwechselnd A und B: diese Seite zählt im Querschnitt nicht (parkierungVersetzt)
+  // Fahrspuren je Seite aus OSM (lanes, turn:lanes; seit 20.10.2026): je Spur der Pfeil, von links nach rechts in
+  // Fahrtrichtung der Seite; auf der Einbahn nur a
+  spuren?: { a: Markierung[]; b: Markierung[] }
+  mittelinsel?: Mittelinsel | null     // Mittelinsel aus der AV (mittelinsel, seit 20.10.2026); null = gesucht, keine
 }
 let nextId = 1
 // Neuer Abschnitt: datenartige Felder leer (DTV/Tempo/Führungsform/Breite/Routentyp),
@@ -162,6 +170,9 @@ export function tauscheSeiten(s: Section): Section {
     const { parkA, parkB } = s.trottoir
     neu.trottoir = { a: s.trottoir.b, b: s.trottoir.a, ...(parkB ? { parkA: true } : {}), ...(parkA ? { parkB: true } : {}) }
   }
+  if (s.parkTiefe) neu.parkTiefe = { a: s.parkTiefe.b, b: s.parkTiefe.a }
+  if (s.parkVersetzt) neu.parkVersetzt = s.parkVersetzt === 'a' ? 'b' : 'a'
+  if (s.spuren) neu.spuren = { a: s.spuren.b, b: s.spuren.a }
   if (s.candIds) {
     const gegen = new Set(s.candsGegenA ?? [])
     neu.candsGegenA = s.candIds.filter(id => !gegen.has(id))
@@ -232,6 +243,7 @@ export function candToSection(c: Cand, gleich = true): Section {
   // DTV: nur amtlich (OSM kennt keinen DTV)
   if (c.bern?.dtv != null) { s.dtv = c.bern.dtv; s.quelle.dtv = 'amtlich' }
   s.dtvGeprueft = c.bern?.dtvGeprueft === true
+  if (c.ohneFahrbahn) s.ohneFahrbahn = true
   // Führungsform und Breite je Seite (seiteAusCand). Seite A = die Way-Seite in Fahrtrichtung
   // der Strecke bzw. — auf einer Einbahn — in Fahrtrichtung des Verkehrs.
   const aWay: WaySeite = c.einbahn ? (c.einbahn === 'vor' ? 'rechts' : 'links') : (gleich ? 'rechts' : 'links')
@@ -253,6 +265,7 @@ export function candToSection(c: Cand, gleich = true): Section {
     s.richtung = 'eine'; s.quelle.richtung = 'osm'
     if (c.veloGegenverkehr) s.osmVeloGegenverkehr = true
   }
+  if (c.spuren) s.spuren = aWay === 'rechts' ? { a: c.spuren.vor, b: c.spuren.rueck } : { a: c.spuren.rueck, b: c.spuren.vor }
   s.peilungA = peilungEntlang(c.geom, aWay === 'rechts')
   s.candsGegenA = aWay === 'rechts' ? [] : [c.id]
   if (c.bern?.luftbild) s.luftbild = { a: c.bern.luftbild[aWay], b: c.bern.luftbild[bWay] }
@@ -432,6 +445,10 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
     if (rep.sec.strassentyp === '') {
       const s = spender.find(x => x.sec.strassentyp !== '')
       if (s) { rep.sec.strassentyp = s.sec.strassentyp; rep.sec.quelle.strassentyp = s.sec.quelle.strassentyp }
+    }
+    if (!rep.sec.spuren) {
+      const s = spender.find(x => x.sec.spuren)
+      if (s) rep.sec.spuren = s.sec.spuren
     }
     // «Kein Eintrag ⇒ ≤ 2000» gilt für den Abschnitt nur, wenn JEDES seiner Segmente geprüft ist.
     rep.sec.dtvGeprueft = g.every(x => x.sec.dtvGeprueft)
