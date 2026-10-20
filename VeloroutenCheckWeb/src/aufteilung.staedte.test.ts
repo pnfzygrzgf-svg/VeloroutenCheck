@@ -130,6 +130,14 @@ describe('startAufteilung je Stadt', () => {
     const b = startAufteilung({ ...s, parkenRechts: 'nein' }, 'bern')
     expect(b.teile.some(t => t.versetzt)).toBe(false)
   })
+  it('Grünstreifen aus der AV zwischen Fahrbahn und Trottoir (Spöndlistrasse): eigenes Teil, zählt zum Seitenraum', () => {
+    const s: Section = { ...defaultSection(), ist: 'Mischverkehr', parkenRechts: 'nein', fahrbahnbreite: 6.0,
+      trottoir: { a: 2.14, b: 0.63, gruenA: 1.88 } }
+    const a = startAufteilung(s, 'zurich')
+    expect(a.teile.map(t => [t.art, t.breite])).toEqual([['Trottoir', 0.65], ['Fahrspur', 3], ['Fahrspur', 3], ['Gruen', 1.9], ['Trottoir', 2.15]])
+    expect(a.seitenraum).toBeCloseTo(4.7, 6)
+    expect(bilanz(a).rest).toBeCloseTo(0, 6)
+  })
   it('Luzern ohne Fahrbahnbreite: Fahrspur 3,25', () => {
     const s: Section = { ...defaultSection(), ist: 'Mischverkehr', richtung: 'eine' }
     expect(startAufteilung(s, 'luzern').teile).toEqual([T('Fahrspur', 3.25)])

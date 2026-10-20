@@ -1,4 +1,4 @@
-// ── Massnahmenvorschlag für die Aufteilung (seit 17.10.2026, nur Bern) ──────────────────────────
+// ── Massnahmenvorschlag für die Aufteilung (seit 17.10.2026 Bern, seit 20.10.2026 alle Städte mit Planung) ──
 //
 // Portierung des lokalen Zielbild-Rechners (VeloAuslegeordnung/Rechner/zielbild/massnahmen.py und
 // querschnitt.py, Stand 08.10.2026). Nutzerentscheide 17.10.2026: Vorschläge nur im Berner Rechner, als
@@ -24,14 +24,21 @@
 //   - Die Note rechnet die Online-Bewertung (bewertung.ts), nicht die lokale Notenkette.
 // Parkierung je Seite statt «beidseitig/Seite»; Parkierung auf Trottoirniveau braucht keine Fahrbahnbreite.
 //
+// Andere Städte (Nutzerentscheid 20.10.2026): dieselbe Rangfolge (eine normative Festlegung, keine städtische).
+// Die Unterschiede kommen über die Note der Stadt (Soll-Führungsform, Breiten) und die Masse der Platzprüfung:
+// die der Stadt, wo ihre Standards etwas nennen (vorgabe(), Breiten der Stadt), sonst die Berner als Ersatz
+// (im Vermerk genannt). Den schmalen Kern (Pilot) gibt es nur in Bern; die Hinweise auf die Berner
+// Querschnittsblätter (Q …) fallen weg.
+//
 // Randsteinanpassung (Nutzerentscheid 17.10.2026): die Trottoirs auf die Vorgabe des Fussverkehrsnetzes
 // (FUSSNETZ, Masterplan Fussverkehr) — schmalere werden auf die Vorgabe verbreitert (zulasten der Fahrbahn),
 // breitere dürfen bis auf die Vorgabe schmaler werden. Ohne gewähltes Netz gibt es diese Variante nicht.
 
-import { brauchtBreite, fuehrungsart, istRang, sollBreite, type Fuehrungsart, type IstFuehrungsform, type Routentyp } from './fuehrungsform'
+import { brauchtBreite, fuehrungsart, istRang, sollBreite, type BreitenSoll, type Fuehrungsart, type IstFuehrungsform, type Routentyp, type Stadt,
+  type Strassentyp } from './fuehrungsform'
 import { bewerteAbschnitt } from './bewertung'
 import { dtvEff, gegenVon, seiteA, seiteB, type Section } from './strecke'
-import { FUSSNETZ, KERN_DTV_MAX, KERN_KMH_MAX, WEG_TEIL, auf5cm, einbahnParkLinks, type Aufteilung, type Teil } from './aufteilung'
+import { FUSSNETZ, KERN_DTV_MAX, KERN_KMH_MAX, STANDARD_QUELLE, WEG_TEIL, auf5cm, einbahnParkLinks, gruenAusAv, vorgabe, type Aufteilung, type Teil } from './aufteilung'
 import { numDE } from './csv'
 import type { ParkTiefe } from './breitenmessung'
 
@@ -61,6 +68,50 @@ const MINIMAL = {
 const KERN_STANDARD_M = 4.5, KERN_STANDARD_MAX_M = 5.5, KERN_PILOT_MIN_M = 3.0, KERN_RS_MIN_M = 1.5, KERN_PILOT_RS_MIN_M = 1.8
 
 type S = 'A' | 'B'
+type Breiten = Partial<Record<IstFuehrungsform, BreitenSoll>>
+// Masse der Platzprüfung je Stadt (masseFuer); Bern = die Konstanten oben
+interface Masse {
+  park: number; miv: number; mivEinbahn: number; mivKern: number; mivRw: number; mivRwEinbahn: number; mivTramEinbahn: number
+  trennung: number; sicherheit: Record<Stufe, number>
+  minimal: { rs: Record<Routentyp, number>; kern: Record<Routentyp, number>; rw: Record<Routentyp, number> }
+  kernStd: number; kernMax: number; kernPilot: number | null; kernRsMin: number; kernPilotRsMin: number
+  vsMin: number; vsMax: number
+  ersatz: string[]                 // Masse nach Bern als Ersatz (Vermerk)
+}
+const MASSE_BERN: Masse = {
+  park: PARK_M, miv: MIV_M, mivEinbahn: MIV_EINBAHN_M, mivKern: MIV_KERN_M, mivRw: MIV_RW_M, mivRwEinbahn: MIV_RW_EINBAHN_M,
+  mivTramEinbahn: MIV_TRAM_EINBAHN_M, trennung: TRENNUNG_M, sicherheit: SICHERHEIT, minimal: MINIMAL,
+  kernStd: KERN_STANDARD_M, kernMax: KERN_STANDARD_MAX_M, kernPilot: KERN_PILOT_MIN_M, kernRsMin: KERN_RS_MIN_M, kernPilotRsMin: KERN_PILOT_RS_MIN_M,
+  vsMin: 4.5, vsMax: 6.5, ersatz: [],
+}
+export function masseFuer(stadt: Stadt, breiten?: Breiten): Masse {
+  if (stadt === 'bern') return MASSE_BERN
+  const ersatz: string[] = []
+  const v = (art: Parameters<typeof vorgabe>[0], name: string) => {
+    const x = vorgabe(art, stadt)!
+    if (x.quelle.startsWith('Ersatz')) ersatz.push(name)
+    return x
+  }
+  const fs = v('Fahrspur', 'Fahrstreifen'), park = v('Parkierung', 'Längsparkierung'), sich = v('Sicherheitsstreifen', 'Sicherheitsstreifen')
+  const trenn = v('Trennstreifen', 'Trennstreifen'), kern = v('Kernfahrbahn', 'Kernfahrbahn')
+  const spur = fs.min ?? fs.wert
+  // reduziertes Mass: das Minimum der Stadt für beide Routentypen; ohne eigene Breite das Berner
+  const min = (f: IstFuehrungsform, bern: Record<Routentyp, number>, name: string): Record<Routentyp, number> => {
+    const m = breiten?.[f]?.minimal
+    if (m == null) { ersatz.push(name); return bern }
+    return { Velohauptroute: m, Veloroute: m }
+  }
+  const vs = breiten?.Velostrasse?.minimal
+  if (vs == null) ersatz.push('Velostrasse')
+  ersatz.push('Restbreite neben Radweg und Tram', 'Velostreifen neben der Kernfahrbahn', 'Grenzen der Kernfahrbahn (DTV, Tempo)')
+  return {
+    park: park.wert, miv: 2 * spur, mivEinbahn: spur, mivKern: kern.min ?? kern.wert, mivRw: MIV_RW_M, mivRwEinbahn: MIV_RW_EINBAHN_M,
+    mivTramEinbahn: MIV_TRAM_EINBAHN_M, trennung: trenn.wert, sicherheit: { standard: sich.wert, minimal: sich.min ?? sich.wert },
+    minimal: { rs: min(RS, MINIMAL.rs, 'reduzierte Radstreifen'), kern: MINIMAL.kern, rw: min(RW, MINIMAL.rw, 'reduzierte Radwege') },
+    kernStd: kern.min ?? kern.wert, kernMax: kern.max ?? Infinity, kernPilot: null, kernRsMin: KERN_RS_MIN_M, kernPilotRsMin: KERN_PILOT_RS_MIN_M,
+    vsMin: vs ?? 4.5, vsMax: 6.5, ersatz,
+  }
+}
 // Platzprüfung, die zu einer Variante gehört (für den Querschnitt der Planung)
 interface Quer { form: IstFuehrungsform; stufe: Stufe; kern: boolean; kernM?: number; pilot?: boolean; sichJe: number; ersatz: number }
 // Eingaben einer Variante (wie e im lokalen Rechner)
@@ -85,6 +136,7 @@ export interface Eingaben {
   insel: number                                                  // Mittelinsel (AV) in der Fahrbahn [m]; 0 = keine. fahrbahn ist ohne sie
   fussNeben?: Partial<Record<S, number>>                         // eigener Fussweg neben dem Radweg (Wege trennen)
   platzOffen?: boolean                                           // Weg verbreitert: Platz daneben nicht geprüft
+  stadt: Stadt; breiten?: Breiten; strassentyp?: Strassentyp; m: Masse   // Stadt, ihre Breiten und Masse (seit 20.10.2026)
 }
 type Kand = { rang: number; text: string; k: Eingaben; weg: 0 | 1 | 2 }   // weg: 0 nichts, 1 eine Reihe, 2 alle
 
@@ -104,23 +156,28 @@ const versetztZaehlt = (e: Eingaben, s: S) => !(e.parkVersetzt === s && e.park[s
 const parkFbBreite = (e: Eingaben) => (e.park.A && e.parkFb.A && versetztZaehlt(e, 'A') ? e.parkTiefe.A : 0)
   + (e.park.B && e.parkFb.B && versetztZaehlt(e, 'B') ? e.parkTiefe.B : 0)
 const sollVon = (e: Eingaben): Fuehrungsart | null =>
-  (e.dtv != null && e.kmh != null ? fuehrungsart(e.dtv, e.kmh, 'bern', e.route) : null)
+  (e.dtv != null && e.kmh != null ? fuehrungsart(e.dtv, e.kmh, e.stadt, e.route, e.strassentyp) : null)
+const soll = (e: Eingaben, f: IstFuehrungsform) => sollBreite(f, e.route, e.breiten?.[f])
 
-function velobreite(form: IstFuehrungsform, route: Routentyp, stufe: Stufe, kern = false): number {
-  if (stufe === 'standard') return sollBreite(form, route) ?? MINIMAL.rs[route]
-  return (kern ? MINIMAL.kern : form === RW ? MINIMAL.rw : MINIMAL.rs)[route]
+function velobreite(e: Eingaben, form: IstFuehrungsform, stufe: Stufe, kern = false): number {
+  if (stufe === 'standard') return soll(e, form) ?? e.m.minimal.rs[e.route]
+  return (kern ? e.m.minimal.kern : form === RW ? e.m.minimal.rw : e.m.minimal.rs)[e.route]
 }
+// Stufen, die sich unterscheiden: das reduzierte Mass nur, wenn es kleiner ist als das Standardmass
+const stufenFuer = (e: Eingaben, form: IstFuehrungsform | null): Stufe[] =>
+  e.m.sicherheit.minimal < e.m.sicherheit.standard - 1e-9 || (form != null && velobreite(e, form, 'minimal') < velobreite(e, form, 'standard') - 1e-9)
+    ? STUFEN : ['standard']
 function miv(form: IstFuehrungsform, e: Eingaben, kern: boolean): number {
-  if (form === RW) return e.einbahn ? MIV_RW_EINBAHN_M : MIV_RW_M
-  if (e.einbahn) return e.tram ? MIV_TRAM_EINBAHN_M : MIV_EINBAHN_M
-  return kern && !e.tram ? MIV_KERN_M : MIV_M
+  if (form === RW) return e.einbahn ? e.m.mivRwEinbahn : e.m.mivRw
+  if (e.einbahn) return e.tram ? e.m.mivTramEinbahn : e.m.mivEinbahn
+  return kern && !e.tram ? e.m.mivKern : e.m.miv
 }
 // Benötigte Fahrbahnbreite; sichDa: kein Sicherheitsstreifen nötig (keine Parkreihe neben dem Streifen)
 function bedarf(form: IstFuehrungsform, e: Eingaben, stufe: Stufe, kern: boolean, sichDa: boolean) {
   const n = e.einbahn ? 1 : 2
-  const velo = velobreite(form, e.route, stufe, kern) * n
-  const trennung = form === RW ? TRENNUNG_M * n : 0
-  const sicherheit = (sichDa ? 0 : SICHERHEIT[stufe]) * parkseiten(e)
+  const velo = velobreite(e, form, stufe, kern) * n
+  const trennung = form === RW ? e.m.trennung * n : 0
+  const sicherheit = (sichDa ? 0 : e.m.sicherheit[stufe]) * parkseiten(e)
   const mv = miv(form, e, kern)
   return { summe: r2(mv + velo + trennung + parkFbBreite(e) + sicherheit), velo, miv: mv }
 }
@@ -171,12 +228,13 @@ function inDieFahrbahn(e: Eingaben): Eingaben | null {
 }
 function velostrasse(e: Eingaben): Eingaben | null {
   if (e.ist !== MISCH || (e.geg && e.geg !== MISCH)) return null
-  if (e.kmh !== 30 || e.fahrbahn == null || sollVon(e) !== 'Mischverkehr' || e.tram || e.halt || e.uTakt || e.insel) return null
+  const sv = sollVon(e)
+  if (e.kmh !== 30 || e.fahrbahn == null || (sv !== 'Mischverkehr' && sv !== 'Velostrasse') || e.tram || e.halt || e.uTakt || e.insel) return null
   const netto = r2(e.fahrbahn - parkFbBreite(e))
-  if (netto < 4.5 - 1e-9 || netto > 6.5 + 1e-9) return null
+  if (netto < e.m.vsMin - 1e-9 || netto > e.m.vsMax + 1e-9) return null
   let k = formSetzen(e, 'A', VELOSTRASSE, netto)
   if (!e.einbahn) k = formSetzen(k, 'B', VELOSTRASSE, netto)
-  k.quer = { form: VELOSTRASSE, stufe: 'standard', kern: false, sichJe: SICHERHEIT.standard, ersatz: netto }
+  k.quer = { form: VELOSTRASSE, stufe: 'standard', kern: false, sichJe: e.m.sicherheit.standard, ersatz: netto }
   return k
 }
 
@@ -185,14 +243,14 @@ function sicherheitsstreifen(e: Eingaben): Kand[] {
   if (!parkseiten(e) || !sichFehlt(e)) return []
   const rs = seitenVon(e).filter(s => formVon(e, s) === RS)
   if (!rs.length || !parkAnliegend(e, rs)) return []
-  const ersatz = velobreite(RS, e.route, 'minimal')
+  const ersatz = velobreite(e, RS, 'minimal')
   const summe = rs.reduce((x, s) => x + (e.breite[s] ?? ersatz), 0)
   const out: Kand[] = []
-  for (const stufe of STUFEN) {
+  for (const stufe of e.m.sicherheit.minimal < e.m.sicherheit.standard - 1e-9 ? STUFEN : ['standard'] as Stufe[]) {
     if (!passt(e, RS, stufe, false, summe, true)) continue
     const k = kopie(e); sichSetzen(k)
-    k.quer = { form: RS, stufe, kern: false, sichJe: SICHERHEIT[stufe], ersatz }
-    out.push({ rang: 1, text: `Sicherheitsstreifen ${m2(SICHERHEIT[stufe])} markieren` + (stufe === 'minimal' ? ' (minimal)' : ''), k, weg: 0 })
+    k.quer = { form: RS, stufe, kern: false, sichJe: e.m.sicherheit[stufe], ersatz }
+    out.push({ rang: 1, text: `Sicherheitsstreifen ${m2(e.m.sicherheit[stufe])} markieren` + (stufe === 'minimal' ? ' (minimal)' : ''), k, weg: 0 })
   }
   return out
 }
@@ -200,8 +258,8 @@ function verbreitern(e: Eingaben): Kand[] {
   const seiten = seitenVon(e).filter(s => formVon(e, s) === RS)
   if (!seiten.length) return []
   const out: Kand[] = []
-  for (const stufe of STUFEN) {
-    const breite = velobreite(RS, e.route, stufe)
+  for (const stufe of stufenFuer(e, RS)) {
+    const breite = velobreite(e, RS, stufe)
     const zuSchmal = seiten.filter(s => e.breite[s] == null || e.breite[s]! + 1e-9 < breite)
     if (!zuSchmal.length) continue
     let k = e
@@ -211,8 +269,8 @@ function verbreitern(e: Eingaben): Kand[] {
     if (!passt(k, RS, stufe, false, summe, anl)) continue
     const mitSich = anl && sichFehlt(k), besteht = anl && !sichFehlt(k)
     if (mitSich) sichSetzen(k)
-    k.quer = { form: RS, stufe, kern: false, sichJe: SICHERHEIT[stufe], ersatz: breite }
-    const [vor, nach] = mitSich || besteht ? sichTexte(e, k, SICHERHEIT[stufe], besteht) : ['', '']
+    k.quer = { form: RS, stufe, kern: false, sichJe: e.m.sicherheit[stufe], ersatz: breite }
+    const [vor, nach] = mitSich || besteht ? sichTexte(e, k, e.m.sicherheit[stufe], besteht) : ['', '']
     out.push({ rang: 1, text: `${vor}Radstreifen verbreitern auf ${m2(breite)} (${zuSchmal.join('/')})${nach}`, k, weg: 0 })
   }
   return out
@@ -242,8 +300,8 @@ function veloVarianten(e: Eingaben, rang: number, form: IstFuehrungsform): Kand[
   const ziele: S[][] = alle.length === 2 ? [alle, ['A'], ['B']] : [alle]
   const rangNeu = istRang(form)
   const ersetzbar = (f: IstFuehrungsform | null) => f == null || f === form || f === MISCH || f === UMWELTSPUR || f === FUSSWEG || istRang(f) < rangNeu
-  for (const stufe of STUFEN) {
-    const breite = velobreite(form, e.route, stufe)
+  for (const stufe of stufenFuer(e, form)) {
+    const breite = velobreite(e, form, stufe)
     for (const seiten of ziele) {
       if (!seiten.every(s => ersetzbar(formVon(e, s)))) continue
       let k = e
@@ -258,13 +316,13 @@ function veloVarianten(e: Eingaben, rang: number, form: IstFuehrungsform): Kand[
       let breiter: Partial<Record<S, number>> = {}
       if (form === RS && k.fahrbahn != null && !k.ohnePlatz) {
         const b0 = bedarf(form, k, stufe, false, !anl)
-        const r = reserveAufRadstreifen(k, k.fahrbahn - (b0.summe - b0.velo + summe), sollBreite(RS, k.route) ?? breite)
+        const r = reserveAufRadstreifen(k, k.fahrbahn - (b0.summe - b0.velo + summe), soll(k, RS) ?? breite)
         k = r.k; breiter = r.breiter
       }
       const mitSich = anl && sichFehlt(k), besteht = anl && !sichFehlt(k)
       if (k === e) k = kopie(e)
       if (mitSich) sichSetzen(k)
-      k.quer = { form, stufe, kern: false, sichJe: SICHERHEIT[stufe], ersatz: breite }
+      k.quer = { form, stufe, kern: false, sichJe: e.m.sicherheit[stufe], ersatz: breite }
       const neuAuf = seiten.some(s => formVon(e, s) === form)
       const was = form === RS ? (neuAuf ? 'Radstreifen neu aufteilen' : 'Radstreifen markieren')
         : (neuAuf ? 'Radweg umbauen (Q 2a/2b)' : 'Radweg bauen (Q 2a/2b)')
@@ -274,7 +332,7 @@ function veloVarianten(e: Eingaben, rang: number, form: IstFuehrungsform): Kand[
       const minimal = stufe === 'minimal' && seiten.every(s => Math.abs(end[s] - breite) < 1e-9)
       const zusatz = (Object.entries(breiter) as [S, number][]).filter(([s]) => !seiten.includes(s))
         .map(([s, b]) => `, Radstreifen Seite ${s} verbreitern auf ${m2(b)}`).join('')
-      const [vor, nach] = mitSich || besteht ? sichTexte(e, k, SICHERHEIT[stufe], besteht) : ['', '']
+      const [vor, nach] = mitSich || besteht ? sichTexte(e, k, e.m.sicherheit[stufe], besteht) : ['', '']
       out.push({ rang, text: `${vor}${was} ${mass}${minimal ? ' (minimal)' : ''}${zusatz}${nach}`, k, weg: 0 })
     }
   }
@@ -285,24 +343,26 @@ function kernVarianten(e: Eingaben): Kand[] {
   if (!kernErlaubt(RS, e) || !SOLL_MIT_RS.includes(sollVon(e) as Fuehrungsart)) return out
   const ersetzbar = [MISCH, RS, UMWELTSPUR, FUSSWEG]
   if (!e.ist || !ersetzbar.includes(e.ist) || !ersetzbar.includes(e.geg ?? e.ist)) return out
-  const maxRs = sollBreite(RS, e.route) ?? 1.8
+  const maxRs = soll(e, RS) ?? 1.8
   const ps = parkseiten(e)
   const neuAuf = e.ist === RS || e.geg === RS
   const was = neuAuf ? 'Radstreifen neu aufteilen' : 'Radstreifen markieren'
-  for (const sst of ps ? STUFEN : [null]) {
-    const sichJe = sst ? SICHERHEIT[sst] : 0
+  for (const sst of ps ? (e.m.sicherheit.minimal < e.m.sicherheit.standard - 1e-9 ? STUFEN : ['standard'] as Stufe[]) : [null]) {
+    const sichJe = sst ? e.m.sicherheit[sst] : 0
     let varianten: [number, number, boolean][]
     if (e.ohnePlatz || e.fahrbahn == null) {
       if (!e.ohnePlatz) continue
-      varianten = [[maxRs, KERN_STANDARD_M, false]]
+      varianten = [[maxRs, e.m.kernStd, false]]
     } else {
       const verf = e.fahrbahn - parkFbBreite(e) - ps * sichJe
       varianten = []
-      const rsStd = abrunden(Math.min(maxRs, (verf - KERN_STANDARD_M) / 2))
-      if (rsStd + 1e-9 >= KERN_RS_MIN_M) varianten.push([rsStd, r2(Math.min(KERN_STANDARD_MAX_M, verf - 2 * rsStd)), false])
-      const rsP = abrunden(Math.min(maxRs, (verf - KERN_PILOT_MIN_M) / 2))
-      if (rsP + 1e-9 >= KERN_PILOT_RS_MIN_M && (!varianten.length || rsP > rsStd + 1e-9))
-        varianten.push([rsP, r2(Math.min(KERN_STANDARD_M, verf - 2 * rsP)), true])
+      const rsStd = abrunden(Math.min(maxRs, (verf - e.m.kernStd) / 2))
+      if (rsStd + 1e-9 >= e.m.kernRsMin) varianten.push([rsStd, r2(Math.min(e.m.kernMax, verf - 2 * rsStd)), false])
+      // schmaler Kern (Pilot): nur in Bern
+      const pilotMin = e.m.kernPilot
+      const rsP = pilotMin == null ? NaN : abrunden(Math.min(maxRs, (verf - pilotMin) / 2))
+      if (rsP + 1e-9 >= e.m.kernPilotRsMin && (!varianten.length || rsP > rsStd + 1e-9))
+        varianten.push([rsP, r2(Math.min(e.m.kernStd, verf - 2 * rsP)), true])
     }
     for (const [rsRoh, kernM, pilot] of varianten) {
       const rs = r2(rsRoh)
@@ -328,8 +388,8 @@ function wegVarianten(e: Eingaben): Kand[] {
   const seiten = seitenVon(e).filter(s => formVon(e, s) === FUSSWEG || formVon(e, s) === KOMBI)
   if (!seiten.length) return []
   const out: Kand[] = []
-  const soll = sollBreite(KOMBI, e.route) ?? 3.5
-  const breit = (s: S) => (e.breite[s] ?? 0) + 1e-9 >= soll
+  const sollKombi = soll(e, KOMBI) ?? 3.5
+  const breit = (s: S) => (e.breite[s] ?? 0) + 1e-9 >= sollKombi
   const setzen = (form: IstFuehrungsform, breite: (s: S) => number) => {
     let k = e
     for (const s of seiten) k = formSetzen(k, s, form, breite(s))
@@ -338,11 +398,11 @@ function wegVarianten(e: Eingaben): Kand[] {
   if (seiten.some(s => formVon(e, s) === FUSSWEG) && seiten.every(breit))
     out.push({ rang: 1, text: 'Als Fuss-/Radweg signalisieren (Q 11)', k: setzen(KOMBI, s => e.breite[s]!), weg: 0 })
   if (!seiten.every(breit)) {
-    const k = setzen(KOMBI, s => Math.max(e.breite[s] ?? 0, soll)); k.platzOffen = true
-    out.push({ rang: 6, text: `Fuss-/Radweg auf ${m2(soll)} verbreitern (Q 11)`, k, weg: 0 })
+    const k = setzen(KOMBI, s => Math.max(e.breite[s] ?? 0, sollKombi)); k.platzOffen = true
+    out.push({ rang: 6, text: `Fuss-/Radweg auf ${m2(sollKombi)} verbreitern (Q 11)`, k, weg: 0 })
   }
   const velo = e.ohneFahrbahn ? ZWEIRICHTUNG : RW_ABGESETZT
-  const vb = sollBreite(velo, e.route) ?? 2.5
+  const vb = soll(e, velo) ?? 2.5
   const k = setzen(velo, () => vb)
   k.fussNeben = Object.fromEntries((e.ohneFahrbahn ? ['A'] : seiten).map(s => [s, FUSS_NEBEN_M]))
   k.platzOffen = true
@@ -389,7 +449,8 @@ export const RANG_TEXT: Record<number, string> = {
 
 // Eingaben aus dem Abschnitt (Berner Rechner): Formen und Breiten je Seite, Parkierung wie die
 // Ausgangslage der Planung (startAufteilung; Einbahn: links nach den amtlichen Parkfeldern)
-export function eingabenVon(s: Section): Eingaben {
+export function eingabenVon(s: Section, stadt: Stadt = 'bern', breiten?: Breiten): Eingaben {
+  const m = masseFuer(stadt, breiten)
   const a = seiteA(s), b = seiteB(s), einbahn = s.richtung === 'eine'
   const form = (f: typeof a) => (f.ist || null) as IstFuehrungsform | null
   // Fehlt eine Ist-Breite, gilt wie in der Ausgangslage der Planung die Vorgabe, als «angenommen» vermerkt
@@ -402,14 +463,14 @@ export function eingabenVon(s: Section): Eingaben {
     // Weg ohne Fahrbahn: die gemessene «Fahrbahnbreite» ist die Wegfläche der AV
     if (s.ohneFahrbahn && WEG_TEIL[f.ist] && Number.isFinite(s.fahrbahnbreite)) return s.fahrbahnbreite
     if (!brauchtBreite(f.ist)) return null
-    const v = sollBreite(f.ist, s.routentyp || 'Veloroute')
+    const v = sollBreite(f.ist, s.routentyp || 'Veloroute', breiten?.[f.ist])
     if (v == null) return null
     angenommen.push(`Breite Seite ${seite} (${f.ist}) mit der Vorgabe ${m2(v)} angenommen`)
     annahme[seite] = { form: f.ist, breite: v }
     return null
   }
   const parkJa = (f: typeof a) => f.parkenRechts === 'ja' && f.ist !== RW
-  const dtv = dtvEff(s, 'bern')
+  const dtv = dtvEff(s, stadt)
   const inselB = s.mittelinsel && !einbahn && a.ist !== VELOSTRASSE ? s.mittelinsel.breite : 0
   return {
     ist: form(a), geg: einbahn ? null : form(b),
@@ -417,7 +478,7 @@ export function eingabenVon(s: Section): Eingaben {
     park: { A: parkJa(a), B: einbahn ? einbahnParkLinks(s) : parkJa(b) },
     parkFb: { A: !s.trottoir?.parkA, B: !s.trottoir?.parkB },
     // Schräg- und Querparkierung mit gemessener Tiefe, Längsparkierung mit 1,90 m (wie die Ausgangslage)
-    parkTiefe: { A: tief(s.parkTiefe?.a)?.tiefe ?? PARK_M, B: tief(s.parkTiefe?.b)?.tiefe ?? PARK_M },
+    parkTiefe: { A: tief(s.parkTiefe?.a)?.tiefe ?? m.park, B: tief(s.parkTiefe?.b)?.tiefe ?? m.park },
     parkArt: { ...(tief(s.parkTiefe?.a) ? { A: s.parkTiefe!.a } : {}), ...(tief(s.parkTiefe?.b) ? { B: s.parkTiefe!.b } : {}) },
     ...(s.parkVersetzt && !einbahn ? { parkVersetzt: s.parkVersetzt === 'a' ? 'A' as S : 'B' as S } : {}),
     sich: { A: parkJa(a) && a.parkenSicherheitsstreifen, B: !einbahn && parkJa(b) && b.parkenSicherheitsstreifen },
@@ -430,6 +491,7 @@ export function eingabenVon(s: Section): Eingaben {
     uTakt: [a, b].some(f => Number.isFinite(f.oevTakt)),
     angenommen, annahme,
     ohneFahrbahn: !!s.ohneFahrbahn,
+    stadt, ...(breiten ? { breiten } : {}), ...(s.strassentyp ? { strassentyp: s.strassentyp } : {}), m,
   }
 }
 
@@ -444,7 +506,7 @@ export function abschnittAus(base: Section, e: Eingaben): Section {
     parkenSicherheitsstreifen: e.park.A && e.sich.A, speed: e.kmh ?? NaN }
   // Weg ohne Fahrbahn ohne Verkehrsdaten: ohne Motorfahrzeugverkehr rechnen (DTV 0, Tempo 30); sonst bleibt
   // ein Fuss-/Radweg oder Zweirichtungsradweg ohne Note
-  if (e.ohneFahrbahn && !Number.isFinite(dtvEff(base, 'bern'))) { s.dtv = 0; s.dtvGeprueft = false }
+  if (e.ohneFahrbahn && !Number.isFinite(dtvEff(base, e.stadt))) { s.dtv = 0; s.dtvGeprueft = false }
   if (e.ohneFahrbahn && !Number.isFinite(s.speed)) s.speed = 30
   if (e.einbahn) delete s.gegen
   else s.gegen = { ...gegenVon(sb), ist: e.geg ?? '', breite: breiteFuerNote(e, 'B'), parkenRechts: e.park.B ? 'ja' : 'nein',
@@ -453,7 +515,7 @@ export function abschnittAus(base: Section, e: Eingaben): Section {
 }
 
 function noten(base: Section, e: Eingaben): { n: number | null; a: number | null; b: number | null; fehlt: string[] } {
-  const r = bewerteAbschnitt(abschnittAus(base, e), 'bern')
+  const r = bewerteAbschnitt(abschnittAus(base, e), e.stadt, e.breiten)
   return { n: r.note, a: r.seiten[0]?.bewertung?.note ?? null, b: r.seiten[1]?.bewertung?.note ?? null,
     fehlt: [...new Set(r.seiten.flatMap(x => x.fehlt.map(f => (r.seiten.length > 1 ? `${f} (Seite ${x.seite})` : f))))] }
 }
@@ -465,7 +527,7 @@ function fehltText(e: Eingaben): string {
   if (sollVon(e) === 'Radweg' || !formen.length) formen.push(RW)
   const ohne = kopie(e); ohne.park = { A: false, B: false }
   let best: { b: number; f: IstFuehrungsform } | null = null
-  for (const f of formen) for (const stufe of STUFEN) for (const kern of kernErlaubt(f, ohne) ? [false, true] : [false]) {
+  for (const f of formen) for (const stufe of stufenFuer(ohne, f)) for (const kern of kernErlaubt(f, ohne) ? [false, true] : [false]) {
     const b = bedarf(f, ohne, stufe, kern, true).summe
     if (!best || b < best.b) best = { b, f }
   }
@@ -475,19 +537,28 @@ function fehltText(e: Eingaben): string {
 }
 
 // Der Vorschlag für einen Abschnitt; fahrbahn: verfügbares Mass (mit Randsteinanpassung grösser)
-export function vorschlagRechnen(base: Section, fahrbahn?: number | null): Vorschlag {
-  const e = eingabenVon(base)
+export function vorschlagRechnen(base: Section, fahrbahn?: number | null, stadt: Stadt = 'bern', breiten?: Breiten): Vorschlag {
+  const res = vorschlagStadt(base, fahrbahn, stadt, breiten)
+  if (stadt === 'bern') return res
+  // Ausser Bern ohne die Hinweise auf die Berner Querschnittsblätter
+  const ohneQ = (t: string) => t.replace(/ \(Q [^)]*\)/g, '')
+  return { ...res, text: ohneQ(res.text), alternative: ohneQ(res.alternative), alternativen: res.alternativen.map(a => ({ ...a, text: ohneQ(a.text) })) }
+}
+function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stadt: Stadt, breiten?: Breiten): Vorschlag {
+  const e = eingabenVon(base, stadt, breiten)
   if (fahrbahn !== undefined) e.fahrbahn = fahrbahn == null ? null : r2(fahrbahn - e.insel)
   const nv = noten(base, e), n0 = nv.n
   const res: Vorschlag = { erreicht: null, text: '', noteVor: n0, alternative: '', alternativen: [], blocker: '', vermerk: '', varianten: 0 }
   const vermerke: string[] = []
   if (e.angenommen?.length) vermerke.push(`Ist nicht vollständig erfasst: ${e.angenommen.join('; ')}`)
   if (!base.routentyp) vermerke.push('Routentyp fehlt: gerechnet als Veloroute')
-  if (e.ohneFahrbahn && (!Number.isFinite(dtvEff(base, 'bern')) || !Number.isFinite(base.speed)))
+  if (e.ohneFahrbahn && (!Number.isFinite(dtvEff(base, stadt)) || !Number.isFinite(base.speed)))
     vermerke.push('Weg ohne Fahrbahn ohne DTV oder Tempo: gerechnet ohne Motorfahrzeugverkehr')
   if (!e.ist) { res.blocker = 'keine Führungsform erfasst'; return res }
   if (n0 != null && n0 >= ZIEL) { Object.assign(res, { erreicht: true, rang: 0, text: RANG_TEXT[0], noteNach: n0, vermerk: vermerke.join(' · ') }); return res }
   // Die Note braucht online bei Formen mit Breitenvorgabe die Breite (lokal nicht): dann zuerst ergänzen
+  // Masse ausser Bern: die der Stadt, sonst die Berner als Ersatz (nur wenn eine Massnahme gesucht wird)
+  if (e.m.ersatz.length) vermerke.push(`Masse nach ${STANDARD_QUELLE[stadt]}; Ersatz Bern (${STANDARD_QUELLE.bern}): ${e.m.ersatz.join(', ')}`)
   if (n0 == null) { res.blocker = `Note von heute fehlt: ${nv.fehlt.join(', ') || 'Eingaben unvollständig'}`; return res }
   if (!sollVon(e) && !e.ohneFahrbahn) { res.blocker = 'kein Soll (DTV oder Tempo fehlt)'; return res }
   const e0 = e.fahrbahn == null ? { ...kopie(e), ohnePlatz: true } : e
@@ -565,17 +636,18 @@ export function vorschlagRechnen(base: Section, fahrbahn?: number | null): Vorsc
 // ist: Trottoir heute (ohne Parkierung auf Trottoirniveau, auf 5 cm wie seitenraumVon), NaN = keines;
 // frei: was über der Vorgabe liegt (darf weg); fehlt: was bis zur Vorgabe fehlt (kommt dazu)
 export interface TrottoirAnpassung { vorgabe: number; ist: Record<S, number>; frei: Record<S, number>; fehlt: Record<S, number> }
-const trottoirHeute = (s: Section, seite: S): number => {
+const trottoirHeute = (s: Section, seite: S, parkM = PARK_M): number => {
   const m = seite === 'A' ? s.trottoir?.a : s.trottoir?.b
   if (m == null || !Number.isFinite(m)) return NaN
   const park = seite === 'A' ? s.trottoir?.parkA && seiteA(s).parkenRechts === 'ja'
     : s.trottoir?.parkB && (s.richtung === 'eine' ? einbahnParkLinks(s) : seiteB(s).parkenRechts === 'ja')
-  return auf5cm(park ? m - (tief(s.parkTiefe?.[seite === 'A' ? 'a' : 'b'])?.tiefe ?? PARK_M) : m)
+  return auf5cm(park ? m - (tief(s.parkTiefe?.[seite === 'A' ? 'a' : 'b'])?.tiefe ?? parkM) : m)
 }
-export function trottoirAnpassung(s: Section, a: Aufteilung): TrottoirAnpassung | null {
+export function trottoirAnpassung(s: Section, a: Aufteilung, stadt: Stadt = 'bern'): TrottoirAnpassung | null {
   const v = a.fussnetz ? FUSSNETZ[a.fussnetz] : undefined
-  if (!v || v.stadt !== 'bern' || !s.trottoir) return null
-  const ist = { A: trottoirHeute(s, 'A'), B: trottoirHeute(s, 'B') }
+  if (!v || v.stadt !== stadt || !s.trottoir) return null
+  const parkM = masseFuer(stadt).park
+  const ist = { A: trottoirHeute(s, 'A', parkM), B: trottoirHeute(s, 'B', parkM) }
   const je = (f: (m: number) => number) => ({ A: Number.isFinite(ist.A) ? r2(f(ist.A)) : 0, B: Number.isFinite(ist.B) ? r2(f(ist.B)) : 0 })
   return { vorgabe: v.wert, ist, frei: je(m => Math.max(0, m - v.wert)), fehlt: je(m => Math.max(0, v.wert - m)) }
 }
@@ -594,7 +666,7 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
     const art = f ? WEG_TEIL[f] : undefined
     if (!art) return []
     const an = k.annahme?.[s]
-    const b = k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? sollBreite(f!, k.route) ?? NaN
+    const b = k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? soll(k, f!) ?? NaN
     return [...(k.fussNeben?.[s] ? [{ art: 'Trottoir', breite: k.fussNeben[s]! } as Teil] : []), { art, breite: b }]
   }
   // Weg ohne Fahrbahn: nur der Weg (ein Teil für beide Richtungen), getrennt mit dem Fussweg daneben
@@ -612,24 +684,24 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
       t.push({ art: 'Parkierung', breite: k.parkTiefe[s], ...(pa && pa.art !== 'laengs' ? { parkart: pa.art, ...(pa.winkel ? { winkel: pa.winkel } : {}) } : {}),
         ...(pa && pa.art !== 'laengs' ? (pa.angenommen ? { angenommen: true } : { tiefeGemessen: true }) : {}), ...(k.parkFb[s] ? {} : { trottoirniveau: true }),
         ...(versetztZaehlt(k, s) ? {} : { versetzt: true }) })
-      if (k.sich[s]) t.push({ art: 'Sicherheitsstreifen', breite: q?.sichJe || SICHERHEIT.standard })
+      if (k.sich[s]) t.push({ art: 'Sicherheitsstreifen', breite: q?.sichJe || k.m.sicherheit.standard })
     }
     const f = s === 'B' && k.einbahn ? null : formVon(k, s)
     const an = k.annahme?.[s]
-    const b = k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? q?.ersatz ?? velobreite(RS, k.route, 'minimal')
+    const b = k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? q?.ersatz ?? velobreite(k, RS, 'minimal')
     if (f === RS) t.push({ art: 'Velostreifen', breite: b })
-    if (f === RW) { t.push({ art: 'Radweg', breite: b }); t.push({ art: 'Trennstreifen', breite: TRENNUNG_M }) }
+    if (f === RW) { t.push({ art: 'Radweg', breite: b }); t.push({ art: 'Trennstreifen', breite: k.m.trennung }) }
     return t
   }
   const links = rand('B'), rechts = rand('A').reverse()
   const imFb = (t: Teil) => !t.trottoirniveau
   const seitlich = r2([...links, ...rechts].filter(imFb).reduce((x, t) => x + t.breite, 0))
   const velostr = q?.form === VELOSTRASSE
-  const mittelMin = (velostr ? 4.5 : q?.kern ? q.kernM! : miv(q?.form === RW ? RW : RS, k, false)) + k.insel
+  const mittelMin = (velostr ? k.m.vsMin : q?.kern ? q.kernM! : miv(q?.form === RW ? RW : RS, k, false)) + k.insel
   // Trottoirs: heute gemessen (ohne Parkierung auf Trottoirniveau, auf 5 cm wie der Seitenraum der Bilanz).
   // Mit Randsteinanpassung zuerst die zu schmalen auf die Vorgabe (zulasten der Fahrbahn), dann von den zu
   // breiten nur den nötigen Teil, anteilig nach ihrem Überschuss.
-  let trA = trottoirHeute(base, 'A'), trB = trottoirHeute(base, 'B')
+  let trA = trottoirHeute(base, 'A', k.m.park), trB = trottoirHeute(base, 'B', k.m.park)
   let fb = fb0
   if (randstein) {
     trA = r2(trA + randstein.fehlt.A); trB = r2(trB + randstein.fehlt.B)
@@ -651,11 +723,12 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
   else if (q?.kern) kern = [{ art: 'Kernfahrbahn', breite: q.kernM! }]
   else {
     const n = k.einbahn ? 1 : 2, art = k.tram ? 'Tram' : 'Fahrspur'
-    if (n === 2 && art === 'Fahrspur' && mitte < 2 * 3.0 - 1e-9 && (k.ist === MISCH || k.geg === MISCH)) kern = [{ art: 'Gemeinsam', breite: abrunden(mitte) }]
+    if (n === 2 && art === 'Fahrspur' && mitte < k.m.miv - 1e-9 && (k.ist === MISCH || k.geg === MISCH)) kern = [{ art: 'Gemeinsam', breite: abrunden(mitte) }]
     else kern = Array.from({ length: n }, () => ({ art, breite: abrunden(mitte / n) }) as Teil)
   }
   const trottoir = (m: number): Teil[] => (Number.isFinite(m) && m > 0.005 ? [{ art: 'Trottoir', breite: r2(m) }] : [])
-  const teile = [...trottoir(trB), ...links, ...kern, ...rechts, ...trottoir(trA)]
+  // Grünstreifen zwischen Fahrbahn und Trottoir bleibt (aus der AV)
+  const teile = [...trottoir(trB), ...gruenAusAv(base.trottoir?.gruenB), ...links, ...kern, ...rechts, ...gruenAusAv(base.trottoir?.gruenA), ...trottoir(trA)]
   return { ...a0, fahrbahn: fb0, teile,
     ...(k.kmh != null && k.kmh !== base.speed ? { tempo: k.kmh } : { tempo: undefined }),
     vorschlag: `${v.text}${randstein ? ' (mit Randsteinanpassung)' : ''}` }

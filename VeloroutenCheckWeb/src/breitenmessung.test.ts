@@ -106,6 +106,19 @@ describe('trottoirbreiten — ab Bordsteinkante über die Trottoirfläche', () =
     expect(trottoirbreiten([achse], [strasseF, trottoir(rechteck(40, -2, 60, 0))]).rechts).toBeNull())
   it('Fläche breiter als 8 m (Platz) zählt nicht', () =>
     expect(trottoirbreiten([achse], [strasseF, trottoir(rechteck(0, 8, 100, 20))]).links).toBeNull())
+  it('Grünstreifen zwischen Bord und Fussweg (Spöndlistrasse): Fussweg dahinter, Grün samt schmalem Streifen davor', () => {
+    const gruen = (r: P[]): AvFlaeche => ({ art: 'Gartenanlage', ringe: [r] })
+    // Norden: 0,30 Trottoirstreifen, 1,50 Grün, 2,20 Fussweg (das Grün als Loch in der Trottoirfläche)
+    const r = trottoirbreiten([achse], [strasseF, { art: 'Trottoir', ringe: [rechteck(0, 8, 100, 12), rechteck(0, 8.3, 100, 9.8)] },
+      gruen(rechteck(0, 8.3, 100, 9.8))])
+    expect(r.links).toBeCloseTo(2.2, 6)
+    expect(r.gruen?.links).toBeCloseTo(1.8, 6)
+    // einzelne Baumscheiben (unter der Hälfte der Querschnitte): kein Grünstreifen
+    const b = trottoirbreiten([achse], [strasseF, { art: 'Trottoir', ringe: [rechteck(0, 8, 100, 11), rechteck(20, 8.5, 25, 9.5)] },
+      gruen(rechteck(20, 8.5, 25, 9.5))])
+    expect(b.links).toBeCloseTo(3, 6)
+    expect(b.gruen).toBeUndefined()
+  })
 })
 
 describe('messeFlaeche — ganze Fläche von Kante zu Kante (Velostrasse, Wege)', () => {

@@ -720,17 +720,18 @@ function TeilOptionen() {
 const PFEIL_ZEICHEN: Record<Pfeil, string> = { links: '←', geradeaus: '↑', rechts: '→' }
 const PFEIL_NAME: Record<Pfeil, string> = { links: 'links', geradeaus: 'geradeaus', rechts: 'rechts' }
 
-// ── Massnahmenvorschlag (nur Bern, seit 17.10.2026; vorschlag.ts) ─────────────
-// Erste Massnahme in der Rangfolge, die die Note auf 4,5 bringt (Portierung des lokalen Berner Rechners).
+// ── Massnahmenvorschlag (seit 17.10.2026 Bern, seit 20.10.2026 alle Städte mit Planung; vorschlag.ts) ──
+// Erste Massnahme in der Rangfolge, die die Note auf 4,5 bringt; Note und Masse nach der Stadt (Ersatz Bern).
 // Je eine Zeile ohne und mit Randsteinanpassung; «Übernehmen» ersetzt die Teile (danach frei änderbar), ebenso bei jeder Alternative.
-function VorschlagKasten({ section, a, onChange }: { section: Section; a: Aufteilung; onChange: (a: Aufteilung) => void }) {
-  const ta = trottoirAnpassung(section, a)
+function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: Aufteilung; onChange: (a: Aufteilung) => void; city: Stadt }) {
+  const breiten = CITIES[city].breiten
+  const ta = trottoirAnpassung(section, a, city)
   const aendert = !!ta && ta.frei.A + ta.frei.B + ta.fehlt.A + ta.fehlt.B > 0.001
   // verfügbare Fahrbahnbreite der Planung (Feld oben), sonst die des Abschnitts
   const fb = Number.isFinite(a.fahrbahn) ? a.fahrbahn : section.fahrbahnbreite
-  const ohne = useMemo(() => vorschlagRechnen(section, Number.isFinite(fb) ? fb : null), [section, fb])
-  const mit = useMemo(() => (ta && aendert && Number.isFinite(fb) ? vorschlagRechnen(section, fahrbahnMitRandstein(fb, ta)) : null),
-    [section, fb, a.fussnetz])   // eslint-disable-line react-hooks/exhaustive-deps
+  const ohne = useMemo(() => vorschlagRechnen(section, Number.isFinite(fb) ? fb : null, city, breiten), [section, fb, city, breiten])
+  const mit = useMemo(() => (ta && aendert && Number.isFinite(fb) ? vorschlagRechnen(section, fahrbahnMitRandstein(fb, ta), city, breiten) : null),
+    [section, fb, a.fussnetz, city])   // eslint-disable-line react-hooks/exhaustive-deps
   // Was die Randsteinanpassung an den Trottoirs tut, je Seite
   const trText = ta && aendert ? (['A', 'B'] as const).filter(s => Number.isFinite(ta.ist[s])).map(s =>
     ta.fehlt[s] > 0.001 ? `Seite ${s} ${numDE(ta.ist[s], 2)} → ${numDE(ta.vorgabe, 2)} m`
@@ -743,7 +744,7 @@ function VorschlagKasten({ section, a, onChange }: { section: Section; a: Auftei
       </div>
     )
     const plan = v.erreicht && v.rang ? aufteilungAusVorschlag(section, a, v, randstein) : null
-    const planNote = plan ? bewerteAufteilung(section, plan, 'bern').note : null
+    const planNote = plan ? bewerteAufteilung(section, plan, city, breiten).note : null
     return (
       <div style={{ padding: '6px 0', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 260px', minWidth: 0 }}>
@@ -801,7 +802,9 @@ function VorschlagKasten({ section, a, onChange }: { section: Section; a: Auftei
       </div>
       {zeile('Ohne Randsteinanpassung', ohne, null)}
       {zeile('Mit Randsteinanpassung', mit, ta, !ta
-        ? 'Fussverkehrsnetz wählen (oben); die Trottoirs kommen dann auf dessen Vorgabe.'
+        ? (fussnetzOptionen(city).length === 0 ? 'Für diese Stadt gibt es kein Fussverkehrsnetz mit Trottoir-Vorgabe; nur ohne Randsteinanpassung.'
+          : !a.fussnetz ? 'Fussverkehrsnetz wählen (oben); die Trottoirs kommen dann auf dessen Vorgabe.'
+          : 'Trottoirs aus der AV fehlen: zuerst «AV auf der Karte zeigen».')
         : 'Die Trottoirs entsprechen genau der Vorgabe des Fussverkehrsnetzes; wie ohne Randsteinanpassung.', trText)}
     </details>
   )
@@ -998,7 +1001,7 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
             </button>
           </div>
         </div>
-        {city === 'bern' && <VorschlagKasten section={section} a={a} onChange={onChange} />}
+        <VorschlagKasten section={section} a={a} onChange={onChange} city={city} />
         {a.tempo != null && (
           <div style={{ fontSize: 12.5, marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a',
                         color: '#92400e', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1280,8 +1283,9 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
 // gemeinsamer Kasten, solange beide gleich sind, sonst je ein Kasten für Seite A und Seite B
 // (eigene Werte oder nicht bewertet) — und das Ergebnis je bewertete Seite. Die Abschnittsnote
 // ist die schlechtere Seite (bewertung.ts).
-function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, onChange, onTauschen, onLuftbild, onMessen, onFahrbahnbreite, fbLaden, av, onBericht, onRemove, canRemove, onHover, breitenQuelle, city }: {
+function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, onChange, onTauschen, onLuftbild, onMessen, onFahrbahnbreite, fbLaden, av, onBericht, onRemove, canRemove, onHover, breitenQuelle, city, ort }: {
   onBericht?: () => void                 // Bericht der Planung öffnen
+  ort?: { lat: number; lon: number; peilung?: number }   // Stelle des Karten-Markers und Fahrtrichtung der Seite A (Street View)
   zu?: boolean                           // Abschnitt eingeklappt (nur Kopfzeile)
   onKlappen?: () => void
   // Fahrbahnbreite aus der AV ermitteln (Städte mit avKanton; nur Karten-Abschnitte); 'plan' = in die Aufteilung
@@ -1402,6 +1406,18 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
                            borderRadius: 8, padding: '4px 10px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             {section.aufteilung ? 'Zur Aufteilung ↓' : 'Aufteilung planen'}
           </button>
+        )}
+        {/* Google Street View an der Stelle des Karten-Markers, Blick in Fahrtrichtung der Seite A (Nutzerwunsch 20.10.2026);
+            Google Maps URLs (map_action=pano) sucht das nächste Panorama */}
+        {ort && (
+          <a href={`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${ort.lat.toFixed(6)},${ort.lon.toFixed(6)}`
+                   + (ort.peilung != null ? `&heading=${Math.round(ort.peilung)}` : '')}
+             target="_blank" rel="noopener noreferrer"
+             title={`Google Street View an der Stelle des Markers${ort.peilung != null ? ', Blick in Fahrtrichtung der Seite A' : ''} (öffnet Google Maps)`}
+             style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)', textDecoration: 'none',
+                      borderRadius: 8, padding: '4px 10px', fontSize: 13 }}>
+            Street View ↗
+          </a>
         )}
         {canRemove && (
           <button onClick={onRemove}
@@ -2458,7 +2474,8 @@ export default function App() {
       setSections(prev => prev.map(x => {
         if (x.id !== secId) return x
         const neu: Section = { ...x, trottoir: { a: tr.rechts ?? NaN, b: tr.links ?? NaN,
-          ...(pt.rechts && tr.rechts != null ? { parkA: true } : {}), ...(pt.links && tr.links != null ? { parkB: true } : {}) } }
+          ...(pt.rechts && tr.rechts != null ? { parkA: true } : {}), ...(pt.links && tr.links != null ? { parkB: true } : {}),
+          ...(tr.gruen?.rechts != null ? { gruenA: tr.gruen.rechts } : {}), ...(tr.gruen?.links != null ? { gruenB: tr.gruen.links } : {}) } }
         if (fb) { neu.fahrbahnbreite = Math.round(fb.median * 10) / 10; neu.quelle = { ...x.quelle, fahrbahnbreite: 'av' } }
         neu.mittelinsel = insel
         if (tiefe.links || tiefe.rechts) neu.parkTiefe = { ...(tiefe.rechts ? { a: tiefe.rechts } : {}), ...(tiefe.links ? { b: tiefe.links } : {}) }
@@ -2473,11 +2490,11 @@ export default function App() {
         }
         return neu
       }))
-      const trText = (m: number | null) => (m != null ? `${numDE(m, 2)} m` : 'keines')
+      const trText = (m: number | null, g?: number | null) => (m != null ? `${numDE(m, 2)} m${g != null ? ` hinter einem Grünstreifen von ${numDE(g, 2)} m` : ''}` : 'keines')
       const aufTr = (ja: boolean, m: number | null) => (ja && m != null ? ' (mit Parkierung auf Trottoirniveau)' : '')
       const pText = (x?: { tiefe: number; art: string; winkel?: number; angenommen?: boolean }, seite?: string) => (x && x.art !== 'laengs'
         ? ` · Parkierung Seite ${seite} ${x.art === 'schraeg' ? `schräg${x.winkel ? ` ${x.winkel}°` : ''}` : x.art === 'quer' ? 'senkrecht' : 'schräg oder senkrecht'} ${numDE(x.tiefe, 2)} m${x.angenommen ? ' (angenommen)' : ''}` : '')
-      if (park != null) setMsg(`Amtliche Vermessung${park.length ? ' und Parkfelder' : ''} geladen. Trottoir Seite A ${trText(tr.rechts)}${aufTr(pt.rechts, tr.rechts)}, Seite B ${trText(tr.links)}${aufTr(pt.links, tr.links)}` +
+      if (park != null) setMsg(`Amtliche Vermessung${park.length ? ' und Parkfelder' : ''} geladen. Trottoir Seite A ${trText(tr.rechts, tr.gruen?.rechts)}${aufTr(pt.rechts, tr.rechts)}, Seite B ${trText(tr.links, tr.gruen?.links)}${aufTr(pt.links, tr.links)}` +
         `${fb ? `, Fahrbahnbreite ${numDE(Math.round(fb.median * 10) / 10, 1)} m` : ''} (Median der Querschnitte alle 5 m)`
         + `${pText(tiefe.rechts, 'A')}${pText(tiefe.links, 'B')}`
         + `${versetzt ? ` · Parkierung versetzt (abwechselnd Seite A und B; Seite ${versetzt === 'rechts' ? 'A' : 'B'} zählt im Querschnitt nicht)` : ''}.`, 'ok')
@@ -3136,6 +3153,7 @@ export default function App() {
             onHover={h => setHoverSec(h ? s.id : null)}
             breitenQuelle={ist => breitenQuelleFuer(ist, s.routentyp)}
             city={city}
+            ort={markers.find(m => m.num === i + 1)}
           />
         </div>
       ))}

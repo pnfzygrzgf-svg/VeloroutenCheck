@@ -197,3 +197,30 @@ describe('Vorschlag mit versetzter Parkierung (abwechselnd Seite A und B, seit 2
     expect(parkB.length).toBeLessThanOrEqual(1)
   })
 })
+
+describe('Vorschlag in Zürich, Basel und Luzern (seit 20.10.2026): dieselbe Rangfolge, Note und Masse der Stadt', () => {
+  const s = abschnitt({ dtv: 6000, speed: 50, ist: 'Mischverkehr', fahrbahnbreite: 11, routentyp: 'Velohauptroute', parkenRechts: 'nein' })
+  it('Zürich: Radstreifen nach den Velostandards, Kern ohne Obergrenze, ohne Pilot, Ersatz Bern im Vermerk', async () => {
+    const { BREITEN_ZUERICH } = await import('./fuehrungsform')
+    const v = vorschlagRechnen(s, 11, 'zurich', BREITEN_ZUERICH)
+    expect(v.text).toBe('Radstreifen markieren beidseitig 2,50 m')
+    expect(v.alternative).toContain('Kern 6,00 m')
+    expect(v.vermerk).toContain('Masse nach Velostandards Stadt Zürich; Ersatz Bern')
+    expect(v.vermerk).toContain('Fahrstreifen')
+    const eng = vorschlagRechnen(abschnitt({ ...s, fahrbahnbreite: 9, parkenRechts: 'ja' }), 9, 'zurich', BREITEN_ZUERICH)
+    expect([eng.text, eng.alternative].join(' ')).not.toContain('Pilot')
+  })
+  it('Basel: Velostrasse auf der siedlungsorientierten Velohauptroute, ohne Hinweis auf die Berner Querschnittsblätter', async () => {
+    const { BREITEN_BASEL } = await import('./fuehrungsform')
+    const b = abschnitt({ dtv: 1500, speed: 30, ist: 'Mischverkehr', fahrbahnbreite: 7.5, routentyp: 'Velohauptroute', parkenRechts: 'ja',
+      strassentyp: 'siedlungsorientiert', gegen: { ...gegenVon(defaultSection()), ist: 'Mischverkehr', parkenRechts: 'ja' } })
+    const v = vorschlagRechnen(b, 7.5, 'basel', BREITEN_BASEL)
+    expect(v.text).toBe('Parkierung Seite A aufheben + Velostrasse signalisieren')
+  })
+  it('Bern unverändert mit Q-Hinweis', () => {
+    const b = abschnitt({ dtv: 1500, speed: 30, ist: 'Mischverkehr', fahrbahnbreite: 6, routentyp: 'Velohauptroute', parkenRechts: 'nein' })
+    const v = vorschlagRechnen(b, 6)
+    if (v.rang === 4) expect(v.text).toContain('(Q 9)')
+    expect(v.vermerk).not.toContain('Ersatz Bern')
+  })
+})

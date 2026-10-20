@@ -88,7 +88,8 @@ export interface Section extends Seite {
   obs?: ObsStats               // OpenBikeSensor-Überholabstände (Zusatzinfo, nicht in der Note)
   oev?: OevInfo                // ÖV-Erkennung (Geoportal): Haltestelle/Modus im Abschnitt
   aufteilung?: Aufteilung      // geplanter Querschnitt (aufteilung.ts; nur Bern, nicht in der Note von heute)
-  trottoir?: { a: number; b: number; parkA?: boolean; parkB?: boolean }  // Trottoirbreite je Seite aus der AV [m], NaN = keines;
+  trottoir?: { a: number; b: number; parkA?: boolean; parkB?: boolean; gruenA?: number; gruenB?: number }  // Trottoirbreite je Seite aus der AV [m], NaN = keines;
+                                       // gruenA/B: Grünstreifen zwischen Fahrbahn und Trottoir (trottoirbreiten, seit 20.10.2026)
                                        // parkA/B: Parkierung dieser Seite liegt auf der Trottoirfläche (parkierungAufTrottoir)
   fussnetzGeoportal?: FussNetz         // Fussverkehrsnetz aus dem Richtplan Fussverkehr (fussnetz.ts; nur Bern)
   ohneFahrbahn?: boolean               // Weg ohne Fahrbahn (OSM-Rad-/Fussweg): die Fahrbahnbreite ist die Wegbreite
@@ -167,8 +168,9 @@ export function tauscheSeiten(s: Section): Section {
   // Die Aufteilung ist von links (Rand B) nach rechts (Rand A) geordnet: mit den Seiten spiegeln.
   if (s.aufteilung) neu.aufteilung = { ...s.aufteilung, teile: [...s.aufteilung.teile].reverse() }
   if (s.trottoir) {
-    const { parkA, parkB } = s.trottoir
-    neu.trottoir = { a: s.trottoir.b, b: s.trottoir.a, ...(parkB ? { parkA: true } : {}), ...(parkA ? { parkB: true } : {}) }
+    const { parkA, parkB, gruenA, gruenB } = s.trottoir
+    neu.trottoir = { a: s.trottoir.b, b: s.trottoir.a, ...(parkB ? { parkA: true } : {}), ...(parkA ? { parkB: true } : {}),
+      ...(gruenB != null ? { gruenA: gruenB } : {}), ...(gruenA != null ? { gruenB: gruenA } : {}) }
   }
   if (s.parkTiefe) neu.parkTiefe = { a: s.parkTiefe.b, b: s.parkTiefe.a }
   if (s.parkVersetzt) neu.parkVersetzt = s.parkVersetzt === 'a' ? 'b' : 'a'

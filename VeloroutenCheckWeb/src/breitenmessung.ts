@@ -233,10 +233,18 @@ export function fahrbahnbreite(achsen: P[][], flaechen: AvFlaeche[], kanten: Kan
 // Gebäude), zählt der Querschnitt als «ohne Trottoir». Eine Seite hat ein Trottoir, wenn es auf
 // mindestens TROTTOIR_ANTEIL ihrer Querschnitte (mit Bordsteinkante) gefunden wird, und mindestens
 // drei Werte; dann gilt der Median. Breiter als TROTTOIR_MAX_M (Platz) zählt nicht.
+// Grünstreifen zwischen Fahrbahn und Fussweg (seit 20.10.2026, Nutzerbefund Spöndlistrasse Zürich: hinter dem Bord
+// 0,30 m Trottoir, dann eine Grünfläche als Loch in der Trottoirfläche, dahinter der Fussweg): Endet das Trottoir an
+// einer Grünfläche (GRUEN_ARTEN) von höchstens GRUEN_MAX_M und folgt dahinter wieder Trottoir, geht die Messung weiter.
+// Das Trottoir ist dann der Fussweg hinter dem Grün; schmale Trottoirstreifen davor (unter TROTTOIR_MIN_M) zählen zum
+// Grünstreifen. Ein Grünstreifen gilt, wenn er auf mindestens TROTTOIR_ANTEIL der Querschnitte mit Trottoir liegt
+// (sonst sind es einzelne Baumscheiben); dann gelten die Mediane dieser Querschnitte.
 const TROTTOIR_MAX_M = 8, TROTTOIR_MIN_M = 0.5, TROTTOIR_ANTEIL = 0.5
 const SCHRITT_UEBER_M = 0.05   // Prüfpunkt knapp hinter einer Kante
+const GRUEN_MAX_M = 4
+const GRUEN_ARTEN = ['Gartenanlage', 'uebrige_humusierte', 'Acker_Wiese_Weide']
 
-export interface Trottoirbreiten { links: number | null; rechts: number | null }
+export interface Trottoirbreiten { links: number | null; rechts: number | null; gruen?: { links: number | null; rechts: number | null } }
 
 // Alle Abstände entlang d, an denen der Strahl ab p eine Kante der Ringe schneidet (aufsteigend).
 function schnitte(p: P, d: P, ringe: P[][][], maxM: number): number[] {
@@ -254,8 +262,11 @@ function schnitte(p: P, d: P, ringe: P[][][], maxM: number): number[] {
 
 export function trottoirbreiten(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen)): Trottoirbreiten {
   const trottoirs = flaechen.filter(f => f.art === 'Trottoir').map(f => ({ f, box: box(f.ringe) }))
+  const gruene = flaechen.filter(f => GRUEN_ARTEN.includes(f.art)).map(f => ({ f, box: box(f.ringe) }))
   const aufTrottoir = (p: P) => trottoirs.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
-  const seite = { links: { n: 0, werte: [] as number[] }, rechts: { n: 0, werte: [] as number[] } }
+  const aufGruen = (p: P) => gruene.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
+  const seite = { links: { n: 0, werte: [] as number[], mitGruen: [] as [number, number][] },
+    rechts: { n: 0, werte: [] as number[], mitGruen: [] as [number, number][] } }
   for (const q of querschnitte(achsen, flaechen)) {
     for (const k of ['links', 'rechts'] as const) {
       const d = q[k]
@@ -266,15 +277,38 @@ export function trottoirbreiten(achsen: P[][], flaechen: AvFlaeche[], kanten: Ka
       seite[k].n++
       if (!aufTrottoir(bei(SCHRITT_UEBER_M))) continue
       // Nur Trottoirflächen in Reichweite schneiden; Ende = erste Kante, hinter der kein Trottoir liegt
-      const nah = trottoirs.filter(s => inBox(bei(0), [s.box[0] - TROTTOIR_MAX_M, s.box[1] - TROTTOIR_MAX_M,
-        s.box[2] + TROTTOIR_MAX_M, s.box[3] + TROTTOIR_MAX_M])).map(s => s.f.ringe)
-      const ende = schnitte(bord, d, nah, TROTTOIR_MAX_M).find(s => s > SCHRITT_UEBER_M && !aufTrottoir(bei(s + SCHRITT_UEBER_M)))
-      if (ende != null && ende >= TROTTOIR_MIN_M) seite[k].werte.push(ende)
+      const reichweite = TROTTOIR_MAX_M + GRUEN_MAX_M
+      const nah = [...trottoirs, ...gruene].filter(s => inBox(bei(0), [s.box[0] - reichweite, s.box[1] - reichweite,
+        s.box[2] + reichweite, s.box[3] + reichweite])).map(s => s.f.ringe)
+      const sx = schnitte(bord, d, nah, reichweite)
+      const ende = sx.find(s => s > SCHRITT_UEBER_M && !aufTrottoir(bei(s + SCHRITT_UEBER_M)))
+      // Grünstreifen hinter dem Trottoir(-streifen), dahinter wieder Trottoir: weiter bis zum Ende des Fusswegs
+      if (ende != null && aufGruen(bei(ende + SCHRITT_UEBER_M))) {
+        const gEnde = sx.find(s => s > ende + SCHRITT_UEBER_M && !aufGruen(bei(s + SCHRITT_UEBER_M)))
+        if (gEnde != null && gEnde - ende <= GRUEN_MAX_M && aufTrottoir(bei(gEnde + SCHRITT_UEBER_M))) {
+          const fEnde = sx.find(s => s > gEnde + SCHRITT_UEBER_M && !aufTrottoir(bei(s + SCHRITT_UEBER_M)))
+          if (fEnde != null && fEnde - gEnde >= TROTTOIR_MIN_M && fEnde - gEnde <= TROTTOIR_MAX_M) {
+            // Trottoir davor mit eigener Breite: zählt zum Trottoir; ein schmaler Streifen zum Grün
+            const vorn = ende >= TROTTOIR_MIN_M ? ende : 0
+            seite[k].mitGruen.push([fEnde - gEnde + vorn, gEnde - vorn])
+            continue
+          }
+        }
+      }
+      if (ende != null && ende >= TROTTOIR_MIN_M && ende <= TROTTOIR_MAX_M) seite[k].werte.push(ende)
     }
   }
-  const wert = (s: { n: number; werte: number[] }) =>
-    s.werte.length >= 3 && s.werte.length >= TROTTOIR_ANTEIL * s.n ? median(s.werte) : null
-  return { links: wert(seite.links), rechts: wert(seite.rechts) }
+  const gilt = (s: { n: number }, anzahl: number) => anzahl >= 3 && anzahl >= TROTTOIR_ANTEIL * s.n
+  const wert = (s: typeof seite.links): { tr: number | null; gr: number | null } => {
+    const alle = s.werte.length + s.mitGruen.length
+    if (s.mitGruen.length && gilt(s, alle) && s.mitGruen.length >= TROTTOIR_ANTEIL * alle)
+      return { tr: median(s.mitGruen.map(x => x[0])), gr: median(s.mitGruen.map(x => x[1])) }
+    // einzelne Baumscheiben: dort zählt nur das Trottoir bis zum Grün, wenn es breit genug ist
+    const werte = [...s.werte, ...s.mitGruen.map(x => x[0])]
+    return { tr: gilt(s, werte.length) ? median(werte) : null, gr: null }
+  }
+  const l = wert(seite.links), r = wert(seite.rechts)
+  return { links: l.tr, rechts: r.tr, ...(l.gr != null || r.gr != null ? { gruen: { links: l.gr, rechts: r.gr } } : {}) }
 }
 
 // ── Parkierung auf Trottoirniveau (seit 17.10.2026, Nutzerbefund Kanzleistrasse Zürich) ──────────

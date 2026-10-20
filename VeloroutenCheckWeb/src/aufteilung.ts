@@ -533,12 +533,14 @@ export function bewerteAufteilung(s: Section, a: Aufteilung, city: Stadt, breite
 // Spuren zu 2,05 m gibt es nicht).
 // Ganz aussen die Trottoirs, sobald sie aus der AV gemessen sind (auf 5 cm gerundet).
 const trottoir = (m?: number): Teil[] => (m != null && Number.isFinite(m) && m > 0.005 ? [{ art: 'Trottoir', breite: auf5cm(m) }] : [])
+// Grünstreifen zwischen Fahrbahn und Trottoir aus der AV (trottoirbreiten, seit 20.10.2026, Spöndlistrasse)
+export const gruenAusAv = (m?: number): Teil[] => (m != null && Number.isFinite(m) && m > 0.005 ? [{ art: 'Gruen', breite: auf5cm(m) }] : [])
 
 // Gemessene Trottoirs in eine schon geänderte Aufteilung, die noch keines hat: ganz aussen,
 // links Seite B, rechts Seite A. Hat sie schon ein Trottoir, bleibt sie unverändert. Liegt die
 // Parkierung einer Seite auf der Trottoirfläche (parkA/parkB) und ist das äusserste Teil dort eine
 // Parkierung, kommt sie auf Trottoirniveau und das Trottoir wird um ihre Breite schmaler.
-export function mitTrottoirs(a: Aufteilung, tr: { a: number; b: number; parkA?: boolean; parkB?: boolean }): Aufteilung {
+export function mitTrottoirs(a: Aufteilung, tr: { a: number; b: number; parkA?: boolean; parkB?: boolean; gruenA?: number; gruenB?: number }): Aufteilung {
   const mitRaum = a.seitenraum != null && Number.isFinite(a.seitenraum) ? a : { ...a, seitenraum: seitenraumVon(tr) }
   if (a.teile.some(t => t.art === 'Trottoir')) return mitRaum
   const teile = [...a.teile]
@@ -549,7 +551,7 @@ export function mitTrottoirs(a: Aufteilung, tr: { a: number; b: number; parkA?: 
     return Math.max(0, m - t.breite)
   }
   const b = rand(0, tr.parkB, tr.b), r = rand(teile.length - 1, tr.parkA, tr.a)
-  return { ...mitRaum, teile: [...trottoir(b), ...teile, ...trottoir(r)] }
+  return { ...mitRaum, teile: [...trottoir(b), ...gruenAusAv(tr.gruenB), ...teile, ...gruenAusAv(tr.gruenA), ...trottoir(r)] }
 }
 // Aufteilung mit dem Seitenraum des Abschnitts, wo sie selbst keinen hat (etwa eine Planung, die vor
 // dem Feld angelegt wurde): Die Gesamtbreite ist bekannt, sobald die Trottoirs gemessen sind.
@@ -557,8 +559,9 @@ export function mitSeitenraum(a: Aufteilung, s: Section): Aufteilung {
   return a.seitenraum != null && Number.isFinite(a.seitenraum) ? a : { ...a, seitenraum: seitenraumVon(s.trottoir) }
 }
 // Breite ausserhalb der Fahrbahn heute aus den gemessenen Trottoirs (keines gefunden = 0 m)
-export const seitenraumVon = (tr?: { a: number; b: number }): number =>
-  (tr ? (Number.isFinite(tr.a) ? auf5cm(tr.a) : 0) + (Number.isFinite(tr.b) ? auf5cm(tr.b) : 0) : NaN)
+export const seitenraumVon = (tr?: { a: number; b: number; gruenA?: number; gruenB?: number }): number =>
+  (tr ? (Number.isFinite(tr.a) ? auf5cm(tr.a) : 0) + (Number.isFinite(tr.b) ? auf5cm(tr.b) : 0)
+    + (tr.gruenA != null && Number.isFinite(tr.a) ? auf5cm(tr.gruenA) : 0) + (tr.gruenB != null && Number.isFinite(tr.b) ? auf5cm(tr.gruenB) : 0) : NaN)
 
 // Einbahn: liegt links (Seite B der Achse) Parkierung? Aus den amtlichen Parkfeldern (parkAnteil, Vorbelegung)
 export const einbahnParkLinks = (s: Section): boolean => s.richtung === 'eine' && (s.parkAnteil?.b ?? 0) >= PARK_SCHWELLE
@@ -621,10 +624,10 @@ export function startAufteilung(s: Section, stadt: Stadt = 'bern', breiten?: Par
   const ohnePark = (m: number | undefined, ja: boolean, seite: 'a' | 'b') => (ja ? Math.max(0, m! - pTiefe(seite)) : m)
   // Einbahn (nur Seite A): links kein Velostreifen; Parkierung links nur, wenn die amtlichen Parkfelder dort
   // eine zeigen (Nutzerbefund 17.10.2026: vorher stand die Seite A gespiegelt auch links, samt Velostreifen)
-  const links = [...trottoir(ohnePark(s.trottoir?.b, trB, 'b')), ...(s.richtung === 'eine'
+  const links = [...trottoir(ohnePark(s.trottoir?.b, trB, 'b')), ...gruenAusAv(s.trottoir?.gruenB), ...(s.richtung === 'eine'
     ? (einbahnParkLinks(s) ? [parkTeil('b', trB)] : [])
     : rand(seiteB(s), trB, 'b'))]
-  const rechts = [...rand(seiteA(s), trA, 'a').reverse(), ...trottoir(ohnePark(s.trottoir?.a, trA, 'a'))]
+  const rechts = [...rand(seiteA(s), trA, 'a').reverse(), ...gruenAusAv(s.trottoir?.gruenA), ...trottoir(ohnePark(s.trottoir?.a, trA, 'a'))]
   // Fahrspuren aus OSM (s.spuren, lanes/turn:lanes; Nutzerbefund 20.10.2026, Kirchenfeldstrasse: eine Spur Richtung B,
   // zwei Richtung A mit «←» und «↑→»): Anzahl je Seite und Pfeile; sonst eine auf der Einbahn, zwei bei Gegenverkehr
   const osm = s.spuren && s.spuren.a.length > 0 && (s.richtung === 'eine' || s.spuren.b.length > 0) ? s.spuren : undefined
