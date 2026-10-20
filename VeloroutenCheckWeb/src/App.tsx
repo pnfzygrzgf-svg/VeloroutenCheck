@@ -1770,7 +1770,8 @@ function SoFunktionierts() {
           «Segment teilen» schneidet ein langes Segment an der angeklickten Stelle.</li>
         <li><b>Übernehmen:</b> benachbarte Segmente gleicher Führungsform und gleichen Tempos werden zu Abschnitten gruppiert.</li>
         <li><b>Abschnitte prüfen:</b> je Abschnitt stehen Führungsform, Tempo und weitere Angaben aus OpenStreetMap und dem
-          Geoportal der Stadt, mit Herkunft am Chip. Was nicht stimmt, lässt sich von Hand anpassen; die Bewertung rechnet sofort neu.</li>
+          Geoportal der Stadt, mit Herkunft am Chip. Was nicht stimmt, lässt sich von Hand anpassen; die Bewertung rechnet sofort neu.
+          «Street View ↗» in der Kopfzeile öffnet Google Street View an der Stelle des Abschnitts, Blick in Fahrtrichtung der Seite A.</li>
         <li><b>Luftbild-Hinweis (Bern, Zürich, Basel):</b> Zeigt das Luftbild auf einer Seite einen Radstreifen, erscheint ein Hinweis
           zum Übernehmen; eine Breite liefert er nicht.</li>
         <li><b>Breite messen:</b> «📏 Am Luftbild messen» je Seite schaltet aufs Orthofoto, weit
@@ -1784,11 +1785,12 @@ function SoFunktionierts() {
           beginnt mit dem Querschnitt von heute (Fahrbahn und Trottoirs aus der amtlichen Vermessung, in Luzern aus den
           Strassenflächen der Stadt; Parkierung, Velostreifen).
           Teile wählen, mit «＋» einfügen, am Griff ⠿ verschieben und in der Breite ändern (Feld oder «−»/«+» in 10-cm-Schritten);
-          eine Mittelinsel aus der AV und Schräg- oder Querparkierung mit ihrer Tiefe stehen schon in der Ausgangslage. Die App prüft jedes Teil gegen die
+          eine Mittelinsel und ein Grünstreifen vor dem Trottoir aus der AV, Schräg- oder Senkrechtparkierung mit ihrer Tiefe und die Fahrspuren mit
+          Pfeilen aus OpenStreetMap stehen schon in der Ausgangslage. Die App prüft jedes Teil gegen die
           Vorgaben der Stadt (wo eine Stadt kein Mass nennt, gilt das Berner, mit «Ersatz Bern» ausgewiesen), rechnet die Bilanz über den ganzen Querschnitt und zeigt die Note mit der Planung neben der von heute. Die Karte
-          zeigt dazu die amtliche Vermessung und die Parkfelder (Basel: keine Parkfelder in den offenen Daten). In Bern schlägt der Kasten «Vorschlag»
-          die erste Massnahme vor, die die Note auf 4,5 bringt, ohne und mit Randsteinanpassung (dann kommen die Trottoirs auf
-          die Vorgabe des Fussverkehrsnetzes); «Übernehmen» bzw. «Alternative übernehmen» setzt sie als Startpunkt. «Bericht / PDF» druckt Karte, Skizzen, Prüfung und Bewertung. Im Breitbild lässt sich der
+          zeigt dazu die amtliche Vermessung und die Parkfelder (Basel: keine Parkfelder in den offenen Daten). Der Kasten «Vorschlag»
+          schlägt die erste Massnahme vor, die die Note auf 4,5 bringt, ohne und mit Randsteinanpassung (dann kommen die Trottoirs auf
+          die Vorgabe des Fussverkehrsnetzes); ausser in Bern mit den Massen der Stadt, wo sie keine nennt mit den Berner; «Übernehmen» bzw. «Alternative übernehmen» setzt sie als Startpunkt. «Bericht / PDF» druckt Karte, Skizzen, Prüfung und Bewertung. Im Breitbild lässt sich der
           Eingabebereich am Trenner zur Karte breiter ziehen; bei offener Planung ist er schon breiter.</li>
         <li><b>Ergebnis lesen:</b> oben zwischen Schulnote (1 bis 6) und Erfüllungsgrad umschalten; die Bewertung gilt je Abschnitt
           und für die ganze Strecke. «Als CSV exportieren» sichert die Bewertung als Datei.</li>

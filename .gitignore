@@ -5,6 +5,7 @@
 # ── Node / Build (VeloroutenCheckWeb) ────────────────────────────────────────
 node_modules/
 dist/
+*.tsbuildinfo
 *.local
 .env
 .env.*
@@ -30,3 +31,6 @@ OBS_Daten*.json
 
 # Lokaler, nicht öffentlicher Snapshot (nur Dev; im öffentlichen Build nicht enthalten).
 VeloroutenCheckWeb/public/velostreifen_bern.json
+
+# ── Fremde Repositories (lokal zum Ausprobieren, nicht Teil von VeloroutenCheck) ──
+remote_velo_public-main/
