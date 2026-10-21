@@ -234,3 +234,20 @@ describe('Fahrspuren und Pfeile aus OSM (lanes, turn:lanes; Kirchenfeldstrasse, 
     expect(g.spuren).toEqual({ a: ['keine'], b: ['links', 'geradeaus-rechts'] })
   })
 })
+
+describe('Einbahn mit Bus bzw. Tram im Gegenverkehr (Helvetiaplatz, way 498934010)', () => {
+  const tags = { highway: 'tertiary', lanes: '1', maxspeed: '50', name: 'Helvetiaplatz', oneway: 'yes', 'oneway:bus': 'no' }
+  const geom = [{ lat: 46.9438406, lon: 7.449296 }, { lat: 46.9436614, lon: 7.4497644 }]
+  it('erkannt aus oneway:bus=no; die Ausgangslage hat eine Gegenspur in Richtung B (mit Tram je ein Tram pro Richtung)', () => {
+    const c = wayToCand({ id: 498934010, tags, geometry: geom })!
+    expect(c.oevGegen).toBe(true)
+    const s = { ...candToSection(c), fahrbahnbreite: 7.3, tram: true }
+    expect(s.richtung).toBe('eine')
+    const spuren = startAufteilung(s, 'bern').teile.filter(t => t.art === 'Tram' || t.art === 'Fahrspur')
+    expect(spuren.map(t => [t.art, t.richtung])).toEqual([['Tram', 'B'], ['Tram', 'A']])
+    const bus = startAufteilung({ ...s, tram: false }, 'bern').teile.filter(t => t.art === 'Fahrspur')
+    expect(bus.map(t => [t.richtung, t.bild])).toEqual([['B', 'bus'], ['A', undefined]])
+  })
+  it('ohne oneway:bus=no keine Gegenspur', () =>
+    expect(wayToCand({ id: 1, tags: { ...tags, 'oneway:bus': undefined as unknown as string }, geometry: geom })!.oevGegen).toBeUndefined())
+})

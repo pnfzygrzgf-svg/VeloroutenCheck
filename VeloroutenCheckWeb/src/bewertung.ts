@@ -7,7 +7,7 @@
 // wie im lokalen Berner Rechner. Die Notenrechnung selbst (fuehrungsform.ts) ist unverändert.
 
 import {
-  brauchtBreite, brauchtDtvTempo, fuehrungsformNote, vergleichsNoten,
+  brauchtBreite, brauchtDtvTempo, fuehrungsformNote, haltestellenbereichNote, vergleichsNoten,
   type BreitenSoll, type IstFuehrungsform, type NotenErgebnis, type Stadt, type VergleichsNote,
 } from './fuehrungsform'
 import { bewerteteSeiten, dtvEff, type Section, type Seite } from './strecke'
@@ -60,6 +60,10 @@ export function fehlendeEingaben(s: Section, f: Seite, city: Stadt): string[] {
   return fehlt
 }
 
+// Haltestellenbereich: Schalter des Abschnitts, nur in Bern, nur auf der Seite mit Haltestelle
+export const imHaltestellenbereich = (s: Section, f: Seite, city: Stadt): boolean =>
+  city === 'bern' && !!s.haltestellenbereich && !f.ohneHaltestelle
+
 // Liste lesbar verbinden: «A», «A und B», «A, B und C».
 export const aufzaehlen = (xs: string[]): string =>
   xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} und ${xs[xs.length - 1]}`
@@ -70,6 +74,14 @@ export function bewerteAbschnitt(
   s: Section, city: Stadt, breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>,
 ): AbschnittErgebnis {
   const seiten: SeitenErgebnis[] = bewerteteSeiten(s).map(({ seite, felder: f }) => {
+    // Haltestellenbereich (nur Bern, seit 20.10.2026): die Seite mit Haltestelle zählt allein nach der Haltestelle
+    if (imHaltestellenbereich(s, f, city)) {
+      const fehlt = [...(s.oevAngebot === 'keine' ? ['ÖV-Angebot'] : []), ...(f.haltestellentyp === 'keine' ? ['Haltestellentyp'] : [])]
+      if (fehlt.length) return { seite, felder: f, bewertung: null, vergleich: null, fehlt }
+      const bewertung = haltestellenbereichNote(s.routentyp || 'Velohauptroute', s.oevAngebot, f.haltestellentyp,
+        Number.isFinite(f.haltestelleBreite) ? f.haltestelleBreite : undefined, s.tram, s.speed)
+      return { seite, felder: f, bewertung, vergleich: null, fehlt: [] }
+    }
     if (!seiteKomplett(s, f, city)) return { seite, felder: f, bewertung: null, vergleich: null, fehlt: fehlendeEingaben(s, f, city) }
     const ist = f.ist as IstFuehrungsform
     // Breite bewerten, sobald eingegeben (Routentyp bestimmt die Vorgabe; Default Velohauptroute).

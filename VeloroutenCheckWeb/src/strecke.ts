@@ -94,6 +94,14 @@ export interface Section extends Seite {
   fussnetzGeoportal?: FussNetz         // Fussverkehrsnetz aus dem Richtplan Fussverkehr (fussnetz.ts; nur Bern)
   ohneFahrbahn?: boolean               // Weg ohne Fahrbahn (OSM-Rad-/Fussweg): die Fahrbahnbreite ist die Wegbreite
   parkTiefe?: { a?: ParkTiefe; b?: ParkTiefe }   // Tiefe und Anordnung der Parkierung je Seite (parkierungTiefe, seit 20.10.2026)
+  // Haltestellenbereich (nur Bern, seit 20.10.2026): Die Haltestelle prägt den Abschnitt; die Note kommt allein aus ihr
+  haltestellenbereich?: boolean
+  haltestellenbereichNein?: boolean   // Vorschlag der App abgelehnt (nicht erneut zeigen)
+  // Querschnitt von heute, von Hand am Luftbild aufgenommen (querschnittAufnahme.ts, seit 20.10.2026): ersetzt die
+  // gemessene Ausgangslage der Planung
+  querschnittHeute?: { teile: Aufteilung['teile']; fahrbahn: number; seitenraum: number }
+  gesamtbreite?: number   // Ganzer Querschnitt, am Luftbild gemessen [m] (seit 21.10.2026): verfügbare Breite heute
+  oevGegen?: boolean      // Einbahn, Bus bzw. Tram auch in der Gegenrichtung (OSM oneway:bus/psv/tram=no; seit 21.10.2026)
   parkVersetzt?: 'a' | 'b'   // Parkierung abwechselnd A und B: diese Seite zählt im Querschnitt nicht (parkierungVersetzt)
   // Fahrspuren je Seite aus OSM (lanes, turn:lanes; seit 20.10.2026): je Spur der Pfeil, von links nach rechts in
   // Fahrtrichtung der Seite; auf der Einbahn nur a
@@ -175,6 +183,7 @@ export function tauscheSeiten(s: Section): Section {
   if (s.parkTiefe) neu.parkTiefe = { a: s.parkTiefe.b, b: s.parkTiefe.a }
   if (s.parkVersetzt) neu.parkVersetzt = s.parkVersetzt === 'a' ? 'b' : 'a'
   if (s.spuren) neu.spuren = { a: s.spuren.b, b: s.spuren.a }
+  if (s.querschnittHeute) neu.querschnittHeute = { ...s.querschnittHeute, teile: [...s.querschnittHeute.teile].reverse() }
   if (s.candIds) {
     const gegen = new Set(s.candsGegenA ?? [])
     neu.candsGegenA = s.candIds.filter(id => !gegen.has(id))
@@ -266,6 +275,7 @@ export function candToSection(c: Cand, gleich = true): Section {
   if (c.einbahn) {
     s.richtung = 'eine'; s.quelle.richtung = 'osm'
     if (c.veloGegenverkehr) s.osmVeloGegenverkehr = true
+    if (c.oevGegen) s.oevGegen = true
   }
   if (c.spuren) s.spuren = aWay === 'rechts' ? { a: c.spuren.vor, b: c.spuren.rueck } : { a: c.spuren.rueck, b: c.spuren.vor }
   s.peilungA = peilungEntlang(c.geom, aWay === 'rechts')

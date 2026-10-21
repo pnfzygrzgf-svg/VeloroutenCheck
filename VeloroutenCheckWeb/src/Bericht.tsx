@@ -19,7 +19,7 @@ import { dtvAssumed, type Quelle, type Section, type Seite } from './strecke'
 import type { Routentyp, Stadt } from './fuehrungsform'
 import { numDE } from './csv'
 import {
-  bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, pruefeKernfahrbahn, pruefeTeil, pruefungText, startAufteilung, umfeldVon,
+  bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, pruefeKernfahrbahn, pruefeTeil, pruefungText, haltUmfeld, startAufteilung, umfeldVon,
   BILD_LABEL, FUSSNETZ, FUSS_QUELLE, STANDARD_QUELLE, MARKIERUNG_LABEL, RICHTWERT_QUELLE, LICHTRAUM_QUELLE, teilName, type Aufteilung,
 } from './aufteilung'
 import { SkizzeSvg, breiteCm } from './Querschnitt'
@@ -274,7 +274,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                         <td>{teilName(t)}{zusatz && <div className="klein">{zusatz}</div>}</td>
                         <td style={{ whiteSpace: 'nowrap' }}>{Number.isFinite(t.breite) ? `${numDE(t.breite, 2)} m` : '–'}
                           {t.angenommen && <div className="klein">angenommen*</div>}</td>
-                        <td className="klein">{pruefungText(t, pruefeTeil(t, rt, breiten, umfeld))}</td>
+                        <td className="klein">{pruefungText(t, pruefeTeil(t, rt, breiten, { ...umfeld, halt: haltUmfeld(a.teile, i, section, a) }))}</td>
                       </tr>
                     )
                   })}
@@ -294,8 +294,8 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                   {seitenListe.map(s => (
                     <tr key={s}>
                       <td>{seitenListe.length > 1 || einbahn ? seiteName(s) : 'Beide Seiten'}</td>
-                      <td>{sh.get(s) ? <>{formText(sh.get(s)!.felder)}<div className="klein">{noteText(sh.get(s)!.bewertung?.note ?? null, modus)}</div></> : '–'}</td>
-                      <td>{sp.get(s) ? <>{formText(sp.get(s)!.felder)}<div className="klein">{noteText(sp.get(s)!.bewertung?.note ?? null, modus)}</div></> : '–'}</td>
+                      <td>{sh.get(s) ? <>{sh.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sh.get(s)!.felder.haltestellentyp}` : formText(sh.get(s)!.felder)}<div className="klein">{noteText(sh.get(s)!.bewertung?.note ?? null, modus)}</div></> : '–'}</td>
+                      <td>{sp.get(s) ? <>{sp.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sp.get(s)!.felder.haltestellentyp}` : formText(sp.get(s)!.felder)}<div className="klein">{noteText(sp.get(s)!.bewertung?.note ?? null, modus)}</div></> : '–'}</td>
                     </tr>
                   ))}
                   <tr><td><b>Abschnitt</b></td><td><b>{noteText(heute.note, modus)}</b></td><td><b>{noteText(plan.note, modus)}</b></td></tr>

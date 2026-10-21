@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   fuehrungsart, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
-  brauchtBreite, brauchtDtvTempo, erfuellungsgrad, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
+  brauchtBreite, brauchtDtvTempo, erfuellungsgrad, HALTESTELLENBEREICH_MAX_M, HALTESTELLENBEREICH_NICHT_ERFUELLT, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   GEGENVERKEHR_FORMEN, GEGENVERKEHR_DEFAULT,
   type Fuehrungsart, type IstFuehrungsform, type Routentyp, type ParkenRechts,
   type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
@@ -14,6 +14,7 @@ import Strassensuche from './Strassensuche'
 import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, fahrbahnMitRandstein, RANG_TEXT, type TrottoirAnpassung, type Vorschlag } from './vorschlag'
 import { bordkanten, messeAbKante, messeFlaeche, abstand, aufZentimeter, fahrbahnbreite, mittelinsel, parkierungAufTrottoir, parkierungTiefe, parkierungVersetzt, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
 import type { AvFlaeche } from './av'
+import { artVorschlag, aufnahmeTeile, avArtAn, fangeLage, grenzenAufLinie, querLinie, GANZ, type QsArt, FANG_MAX_M as QS_FANG_MAX_M, FANG_PX as QS_FANG_PX } from './querschnittAufnahme'
 import {
   candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
   luftbildHinweis, luftbildUebernehmen, setzeGemesseneBreite,
@@ -24,7 +25,7 @@ import { QuerschnittSkizze, breiteCm } from './Querschnitt'
 import Bericht from './Bericht'
 import { ladeFussnetz, ladeFussnetzBasel, FUSSNETZ_BASEL, FUSSNETZ_GEOPORTAL } from './fussnetz'
 import {
-  bilanz, bilanzText, bewerteAufteilung, fussnetzOptionen, FUSS_QUELLE, STANDARD_QUELLE, mitSeitenraum, bildVon, linksDerMitte, markierungenFuer, pruefungText, richtungenFuer, richtungVon, FUSSNETZ, mitTrottoirs, pruefeKernfahrbahn, pruefeTeil, standardBreite, startAufteilung, umfeldVon,
+  bilanz, bilanzText, bewerteAufteilung, haltUmfeld, haltestelleEinfuegen, HS_VORLAGEN, fussnetzOptionen, FUSS_QUELLE, STANDARD_QUELLE, mitSeitenraum, bildVon, linksDerMitte, markierungenFuer, pruefungText, richtungenFuer, richtungVon, FUSSNETZ, mitTrottoirs, pruefeKernfahrbahn, pruefeTeil, standardBreite, startAufteilung, umfeldVon,
   BILDER, BILD_LABEL, MARKIERUNG_LABEL, PFEILE, markierungAus, parkTiefeVorbelegt, pfeileVon, TEIL_GRUPPEN, TEIL_LABEL, auf5cm,
   type Aufteilung, type Bild, type FussNetz, type Pfeil, type Richtung, type Teil, type TeilArt, type TeilPruefung,
 } from './aufteilung'
@@ -517,6 +518,30 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, modus, ci
             </div>
           )}
         </div>
+        {bewertung.haltestellenbereich ? (
+          // Haltestellenbereich (nur Bern, seit 20.10.2026): Haltestellentyp gegen die Lösung des Masterplans
+          <div style={{ fontSize: 13.5, opacity: 0.97 }}>
+            <div><strong>Haltestellenbereich</strong> · Soll: {bewertung.sollHaltestelle ?? '–'}</div>
+            <div><strong>Ist:</strong> {bewertung.haltestellentyp}</div>
+            <div style={{ marginTop: 4, opacity: 0.9 }}>
+              {bewertung.kapTramNote1
+                ? 'Kaphaltestelle an einer Tramhaltestelle: Note 1 (Schiene im schmalen Abstand zur hohen Haltekante).'
+                : !bewertung.erfuellt
+                  ? `Nicht erfüllt: Der Masterplan verlangt eine separate Velofläche → Note ${numDE(bewertung.note, 0)}. Erfüllen würden: ${bewertung.kompatibleHaltestellen.join(', ')}.`
+                  : 'Erfüllt → Note 6.'}
+            </div>
+            {bewertung.erfuellt && bewertung.hsBreitenSoll != null && (
+              <div style={{ marginTop: 4, opacity: 0.9 }}>
+                <strong>Breite der Velofläche:</strong>{' '}
+                {bewertung.haltestelleBreite != null ? `${numDE(bewertung.haltestelleBreite, 2)} m` : 'nicht angegeben'} · Vorgabe{' '}
+                {bezugLabel} {numDE(bewertung.hsBreitenSoll, 2)} m
+                {bewertung.haltestelleBreite != null && (' · ' + (bewertung.hsBreiteStatus === 'erfuellt'
+                  ? '✓ erfüllt' : `zu schmal → Abzug ${numDE(bewertung.hsBreitenabzug, 1)} Note`))}
+              </div>
+            )}
+            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>Führungsform, DTV, Tempo und Parkierung zählen hier nicht.</div>
+          </div>
+        ) : (
         <div style={{ fontSize: 13.5, opacity: 0.97 }}>
           {/* Ohne DTV/Tempo gibt es keine Soll-Führungsform — dieselbe Quelle wie die Pflichtfelder. */}
           {brauchtDtvTempo(bewertung.ist) &&
@@ -664,6 +689,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, modus, ci
             )}
           </details>
         </div>
+        )}
       </div>
       )}
 
@@ -810,7 +836,9 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
   )
 }
 
-function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, onFahrbahnbreite, fbLaden, onBericht }: {
+function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, onFahrbahnbreite, fbLaden, onBericht, onQuerschnitt, onQuerschnittVerwerfen }: {
+  onQuerschnitt?: () => void              // Querschnitt am Luftbild aufnehmen (seit 20.10.2026)
+  onQuerschnittVerwerfen?: () => void     // den von Hand aufgenommenen Querschnitt von heute verwerfen
   section: Section
   heute: AbschnittErgebnis               // Bewertung des Abschnitts wie eingegeben
   city: CityId
@@ -827,6 +855,10 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
   const [zieh, setZieh] = useState<number | null>(null)
   const [ueber, setUeber] = useState<number | null>(null)
   const [planHinweis, setPlanHinweis] = useState('')   // z. B. «Kernfahrbahn ersetzt die zweite Fahrspur»
+  // «Haltestelle einfügen» (seit 20.10.2026): Seite und Typ (Querschnitte HS 1, 2, 4, 5 des Masterplans), nur Typen der Stadt
+  const hsVorlagen = HS_VORLAGEN.filter(t => haltestellenTypen(city).includes(t))
+  const [hsSeite, setHsSeite] = useState<'A' | 'B'>('A')
+  const [hsWahl, setHsWahl] = useState<Haltestellentyp>(hsVorlagen[0] ?? 'keine')
   const kopf = <div style={groupLabelStyle}>Aufteilung planen</div>
   // Einstieg hervorgehoben (Nutzerbefund 16.10.2026: als graue Zeile am Kartenende schlecht
   // auffindbar); dazu der Knopf in der Kopfzeile der Abschnittskarte.
@@ -992,6 +1024,12 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
                 Bericht / PDF
               </button>
             )}
+            {onQuerschnitt && (
+              <button type="button" onClick={onQuerschnitt} style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                      title="Quer über die Strasse am Luftbild klicken: jede Grenze ein Punkt, jedes Stück ein Teil; als heute oder in die Planung übernehmen">
+                📐 Querschnitt am Luftbild
+              </button>
+            )}
             <button type="button" onClick={() => onChange(startAufteilung(section, city, CITIES[city].breiten))} style={kleinKnopfStyle}
                     title="Eigene Änderungen verwerfen und wieder vom Querschnitt von heute ausgehen">
               Auf heute zurücksetzen
@@ -1036,7 +1074,16 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
           <QuerschnittSkizze titel="Heute" teile={ausgang.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} />
           <QuerschnittSkizze titel="Planung" teile={a.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} />
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-            «Heute» ist die Ausgangslage aus den Eingaben des Abschnitts{section.trottoir ? ' und den Trottoirs aus der AV' : ''}.
+            {section.querschnittHeute || section.gesamtbreite != null ? (
+              <>{section.querschnittHeute ? `«Heute» ist von Hand am Luftbild aufgenommen (${section.querschnittHeute.teile.length} Teile). ` : ''}
+                {section.gesamtbreite != null ? `Ganzer Querschnitt am Luftbild gemessen: ${numDE(section.gesamtbreite, 2)} m. ` : ''}
+                {onQuerschnittVerwerfen && (
+                  <button type="button" onClick={onQuerschnittVerwerfen}
+                          style={{ border: 'none', background: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', fontSize: 'inherit', textDecoration: 'underline' }}>
+                    Verwerfen (wieder aus den Eingaben und der AV)
+                  </button>
+                )}{' '}</>
+            ) : <>«Heute» ist die Ausgangslage aus den Eingaben des Abschnitts{section.trottoir ? ' und den Trottoirs aus der AV' : ''}. </>}
             Illustrationen (Personen, Velos, Fahrzeuge vom Auto bis zum Tram, auch schräg und seitlich parkierte Autos, Ausstattung,
             Pfeilmarkierungen): <a href="https://streetmix.net" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>Streetmix</a>,{' '}
             <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.de" target="_blank" rel="noopener noreferrer"
@@ -1051,9 +1098,33 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
             <button type="button" onClick={() => setPlanHinweis('')} style={kleinKnopfStyle} aria-label="Hinweis schliessen">✕</button>
           </div>
         )}
+        {/* Haltestelle einfügen: Querschnitt nach dem Masterplan auf einer Seite, danach frei änderbar */}
+        {hsVorlagen.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5, margin: '2px 0 8px',
+                        color: 'var(--text-muted-strong)' }}
+               title="Setzt auf der Seite die Teile der Haltestelle nach dem Masterplan (Trottoir, Velofläche, Abstand, Wartebereich); Fahrspuren und Tram bleiben">
+            Haltestelle einfügen:
+            <select value={hsSeite} onChange={e => setHsSeite(e.target.value as 'A' | 'B')} aria-label="Seite der Haltestelle"
+                    style={{ ...selectStyle, flex: '0 0 auto' }}>
+              <option value="A">Seite A{rA ? ` (${rA})` : ''}</option>
+              {!einbahn && <option value="B">Seite B{rB ? ` (${rB})` : ''}</option>}
+            </select>
+            <select value={hsWahl} onChange={e => setHsWahl(e.target.value as Haltestellentyp)} aria-label="Haltestellentyp"
+                    style={{ ...selectStyle, flex: '0 1 260px', minWidth: 0 }}>
+              {hsVorlagen.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <button type="button" style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                    onClick={() => { onChange(haltestelleEinfuegen(a, einbahn ? 'A' : hsSeite, hsWahl, rt, city)); setPlanHinweis('') }}>
+              Einfügen
+            </button>
+            {a.haltestellentyp && (Object.entries(a.haltestellentyp) as ['A' | 'B', Haltestellentyp][]).map(([s, t]) => (
+              <span key={s}>· Seite {s}: {t}</span>
+            ))}
+          </div>
+        )}
         {/* Teile: ziehen am Griff ⠿ (Drag and Drop) oder mit den Pfeilen verschieben */}
         {a.teile.map((t, i) => {
-          const p = pruefeTeil(t, rt, breiten, umfeld)
+          const p = pruefeTeil(t, rt, breiten, { ...umfeld, halt: haltUmfeld(a.teile, i, section, a) })
           const bilder = BILDER[t.art]
           const marks = markierungenFuer(t.art)
           const richtungen = richtungenFuer(t.art, einbahn)
@@ -1283,7 +1354,9 @@ function AufteilungPlanen({ section, heute, city, modus, rA, rB, onChange, av, o
 // gemeinsamer Kasten, solange beide gleich sind, sonst je ein Kasten für Seite A und Seite B
 // (eigene Werte oder nicht bewertet) — und das Ergebnis je bewertete Seite. Die Abschnittsnote
 // ist die schlechtere Seite (bewertung.ts).
-function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, onChange, onTauschen, onLuftbild, onMessen, onFahrbahnbreite, fbLaden, av, onBericht, onRemove, canRemove, onHover, breitenQuelle, city, ort }: {
+function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, onChange, onTauschen, onLuftbild, onMessen, onFahrbahnbreite, fbLaden, av, onBericht, onRemove, canRemove, onHover, breitenQuelle, city, ort, laengeM, onQuerschnitt }: {
+  onQuerschnitt?: () => void             // Querschnitt am Luftbild aufnehmen (Städte mit avKanton, Abschnitte von der Karte)
+  laengeM?: number                       // Länge des Abschnitts aus den Segmenten [m] (Vorschlag Haltestellenbereich)
   onBericht?: () => void                 // Bericht der Planung öffnen
   ort?: { lat: number; lon: number; peilung?: number }   // Stelle des Karten-Markers und Fahrtrichtung der Seite A (Street View)
   zu?: boolean                           // Abschnitt eingeklappt (nur Kopfzeile)
@@ -1538,6 +1611,49 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
           </div>
         )
       })()}
+
+      {/* Haltestellenbereich (nur Bern, seit 20.10.2026): Die Haltestelle prägt den Abschnitt, die Note kommt allein
+          aus ihr. Die App schlägt ihn vor, wenn eine Haltestelle erkannt ist und der Abschnitt höchstens 60 m lang ist. */}
+      {city === 'bern' && (section.oevAngebot !== 'keine' || section.oev?.oevHalt) && (() => {
+        const vorschlagen = !section.haltestellenbereich && !section.haltestellenbereichNein && !!section.oev?.oevHalt
+          && laengeM != null && laengeM <= HALTESTELLENBEREICH_MAX_M
+        return (
+          <div style={{ marginTop: 10 }}>
+            {vorschlagen && (
+              <div style={{ marginBottom: 8, padding: '8px 12px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe',
+                            color: '#1e3a8a', fontSize: 12.5, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ flex: '1 1 260px' }}>
+                  <strong>Vorschlag Haltestellenbereich:</strong> Die Haltestelle{section.oev?.oevHaltName ? ` «${section.oev.oevHaltName}»` : ''} liegt
+                  in diesem Abschnitt, und er ist nur {numDE(Math.round(laengeM!), 0)} m lang (höchstens {HALTESTELLENBEREICH_MAX_M} m). Die
+                  Haltestelle prägt ihn; dann zählt für die Note allein die Haltestelle.
+                </span>
+                <button type="button" onClick={() => onChange({ haltestellenbereich: true })}
+                        style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+                  Als Haltestellenbereich bewerten
+                </button>
+                <button type="button" onClick={() => onChange({ haltestellenbereichNein: true })} style={kleinKnopfStyle}>
+                  Nein
+                </button>
+              </div>
+            )}
+            <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 13, color: 'var(--text)' }}>
+              <input type="checkbox" checked={!!section.haltestellenbereich}
+                     onChange={e => onChange({ haltestellenbereich: e.target.checked || undefined })} style={{ marginTop: 3 }} />
+              <span>
+                <strong>Haltestellenbereich</strong>: Die Haltestelle prägt den Abschnitt.
+                {section.haltestellenbereich && (
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted-strong)' }}>
+                    Bewertet wird je Seite mit Haltestelle nur der Haltestellentyp gegen die Lösung, die der Masterplan verlangt
+                    (ÖV-Angebot × Routentyp, Anwendungshilfe Haltestellen): erfüllt Note 6 (minus Abzug für eine zu schmale
+                    Velofläche), nicht erfüllt Note {HALTESTELLENBEREICH_NICHT_ERFUELLT}, Kaphaltestelle an einer Tramhaltestelle
+                    Note 1. Führungsform, DTV, Tempo und Parkierung zählen auf dieser Seite nicht.
+                  </span>
+                )}
+              </span>
+            </label>
+          </div>
+        )
+      })()}
       </Klappe>
 
       {/* Eingaben — Gruppe 3: Seiten (Fahrtrichtungen). Seite A = Fahrtrichtung entlang der
@@ -1691,7 +1807,10 @@ function SectionCard({ index, section, ergebnis, isWorst, modus, zu, onKlappen, 
         <AufteilungPlanen section={section} heute={ergebnis} city={city} modus={modus} rA={rA} rB={rB}
                           onChange={aufteilung => { onChange({ aufteilung }); if (!aufteilung) av?.ausblenden() }} av={av}
                           onFahrbahnbreite={onFahrbahnbreite && (() => onFahrbahnbreite('plan'))} fbLaden={fbLaden}
-                          onBericht={onBericht} />
+                          onBericht={onBericht} onQuerschnitt={onQuerschnitt}
+                          onQuerschnittVerwerfen={() => onChange({ querschnittHeute: undefined, gesamtbreite: undefined,
+                            ...(section.aufteilung && JSON.stringify(section.aufteilung) === JSON.stringify(startAufteilung(section, city, CITIES[city].breiten))
+                              ? { aufteilung: startAufteilung({ ...section, querschnittHeute: undefined, gesamtbreite: undefined }, city, CITIES[city].breiten) } : {}) })} />
       )}
 
       {/* OpenBikeSensor: gemessene Überholabstände — reine Zusatzinfo, kein Noteneinfluss.
@@ -1771,7 +1890,9 @@ function SoFunktionierts() {
         <li><b>Übernehmen:</b> benachbarte Segmente gleicher Führungsform und gleichen Tempos werden zu Abschnitten gruppiert.</li>
         <li><b>Abschnitte prüfen:</b> je Abschnitt stehen Führungsform, Tempo und weitere Angaben aus OpenStreetMap und dem
           Geoportal der Stadt, mit Herkunft am Chip. Was nicht stimmt, lässt sich von Hand anpassen; die Bewertung rechnet sofort neu.
-          «Street View ↗» in der Kopfzeile öffnet Google Street View an der Stelle des Abschnitts, Blick in Fahrtrichtung der Seite A.</li>
+          «Street View ↗» in der Kopfzeile öffnet Google Street View an der Stelle des Abschnitts, Blick in Fahrtrichtung der Seite A.
+          In Bern lässt sich ein kurzer Abschnitt mit Haltestelle als «Haltestellenbereich» bewerten (die App schlägt es vor): Dann zählt
+          allein der Haltestellentyp gegen die Lösung, die der Masterplan verlangt.</li>
         <li><b>Luftbild-Hinweis (Bern, Zürich, Basel):</b> Zeigt das Luftbild auf einer Seite einen Radstreifen, erscheint ein Hinweis
           zum Übernehmen; eine Breite liefert er nicht.</li>
         <li><b>Breite messen:</b> «📏 Am Luftbild messen» je Seite schaltet aufs Orthofoto, weit
@@ -1786,7 +1907,10 @@ function SoFunktionierts() {
           Strassenflächen der Stadt; Parkierung, Velostreifen).
           Teile wählen, mit «＋» einfügen, am Griff ⠿ verschieben und in der Breite ändern (Feld oder «−»/«+» in 10-cm-Schritten);
           eine Mittelinsel und ein Grünstreifen vor dem Trottoir aus der AV, Schräg- oder Senkrechtparkierung mit ihrer Tiefe und die Fahrspuren mit
-          Pfeilen aus OpenStreetMap stehen schon in der Ausgangslage. Die App prüft jedes Teil gegen die
+          Pfeilen aus OpenStreetMap stehen schon in der Ausgangslage. «Haltestelle einfügen» setzt auf einer Seite den Querschnitt einer
+          Haltestelle nach dem Masterplan (Veloumfahrung, Kap mit Veloüberfahrt, rückwärtiger Radweg, Inselhaltestelle). Trifft die
+          Messung aus der AV nicht, nimmt «📐 Querschnitt am Luftbild» ihn von Hand auf: quer über die Strasse an jeder Grenze klicken,
+          jedes Stück wird ein Teil. Die App prüft jedes Teil gegen die
           Vorgaben der Stadt (wo eine Stadt kein Mass nennt, gilt das Berner, mit «Ersatz Bern» ausgewiesen), rechnet die Bilanz über den ganzen Querschnitt und zeigt die Note mit der Planung neben der von heute. Die Karte
           zeigt dazu die amtliche Vermessung und die Parkfelder (Basel: keine Parkfelder in den offenen Daten). Der Kasten «Vorschlag»
           schlägt die erste Massnahme vor, die die Note auf 4,5 bringt, ohne und mit Randsteinanpassung (dann kommen die Trottoirs auf
@@ -1956,6 +2080,20 @@ function avAusschnitt(s: number, w: number, n: number, o: number): { e: number; 
 // Formen, deren Breite die ganze Fläche von Kante zu Kante ist (Messart «Ganze Fläche», seit 20.10.2026)
 const FLAECHEN_FORMEN: IstFuehrungsform[] = ['Velostrasse', 'Fussweg Velo gestattet', 'Kombinierter Fuss-/Radweg', 'Zweirichtungsradweg', 'Radweg abgesetzt']
 // Breite am Luftbild messen: Zustand der laufenden Messung.
+interface QsAufnahme {
+  secId: number
+  titel: string
+  achsen: P[][]                                   // Achsen des Abschnitts in Richtung der Seite A (LV95)
+  flaechen: AvFlaeche[]                           // AV-Flächen (Einrasten, Vorbelegung der Art)
+  laden: boolean
+  fehler?: string
+  linie?: { c: P; r: P }                          // Querlinie: Fusspunkt am ersten Punkt, Richtung zur Seite A
+  grenzen?: number[]                              // Schnitte der Querlinie mit AV-Kanten (Lagen)
+  lagen: number[]                                 // gesetzte Punkte auf der Querlinie, aufsteigend (Rand B → Rand A)
+  klicks: number[]                                // dieselben in Klickreihenfolge (für «Letzten Punkt entfernen»)
+  arten: (QsArt | undefined)[]                    // gewählte Art je Stück (undefined = nach der AV; GANZ = Ganzer Querschnitt)
+  haltestelle: boolean                            // Insel = Wartebereich der Haltestelle
+}
 interface Messung {
   secId: number
   seite: 'A' | 'B'
@@ -2089,9 +2227,11 @@ export default function App() {
     ev.preventDefault()
     const el = ev.currentTarget
     el.setPointerCapture(ev.pointerId)
+    el.classList.add('zieht')                     // eingefärbt, solange gezogen wird (index.css)
     const rand = el.parentElement!.getBoundingClientRect().right
     const move = (e: PointerEvent) => panelSetzen(rand - e.clientX, false)
     const up = (e: PointerEvent) => {
+      el.classList.remove('zieht')
       panelSetzen(rand - e.clientX, true)
       el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up)
     }
@@ -2590,6 +2730,117 @@ export default function App() {
     setMsg(`Breite ${numDE(wert, 2)} m gemessen (${m.titel})${parkWeg ? `, ohne Parkierung ${numDE(parkWeg, 2)} m` : ''}.`, 'ok')
   }
   // Für die Karte: Kanten nur bei neuem Ausschnitt umrechnen (viele tausend Strecken).
+  // ── Querschnitt am Luftbild aufnehmen (querschnittAufnahme.ts, seit 20.10.2026) ──────────────────────────────
+  // Quer über die Strasse von Rand B nach Rand A klicken; jedes Stück wird ein Teil (Art vorbelegt nach der AV).
+  // «Als heute» ersetzt die gemessene Ausgangslage (Section.querschnittHeute), «In die Planung» die Teile der Planung.
+  const [qsa, setQsa] = useState<QsAufnahme | null>(null)
+  const qsaRef = useRef<QsAufnahme | null>(null)
+  qsaRef.current = qsa
+  const qsStarten = async (secId: number) => {
+    const map = mapRef.current, s = sections.find(x => x.id === secId)
+    if (!map || !s) return
+    setTeilModus(false); setMessung(null)
+    abschnittInsBild(map, s)
+    const idx = sections.findIndex(x => x.id === secId)
+    setQsa({ secId, titel: `Abschnitt ${idx + 1}`, achsen: avAchsen(s, true), flaechen: [], laden: true, lagen: [], klicks: [], arten: [],
+      haltestelle: s.oevAngebot !== 'keine' })
+    if (planAv?.secId !== secId) void planAvZeigen(secId)
+    try {
+      const { flaechen } = await avFuerAbschnitt(s)
+      setQsa(q => (q && q.secId === secId ? { ...q, flaechen, laden: false } : q))
+    } catch (err) {
+      setQsa(q => (q && q.secId === secId ? { ...q, laden: false, fehler: `Amtliche Vermessung: ${(err as Error).message}. Ohne sie rasten die Punkte nicht ein.` } : q))
+    }
+  }
+  const qsKlick = (lat: number, lon: number) => {
+    const q = qsaRef.current, map = mapRef.current
+    if (!q || !map) return
+    const p = zuLv95(lat, lon)
+    const linie = q.linie ?? querLinie(q.achsen, p) ?? undefined
+    if (!linie) return
+    // Fangradius: FANG_PX Bildschirmpunkte beim aktuellen Zoom, höchstens QS_FANG_MAX_M (wie fgsCheck)
+    const pt = map.latLngToContainerPoint([lat, lon]), q2 = map.containerPointToLatLng([pt.x + QS_FANG_PX, pt.y])
+    const radius = Math.min(QS_FANG_MAX_M, map.distance([lat, lon], q2))
+    const roh = (p[0] - linie.c[0]) * linie.r[0] + (p[1] - linie.c[1]) * linie.r[1]
+    const grenzen = q.grenzen ?? grenzenAufLinie(linie.c, linie.r, q.flaechen)
+    const t = fangeLage(roh, grenzen, radius)
+    if (q.lagen.some(x => Math.abs(x - t) < 0.02)) return
+    const lagen = [...q.lagen]
+    let k = lagen.findIndex(x => x > t)
+    if (k < 0) k = lagen.length
+    lagen.splice(k, 0, t)
+    // Arten je Stück: ein neuer Punkt teilt ein Stück (die Wahl bleibt links) oder hängt eines an
+    const arten = [...q.arten]
+    if (lagen.length >= 2) {
+      if (k === 0) arten.unshift(undefined)
+      else if (k === lagen.length - 1) arten.push(undefined)
+      else arten.splice(k - 1, 1, arten[k - 1], undefined)
+    }
+    setQsa({ ...q, linie, grenzen, lagen, arten, klicks: [...q.klicks, t] })
+  }
+  const qsKlickRef = useRef(qsKlick)
+  qsKlickRef.current = qsKlick
+  const qsZurueck = () => {
+    const q = qsaRef.current
+    if (!q || !q.klicks.length) return
+    const t = q.klicks[q.klicks.length - 1], k = q.lagen.indexOf(t)
+    const lagen = q.lagen.filter((_, i) => i !== k), arten = [...q.arten]
+    if (k === 0) arten.shift(); else if (k === q.lagen.length - 1) arten.pop(); else arten.splice(k - 1, 2, arten[k - 1])
+    setQsa({ ...q, lagen, arten, klicks: q.klicks.slice(0, -1), ...(lagen.length ? {} : { linie: undefined, grenzen: undefined }) })
+  }
+  // Art eines Stücks: gewählt, sonst nach der AV-Fläche unter seiner Mitte
+  const qsArt = (q: QsAufnahme, i: number): QsArt => {
+    if (q.arten[i]) return q.arten[i]!
+    if (!q.linie) return 'Fahrspur'
+    const m = (q.lagen[i] + q.lagen[i + 1]) / 2
+    return artVorschlag(avArtAn([q.linie.c[0] + q.linie.r[0] * m, q.linie.c[1] + q.linie.r[1] * m], q.flaechen), q.haltestelle)
+  }
+  const qsUebernehmen = (ziel: 'heute' | 'plan' | 'beides') => {
+    const q = qsaRef.current
+    if (!q || q.lagen.length < 2) return
+    const r = aufnahmeTeile(q.lagen, q.lagen.slice(1).map((_, i) => qsArt(q, i)))
+    const nurGesamt = !r.teile.length && r.gesamt != null
+    setSections(prev => prev.map(s => {
+      if (s.id !== q.secId) return s
+      const neu: Section = { ...s }
+      const unveraendert = !!s.aufteilung && JSON.stringify(s.aufteilung) === JSON.stringify(startAufteilung(s, city, cityCfg.breiten))
+      if (ziel !== 'plan') {
+        if (nurGesamt) neu.gesamtbreite = r.gesamt   // nur das Mass: die Teile von heute bleiben, der Rest gilt ausserhalb
+        else {
+          neu.querschnittHeute = { teile: r.teile, fahrbahn: r.fahrbahn, seitenraum: r.seitenraum }
+          delete neu.gesamtbreite
+          if (r.fahrbahn > 0) { neu.fahrbahnbreite = r.fahrbahn; neu.quelle = { ...s.quelle, fahrbahnbreite: 'gemessen' } }
+        }
+      }
+      if (ziel !== 'heute') {
+        const a0 = s.aufteilung ?? startAufteilung(neu, city, cityCfg.breiten)
+        neu.aufteilung = nurGesamt
+          ? { ...a0, seitenraum: Number.isFinite(a0.fahrbahn) ? Math.max(0, Math.round((r.gesamt! - a0.fahrbahn) * 100) / 100) : a0.seitenraum }
+          : { ...a0, fahrbahn: r.fahrbahn, teile: r.teile.map(t => ({ ...t })), seitenraum: r.seitenraum }
+      } else if (!s.aufteilung || unveraendert) neu.aufteilung = startAufteilung(neu, city, cityCfg.breiten)
+      return neu
+    }))
+    setQsa(null)
+    const wohin = ziel === 'heute' ? 'als heute' : ziel === 'plan' ? 'in die Planung' : 'als heute und in die Planung'
+    setMsg(nurGesamt
+      ? `Ganzer Querschnitt ${numDE(r.gesamt!, 2)} m übernommen (${q.titel}, ${wohin}): die Breite ausserhalb der Fahrbahn ist der Rest bis dahin.`
+      : `Querschnitt am Luftbild übernommen (${q.titel}, ${wohin}): ${r.teile.length} Teile, Fahrbahn ${numDE(r.fahrbahn, 2)} m, `
+        + `ausserhalb ${numDE(r.seitenraum, 2)} m${r.gesamt != null ? ` (bis zum ganzen Querschnitt ${numDE(r.gesamt, 2)} m)` : ''}.`, 'ok')
+  }
+  useEffect(() => {
+    if (!qsa) return
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setQsa(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [qsa != null])   // eslint-disable-line react-hooks/exhaustive-deps
+  const qsAnzeige: MessAnzeige | null = useMemo(() => {
+    if (!qsa || !qsa.linie) return qsa ? { kanten: [], punkte: [] } : null
+    const { c, r } = qsa.linie
+    const w = (t: number) => zuWgs(c[0] + r[0] * t, c[1] + r[1] * t)
+    return { kanten: [], punkte: [], quer: { punkte: qsa.lagen.map(w),
+      marken: qsa.lagen.slice(1).map((t, i) => ({ p: w((qsa.lagen[i] + t) / 2), text: `${i + 1} · ${numDE(t - qsa.lagen[i], 2)}` })) } }
+  }, [qsa])
+
   const messKantenWgs = useMemo(() => (messung?.kanten ?? []).map(k => [zuWgs(k.a[0], k.a[1]), zuWgs(k.b[0], k.b[1])]),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [messung?.kanten])
@@ -2606,7 +2857,8 @@ export default function App() {
   }, [messung, messKantenWgs])
 
   const linieGeklickt = useCallback((id: number, lat: number, lon: number) => {
-    if (messungRef.current) messKlickRef.current(lat, lon)   // Breitenmessung: Klick gilt der Messung
+    if (qsaRef.current) qsKlickRef.current(lat, lon)         // Querschnitt am Luftbild: Klick gilt der Aufnahme
+    else if (messungRef.current) messKlickRef.current(lat, lon)   // Breitenmessung: Klick gilt der Messung
     else if (teilModusRef.current) void teilenRef.current(id, lat, lon)
     else toggleCand(id)
   }, [toggleCand])
@@ -2615,6 +2867,7 @@ export default function App() {
   // Wie beim Strassen-/Ausschnitt-Laden mit den Stadt-Daten + OpenBikeSensor anreichern
   // (Klick ist der Hauptweg zum Strecken-Aufbau, daher müssen DTV/Tempo/Routentyp/OBS auch hier kommen).
   const klickHinzufuegen = async (lat: number, lon: number) => {
+    if (qsaRef.current) { qsKlickRef.current(lat, lon); return }
     if (messung) { messKlick(lat, lon); return }
     if (teilModus) { setMsg('Teilen: bitte direkt auf die Linie tippen, die geteilt werden soll (Esc bricht ab).', 'info'); return }
     if (osmBusy) return                         // läuft schon eine Anfrage → Klick ignorieren (Rate-Limit schonen)
@@ -2894,10 +3147,10 @@ export default function App() {
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
                      attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} obsStand={cityCfg.obsStand}
-                     teilModus={teilModus} orthofoto={messAktiv || planAv != null} messung={messAnzeige} av={planAvWgs} formen={formen}
+                     teilModus={teilModus} orthofoto={messAktiv || planAv != null || qsa != null} messung={messAnzeige ?? qsAnzeige} av={planAvWgs} formen={formen}
                      onMeldung={(t, art) => setMsg(t, art)} />
             {/* Kartenkopf: Stadt und Strassensuche (während einer Messung steht dort deren Werkzeugleiste) */}
-            {!messung && (
+            {!messung && !qsa && (
               <div className="vrc-kartenkopf">
                 <select value={city} onChange={e => wechsleStadt(e.target.value as CityId)} aria-label="Stadt"
                         disabled={osmBusy}   // Stadtwechsel während einer laufenden Ladung sperren (Race-Schutz)
@@ -2951,6 +3204,69 @@ export default function App() {
                     {messung.ergebnis ? `${numDE(aufZentimeter(messung.ergebnis.breite), 2)} m übernehmen` : 'Übernehmen'}
                   </button>
                   <button type="button" onClick={() => setMessung(null)} style={kleinKnopfStyle}>Abbrechen</button>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                  Luftbild © swisstopo · {avQuelle(cityCfg.avKanton ?? '')}
+                </div>
+              </div>
+            )}
+            {/* Querschnitt am Luftbild aufnehmen: Werkzeugleiste auf der Karte */}
+            {qsa && (
+              <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 600,
+                            width: 'min(500px, calc(100% - 110px))', maxHeight: 'calc(100% - 30px)', overflowY: 'auto', background: '#fff',
+                            borderRadius: 10, boxShadow: '0 4px 14px rgba(0,0,0,0.25)', padding: '10px 12px', fontSize: 12.5,
+                            color: 'var(--text)', lineHeight: 1.45 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-strong)', marginBottom: 4 }}>
+                  📐 Querschnitt am Luftbild · {qsa.titel}
+                </div>
+                <div>
+                  Weit hineinzoomen und quer über die Strasse von Rand B nach Rand A klicken (Seite B links, in Fahrtrichtung der Seite A gesehen):
+                  an jeder Grenze ein Punkt, etwa Hauswand oder Trottoirrand, Bord, Markierung, Insel, Gleismitte. Die Punkte liegen auf
+                  einer Linie quer zur Strasse; nahe einer Kante der amtlichen Vermessung rasten sie dort ein.
+                </div>
+                {(qsa.laden || qsa.fehler) && (
+                  <div style={{ marginTop: 6, fontWeight: 600, color: qsa.fehler ? '#b91c1c' : 'var(--text-strong)' }}>
+                    {qsa.fehler ?? 'Lade die amtliche Vermessung …'}
+                  </div>
+                )}
+                {qsa.lagen.length >= 2 && (
+                  <div style={{ marginTop: 8, display: 'grid', gap: 4 }}>
+                    {qsa.lagen.slice(1).map((t, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span style={{ minWidth: 76, fontVariantNumeric: 'tabular-nums' }}>{i + 1} · {numDE(t - qsa.lagen[i], 2)} m</span>
+                        <select value={qsArt(qsa, i)} aria-label={`Art von Stück ${i + 1}`} style={{ ...selectStyle, flex: '1 1 auto', minWidth: 0 }}
+                                onChange={e => setQsa({ ...qsa, arten: qsa.arten.map((a, j) => (j === i ? e.target.value as QsArt : a)) })}>
+                          <TeilOptionen />
+                          <optgroup label="Mass"><option value={GANZ}>Ganzer Querschnitt (nur die Gesamtbreite)</option></optgroup>
+                        </select>
+                      </div>
+                    ))}
+                    {(() => {
+                      const r = aufnahmeTeile(qsa.lagen, qsa.lagen.slice(1).map((_, i) => qsArt(qsa, i)))
+                      return (
+                        <div style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>
+                          {r.gesamt != null
+                            ? `Ganzer Querschnitt ${numDE(r.gesamt, 2)} m (gemessen)${r.teile.length ? ` · Teile ${numDE(r.teile.reduce((m, t) => m + t.breite, 0), 2)} m · Fahrbahn ${numDE(r.fahrbahn, 2)} m` : ' · die Teile bleiben, der Rest gilt ausserhalb der Fahrbahn'}`
+                            : `Ganzer Querschnitt ${numDE(qsa.lagen[qsa.lagen.length - 1] - qsa.lagen[0], 2)} m · Fahrbahn ${numDE(r.fahrbahn, 2)} m`}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )}
+                {qsa.lagen.length < 2 && !qsa.laden && (
+                  <div style={{ marginTop: 6, fontWeight: 600 }}>{qsa.lagen.length ? 'Weiter: die nächste Grenze anklicken.' : 'Noch kein Punkt gesetzt.'}</div>
+                )}
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  {(['heute', 'plan', 'beides'] as const).map(z => (
+                    <button key={z} type="button" disabled={qsa.lagen.length < 2} onClick={() => qsUebernehmen(z)}
+                            style={{ border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 12.5, fontWeight: 600,
+                                     background: qsa.lagen.length >= 2 ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
+                                     cursor: qsa.lagen.length >= 2 ? 'pointer' : 'default' }}>
+                      {z === 'heute' ? 'Als heute' : z === 'plan' ? 'In die Planung' : 'Als heute und in die Planung'}
+                    </button>
+                  ))}
+                  <button type="button" onClick={qsZurueck} disabled={!qsa.klicks.length} style={kleinKnopfStyle}>Letzten Punkt entfernen</button>
+                  <button type="button" onClick={() => setQsa(null)} style={kleinKnopfStyle}>Abbrechen</button>
                 </div>
                 <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
                   Luftbild © swisstopo · {avQuelle(cityCfg.avKanton ?? '')}
@@ -3156,6 +3472,8 @@ export default function App() {
             breitenQuelle={ist => breitenQuelleFuer(ist, s.routentyp)}
             city={city}
             ort={markers.find(m => m.num === i + 1)}
+            laengeM={(s.candIds ?? []).reduce((m, id) => m + (cands.find(c => c.id === id)?.len ?? 0), 0) || undefined}
+            onQuerschnitt={cityCfg.avKanton && s.candIds?.length ? () => void qsStarten(s.id) : undefined}
           />
         </div>
       ))}

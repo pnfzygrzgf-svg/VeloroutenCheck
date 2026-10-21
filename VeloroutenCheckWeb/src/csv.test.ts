@@ -106,12 +106,13 @@ describe('buildCsv — Stand des OpenBikeSensor-Exports', () => {
   const [kopf, zeile] = buildCsv([s], [e], e.note, 'bern', 'Bern', '2026-10-16', 'Juni 2026')
     .split('\r\n').map(z => z.split(';'))
   it('letzte Spalte trägt den Stand, wenn OBS-Werte vorliegen', () => {
-    expect(kopf[kopf.length - 1]).toBe('OBS Stand')
-    expect(zeile[kopf.length - 1]).toBe('Juni 2026')
+    const i = kopf.indexOf('OBS Stand')
+    expect(i).toBe(kopf.length - 2)          // danach nur noch «Haltestellenbereich» (20.10.2026)
+    expect(zeile[i]).toBe('Juni 2026')
   })
   it('ohne OBS-Werte bleibt die Spalte leer', () => {
     const t = { ...s, obs: undefined }
     const z = buildCsv([t], [bewerteAbschnitt(t, 'bern')], null, 'bern', 'Bern', '2026-10-16', 'Juni 2026').split('\r\n')[1].split(';')
-    expect(z[z.length - 1]).toBe('')
+    expect(z[z.length - 2]).toBe('')
   })
 })

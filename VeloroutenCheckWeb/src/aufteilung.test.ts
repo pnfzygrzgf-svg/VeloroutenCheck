@@ -223,7 +223,10 @@ describe('Markierungen, Richtung, Trottoir-Vorgabe, angenommene Breite', () => {
     expect(richtungVon(T('Fahrspur', 3), true, false)).toBe('B')
     expect(richtungVon(T('Fahrspur', 3), false, false)).toBe('A')
     expect(richtungVon({ art: 'Fahrspur', breite: 3, richtung: 'B' }, false, false)).toBe('B')
-    expect(richtungVon({ art: 'Fahrspur', breite: 3, richtung: 'B' }, true, true)).toBe('A')
+    // Einbahn: Fahrspur und Tram auch in Richtung B (Bus bzw. Tram im Gegenverkehr, 21.10.2026), Velostreifen nur A
+    expect(richtungVon({ art: 'Fahrspur', breite: 3, richtung: 'B' }, true, true)).toBe('B')
+    expect(richtungVon({ art: 'Velostreifen', breite: 1.8, richtung: 'B' }, true, true)).toBe('A')
+    expect(richtungenFuer('Tram', true)).toEqual(['A', 'B'])
   })
   it('linksDerMitte: Mitte der Fahrbahnteile, Trottoirs zählen nicht', () =>
     expect(linksDerMitte([T('Trottoir', 5), T('Fahrspur', 3), T('Fahrspur', 3), T('Trottoir', 1)])).toEqual([true, true, false, false]))

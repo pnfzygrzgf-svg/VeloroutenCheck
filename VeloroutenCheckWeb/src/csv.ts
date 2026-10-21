@@ -70,13 +70,15 @@ export function buildCsv(
     'Fahrbahnbreite [m]', 'Fahrbahnbreite-Quelle',
     // Stand des OpenBikeSensor-Exports (16.10.2026): die OBS-Werte sind ein Snapshot.
     'OBS Stand',
+    // Haltestellenbereich (nur Bern, 20.10.2026): die Note kommt allein aus der Haltestelle
+    'Haltestellenbereich',
   ]
   const rows = sections.map((s, i) => {
     const e = ergebnisse[i]
     const note = e?.note ?? null
     // Soll: gleich für beide Seiten (hängt nur an den gemeinsamen Werten) — von einer Seite,
     // deren Form DTV/Tempo auswertet; sonst hätte es keine Bedeutung.
-    const soll = e?.seiten.map(x => x.bewertung).find(r => r && brauchtDtvTempo(r.ist))?.soll ?? ''
+    const soll = e?.seiten.map(x => x.bewertung).find(r => r && !r.haltestellenbereich && brauchtDtvTempo(r.ist))?.soll ?? ''
     const noteA = e?.seiten.find(x => x.seite === 'A')?.bewertung
     const beide = s.richtung === 'beide'
     const b = beide ? seiteB(s) : null
@@ -115,6 +117,7 @@ export function buildCsv(
       noteB ? numDE(noteB.note, 1) : '',
       numDE(s.fahrbahnbreite, 1), s.quelle.fahrbahnbreite ? QUELLE_LABEL[s.quelle.fahrbahnbreite] : '',
       obs && obsStand ? obsStand : '',
+      s.haltestellenbereich ? 'ja' : '',
     ]
   })
   // Schlusszeile: Strecken-Note (schlechtester Abschnitt). Spalten aus dem Kopf abgeleitet,

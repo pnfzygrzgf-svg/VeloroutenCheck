@@ -26,23 +26,23 @@ const BODEN: Record<TeilArt, string> = {
   Trottoir: '#d6d3d1', Haltestelle: '#e7e5e4', Gruen: '#65a30d', Parkierung: '#6b7280', Veloabstellplatz: '#6b7280', Parklet: '#6b7280',
   Sicherheitsstreifen: '#6b7280', Velostreifen: '#a16207', Pfosten: '#4b5563', Radweg: '#b45309', Trennstreifen: '#a8a29e',
   Fahrspur: '#4b5563', Gemeinsam: '#4b5563', Kernfahrbahn: '#4b5563', Velostrasse: '#4b5563', Tram: '#4b5563', Mittelinsel: '#d6d3d1',
-  FussRadweg: '#c4b08a', Zweirichtungsradweg: '#b45309', RadwegAbgesetzt: '#b45309', FusswegVelo: '#d6d3d1',
+  FussRadweg: '#c4b08a', Zweirichtungsradweg: '#b45309', RadwegAbgesetzt: '#b45309', FusswegVelo: '#d6d3d1', HaltAbstand: '#e7e5e4',
 }
 const KURZ: Record<TeilArt, string> = {
   Trottoir: 'Trottoir', Haltestelle: 'Haltestelle', Gruen: 'Grün', Parkierung: 'Parkierung', Veloabstellplatz: 'Veloparkierung', Parklet: 'Parklet',
   Sicherheitsstreifen: 'Sicherheitsstr.', Velostreifen: 'Velostreifen', Pfosten: 'Pfosten', Radweg: 'Radweg', Trennstreifen: 'Trennstr.',
   Fahrspur: 'Fahrspur', Gemeinsam: 'Fahrbahn', Kernfahrbahn: 'Kernfahrbahn', Velostrasse: 'Velostrasse', Tram: 'Tram', Mittelinsel: 'Insel',
-  FussRadweg: 'Fuss-/Radweg', Zweirichtungsradweg: 'Zweirichtungsradweg', RadwegAbgesetzt: 'Radweg', FusswegVelo: 'Fussweg',
+  FussRadweg: 'Fuss-/Radweg', Zweirichtungsradweg: 'Zweirichtungsradweg', RadwegAbgesetzt: 'Radweg', FusswegVelo: 'Fussweg', HaltAbstand: 'Abstand',
 }
 // Kurzwort, wenn der Name nicht unter das Teil passt
 const KUERZEST: Record<TeilArt, string> = {
   Trottoir: 'Tr.', Haltestelle: 'H', Gruen: 'G', Parkierung: 'P', Veloabstellplatz: 'VP', Parklet: 'Pl.', Sicherheitsstreifen: 'S', Velostreifen: 'Velo',
   Pfosten: 'Pf.', Radweg: 'Rw.', Trennstreifen: 'T', Fahrspur: 'MIV', Gemeinsam: 'MIV', Kernfahrbahn: 'Kern', Velostrasse: 'VS', Tram: 'Tram', Mittelinsel: 'I',
-  FussRadweg: 'F/R', Zweirichtungsradweg: 'ZRw', RadwegAbgesetzt: 'Rw.', FusswegVelo: 'Fw.',
+  FussRadweg: 'F/R', Zweirichtungsradweg: 'ZRw', RadwegAbgesetzt: 'Rw.', FusswegVelo: 'Fw.', HaltAbstand: 'A',
 }
 // Parkierung auf Trottoirniveau (seit 17.10.2026) liegt wie das Trottoir erhöht, ausserhalb der Fahrbahn;
 // die Mittelinsel (seit 20.10.2026) ist erhöht, gehört aber zur Fahrbahn (Bordstein–Bordstein)
-const erhoeht = (t: Teil) => (t.art === 'Trottoir' || t.art === 'Haltestelle' || t.art === 'Gruen' || t.art === 'Mittelinsel' || t.trottoirniveau || istWeg(t) ? BORD_CM
+const erhoeht = (t: Teil) => (t.art === 'Trottoir' || t.art === 'Haltestelle' || t.art === 'HaltAbstand' || t.art === 'Gruen' || t.art === 'Mittelinsel' || t.trottoirniveau || istWeg(t) ? BORD_CM
   : t.art === 'Trennstreifen' ? 10 : 0)
 
 // Figuren je Teil (Datei ohne Endung, Grösse der Bilddatei in cm, Versatz dx zur Mitte des Teils)
@@ -73,7 +73,8 @@ function figuren(t: Teil, b: number, links: boolean, einbahn: boolean, i: number
     }
     case 'Haltestelle': {
       // Wartehäuschen zum Trottoir hin, davor (zum Bordstein hin) eine wartende Person
-      if (b < 200) return eine(MAENNLICH[i % MAENNLICH.length], 140, 220, 80)
+      // ohne Wartehalle (seit 20.10.2026): nur eine wartende Person
+      if (b < 200 || bildVon(t) === 'ohneWartehalle') return eine(MAENNLICH[i % MAENNLICH.length], 140, 220, 80)
       const aussen = links ? -1 : 1, dh = b >= 300 ? aussen * (b / 2 - 145) : 0
       const fig: Figur[] = [{ datei: `transit-shelter-01-${lr}`, w: 270, h: 360, dx: dh }]
       if (b >= 300) fig.push({ datei: WEIBLICH[i % WEIBLICH.length], w: 140, h: 220, dx: -aussen * (b / 2 - 60) })

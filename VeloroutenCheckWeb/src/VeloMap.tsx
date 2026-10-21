@@ -25,6 +25,7 @@ export interface Cand {
   ohneFahrbahn?: boolean                  // Weg ohne Fahrbahn (OSM highway=cycleway/footway/path), seit 20.10.2026
   spuren?: Spuren                         // Fahrspuren je Richtung mit Pfeilen (OSM lanes/turn:lanes), seit 20.10.2026
   veloGegenverkehr?: boolean              // Einbahn, Velo in der Gegenrichtung erlaubt (oneway:bicycle=no)
+  oevGegen?: boolean                      // Einbahn, Bus/ÖV in der Gegenrichtung (oneway:bus|psv|tram=no), seit 21.10.2026
   speed?: number                          // nur wenn ein maxspeed-Tag vorhanden ist
   breite?: number                         // nur wenn ein width-/cycleway:width-Tag vorhanden ist
   len: number
@@ -119,6 +120,8 @@ export interface MessAnzeige {
   punkte: LLo[]             // gesetzte Punkte (Messung mit zwei Punkten)
   linie?: [LLo, LLo]        // Messlinie Bordsteinkante → Markierung
   label?: string            // Messwert, z. B. «1,62 m»
+  // Querschnitt aufnehmen (seit 20.10.2026): die Querlinie durch alle Punkte und je Stück Nummer und Breite
+  quer?: { punkte: LLo[]; marken: { p: LLo; text: string }[] }
 }
 const ORTHO = 'Orthofoto (swisstopo)'
 
@@ -444,6 +447,24 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
           }),
         }).addTo(mg)
       }
+    }
+    if (messung.quer && messung.quer.punkte.length) {
+      const q = messung.quer
+      if (q.punkte.length > 1) {
+        L.polyline(q.punkte.map(ll), { pane: 'messen', color: '#ffffff', weight: 6, opacity: 0.85, interactive: false }).addTo(mg)
+        L.polyline(q.punkte.map(ll), { pane: 'messen', color: '#111827', weight: 2.5, interactive: false }).addTo(mg)
+      }
+      for (const p of q.punkte)
+        L.circleMarker(ll(p), { pane: 'messen', radius: 4, color: '#111827', weight: 2, fillColor: '#ffffff', fillOpacity: 1, interactive: false }).addTo(mg)
+      for (const m of q.marken)
+        L.marker(ll(m.p), {
+          interactive: false,
+          icon: L.divIcon({
+            className: '', iconSize: [64, 20], iconAnchor: [32, -6],
+            html: `<div style="background:#111827;color:#fff;font:700 11px/20px system-ui,sans-serif;` +
+              `text-align:center;border-radius:6px;box-shadow:0 0 0 2px #fff">${escapeHtml(m.text)}</div>`,
+          }),
+        }).addTo(mg)
     }
   }, [messung])
 

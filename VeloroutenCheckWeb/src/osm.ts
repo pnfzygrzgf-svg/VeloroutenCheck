@@ -163,6 +163,8 @@ export function wayToCand(w: OsmWay): Cand | null {
     ...(isRoad ? { breiteSeiten: { rechts: brSeite('right'), links: brSeite('left') } } : { ohneFahrbahn: true }),
     ...(einbahn ? { einbahn } : {}), ...(spuren ? { spuren } : {}),
     ...(einbahn && t['oneway:bicycle'] === 'no' ? { veloGegenverkehr: true } : {}),
+    // Einbahn, Bus bzw. ÖV in beide Richtungen (seit 21.10.2026, Nutzerbefund Helvetiaplatz)
+    ...(einbahn && (t['oneway:bus'] === 'no' || t['oneway:psv'] === 'no' || t['oneway:tram'] === 'no') ? { oevGegen: true } : {}),
     speed: isFinite(sp) && sp > 0 ? sp : undefined,
     breite: osmBreite(cwW || ((isCycle || isFootBike) ? t.width : undefined)),
     len: geomLength(w.geometry),

@@ -12,12 +12,13 @@
 //   Rang 2  Kernfahrbahn (Q 5); der schmale Kern (Pilot) nur als Alternative
 //   Rang 3  Parkierung aufheben (zuerst eine Seite, dann beide) + Rang 1/2
 //   Rang 4  Velostrasse signalisieren (Q 9), mit oder ohne Parkierungsabbau
+//   Rang 5  Haltestelle umbauen (Typ → «Haltestelle mit Veloumfahrung», je Seite) + Rang 1–3 (seit 20.10.2026, mit Platzprüfung)
 //   Rang 6  Bau: Radweg nach Q 2a/2b, ohne/mit Parkierungsabbau
 //   Rang 7  Tempo 30, allein und mit Rang 1–6
 // Unter gleichem Rang: weniger Parkierung weg, weniger Eingriffe, eine Seite vor beiden, bessere Note.
 //
 // Abweichungen zum lokalen Rechner (online fehlen die Daten bzw. der Abschnitt ist zurückgestellt):
-//   - Rang 5 (Haltestelle umbauen) fehlt; der Haltestellen-Abschnitt der Planung ist zurückgestellt.
+//   - Rang 5 (Haltestelle umbauen) prüft online zusätzlich den Platz der Veloumfahrung (hsPlatz).
 //   - Keine Parkplatzzahl: unter gleichem Rang zählt «nichts < eine Seite < beide» (lokal ohne Zählung ebenso).
 //   - Velostrasse ohne die Bedingung «Quartierstrasse» (die Strassenhierarchie fehlt online).
 //   - Keine Hinweise zu Steigung, Schwerverkehr und Sicht (Daten fehlen online).
@@ -34,8 +35,8 @@
 // (FUSSNETZ, Masterplan Fussverkehr) — schmalere werden auf die Vorgabe verbreitert (zulasten der Fahrbahn),
 // breitere dürfen bis auf die Vorgabe schmaler werden. Ohne gewähltes Netz gibt es diese Variante nicht.
 
-import { brauchtBreite, fuehrungsart, istRang, sollBreite, type BreitenSoll, type Fuehrungsart, type IstFuehrungsform, type Routentyp, type Stadt,
-  type Strassentyp } from './fuehrungsform'
+import { brauchtBreite, fuehrungsart, haltestellenFamilie, haltestellenTypen, istRang, sollBreite, type BreitenSoll, type Fuehrungsart,
+  type Haltestellentyp, type IstFuehrungsform, type Routentyp, type Stadt, type Strassentyp } from './fuehrungsform'
 import { bewerteAbschnitt } from './bewertung'
 import { dtvEff, gegenVon, seiteA, seiteB, type Section } from './strecke'
 import { FUSSNETZ, KERN_DTV_MAX, KERN_KMH_MAX, STANDARD_QUELLE, WEG_TEIL, auf5cm, einbahnParkLinks, gruenAusAv, vorgabe, type Aufteilung, type Teil } from './aufteilung'
@@ -127,6 +128,10 @@ export interface Eingaben {
   einbahn: boolean; route: Routentyp; dtv: number | null; kmh: number | null; tram: boolean
   dtvBelegt: boolean                                             // DTV gemessen/eingegeben, nicht «≤ 2000 angenommen»
   fahrbahn: number | null; halt: boolean; uTakt: boolean
+  // Haltestelle je Seite (Rang 5, seit 20.10.2026): Typ, Seite ohne Haltestelle, umgebaute Seiten, Trottoir heute [m]
+  hsTyp: Record<S, Haltestellentyp>; hsOhne: Record<S, boolean>; hsUmbau?: S[]; trottoir: Record<S, number | null>
+  oevGegen?: boolean   // Einbahn mit Bus bzw. Tram in der Gegenrichtung: eine Gegenspur (seit 21.10.2026)
+  hbSeiten: S[]   // Seiten im Haltestellenbereich (Note allein aus der Haltestelle): dort nur Rang 5 (Nutzerbefund 20.10.2026)
   ohnePlatz?: boolean; parkWeg?: boolean; quer?: Quer
   angenommen?: string[]                                          // Ist-Breiten, die fehlten und mit der Vorgabe angenommen sind
   // Angenommene Breite je Seite: nur für die Note (wie die Ausgangslage der Planung); für Platz und Regeln gilt
@@ -141,6 +146,7 @@ export interface Eingaben {
 type Kand = { rang: number; text: string; k: Eingaben; weg: 0 | 1 | 2 }   // weg: 0 nichts, 1 eine Reihe, 2 alle
 
 const kopie = (e: Eingaben): Eingaben => ({ ...e, breite: { ...e.breite }, park: { ...e.park }, parkFb: { ...e.parkFb }, sich: { ...e.sich },
+  hsTyp: { ...e.hsTyp }, ...(e.hsUmbau ? { hsUmbau: [...e.hsUmbau] } : {}),
   parkTiefe: { ...e.parkTiefe },
   annahme: { ...e.annahme },
   fussNeben: { ...e.fussNeben }, quer: undefined })
@@ -168,8 +174,10 @@ const stufenFuer = (e: Eingaben, form: IstFuehrungsform | null): Stufe[] =>
   e.m.sicherheit.minimal < e.m.sicherheit.standard - 1e-9 || (form != null && velobreite(e, form, 'minimal') < velobreite(e, form, 'standard') - 1e-9)
     ? STUFEN : ['standard']
 function miv(form: IstFuehrungsform, e: Eingaben, kern: boolean): number {
-  if (form === RW) return e.einbahn ? e.m.mivRwEinbahn : e.m.mivRw
-  if (e.einbahn) return e.tram ? e.m.mivTramEinbahn : e.m.mivEinbahn
+  // Einbahn mit Bus bzw. Tram in der Gegenrichtung: zwei Spuren wie bei Gegenverkehr
+  const ein = e.einbahn && !e.oevGegen
+  if (form === RW) return ein ? e.m.mivRwEinbahn : e.m.mivRw
+  if (ein) return e.tram ? e.m.mivTramEinbahn : e.m.mivEinbahn
   return kern && !e.tram ? e.m.mivKern : e.m.miv
 }
 // Benötigte Fahrbahnbreite; sichDa: kein Sicherheitsstreifen nötig (keine Parkreihe neben dem Streifen)
@@ -235,6 +243,32 @@ function velostrasse(e: Eingaben): Eingaben | null {
   let k = formSetzen(e, 'A', VELOSTRASSE, netto)
   if (!e.einbahn) k = formSetzen(k, 'B', VELOSTRASSE, netto)
   k.quer = { form: VELOSTRASSE, stufe: 'standard', kern: false, sichJe: e.m.sicherheit.standard, ersatz: netto }
+  return k
+}
+
+// Haltestelle umbauen (Rang 5, wie im lokalen Rechner): Typ der Seite auf «Haltestelle mit Veloumfahrung» (HS 1), nur wo
+// heute ein Typ der Familie Mischverkehr steht (ohne Angabe gilt wie lokal die Kaphaltestelle) und die Stadt den Typ kennt.
+// Platz (online zusätzlich): An der Haltestelle liegt auf dieser Seite alles ausserhalb der Haltekante — Wartebereich
+// 3,10 + Abstand 0,30 + Radweg 1,60 + Trottoir 2,00 = HS1_MIN_M (Standard 3,10 + 0,50 + 1,80 + 2,50 = HS1_STD_M). Verfügbar
+// sind das Trottoir der Seite und die Fahrbahn ohne die Autos (MIV) und die Teile der Gegenseite.
+export const HS_UMFAHRUNG: Haltestellentyp = 'Haltestelle mit Veloumfahrung'
+export const HS1_MIN_M = 7.0, HS1_STD_M = 7.9
+function hsPlatz(e: Eingaben, s: S): number | null {
+  const tr = e.trottoir[s]
+  if (tr == null || e.fahrbahn == null) return null
+  const o: S = s === 'A' ? 'B' : 'A'
+  const fo = e.einbahn ? null : formVon(e, o)
+  const veloO = fo === RS || fo === RW ? (e.breite[o] ?? velobreite(e, fo, 'minimal')) + (fo === RW ? e.m.trennung : 0) : 0
+  const parkO = e.park[o] && e.parkFb[o] && versetztZaehlt(e, o) ? e.parkTiefe[o] + (e.sich[o] ? e.m.sicherheit.minimal : 0) : 0
+  return r2(tr + Math.max(0, e.fahrbahn - miv(MISCH, e, false) - veloO - parkO))
+}
+function haltestelleUmbauen(e: Eingaben, s: S): Eingaben | null {
+  if (!e.halt || e.hsOhne[s] || !haltestellenTypen(e.stadt).includes(HS_UMFAHRUNG)) return null
+  const typ = e.hsTyp[s] !== 'keine' ? e.hsTyp[s] : 'Kaphaltestelle'
+  if (haltestellenFamilie(e.stadt, typ) === 'Separate') return null
+  const platz = hsPlatz(e, s)
+  if (platz != null && platz < HS1_MIN_M - 1e-9) return null
+  const k = kopie(e); k.hsTyp[s] = HS_UMFAHRUNG; k.hsUmbau = [...(e.hsUmbau ?? []), s]
   return k
 }
 
@@ -444,7 +478,8 @@ export interface Vorschlag {
   k?: Eingaben                      // die Eingaben des Vorschlags (für die Aufteilung)
 }
 export const RANG_TEXT: Record<number, string> = {
-  0: 'keine Massnahme nötig', 1: 'Markierung', 2: 'Kernfahrbahn', 3: 'Parkierung aufheben', 4: 'Velostrasse', 6: 'Bau (Radweg)', 7: 'Tempo 30',
+  0: 'keine Massnahme nötig', 1: 'Markierung', 2: 'Kernfahrbahn', 3: 'Parkierung aufheben', 4: 'Velostrasse', 5: 'Haltestelle umbauen',
+  6: 'Bau (Radweg)', 7: 'Tempo 30',
 }
 
 // Eingaben aus dem Abschnitt (Berner Rechner): Formen und Breiten je Seite, Parkierung wie die
@@ -488,6 +523,11 @@ export function eingabenVon(s: Section, stadt: Stadt = 'bern', breiten?: Breiten
     tram: s.tram, insel: inselB,
     fahrbahn: inselB ? s.mittelinsel!.fahrbahn - inselB : Number.isFinite(s.fahrbahnbreite) ? s.fahrbahnbreite : null,
     halt: s.oevAngebot !== 'keine' || [a, b].some(f => f.haltestellentyp !== 'keine'),
+    hsTyp: { A: a.haltestellentyp, B: b.haltestellentyp }, hsOhne: { A: a.ohneHaltestelle, B: einbahn || b.ohneHaltestelle },
+    ...(einbahn && s.oevGegen ? { oevGegen: true } : {}),
+    hbSeiten: stadt === 'bern' && s.haltestellenbereich ? (['A', 'B'] as S[]).filter(x => !(x === 'A' ? a : b).ohneHaltestelle && !(x === 'B' && einbahn)) : [],
+    trottoir: { A: Number.isFinite(trottoirHeute(s, 'A', m.park)) ? trottoirHeute(s, 'A', m.park) : null,
+      B: Number.isFinite(trottoirHeute(s, 'B', m.park)) ? trottoirHeute(s, 'B', m.park) : null },
     uTakt: [a, b].some(f => Number.isFinite(f.oevTakt)),
     angenommen, annahme,
     ohneFahrbahn: !!s.ohneFahrbahn,
@@ -503,14 +543,14 @@ const breiteFuerNote = (e: Eingaben, s: S): number => {
 export function abschnittAus(base: Section, e: Eingaben): Section {
   const sb = { ...base, routentyp: e.route, quelle: { ...base.quelle } }
   const s: Section = { ...sb, ist: e.ist ?? '', breite: breiteFuerNote(e, 'A'), parkenRechts: e.park.A ? 'ja' : 'nein',
-    parkenSicherheitsstreifen: e.park.A && e.sich.A, speed: e.kmh ?? NaN }
+    parkenSicherheitsstreifen: e.park.A && e.sich.A, speed: e.kmh ?? NaN, haltestellentyp: e.hsTyp.A }
   // Weg ohne Fahrbahn ohne Verkehrsdaten: ohne Motorfahrzeugverkehr rechnen (DTV 0, Tempo 30); sonst bleibt
   // ein Fuss-/Radweg oder Zweirichtungsradweg ohne Note
   if (e.ohneFahrbahn && !Number.isFinite(dtvEff(base, e.stadt))) { s.dtv = 0; s.dtvGeprueft = false }
   if (e.ohneFahrbahn && !Number.isFinite(s.speed)) s.speed = 30
   if (e.einbahn) delete s.gegen
   else s.gegen = { ...gegenVon(sb), ist: e.geg ?? '', breite: breiteFuerNote(e, 'B'), parkenRechts: e.park.B ? 'ja' : 'nein',
-    parkenSicherheitsstreifen: e.park.B && e.sich.B }
+    parkenSicherheitsstreifen: e.park.B && e.sich.B, haltestellentyp: e.hsTyp.B }
   return s
 }
 
@@ -578,6 +618,19 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
     }
     return out
   }
+  const rang5 = (x: Eingaben): Kand[] => {
+    if (x.ohneFahrbahn) return []
+    const out: Kand[] = []
+    for (const s of seitenVon(x)) {
+      const h = haltestelleUmbauen(x, s)
+      if (!h) continue
+      const txt = `Haltestelle Seite ${s} umbauen (separate Velofläche)`
+      out.push({ rang: 5, text: txt, k: h, weg: 0 })
+      for (const c of rang12(h)) out.push({ rang: 5, text: `${txt} + ${c.text}`, k: c.k, weg: 0 })
+      for (const c of rang3(h)) out.push({ rang: 5, text: `${txt} + ${c.text}`, k: c.k, weg: c.weg })
+    }
+    return out
+  }
   const rang6 = (x: Eingaben): Kand[] => {
     // Wege-Regeln nur für Wege ohne Fahrbahn (Nutzerentscheid 20.10.2026); an Strassen gilt der Katalog des lokalen Rechners
     if (x.ohneFahrbahn) return wegVarianten(x).filter(c => c.rang === 6)
@@ -588,11 +641,17 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
     const t = x.ohneFahrbahn ? null : tempo30(x)
     if (!t) return []
     const davor = (c: Kand): Kand => ({ ...c, rang: 7, text: `Tempo 30 + ${c.text}` })
-    return [{ rang: 7, text: 'Tempo 30', k: t, weg: 0 }, ...rang12(t).map(davor), ...rang3(t).map(davor), ...rang4(t).map(davor), ...rang6(t).map(davor)]
+    return [{ rang: 7, text: 'Tempo 30', k: t, weg: 0 }, ...rang12(t).map(davor), ...rang3(t).map(davor), ...rang4(t).map(davor),
+      ...rang5(t).map(davor), ...rang6(t).map(davor)]
   }
-  const kand = e.ohneFahrbahn ? [...rang12(e), ...rang6(e)] : [...rang12(e0), ...rang3(e0), ...rang4(e0), ...rang6(e0), ...rang7(e0)]
-  res.varianten = kand.length
-  const treffer = kand.map(c => ({ ...c, n: noten(base, c.k).n }))
+  const kand = e.ohneFahrbahn ? [...rang12(e), ...rang6(e)] : [...rang12(e0), ...rang3(e0), ...rang4(e0), ...rang5(e0), ...rang6(e0), ...rang7(e0)]
+  // Haltestellenbereich (Nutzerbefund Muristrasse 20.10.2026): An der Haltestelle selbst ändert nur der Umbau etwas; eine
+  // Markierung, ein Kern oder ein Radweg auf dieser Seite ist dort nicht möglich (Tramhaltestelle) und zählt für die Note nicht
+  const hbUnberuehrt = (c: Kand) => !e.hbSeiten.length || (!c.k.quer?.kern && e.hbSeiten.every(s =>
+    formVon(c.k, s) === formVon(e, s) && c.k.breite[s] === e.breite[s] && c.k.park[s] === e.park[s] && c.k.sich[s] === e.sich[s]))
+  const kandHb = kand.filter(hbUnberuehrt)
+  res.varianten = kandHb.length
+  const treffer = kandHb.map(c => ({ ...c, n: noten(base, c.k).n }))
     .filter((c): c is Kand & { n: number } => c.n != null && c.n >= ZIEL)
     .sort((x, y) => x.rang - y.rang || x.weg - y.weg || x.text.split(' + ').length - y.text.split(' + ').length
       || Number(x.text.includes('beidseitig')) - Number(y.text.includes('beidseitig')) || y.n - x.n)
@@ -612,6 +671,11 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
   }
   const r1 = haupt[0]
   Object.assign(res, { erreicht: true, rang: r1.rang, text: r1.text, noteNach: r1.n, k: r1.k })
+  if (r1.k.hsUmbau?.length) {
+    if (r1.k.hsUmbau.some(s => hsPlatz(e, s) == null))
+      vermerke.push(`Platz für die Veloumfahrung nicht geprüft (Trottoir oder Fahrbahnbreite unbekannt): je Seite ausserhalb der Haltekante ${m2(HS1_MIN_M)}, im Standard ${m2(HS1_STD_M)}`)
+    if (e.tram) vermerke.push('Tramhaltestelle: Platzbedarf der Haltekante nicht geprüft')
+  }
   if (r1.k.platzOffen) vermerke.push('Platz neben dem Weg nicht geprüft: die App kennt die Fläche daneben nicht')
   else if (e.fahrbahn == null && !e.ohneFahrbahn && !/^(Tempo 30|Velo in die Fahrbahn)/.test(r1.text.replace(/^Tempo 30 \+ /, '')))
     vermerke.push('Fahrbahnbreite unbekannt: Platz nicht geprüft, der Vorschlag nennt nur die nötige Führungsform')
@@ -677,7 +741,10 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
   }
   if (!Number.isFinite(fb0)) return null
   const q = k.quer
+  const umbau = (s: S) => !!k.hsUmbau?.includes(s)
   const rand = (s: S): Teil[] => {
+    // Haltestelle umgebaut: an der Haltestelle liegt auf dieser Seite nichts in der Fahrbahn (siehe unten)
+    if (umbau(s)) return []
     const t: Teil[] = [...wegTeile(s)]
     if (k.park[s]) {
       const pa = k.parkArt[s]
@@ -714,6 +781,22 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
       trA = r2(trA - nimmA); trB = r2(trB - nimmB); fb = r2(fb + nimmA + nimmB)
     }
   }
+  // Haltestelle umgebaut (Rang 5): vom Rand Trottoir, Radweg, Abstand, Wartebereich (HS 1, Masterplan S. 64/65), im Standard
+  // wenn der Platz reicht, sonst minimal. Was das Trottoir von heute (samt Grünstreifen) nicht hergibt, kommt aus der Fahrbahn.
+  const hsTeile: Partial<Record<S, Teil[]>> = {}
+  for (const s of ['A', 'B'] as S[]) {
+    if (!umbau(s)) continue
+    const std = (hsPlatz(k, s) ?? HS1_STD_M) >= HS1_STD_M - 1e-9
+    const gr = (s === 'A' ? base.trottoir?.gruenA : base.trottoir?.gruenB) ?? 0
+    const heute = (s === 'A' ? trA : trB) + gr
+    const R = std ? 1.8 : 1.6, A = std ? 0.5 : 0.3, H = 3.1, Tmin = std ? 2.5 : 2.0
+    // Trottoir heute unbekannt: kein Platz ausserhalb angenommen, alles kommt aus der Fahrbahn (die Prüfung der Fahrspuren
+    // zeigt, wenn es nicht reicht; Nutzerbefund Muristrasse: vorher entstanden 7,90 m aus dem Nichts)
+    const da = Number.isFinite(heute) ? heute : 0
+    const T = da >= R + A + H + Tmin - 1e-9 ? r2(da - R - A - H) : Tmin
+    if (da < R + A + H + Tmin - 1e-9) fb = r2(fb - (R + A + H + Tmin - da))
+    hsTeile[s] = [{ art: 'Trottoir', breite: T }, { art: 'RadwegAbgesetzt', breite: R }, { art: 'HaltAbstand', breite: A }, { art: 'Haltestelle', breite: H }]
+  }
   const mitte = r2(fb - seitlich - k.insel)
   let kern: Teil[]
   if (k.insel && !velostr) {
@@ -722,14 +805,19 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
   } else if (velostr) kern = [{ art: 'Velostrasse', breite: mitte }]
   else if (q?.kern) kern = [{ art: 'Kernfahrbahn', breite: q.kernM! }]
   else {
-    const n = k.einbahn ? 1 : 2, art = k.tram ? 'Tram' : 'Fahrspur'
-    if (n === 2 && art === 'Fahrspur' && mitte < k.m.miv - 1e-9 && (k.ist === MISCH || k.geg === MISCH)) kern = [{ art: 'Gemeinsam', breite: abrunden(mitte) }]
-    else kern = Array.from({ length: n }, () => ({ art, breite: abrunden(mitte / n) }) as Teil)
+    const n = k.einbahn && !k.oevGegen ? 1 : 2, art = k.tram ? 'Tram' : 'Fahrspur'
+    if (n === 2 && !k.einbahn && art === 'Fahrspur' && mitte < k.m.miv - 1e-9 && (k.ist === MISCH || k.geg === MISCH)) kern = [{ art: 'Gemeinsam', breite: abrunden(mitte) }]
+    else kern = Array.from({ length: n }, (_, j) => ({ art, breite: abrunden(mitte / n),
+      // Einbahn mit Bus bzw. Tram in der Gegenrichtung: die linke Spur fährt entgegen (Richtung B)
+      ...(k.einbahn && k.oevGegen ? { richtung: j === 0 ? 'B' : 'A', ...(j === 0 && art === 'Fahrspur' ? { bild: 'bus' } : {}) } : {}) }) as Teil)
   }
   const trottoir = (m: number): Teil[] => (Number.isFinite(m) && m > 0.005 ? [{ art: 'Trottoir', breite: r2(m) }] : [])
   // Grünstreifen zwischen Fahrbahn und Trottoir bleibt (aus der AV)
-  const teile = [...trottoir(trB), ...gruenAusAv(base.trottoir?.gruenB), ...links, ...kern, ...rechts, ...gruenAusAv(base.trottoir?.gruenA), ...trottoir(trA)]
-  return { ...a0, fahrbahn: fb0, teile,
+  const randB = hsTeile.B ?? [...trottoir(trB), ...gruenAusAv(base.trottoir?.gruenB)]
+  const randA = hsTeile.A ? [...hsTeile.A].reverse() : [...gruenAusAv(base.trottoir?.gruenA), ...trottoir(trA)]
+  const teile = [...randB, ...links, ...kern, ...rechts, ...randA]
+  const hsTyp = k.hsUmbau?.length ? { haltestellentyp: { ...a0.haltestellentyp, ...Object.fromEntries(k.hsUmbau.map(s => [s, HS_UMFAHRUNG])) } } : {}
+  return { ...a0, ...hsTyp, fahrbahn: fb0, teile,
     ...(k.kmh != null && k.kmh !== base.speed ? { tempo: k.kmh } : { tempo: undefined }),
     vorschlag: `${v.text}${randstein ? ' (mit Randsteinanpassung)' : ''}` }
 }

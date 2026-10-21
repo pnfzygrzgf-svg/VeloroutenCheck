@@ -216,7 +216,9 @@ const HALTESTELLEN: Record<Stadt, Partial<Record<Haltestellentyp, HsTyp>>> = {
     'Haltestelle mit Veloumfahrung':       { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.6 } }, // HS1
     'Kaphaltestelle mit Veloüberfahrt':    { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.5 } }, // HS2
     'Kaphaltestelle':                      { familie: 'Mischverkehr' },                                       // HS3
-    'Haltestelle mit rückwärtigem Radweg': { familie: 'Separate', breite: { optimal: 2.5, minimal: 1.6 } }, // HS4
+    // HS4: Masterplan S. 71 Standardbreite 1,80, situativ bis 2,50, minimal 1,60 (Nutzerentscheid 20.10.2026: Minimum
+    // 1,60, anzustreben 1,80 bis 2,50; vorher optimal 2,50)
+    'Haltestelle mit rückwärtigem Radweg': { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.6 } }, // HS4
     'Inselhaltestelle':                    { familie: 'Separate', breite: { optimal: 2.5, minimal: 1.5 } }, // HS5
     'Fahrbahnhaltestelle Bus':             { familie: 'Mischverkehr' },                                       // HS6
     'Busbucht':                            { familie: 'Mischverkehr' },                                       // HS7
@@ -244,6 +246,15 @@ const HALTESTELLEN: Record<Stadt, Partial<Record<Haltestellentyp, HsTyp>>> = {
 function hsTyp(stadt: Stadt, typ: Haltestellentyp): HsTyp | undefined {
   return typ === 'keine' ? undefined : HALTESTELLEN[stadt][typ]
 }
+
+// Breite der Velofläche an einer Haltestelle dieses Typs (Planung, seit 20.10.2026): Velohauptroute optimal, sonst minimal
+export function haltestellenVeloBreite(stadt: Stadt, typ: Haltestellentyp, routentyp: Routentyp): { soll: number; min: number } | undefined {
+  const b = hsTyp(stadt, typ)?.breite
+  return b ? { soll: routentyp === 'Velohauptroute' ? b.optimal : b.minimal, min: b.minimal } : undefined
+}
+
+// Familie eines Haltestellentyps der Stadt (Vorschlag «Haltestelle umbauen»)
+export const haltestellenFamilie = (stadt: Stadt, typ: Haltestellentyp): 'Separate' | 'Mischverkehr' | undefined => hsTyp(stadt, typ)?.familie
 
 // Auswahlliste der Haltestellentypen je Stadt (für die UI).
 export function haltestellenTypen(stadt: Stadt): Haltestellentyp[] {
@@ -649,6 +660,9 @@ export function erfuellungsgrad(note: number): Erfuellung {
 }
 
 export interface NotenErgebnis {
+  // Haltestellenbereich (nur Bern, seit 20.10.2026): die Note kommt allein aus der Haltestelle (haltestellenbereichNote);
+  // soll/ist/q sind dann ohne Bedeutung
+  haltestellenbereich?: boolean
   soll: Fuehrungsart
   ist: IstFuehrungsform
   q: string             // Querschnittstyp (Q1…Q9)
@@ -1035,4 +1049,50 @@ export function vergleichsNoten(a: VergleichArgs, ausser: Stadt): VergleichsNote
     const geschaetzt = stadt === 'basel' && a.strassentyp == null
     return { stadt, note: r.note, geschaetzt, soll: r.soll, sollbreite: r.sollbreite, gruende }
   })
+}
+
+// ── Haltestellenbereich (nur Bern, seit 20.10.2026; Nutzerentscheide 20.10.2026) ──────────────────────────────
+// Wird ein Abschnitt durch die Haltestelle geprägt (Schalter «Haltestellenbereich», von der App vorgeschlagen bei
+// erkannter Haltestelle und höchstens HALTESTELLENBEREICH_MAX_M Länge), zählt für die Note allein die Haltestelle:
+// der Ist-Typ von Hand gegen die Soll-Lösung des Masterplans (Anwendungshilfe Haltestellen, S. 63: ÖV-Angebot ×
+// Bedeutung im Velonetz). Führungsform, DTV, Tempo, Parkierung und Tram-Deckel zählen nicht.
+//   erfüllt (Typ der verlangten Familie; im Übergang und im Mischverkehr jeder Typ) → 6, minus Breitenabzug der
+//                                                                                     Velofläche (wie im Abschnitt)
+//   separate Velofläche verlangt, Typ der Familie Mischverkehr                     → HALTESTELLENBEREICH_NICHT_ERFUELLT
+//   Kaphaltestelle an einer Tramhaltestelle (ohne bauliche Trennung)               → KAP_NOTE (1)
+export const HALTESTELLENBEREICH_MAX_M = 60
+export const HALTESTELLENBEREICH_NICHT_ERFUELLT = 2
+export function haltestellenbereichNote(
+  routentyp: Routentyp, oevAngebot: OevAngebot, haltestellentyp: Haltestellentyp, haltestelleBreite: number | undefined,
+  tramInFahrbahn: boolean, v: number,
+): NotenErgebnis {
+  const sollHaltestelle = haltestellenLoesung(routentyp, oevAngebot, 'bern') ?? undefined
+  const fam = hsTyp('bern', haltestellentyp)?.familie
+  const kompatibleHaltestellen = sollHaltestelle
+    ? haltestellenTypen('bern').filter(t => sollHaltestelle !== 'Separate Velofläche' || HALTESTELLEN.bern[t]?.familie === 'Separate') : []
+  const kapTramNote1 = haltestellentyp === 'Kaphaltestelle' && (tramInFahrbahn || oevAngebot === 'tram')
+  const inkompatibel = sollHaltestelle === 'Separate Velofläche' && fam === 'Mischverkehr'
+  const hsSpec = hsTyp('bern', haltestellentyp)?.breite
+  const hsBreitenSoll = hsSpec ? (routentyp === 'Velohauptroute' ? hsSpec.optimal : hsSpec.minimal) : undefined
+  let hsBreitenabzug = 0
+  let hsBreiteStatus: NotenErgebnis['hsBreiteStatus'] = 'keine'
+  if (hsBreitenSoll != null && haltestelleBreite != null && haltestelleBreite > 0) {
+    const d = Math.max(0, hsBreitenSoll - haltestelleBreite)
+    hsBreitenabzug = d * BREITE_SATZ['Radstreifen'][tempoKey(Number.isFinite(v) ? v : 50)]
+    hsBreiteStatus = d === 0 ? 'erfuellt' : 'zu schmal'
+  }
+  const note = kapTramNote1 ? KAP_NOTE : inkompatibel ? HALTESTELLENBEREICH_NICHT_ERFUELLT
+    : roundToHalf(Math.min(6, Math.max(1, 6 - hsBreitenabzug)))
+  return {
+    haltestellenbereich: true,
+    soll: 'Mischverkehr', ist: 'Mischverkehr', q: '', basisnote: inkompatibel ? HALTESTELLENBEREICH_NICHT_ERFUELLT : 6,
+    erfuellt: !inkompatibel && !kapTramNote1, defizit: 0, note,
+    routentyp, breitenDefizit: 0, breitenabzug: 0, breiteErfuellt: true, breitenStatus: 'keine',
+    parkenRechts: 'egal', parkenSicherheitsstreifen: false, parkenAbzug: 0,
+    tramInFahrbahn, kapTramNote1,
+    oevAngebot, haltestellentyp, sollHaltestelle, kompatibleHaltestellen,
+    haltestelleStatus: inkompatibel ? 'inkompatibel' : 'kompatibel', haltestelleAbzug: 0,
+    haltestelleBreite, hsBreitenSoll, hsBreitenabzug, hsBreiteStatus,
+    noteFix: kapTramNote1 || inkompatibel,
+  }
 }
