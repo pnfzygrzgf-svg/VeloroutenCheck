@@ -407,6 +407,9 @@ function Kartenleiste({ titel, breit, onSchliessen, quelle, children }: {
   )
 }
 
+// «1 Segment», «2 Segmente» (Befund 22.10.2026: «1 Segmente» im Knopf und in der Meldung)
+const segmente = (n: number) => `${n} ${n === 1 ? 'Segment' : 'Segmente'}`
+
 // Erklärung hinter einem ⓘ (seit 22.10.2026): kurzer Text als Tooltip und auf Klick (auch auf Touch) unter dem Feld.
 // Vorher standen die Sätze offen unter den Feldern und verlängerten jede Zeile.
 function Info({ text }: { text: string }) {
@@ -2636,7 +2639,7 @@ export default function App() {
         setMsg(`Keine Velo-relevanten Segmente für „${name}" (Stadt ${cityCfg.label}) gefunden.`, 'info')
         return
       }
-      setMsg(`${c.length} Segmente geladen (© OpenStreetMap, ODbL) · reichere an …`, 'ok')
+      setMsg(`${segmente(c.length)} geladen (© OpenStreetMap, ODbL) · reichere an …`, 'ok')
       const { cands: enriched, stops: st, obs, fehler } = await enrichAll(c)
       if (gen !== ladeGen.current) return
       // Angereicherte je Id einspielen; Auswahl (falls inzwischen getoggelt) erhalten. Ids, die nicht
@@ -2644,7 +2647,7 @@ export default function App() {
       setCands(prev => einspielen(prev, enriched, obs, !!cityCfg.obsFile))
       setStops(st)
       const amtlichHit = enriched.some(hatAmtlich)
-      setMsg(`${c.length} Segmente geladen (© OpenStreetMap, ODbL)` +
+      setMsg(`${segmente(c.length)} geladen (© OpenStreetMap, ODbL)` +
         (amtlichHit ? ` · Anreicherung: ${cityCfg.attribution}.` : '.') +
         ' Auf der Karte ab-/zuwählen, dann übernehmen.' + fehlerText(fehler), fehler.length ? 'info' : 'ok')
     } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
@@ -2667,7 +2670,7 @@ export default function App() {
         const ways = new Set(prev.map(c => c.wayId))
         return [...prev, ...roh.filter(c => !ways.has(c.wayId))]
       })
-      setMsg(roh.length ? `${roh.length} Segmente im Ausschnitt · reichere an …` : 'Keine neuen Segmente im Ausschnitt.',
+      setMsg(roh.length ? `${segmente(roh.length)} im Ausschnitt · reichere an …` : 'Keine neuen Segmente im Ausschnitt.',
         roh.length ? 'ok' : 'info')
       if (!roh.length) return
       // Nur anreichern, was wirklich NEU ist — schon geladene Segmente behalten ihre Werte.
@@ -2678,7 +2681,7 @@ export default function App() {
       if (gen !== ladeGen.current) return
       setCands(prev => einspielen(prev, neu, obs, !!cityCfg.obsFile))
       setStops(prev => mergeStops(prev, st))
-      setMsg(`${neu.length} Segmente im Ausschnitt (angereichert).` + fehlerText(fehler), fehler.length ? 'info' : 'ok')
+      setMsg(`${segmente(neu.length)} im Ausschnitt (angereichert).` + fehlerText(fehler), fehler.length ? 'info' : 'ok')
     } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
     finally { if (gen === ladeGen.current) setOsmBusy(false) }
   }
@@ -3308,7 +3311,7 @@ export default function App() {
     const planen = hauptAnsicht === 'planen' || planTab.size > 0
     setPlanTab(planen ? new Set(neu.map(s => s.id)) : new Set())
     if (planen) setTimeout(() => planungStarten(0), 0)
-    setMsg(`${selCount - zu.length} Segmente übernommen → geordnet und zusammengefasst. ` +
+    setMsg(`${segmente(selCount - zu.length)} übernommen → geordnet und zusammengefasst. ` +
       (zu.length ? `${zu.length === 1 ? 'Ein paralleler Weg' : `${zu.length} parallele Wege`} (${zu.map(c => `OSM way ${c.wayId}`).join(', ')}) als Veloführung der Strasse daneben übernommen, nicht als eigener Abschnitt. ` : '') +
       'Herkunft je Feld am Chip (amtlich/OSM); leere Felder bitte ergänzen.', 'ok')
   }
@@ -3830,7 +3833,7 @@ export default function App() {
                     style={{ border: 'none', background: selCount && !osmBusy ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
                              borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600,
                              cursor: selCount && !osmBusy ? 'pointer' : 'default' }}>
-              {selCount} Segmente in Strecke übernehmen
+              {segmente(selCount)} in Strecke übernehmen
             </button>
             {cands.length > 0 && (
               <button onClick={() => {
@@ -3945,11 +3948,11 @@ export default function App() {
               // Abschnitt ohne Karte (Nutzerbefund 22.10.2026): nach dem Antippen eines Segments war nicht klar, dass es noch
               // übernommen werden muss — die Knöpfe stehen deshalb auch hier, nicht nur unter der Karte
               <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8, color: 'var(--text)' }}>
-                <span>{selCount ? `${selCount} ${selCount === 1 ? 'Segment' : 'Segmente'} auf der Karte gewählt${osmBusy ? ' (lädt noch)' : ''}.` : 'Noch kein Segment gewählt.'}</span>
+                <span>{selCount ? `${segmente(selCount)} auf der Karte gewählt${osmBusy ? ' (lädt noch)' : ''}.` : 'Noch kein Segment gewählt.'}</span>
                 <button type="button" onClick={uebernehmen} disabled={selCount === 0 || osmBusy}
                         style={{ border: 'none', background: selCount && !osmBusy ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
                                  borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: selCount && !osmBusy ? 'pointer' : 'default' }}>
-                  {selCount ? `${selCount} ${selCount === 1 ? 'Segment' : 'Segmente'} in Strecke übernehmen` : 'In Strecke übernehmen'}
+                  {selCount ? `${segmente(selCount)} in Strecke übernehmen` : 'In Strecke übernehmen'}
                 </button>
                 {cands.length > 0 && (
                   <button type="button" disabled={osmBusy || messAktiv} aria-pressed={teilModus}
@@ -4121,7 +4124,7 @@ export default function App() {
       {toast && view === 'rechner' && (
         <div className={`vrc-toast ${toast.kind}`} role="status" aria-live="polite" key={toast.key}>
           <span aria-hidden>{toast.kind === 'error' ? '⚠' : toast.kind === 'ok' ? '✓' : 'ℹ'}</span>
-          <span>{toast.text}</span>
+          <span className="text">{toast.text}</span>
           <button type="button" onClick={() => setToast(null)} aria-label="Meldung schliessen">✕</button>
         </div>
       )}

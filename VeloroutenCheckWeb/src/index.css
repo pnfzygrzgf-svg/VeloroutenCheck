@@ -272,7 +272,7 @@ details.hilfe p { margin: 8px 0 2px; }
 .vrc-toast.ok { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
 .vrc-toast.info { background: #ffffff; border: 1px solid var(--border); color: var(--text); }
 .vrc-toast.error { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
-.vrc-toast > span { flex: 1; }
+.vrc-toast > .text { flex: 1; }
 .vrc-toast button { border: none; background: none; color: inherit; font: inherit; font-weight: 700; cursor: pointer; padding: 0 2px; min-height: 0; }
 .vrc-toast button.rueck { text-decoration: underline; }
 @media screen and (min-width: 1100px) {
