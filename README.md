@@ -9,7 +9,9 @@ VeloroutenCheck bewertet die Qualität von Veloinfrastruktur mit einem **Erfüll
   - Luzern: **[Standards Veloverkehr Stadt Luzern](https://www.stadtluzern.ch/_docn/2965064/Standards_Veloverkehr.pdf)**
 - die empirisch gemessene **subjektive Sicherheit** aus der Befragung von radwege-check / FixMyCity (wie sicher sich Velofahrende in einer Situation fühlen, „feel-safe %").
 
-Bewertet wird eine **Strecke**, die aus einem oder mehreren **Abschnitten** besteht. Jeder Abschnitt erhält eine eigene Note; die Strecke erhält die Note ihres schlechtesten Abschnitts.
+Bewertet wird eine **Strecke**, die auf der Karte aus OpenStreetMap-Segmenten aufgebaut wird und aus einem oder mehreren **Abschnitten** besteht. Jeder Abschnitt erhält je Fahrtrichtung eine Note; die Strecke erhält die Note ihres schlechtesten Abschnitts. Führungsform, Tempo, Verkehrsmenge, Routentyp, Parkierung und Haltestellen kommen aus OpenStreetMap und den Geoportalen der Städte, Fahrbahn- und Trottoirbreiten aus der amtlichen Vermessung; jede Angabe trägt ihre Herkunft und lässt sich von Hand ändern oder am Luftbild messen.
+
+Seit Oktober 2026 **plant** VeloroutenCheck auch: Der Reiter «Planen» eines Abschnitts teilt den Strassenquerschnitt neu auf, Element für Element (Fahrspuren, Velostreifen, Parkierung, Trottoirs, Grünstreifen, Umweltspur, Haltestellen nach Masterplan). Jedes Element wird gegen die Vorgaben der Stadt geprüft, die Bilanz zeigt, was im Querschnitt Platz hat, und die Note der Planung steht neben der von heute. Ein Vorschlag nennt die erste Massnahme, die den Erfüllungsgrad «Weitgehend erfüllt» (Note 4,5) erreicht; Breiten lassen sich am Luftbild messen, der Querschnitt als Skizze und Bericht (PDF) ausgeben. Alles läuft im Browser, ohne Konto und ohne Upload.
 
 **Web-VeloroutenCheck** https://veloroutencheck.ch/
 
