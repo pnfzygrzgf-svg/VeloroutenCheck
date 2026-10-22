@@ -21,6 +21,10 @@ export interface GeoJsonFeature {
 
 export const SAMPLE_M = 15      // Schrittweite zum Verdichten der Kandidaten-Geometrie.
 export const OVERLAP_M = 20     // Punkt gilt als „auf dem Feature", wenn ≤ 20 m entfernt.
+// Tramgleis IN der Fahrbahn: enger als OVERLAP_M (seit 21.10.2026, Nutzerbefund Bubenbergplatz: das Tram auf dem Trassee hinter
+// dem Mittelstreifen, rund 12 m neben der Achse, machte die MIV-Fahrbahn zur Tramstrasse). Gleise in der eigenen Fahrbahn
+// liegen bis rund 5 m neben der Achse.
+export const TRAM_OVERLAP_M = 8
 export const MIN_FRACTION = 0.5 // ≥ 50 % der Punkte entlang → Treffer.
 export const STOP_DIST_M = 30   // Haltestelle gilt als „im Abschnitt", wenn ≤ 30 m vom Segment.
 export const DTV_STOP_M = 25    // DTV-Zählstelle gilt als „auf der Strasse", wenn ≤ 25 m vom Segment.
@@ -266,7 +270,7 @@ export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<
       const d = distPointToLineM(st, dense)
       if (d <= nearD) { nearD = d; nearStop = st }
     }
-    const oevTram = tramLines.some(l => overlapScore(dense, l, OVERLAP_M) >= MIN_FRACTION)
+    const oevTram = tramLines.some(l => overlapScore(dense, l, TRAM_OVERLAP_M) >= MIN_FRACTION)
     if (nearStop || oevTram) {
       const busPerH = nearStop ? nearestTaktBus(nearStop, takt) : undefined   // aus dem Takt-Snapshot (falls Datei da)
       byId.set(c.id, {

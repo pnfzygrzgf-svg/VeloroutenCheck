@@ -147,14 +147,17 @@ function BerichtKarte({ achsen, av, park, nr, onBereit }: {
 
 const strecke = (l: P[]) => l.reduce((m, p, i) => (i ? m + Math.hypot(p[0] - l[i - 1][0], p[1] - l[i - 1][1]) : 0), 0)
 
-const noteText = (n: number | null, modus: 'note' | 'erfuellung') =>
-  n == null ? '–' : modus === 'erfuellung' ? erfuellungsgrad(n) : `${numDE(n, 1)} (${erfuellungsgrad(n)})`
+// Beurteilung im Bericht (seit 22.10.2026, Nutzerwunsch): der Erfüllungsgrad vorne, die Note als Herleitung in
+// Klammern, unabhängig von einer Einstellung in der App. Vorher folgte der Bericht dem Schalter «Anzeige»:
+// «2,0 (Gar nicht erfüllt)» bzw. nur «Gar nicht erfüllt»; den Schalter gibt es nicht mehr.
+const noteText = (n: number | null) =>
+  n == null ? '–' : `${erfuellungsgrad(n)} (Note ${numDE(n, 1)})`
 const formText = (f: Seite) => `${f.ist || '–'}${Number.isFinite(f.breite) ? ` ${numDE(f.breite, 2)} m` : ''}` +
   `${f.parkenRechts === 'ja' ? `, neben Parkierung${f.parkenSicherheitsstreifen ? ' mit Sicherheitsstreifen' : ''}` : ''}`
 
 // Inhalt der Seite (ohne Leiste und Portal), auch ohne Browser darstellbar (Test der Seitenzahl).
 // Die Skizzen mit fester Druckbreite DRUCK_PX: A4 hoch mit 12 mm Rand, rund 186 mm.
-export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, routenLabel, modus, rA, rB, achsen, av, park, quellen, bez, setBez, onBild, basis }: {
+export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, routenLabel, rA, rB, achsen, av, park, quellen, bez, setBez, onBild, basis }: {
   section: Section & { aufteilung: Aufteilung }
   nr: number                              // Abschnitt-Nummer (1-basiert)
   heute: AbschnittErgebnis
@@ -162,7 +165,6 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
   breiten?: Parameters<typeof bewerteAufteilung>[3]   // stadtspezifische Breiten-Sollwerte
   stadtName: string
   routenLabel?: Partial<Record<Routentyp, string>>   // Namen der Routentypen in der Stadt (z. B. Zürich «Velovorzugsroute»)
-  modus: 'note' | 'erfuellung'
   rA: string | null; rB: string | null
   achsen: P[][]                           // LV95, in Fahrtrichtung der Seite A
   av: AvFlaeche[]; park: ParkFlaeche[]    // geladen in der Planung, sonst leer
@@ -253,17 +255,17 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                 «Heute» ist die Ausgangslage aus den Eingaben des Abschnitts{section.trottoir ? ' und den Trottoirs aus der AV' : ''}.</p>
               <div className="bericht-skizze">
                 <div className="bericht-skizze-titel">Heute</div>
-                <SkizzeSvg titel="Heute" teile={ausgang.teile} einbahn={einbahn} massstabCm={massstab} px={DRUCK_PX} basis={basis} />
+                <SkizzeSvg titel="Heute" teile={ausgang.teile} einbahn={einbahn} massstabCm={massstab} px={DRUCK_PX} basis={basis} richtungen={{ a: rA, b: rB }} />
                 <div className="bericht-skizze-titel">Planung</div>
-                <SkizzeSvg titel="Planung" teile={a.teile} einbahn={einbahn} massstabCm={massstab} px={DRUCK_PX} basis={basis} />
+                <SkizzeSvg titel="Planung" teile={a.teile} einbahn={einbahn} massstabCm={massstab} px={DRUCK_PX} basis={basis} richtungen={{ a: rA, b: rB }} />
               </div>
               <p className="klein">Illustrationen: Streetmix (streetmix.net), CC BY-SA 4.0. Boden, Masse und Markierungsstriche: eigene Zeichnung.</p>
             </section>
 
             <section className="bericht-block">
-              <h2>Teile der Planung</h2>
+              <h2>Elemente der Planung</h2>
               <table className="bericht-tabelle">
-                <thead><tr><th>Nr.</th><th>Teil</th><th>Breite</th><th>Prüfung</th></tr></thead>
+                <thead><tr><th>Nr.</th><th>Element</th><th>Breite</th><th>Prüfung</th></tr></thead>
                 <tbody>
                   {a.teile.map((t, i) => {
                     const zusatz = [t.bild || bildVon(t) ? BILD_LABEL[bildVon(t)!] : '', t.markierung && t.markierung !== 'keine' && t.markierung in MARKIERUNG_LABEL
@@ -294,16 +296,16 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                   {seitenListe.map(s => (
                     <tr key={s}>
                       <td>{seitenListe.length > 1 || einbahn ? seiteName(s) : 'Beide Seiten'}</td>
-                      <td>{sh.get(s) ? <>{sh.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sh.get(s)!.felder.haltestellentyp}` : formText(sh.get(s)!.felder)}<div className="klein">{noteText(sh.get(s)!.bewertung?.note ?? null, modus)}</div></> : '–'}</td>
-                      <td>{sp.get(s) ? <>{sp.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sp.get(s)!.felder.haltestellentyp}` : formText(sp.get(s)!.felder)}<div className="klein">{noteText(sp.get(s)!.bewertung?.note ?? null, modus)}</div></> : '–'}</td>
+                      <td>{sh.get(s) ? <>{sh.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sh.get(s)!.felder.haltestellentyp}` : formText(sh.get(s)!.felder)}<div className="klein">{noteText(sh.get(s)!.bewertung?.note ?? null)}</div></> : '–'}</td>
+                      <td>{sp.get(s) ? <>{sp.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sp.get(s)!.felder.haltestellentyp}` : formText(sp.get(s)!.felder)}<div className="klein">{noteText(sp.get(s)!.bewertung?.note ?? null)}</div></> : '–'}</td>
                     </tr>
                   ))}
-                  <tr><td><b>Abschnitt</b></td><td><b>{noteText(heute.note, modus)}</b></td><td><b>{noteText(plan.note, modus)}</b></td></tr>
+                  <tr><td><b>Abschnitt</b></td><td><b>{noteText(heute.note)}</b></td><td><b>{noteText(plan.note)}</b></td></tr>
                 </tbody>
               </table>
               <p className="klein">Dieselbe Bewertung wie im Rechner. Führungsform, Breite, Parkierung und Sicherheitsstreifen je Seite sowie das Tram
-                kommen aus den Teilen, vom Rand nach innen gelesen; DTV, Tempo, Routentyp und Haltestelle bleiben wie eingegeben. Die Note des
-                Abschnitts ist die schlechtere Seite.{Number.isFinite(b.rest) && b.rest < -0.005 ? ' Die Teile haben im verfügbaren Querschnitt keinen Platz; die Note setzt voraus, dass sie passen.' : ''}</p>
+                kommen aus den Elementen, vom Rand nach innen gelesen; DTV, Tempo, Routentyp und Haltestelle bleiben wie eingegeben. Die Note des
+                Abschnitts ist die schlechtere Seite.{Number.isFinite(b.rest) && b.rest < -0.005 ? ' Die Elemente haben im verfügbaren Querschnitt keinen Platz; die Note setzt voraus, dass sie passen.' : ''}</p>
             </section>
 
             <section className="bericht-block">
@@ -350,7 +352,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
   )
 }
 
-export default function Bericht({ section, nr, heute, city, breiten, stadtName, routenLabel, modus, rA, rB, achsen, av, park, quellen, schliessen }: {
+export default function Bericht({ section, nr, heute, city, breiten, stadtName, routenLabel, rA, rB, achsen, av, park, quellen, schliessen }: {
   section: Section & { aufteilung: Aufteilung }
   nr: number                              // Abschnitt-Nummer (1-basiert)
   heute: AbschnittErgebnis
@@ -358,7 +360,6 @@ export default function Bericht({ section, nr, heute, city, breiten, stadtName, 
   breiten?: Parameters<typeof bewerteAufteilung>[3]   // stadtspezifische Breiten-Sollwerte
   stadtName: string
   routenLabel?: Partial<Record<Routentyp, string>>   // Namen der Routentypen in der Stadt (z. B. Zürich «Velovorzugsroute»)
-  modus: 'note' | 'erfuellung'
   rA: string | null; rB: string | null
   achsen: P[][]                           // LV95, in Fahrtrichtung der Seite A
   av: AvFlaeche[]; park: ParkFlaeche[]    // geladen in der Planung, sonst leer
@@ -393,7 +394,7 @@ export default function Bericht({ section, nr, heute, city, breiten, stadtName, 
         <button className="bericht-knopf zweit" onClick={schliessen}>Zurück zur Planung</button>
         <span className="klein">Im Druckdialog «Als PDF sichern» bzw. «Microsoft Print to PDF» wählen; A4 hoch, Hintergrundgrafiken einschalten.</span>
       </div>
-      <BerichtSeite section={section} nr={nr} heute={heute} city={city} breiten={breiten} stadtName={stadtName} routenLabel={routenLabel} modus={modus}
+      <BerichtSeite section={section} nr={nr} heute={heute} city={city} breiten={breiten} stadtName={stadtName} routenLabel={routenLabel}
         rA={rA} rB={rB} achsen={achsen} av={av} park={park} quellen={quellen} bez={bez} setBez={setBez} onBild={setBild}
         basis={import.meta.env.BASE_URL} />
     </div>,

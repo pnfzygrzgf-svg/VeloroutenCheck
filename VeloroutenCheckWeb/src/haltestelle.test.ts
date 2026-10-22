@@ -107,3 +107,77 @@ describe('Vorschlag im Haltestellenbereich (Nutzerbefund Muristrasse 20.10.2026)
     expect(a.teile.reduce((m, t) => m + t.breite, 0)).toBeCloseTo(8.6, 6)
   })
 })
+
+import { haltestelleninsel, mittelinsel, mittelstreifen } from './breitenmessung'
+import { haltestelleninselUebernehmen, startAufteilung as start } from './aufteilung'
+import { seiteB } from './strecke'
+import type { AvFlaeche } from './av'
+import type { P } from './lv95'
+describe('Haltestelleninsel statt Mittelinsel (Monbijoustrasse, 21.10.2026)', () => {
+  const r = (e0: number, n0: number, e1: number, n1: number): P[] => [[e0, n0], [e1, n0], [e1, n1], [e0, n1], [e0, n0]]
+  // Achse nach Osten in der Mitte der Fahrbahn; Norden = links = Seite B: Fahrbahn 7,80 · Insel 2,20 · Streifen 1,70 · Trottoir 3,00
+  const av: AvFlaeche[] = [
+    { art: 'Strasse_Weg', ringe: [r(0, -3.9, 100, 7.8), r(20, 3.9, 80, 6.1)] },
+    { art: 'Verkehrsinsel', ringe: [r(20, 3.9, 80, 6.1)] },
+    { art: 'Trottoir', ringe: [r(0, 7.8, 100, 10.8)] },
+    { art: 'Trottoir', ringe: [r(0, -5.9, 100, -3.9)] },
+  ]
+  const achse: P[] = [[0, 0], [100, 0]]
+  it('Messung: Seite, Insel, Streifen, Fahrbahn bis zur Insel, Trottoir dahinter', () => {
+    expect(haltestelleninsel([achse], av)).toEqual({ seite: 'links', insel: 2.2, aussen: 1.7, innen: 7.8, trottoir: 3, laenge: 60 })
+    expect(mittelinsel([achse], av)).toBeNull()            // 60 m lang: keine Mittelinsel (bis 30 m), ohne Haltestelle ein Mittelstreifen
+    expect(mittelstreifen([achse], av)?.laenge).toBe(60)
+  })
+  it('eine Schutzinsel in der Fahrbahn (Schwarzenburgstrasse, 21.10.2026) verfälscht die Fahrbahn bis zur Insel nicht', () => {
+    // Schutzinsel 2 × 8 m auf der Höhe der Inselmitte, mitten in der Fahrbahn
+    const mit: AvFlaeche[] = [{ art: 'Strasse_Weg', ringe: [r(0, -3.9, 100, 7.8), r(20, 3.9, 80, 6.1), r(46, 0, 54, 2)] },
+      { art: 'Verkehrsinsel', ringe: [r(20, 3.9, 80, 6.1)] }, { art: 'Verkehrsinsel', ringe: [r(46, 0, 54, 2)] }, ...av.slice(2)]
+    expect(haltestelleninsel([achse], mit)?.innen).toBe(7.8)
+  })
+  it('übernommen: Fahrbahn bis zur Insel, Typen angenommen, Ausgangslage mit Veloumfahrung und Wartebereich', () => {
+    const s: Section = { ...defaultSection(), ist: 'Mischverkehr', parkenRechts: 'nein', oevAngebot: 'tram', tram: true, fahrbahnbreite: 11.7 }
+    const neu = haltestelleninselUebernehmen(s, haltestelleninsel([achse], av)!, 'bern', true)
+    expect([neu.fahrbahnbreite, neu.mittelinsel, neu.trottoir?.b]).toEqual([7.8, null, 3])
+    expect([seiteA(neu).haltestellentyp, seiteB(neu).haltestellentyp, seiteB(neu).haltestelleBreite]).toEqual(['Kaphaltestelle', 'Haltestelle mit Veloumfahrung', 1.7])
+    expect(neu.hsTypAngenommen).toEqual({ a: true, b: true })
+    const a = start(neu, 'bern')
+    // Insel 2,20 < 3,10: nur Ein- und Ausstieg, der Wartebereich mit Häuschen liegt hinter der Veloumfahrung (Nutzerbefund 21.10.2026)
+    expect(a.teile.slice(0, 3).map(t => [t.art, t.breite])).toEqual([['Haltestelle', 3], ['RadwegAbgesetzt', 1.7], ['HaltEinstieg', 2.2]])
+    // gegenüber die Kaphaltestelle: das Trottoir an der Haltestelle ist der Wartebereich
+    const mitA = start({ ...neu, trottoir: { ...neu.trottoir!, a: 2 } }, 'bern')
+    expect(mitA.teile[mitA.teile.length - 1]).toEqual({ art: 'Haltestelle', breite: 2 })
+    expect(a.fahrbahn).toBe(7.8)
+    expect(bilanz(a).rest).toBeCloseTo(0, 6)
+  })
+  it('ohne Haltestelle im Abschnitt: nichts übernommen', () => {
+    const s: Section = { ...defaultSection(), ist: 'Mischverkehr' }
+    expect(haltestelleninselUebernehmen(s, haltestelleninsel([achse], av)!, 'bern', true)).toBe(s)
+  })
+})
+
+import { wartehalleLage } from './breitenmessung'
+describe('Wartehalle aus OSM (Monbijoustrasse 21.10.2026)', () => {
+  const r = (e0: number, n0: number, e1: number, n1: number): P[] => [[e0, n0], [e1, n0], [e1, n1], [e0, n1], [e0, n0]]
+  const av: AvFlaeche[] = [
+    { art: 'Strasse_Weg', ringe: [r(0, -3.9, 100, 7.8), r(20, 3.9, 80, 6.6)] },
+    { art: 'Verkehrsinsel', ringe: [r(20, 3.9, 80, 6.6)] },
+    { art: 'Trottoir', ringe: [r(0, 7.8, 100, 10.8)] },
+  ]
+  const achse: P[] = [[0, 0], [100, 0]]
+  it('Wartehalle auf der Insel, hinten oder Perron ohne', () => {
+    expect(wartehalleLage([achse], av, 'links', [{ p: [50, 5], wartehalle: true }])).toBe('insel')
+    expect(wartehalleLage([achse], av, 'links', [{ p: [50, 9], wartehalle: true }])).toBe('hinten')
+    expect(wartehalleLage([achse], av, 'links', [{ p: [50, 5], wartehalle: false }, { p: [50, -6], wartehalle: true }])).toBe('keine')
+    expect(wartehalleLage([achse], av, 'links', [])).toBeUndefined()
+  })
+  it('Insel 2,70 m mit Wartehalle (OSM): Insel ist der Wartebereich, dahinter Trottoir; ohne Angabe ab 2,50 m ebenso', () => {
+    const s: Section = { ...defaultSection(), ist: 'Mischverkehr', parkenRechts: 'nein', oevAngebot: 'tram', tram: true, fahrbahnbreite: 7.8,
+      trottoir: { a: NaN, b: 3 } }
+    const mit = start({ ...s, haltestelleninsel: { seite: 'b', insel: 2.7, aussen: 1.2, innen: 7.8, trottoir: 3, laenge: 60, wartehalle: 'insel' } }, 'bern')
+    expect(mit.teile.slice(0, 3).map(t => [t.art, t.bild])).toEqual([['Trottoir', undefined], ['RadwegAbgesetzt', undefined], ['Haltestelle', undefined]])
+    const ohne = start({ ...s, haltestelleninsel: { seite: 'b', insel: 2.7, aussen: 1.2, innen: 7.8, trottoir: 3, laenge: 60, wartehalle: 'keine' } }, 'bern')
+    expect(ohne.teile.slice(0, 3).map(t => t.art)).toEqual(['Haltestelle', 'RadwegAbgesetzt', 'HaltEinstieg'])
+    const unbekannt = start({ ...s, haltestelleninsel: { seite: 'b', insel: 2.7, aussen: 1.2, innen: 7.8, trottoir: 3, laenge: 60 } }, 'bern')
+    expect(unbekannt.teile[2].art).toBe('Haltestelle')
+  })
+})

@@ -26,23 +26,23 @@ const BODEN: Record<TeilArt, string> = {
   Trottoir: '#d6d3d1', Haltestelle: '#e7e5e4', Gruen: '#65a30d', Parkierung: '#6b7280', Veloabstellplatz: '#6b7280', Parklet: '#6b7280',
   Sicherheitsstreifen: '#6b7280', Velostreifen: '#a16207', Pfosten: '#4b5563', Radweg: '#b45309', Trennstreifen: '#a8a29e',
   Fahrspur: '#4b5563', Gemeinsam: '#4b5563', Kernfahrbahn: '#4b5563', Velostrasse: '#4b5563', Tram: '#4b5563', Mittelinsel: '#d6d3d1',
-  FussRadweg: '#c4b08a', Zweirichtungsradweg: '#b45309', RadwegAbgesetzt: '#b45309', FusswegVelo: '#d6d3d1', HaltAbstand: '#e7e5e4',
+  FussRadweg: '#c4b08a', Zweirichtungsradweg: '#b45309', RadwegAbgesetzt: '#b45309', FusswegVelo: '#d6d3d1', HaltAbstand: '#e7e5e4', HaltEinstieg: '#e7e5e4', Umweltspur: '#4b5563',
 }
 const KURZ: Record<TeilArt, string> = {
   Trottoir: 'Trottoir', Haltestelle: 'Haltestelle', Gruen: 'Grün', Parkierung: 'Parkierung', Veloabstellplatz: 'Veloparkierung', Parklet: 'Parklet',
   Sicherheitsstreifen: 'Sicherheitsstr.', Velostreifen: 'Velostreifen', Pfosten: 'Pfosten', Radweg: 'Radweg', Trennstreifen: 'Trennstr.',
   Fahrspur: 'Fahrspur', Gemeinsam: 'Fahrbahn', Kernfahrbahn: 'Kernfahrbahn', Velostrasse: 'Velostrasse', Tram: 'Tram', Mittelinsel: 'Insel',
-  FussRadweg: 'Fuss-/Radweg', Zweirichtungsradweg: 'Zweirichtungsradweg', RadwegAbgesetzt: 'Radweg', FusswegVelo: 'Fussweg', HaltAbstand: 'Abstand',
+  FussRadweg: 'Fuss-/Radweg', Zweirichtungsradweg: 'Zweirichtungsradweg', RadwegAbgesetzt: 'Radweg', FusswegVelo: 'Fussweg', HaltAbstand: 'Abstand', HaltEinstieg: 'Ein-/Ausstieg', Umweltspur: 'Umweltspur',
 }
 // Kurzwort, wenn der Name nicht unter das Teil passt
 const KUERZEST: Record<TeilArt, string> = {
   Trottoir: 'Tr.', Haltestelle: 'H', Gruen: 'G', Parkierung: 'P', Veloabstellplatz: 'VP', Parklet: 'Pl.', Sicherheitsstreifen: 'S', Velostreifen: 'Velo',
   Pfosten: 'Pf.', Radweg: 'Rw.', Trennstreifen: 'T', Fahrspur: 'MIV', Gemeinsam: 'MIV', Kernfahrbahn: 'Kern', Velostrasse: 'VS', Tram: 'Tram', Mittelinsel: 'I',
-  FussRadweg: 'F/R', Zweirichtungsradweg: 'ZRw', RadwegAbgesetzt: 'Rw.', FusswegVelo: 'Fw.', HaltAbstand: 'A',
+  FussRadweg: 'F/R', Zweirichtungsradweg: 'ZRw', RadwegAbgesetzt: 'Rw.', FusswegVelo: 'Fw.', HaltAbstand: 'A', HaltEinstieg: 'E', Umweltspur: 'Bus+Velo',
 }
 // Parkierung auf Trottoirniveau (seit 17.10.2026) liegt wie das Trottoir erhöht, ausserhalb der Fahrbahn;
 // die Mittelinsel (seit 20.10.2026) ist erhöht, gehört aber zur Fahrbahn (Bordstein–Bordstein)
-const erhoeht = (t: Teil) => (t.art === 'Trottoir' || t.art === 'Haltestelle' || t.art === 'HaltAbstand' || t.art === 'Gruen' || t.art === 'Mittelinsel' || t.trottoirniveau || istWeg(t) ? BORD_CM
+const erhoeht = (t: Teil) => (t.art === 'Trottoir' || t.art === 'Haltestelle' || t.art === 'HaltAbstand' || t.art === 'HaltEinstieg' || t.art === 'Gruen' || t.art === 'Mittelinsel' || t.trottoirniveau || istWeg(t) ? BORD_CM
   : t.art === 'Trennstreifen' ? 10 : 0)
 
 // Figuren je Teil (Datei ohne Endung, Grösse der Bilddatei in cm, Versatz dx zur Mitte des Teils)
@@ -71,6 +71,8 @@ function figuren(t: Teil, b: number, links: boolean, einbahn: boolean, i: number
       if (b >= 150) return [{ datei: f, w: 140, h: 220, dx: -b / 5 }, { datei: m, w: 140, h: 220, dx: b / 5 }]
       return eine(i % 2 ? m : f, 140, 220, 80)
     }
+    // Ein- und Ausstieg: eine wartende Person, kein Wartehäuschen
+    case 'HaltEinstieg': return eine(WEIBLICH[i % WEIBLICH.length], 140, 220, 80)
     case 'Haltestelle': {
       // Wartehäuschen zum Trottoir hin, davor (zum Bordstein hin) eine wartende Person
       // ohne Wartehalle (seit 20.10.2026): nur eine wartende Person
@@ -103,6 +105,10 @@ function figuren(t: Teil, b: number, links: boolean, einbahn: boolean, i: number
       return fahrzeug(x => `car-${x}`, 360, 180, 170, 180)
     }
     case 'Tram': return eine(`streetcar-${r}`, 320, 420, 240)
+    // Umweltspur: Bus, daneben ein Velo, wenn beide Platz haben (Bus 2,50 + Velo 0,60)
+    case 'Umweltspur': return b >= 340
+      ? [{ datei: `bus-${r}`, w: 360, h: 320, dx: -b / 2 + 150 }, { datei: `biker-01-${r}`, w: 80, h: 180, dx: b / 2 - 60 }]
+      : eine(`bus-${r}`, 360, 320, 250)
     // Wege: Velo in beide Richtungen, auf gemeinsamen Wegen dazu eine Person
     case 'Zweirichtungsradweg': return b >= 200 ? [{ datei: 'biker-01-inbound', w: 80, h: 180, dx: -b / 4 }, { datei: 'biker-01-outbound', w: 80, h: 180, dx: b / 4 }]
       : eine('biker-01-outbound', 80, 180, 90)
@@ -143,6 +149,9 @@ interface SkizzeProps {
   teile: Teil[]
   einbahn: boolean
   massstabCm: number          // gemeinsame Breite aller Skizzen [cm]
+  // Blickrichtung in der Skizze (Nutzerwunsch 21.10.2026): Himmelsrichtungen der Seiten A und B; die Skizze zeigt oben
+  // links «Seite B · kommt entgegen», oben rechts «Seite A · Blickrichtung»
+  richtungen?: { a?: string | null; b?: string | null }
 }
 
 export function QuerschnittSkizze(p: SkizzeProps) {
@@ -156,7 +165,7 @@ export function QuerschnittSkizze(p: SkizzeProps) {
 }
 
 // Die Zeichnung selbst, für eine bekannte Breite in Pixeln (px) und den Pfad der Figuren (basis).
-export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis }: SkizzeProps & { px: number; basis: string }) {
+export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis, richtungen }: SkizzeProps & { px: number; basis: string }) {
   // Versetzte Parkierung (abwechselnd Seite A und B) liegt an anderer Stelle: nicht im Querschnitt, nur als Hinweis darunter
   const teile = alle.filter(t => !t.versetzt)
   const versetzt = alle.flatMap((t, k) => {
@@ -171,7 +180,8 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis }
   const x0 = RAND_CM + (W - 2 * RAND_CM - gesamt) / 2
   // Lage der Teile
   let x = x0
-  const lage = teile.map((t, i) => {
+  // i: Nummer in der Liste der Planung (über alle Teile, auch versetzte), damit die Kreise in der Skizze zur Liste passen
+  const lage = alle.map((t, i) => ({ t, i })).filter(l => !l.t.versetzt).map(({ t, i }) => {
     const b = Number.isFinite(t.breite) ? t.breite * 100 : 0
     const l = { t, i, x, b }
     x += b
@@ -185,7 +195,9 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis }
     const links = l.x + l.b / 2 < mitte
     return figuren(l.t, l.b, links, einbahn, l.i).map(fg => ({ l, fg }))
   })
-  const yBoden = Math.max(230, ...figs.map(({ l, fg }) => fg.h + erhoeht(l.t))) + LUFT_CM
+  // Kopfzeile mit der Blickrichtung über den Figuren
+  const KOPF = 1.6 * f
+  const yBoden = Math.max(230, ...figs.map(({ l, fg }) => fg.h + erhoeht(l.t))) + LUFT_CM + KOPF
   // Markierungen in Draufsicht: eigener Streifen unter dem Boden, nur wenn es welche gibt
   const marks = lage.filter(l => l.b > 0 && (l.t.markierung ?? 'keine') in MARK_DATEI)
   const yMark = yBoden + BODEN_CM, hMark = marks.length ? MARK_CM : 0
@@ -204,6 +216,24 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis }
               <rect width="7" height="20" fill="#e5e7eb" />
             </pattern>
           </defs>
+          {/* Blickrichtung: links Seite B (kommt entgegen), rechts Seite A (Blickrichtung). Auf schmalen Bildschirmen
+              (grosse Schrift je cm) überlagerten sich die Texte (Befund 22.10.2026): drei Stufen, bis sie passen. */}
+          {(() => {
+            const ra = richtungen?.a ?? '', rb = richtungen?.b ?? ''
+            const links = einbahn ? ['links: Rand der Seite B', 'links: Seite B', 'B']
+              : [`← Seite B${rb ? ` · Richtung ${rb}` : ''} · kommt entgegen`, `← Seite B${rb ? ` (${rb})` : ''}`, '← B']
+            const rechts = [`Seite A${ra ? ` · Richtung ${ra}` : ''} · Blickrichtung →`, `Seite A${ra ? ` (${ra})` : ''} →`, 'A →']
+            const passt = (l: string, r: string) => (l.length + r.length) * 0.55 * 0.95 * f + 2 * f <= gesamt
+            let k = 0
+            while (k < 2 && !passt(links[k], rechts[k])) k++
+            return (
+              <g fontSize={0.95 * f} fill="var(--text-muted)">
+                <title>{`links Seite B${rb ? ` (Richtung ${rb})` : ''}, kommt entgegen; rechts Seite A${ra ? ` (Richtung ${ra})` : ''}, Blickrichtung`}</title>
+                <text x={x0} y={1.05 * f}>{links[k]}</text>
+                <text x={x0 + gesamt} y={1.05 * f} textAnchor="end" fontWeight={600}>{rechts[k]}</text>
+              </g>
+            )
+          })()}
           {/* Boden */}
           {lage.map(({ t, i, x, b }) => {
             if (b <= 0) return null
@@ -219,7 +249,8 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis }
           {lage.slice(1).map(({ t, i, x }) => {
             const vt = lage[i - 1].t, vor = vt.art
             const park = (a: Teil, b: Teil) => a.art === 'Parkierung' && !a.trottoirniveau && istFahrbahnTeil(b) && b.art !== 'Parkierung'
-            const weiss = ((vor === 'Fahrspur' || vor === 'Tram') && (t.art === 'Fahrspur' || t.art === 'Tram')) || park(vt, t) || park(t, vt)
+            const spur = (x: Teil) => x.art === 'Fahrspur' || x.art === 'Tram' || x.art === 'Umweltspur'
+            const weiss = (spur(vt) && spur(t)) || park(vt, t) || park(t, vt)
             const gelb = (vor === 'Velostreifen') !== (t.art === 'Velostreifen') && istFahrbahnTeil(vt) && istFahrbahnTeil(t)
             if (!weiss && !gelb) return null
             // deutlich sichtbar (Nutzerwunsch 20.10.2026): 20 cm breit, etwas über dem Boden
@@ -248,6 +279,18 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis }
               return <image key={`k${i}-${k}`} href={`${basis}streetmix/${name}-outbound.svg`} x={mx - g / 2} y={my - g / 2} width={g} height={g}
                             {...(entgegen ? { transform: `rotate(180 ${mx} ${my})` } : {})} />
             })
+          })}
+          {/* Nummer des Teils wie in der Liste (Nutzerwunsch 21.10.2026): Kreis auf dem Bodenstreifen, bei schmalen Teilen darüber */}
+          {lage.map(({ t, i, x, b }) => {
+            if (b <= 0) return null
+            const r = 0.8 * f, cx = x + b / 2
+            const cy = b >= 2.4 * r ? yBoden - erhoeht(t) + BODEN_CM / 2 + erhoeht(t) / 2 : yBoden - erhoeht(t) - r - 4
+            return (
+              <g key={`n${i}`}>
+                <circle cx={cx} cy={cy} r={r} fill="#ffffff" stroke="#111827" strokeWidth={1.2 / s} />
+                <text x={cx} y={cy + 0.36 * f} fontSize={0.95 * f} fontWeight={700} textAnchor="middle" fill="#111827">{i + 1}</text>
+              </g>
+            )
           })}
           {/* Masse je Teil */}
           {lage.map(({ t, i, x, b }) => {

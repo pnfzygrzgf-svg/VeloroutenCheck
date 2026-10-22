@@ -31,7 +31,7 @@ import type { Routentyp } from './fuehrungsform'
 import { densify, overlapScore, anteilAbgedeckt, distPointToLineM } from './geo'
 import { arcgisGeojson, holeJson } from './netz'
 import {
-  bboxOf, bestOverlapFeature, bestOverlapValue, featureLatLon, istLinie, versuch,
+  bboxOf, bestOverlapFeature, bestOverlapValue, featureLatLon, istLinie, versuch, TRAM_OVERLAP_M,
   type Anreicherung, type Bbox, type GeoJsonFeature,
 } from './cityShared'
 
@@ -170,7 +170,12 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
 // tools/oev_takt.py); per BPUIC (= Haltestellen-`Id_opendata`) nachgeschlagen.
 export interface OevInfo {
   oevHalt: boolean; oevHaltName?: string; oevTram: boolean; oevBus: boolean; busPerH?: number
+  // Bus-Takt AUF der Strecke (Umweltspur; seit 21.10.2026, wie linien_takt.py im lokalen Rechner): Fahrten/h an der
+  // nächsten Haltekante einer Buslinie des Segments (bis STRECKE_HALT_M), auch ohne Haltestelle im Abschnitt
+  streckePerH?: number; streckeHalt?: string
 }
+const STRECKE_HALT_M = 250   // Haltestellenabstand: so weit darf die Haltekante der Linie vom Segment liegen (QUAY_MAXD lokal)
+const LINIE_HALT_M = 30      // Haltestelle «an der Linie», wenn ≤ 30 m von ihr
 
 const STOP_DIST_M = 30  // Haltestelle gilt als „im Abschnitt", wenn ≤ 30 m vom Segment.
 
@@ -222,11 +227,25 @@ export async function loadOev(cands: Cand[]): Promise<{ byId: Map<number, OevInf
       const d = distPointToLineM(st, dense)
       if (d <= nearD) { nearD = d; nearStop = st }
     }
-    const oevTram = tramLines.some(l => overlapScore(dense, l, OVERLAP_M) >= MIN_FRACTION)
-    const oevBus = busLines.some(l => overlapScore(dense, l, OVERLAP_M) >= MIN_FRACTION)
+    const oevTram = tramLines.some(l => overlapScore(dense, l, TRAM_OVERLAP_M) >= MIN_FRACTION)
+    const segLinien = busLines.filter(l => overlapScore(dense, l, OVERLAP_M) >= MIN_FRACTION)
+    const oevBus = segLinien.length > 0
     if (nearStop || oevTram || oevBus) {
       const busPerH = nearStop?.bpuic ? takt[nearStop.bpuic] : undefined
-      byId.set(c.id, { oevHalt: !!nearStop, oevHaltName: nearStop?.name, oevTram, oevBus, busPerH })
+      // Takt auf der Strecke: die nächste Haltestelle mit Takt, die an einer Buslinie des Segments liegt
+      let strecke: { perH: number; name: string } | undefined
+      if (oevBus) {
+        let best = STRECKE_HALT_M
+        for (const st of stops) {
+          const perH = st.bpuic ? takt[st.bpuic] : undefined
+          if (perH == null || perH <= 0) continue
+          const d = distPointToLineM(st, dense)
+          if (d > best || !segLinien.some(l => distPointToLineM(st, l) <= LINIE_HALT_M)) continue
+          best = d; strecke = { perH, name: st.name }
+        }
+      }
+      byId.set(c.id, { oevHalt: !!nearStop, oevHaltName: nearStop?.name, oevTram, oevBus, busPerH,
+        ...(strecke ? { streckePerH: strecke.perH, streckeHalt: strecke.name } : {}) })
     }
   }
   return { byId, stops, fehler }

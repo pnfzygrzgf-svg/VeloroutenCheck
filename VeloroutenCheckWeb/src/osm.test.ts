@@ -205,7 +205,7 @@ describe('wayToCand — Seiten, Breite je Seite, Einbahn', () => {
 
 import { spurenAusTags } from './osm'
 import { candToSection } from './strecke'
-import { startAufteilung, pfeileVon, markierungAus } from './aufteilung'
+import { startAufteilung, pfeileVon, markierungAus, pruefeTeil, umfeldVon, formJeSeite } from './aufteilung'
 describe('Fahrspuren und Pfeile aus OSM (lanes, turn:lanes; Kirchenfeldstrasse, way 44425592)', () => {
   const kirchenfeld = { highway: 'primary', name: 'Kirchenfeldstrasse', 'cycleway:both': 'lane', lanes: '3', 'lanes:forward': '2',
     'lanes:backward': '1', maxspeed: '50', 'turn:lanes:forward': 'left|through;right' }
@@ -250,4 +250,38 @@ describe('Einbahn mit Bus bzw. Tram im Gegenverkehr (Helvetiaplatz, way 49893401
   })
   it('ohne oneway:bus=no keine Gegenspur', () =>
     expect(wayToCand({ id: 1, tags: { ...tags, 'oneway:bus': undefined as unknown as string }, geometry: geom })!.oevGegen).toBeUndefined())
+})
+
+describe('OSM: Radweg als eigener Weg (cycleway:left=separate, Monbijoustrasse)', () => {
+  it('als Hinweis je Seite, ohne Führungsform', () => {
+    const c = wayToCand({ id: 44425585, tags: { highway: 'secondary', 'cycleway:left': 'separate', 'cycleway:right': 'no', maxspeed: '30' },
+      geometry: [{ lat: 46.93655, lon: 7.43656 }, { lat: 46.93698, lon: 7.43645 }] })!
+    expect(c.radwegSeparat).toEqual({ rechts: false, links: true })
+    const s = candToSection(c)
+    expect(s.radwegSeparat).toEqual({ a: false, b: true })
+    expect(s.ist).toBe('Mischverkehr')
+  })
+})
+
+describe('Umweltspur (Schwarzenburgstrasse, way 1568298241; 21.10.2026)', () => {
+  const tags = { highway: 'secondary', 'cycleway:left': 'share_busway', lanes: '3', 'lanes:backward': '2', 'lanes:bus:backward': '1', 'lanes:forward': '1', maxspeed: '50' }
+  const geom = [{ lat: 46.9372, lon: 7.4260 }, { lat: 46.9362, lon: 7.4252 }]
+  it('Seite B Umweltspur mit Busspur in OSM; Takt aus dem Fahrplan vorbelegt', () => {
+    const c = wayToCand({ id: 1568298241, tags, geometry: geom })!
+    expect(c.spuren).toEqual({ vor: ['keine'], rueck: ['keine', 'keine'], busRueck: 1 })
+    const s = candToSection({ ...c, bern: { oevBus: true, streckePerH: 8, streckeHalt: 'Dübystrasse' } }, true)
+    expect([s.ist, s.gegen?.ist]).toEqual(['Mischverkehr', 'Umweltspur'])
+    expect([s.gegen?.oevTakt, s.gegen?.quelle.oevTakt]).toEqual([7.5, 'fahrplan'])
+    expect(s.spuren).toEqual({ a: ['keine'], b: ['keine', 'keine'], busB: 1 })
+  })
+  it('Ausgangslage: die Umweltspur ersetzt die Busspur der Seite B; Vorgabe Q 4 und Takt-Hinweis', () => {
+    const c = wayToCand({ id: 1568298241, tags, geometry: geom })!
+    const s = { ...candToSection({ ...c, bern: { oevBus: true, streckePerH: 10 } }, true), fahrbahnbreite: 10.2, routentyp: 'Velohauptroute' as const }
+    const a = startAufteilung(s, 'bern')
+    expect(a.teile.map(t => [t.art, t.breite])).toEqual([['Umweltspur', 4.5], ['Fahrspur', 2.85], ['Fahrspur', 2.85]])
+    const p = pruefeTeil(a.teile[0], 'Velohauptroute', undefined, umfeldVon(s, a.teile, undefined, 'bern'))
+    expect([p.soll, p.status]).toEqual([4.5, 'ok'])
+    expect(p.hinweis).toContain('Bus-Takt 6,0 Min: unter 7,5 Min')
+    expect(formJeSeite(a.teile, 'B')?.ist).toBe('Umweltspur')
+  })
 })

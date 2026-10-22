@@ -39,7 +39,7 @@ export function dtvEff(s: Section, city: Stadt): number {
 }
 // Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
 export type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram' | 'strassentyp' | 'richtung'
-  | 'fahrbahnbreite' | 'parkenRechts'
+  | 'fahrbahnbreite' | 'parkenRechts' | 'oevTakt'
 
 // ── Seiten: die beiden Fahrtrichtungen eines Abschnitts (seit 14.10.2026) ──────
 // Seite A = Fahrtrichtung entlang der Strecke, Seite B = Gegenrichtung (Rechtsverkehr: je die
@@ -58,7 +58,7 @@ export interface Seite {
   haltestelleBreite: number    // NaN = leer
   ohneHaltestelle: boolean     // der Abschnitt hat eine Haltestelle, aber nicht auf dieser Seite
 }
-export type SeitenQuelle = Partial<Record<'ist' | 'breite' | 'parkenRechts', Quelle>>
+export type SeitenQuelle = Partial<Record<'ist' | 'breite' | 'parkenRechts' | 'oevTakt', Quelle>>
 export interface GegenSeite extends Seite { quelle: SeitenQuelle }
 export type Richtung = 'beide' | 'eine'
 
@@ -88,7 +88,8 @@ export interface Section extends Seite {
   obs?: ObsStats               // OpenBikeSensor-Überholabstände (Zusatzinfo, nicht in der Note)
   oev?: OevInfo                // ÖV-Erkennung (Geoportal): Haltestelle/Modus im Abschnitt
   aufteilung?: Aufteilung      // geplanter Querschnitt (aufteilung.ts; nur Bern, nicht in der Note von heute)
-  trottoir?: { a: number; b: number; parkA?: boolean; parkB?: boolean; gruenA?: number; gruenB?: number }  // Trottoirbreite je Seite aus der AV [m], NaN = keines;
+  trottoir?: { a: number; b: number; parkA?: boolean; parkB?: boolean; gruenA?: number; gruenB?: number; wegA?: boolean; wegB?: boolean }  // Trottoirbreite je Seite aus der AV [m], NaN = keines;
+                                       // wegA/B: der parallele Radweg der Seite liegt auf der Trottoirfläche (wegAufTrottoir), die Ausgangslage zieht ihn ab
                                        // gruenA/B: Grünstreifen zwischen Fahrbahn und Trottoir (trottoirbreiten, seit 20.10.2026)
                                        // parkA/B: Parkierung dieser Seite liegt auf der Trottoirfläche (parkierungAufTrottoir)
   fussnetzGeoportal?: FussNetz         // Fussverkehrsnetz aus dem Richtplan Fussverkehr (fussnetz.ts; nur Bern)
@@ -101,12 +102,22 @@ export interface Section extends Seite {
   // gemessene Ausgangslage der Planung
   querschnittHeute?: { teile: Aufteilung['teile']; fahrbahn: number; seitenraum: number }
   gesamtbreite?: number   // Ganzer Querschnitt, am Luftbild gemessen [m] (seit 21.10.2026): verfügbare Breite heute
+  // Haltestelleninsel aus der AV (breitenmessung.ts haltestelleninsel, seit 21.10.2026): Seite, Insel (Wartebereich), Streifen
+  // dahinter (Veloumfahrung bzw. Fahrspur), Fahrbahn bis zum Bord gegenüber, Trottoir hinter dem Streifen [m]
+  haltestelleninsel?: { seite: 'a' | 'b'; insel: number; aussen: number; innen: number; trottoir: number | null; laenge: number
+    wartehalle?: 'insel' | 'hinten' | 'keine' }
+  hsTypAngenommen?: { a?: boolean; b?: boolean }   // Haltestellentyp aus der AV vorbelegt (zu bestätigen)
+  radwegSeparat?: { a: boolean; b: boolean }   // OSM: Radweg als eigener Weg neben der Strasse (cycleway:*=separate), Hinweis
+  parallelWeg?: { a?: number; b?: number }     // OSM-Way des parallelen Wegs, der die Seite bildet (parallelwege.ts)
   oevGegen?: boolean      // Einbahn, Bus bzw. Tram auch in der Gegenrichtung (OSM oneway:bus/psv/tram=no; seit 21.10.2026)
   parkVersetzt?: 'a' | 'b'   // Parkierung abwechselnd A und B: diese Seite zählt im Querschnitt nicht (parkierungVersetzt)
   // Fahrspuren je Seite aus OSM (lanes, turn:lanes; seit 20.10.2026): je Spur der Pfeil, von links nach rechts in
   // Fahrtrichtung der Seite; auf der Einbahn nur a
-  spuren?: { a: Markierung[]; b: Markierung[] }
+  spuren?: { a: Markierung[]; b: Markierung[]; busA?: number; busB?: number }   // busA/B: Busspuren der Seite (OSM lanes:bus)
   mittelinsel?: Mittelinsel | null     // Mittelinsel aus der AV (mittelinsel, seit 20.10.2026); null = gesucht, keine
+  // Mittelstreifen (lange Insel, breitenmessung.ts mittelstreifen, seit 21.10.2026): trennt die Fahrbahn von einem zweiten
+  // Fahrbahnteil (Gegenfahrbahn, ÖV-Trassee); nur Hinweis, die Fahrbahn reicht bis zum Streifen
+  mittelstreifen?: { seite: 'a' | 'b'; breite: number; laenge: number; dahinter: number } | null
 }
 let nextId = 1
 // Neuer Abschnitt: datenartige Felder leer (DTV/Tempo/Führungsform/Breite/Routentyp),
@@ -138,6 +149,7 @@ function quelleA(s: Section): SeitenQuelle {
   if (s.quelle.ist) q.ist = s.quelle.ist
   if (s.quelle.breite) q.breite = s.quelle.breite
   if (s.quelle.parkenRechts) q.parkenRechts = s.quelle.parkenRechts
+  if (s.quelle.oevTakt) q.oevTakt = s.quelle.oevTakt
   return q
 }
 // Seite B als eigene Gegenseite (Kopie von A, wenn sie bisher «gleich wie A» war).
@@ -165,7 +177,7 @@ export function tauscheSeiten(s: Section): Section {
   if (s.gegen) {
     const b = s.gegen
     Object.assign(neu, waehle(b))
-    for (const k of ['ist', 'breite', 'parkenRechts'] as const) {
+    for (const k of ['ist', 'breite', 'parkenRechts', 'oevTakt'] as const) {
       if (b.quelle[k]) neu.quelle[k] = b.quelle[k]
       else delete neu.quelle[k]
     }
@@ -176,13 +188,19 @@ export function tauscheSeiten(s: Section): Section {
   // Die Aufteilung ist von links (Rand B) nach rechts (Rand A) geordnet: mit den Seiten spiegeln.
   if (s.aufteilung) neu.aufteilung = { ...s.aufteilung, teile: [...s.aufteilung.teile].reverse() }
   if (s.trottoir) {
-    const { parkA, parkB, gruenA, gruenB } = s.trottoir
+    const { parkA, parkB, gruenA, gruenB, wegA, wegB } = s.trottoir
     neu.trottoir = { a: s.trottoir.b, b: s.trottoir.a, ...(parkB ? { parkA: true } : {}), ...(parkA ? { parkB: true } : {}),
-      ...(gruenB != null ? { gruenA: gruenB } : {}), ...(gruenA != null ? { gruenB: gruenA } : {}) }
+      ...(gruenB != null ? { gruenA: gruenB } : {}), ...(gruenA != null ? { gruenB: gruenA } : {}),
+      ...(wegB ? { wegA: true } : {}), ...(wegA ? { wegB: true } : {}) }
   }
   if (s.parkTiefe) neu.parkTiefe = { a: s.parkTiefe.b, b: s.parkTiefe.a }
   if (s.parkVersetzt) neu.parkVersetzt = s.parkVersetzt === 'a' ? 'b' : 'a'
-  if (s.spuren) neu.spuren = { a: s.spuren.b, b: s.spuren.a }
+  if (s.spuren) neu.spuren = { a: s.spuren.b, b: s.spuren.a, ...(s.spuren.busB ? { busA: s.spuren.busB } : {}), ...(s.spuren.busA ? { busB: s.spuren.busA } : {}) }
+  if (s.radwegSeparat) neu.radwegSeparat = { a: s.radwegSeparat.b, b: s.radwegSeparat.a }
+  if (s.parallelWeg) neu.parallelWeg = { ...(s.parallelWeg.b != null ? { a: s.parallelWeg.b } : {}), ...(s.parallelWeg.a != null ? { b: s.parallelWeg.a } : {}) }
+  if (s.mittelstreifen) neu.mittelstreifen = { ...s.mittelstreifen, seite: s.mittelstreifen.seite === 'a' ? 'b' : 'a' }
+  if (s.haltestelleninsel) neu.haltestelleninsel = { ...s.haltestelleninsel, seite: s.haltestelleninsel.seite === 'a' ? 'b' : 'a' }
+  if (s.hsTypAngenommen) neu.hsTypAngenommen = { a: s.hsTypAngenommen.b, b: s.hsTypAngenommen.a }
   if (s.querschnittHeute) neu.querschnittHeute = { ...s.querschnittHeute, teile: [...s.querschnittHeute.teile].reverse() }
   if (s.candIds) {
     const gegen = new Set(s.candsGegenA ?? [])
@@ -212,6 +230,10 @@ type WaySeite = 'rechts' | 'links'
 // Velostrasse (Geoportal) > Markierung > OSM. Bis zum 14.10.2026 galt das für den Abschnitt
 // als Ganzes — ein Radstreifen auf einer Seite machte beide Seiten zum Radstreifen.
 function seiteAusCand(c: Cand, w: WaySeite): { ist: IstFuehrungsform; breite: number; quelle: SeitenQuelle } {
+  // Paralleler Weg als Veloführung dieser Seite (parallelwege.ts): Form und Breite aus dem Weg; ein Weg in beide
+  // Richtungen gilt für beide Seiten
+  const pw = c.parallel?.[w] ?? (c.parallel?.[w === 'rechts' ? 'links' : 'rechts']?.beide ? c.parallel?.[w === 'rechts' ? 'links' : 'rechts'] : undefined)
+  if (pw) return { ist: pw.form, breite: pw.breite ?? NaN, quelle: { ist: 'osm', ...(pw.breite != null ? { breite: 'osm' as const } : {}) } }
   const osmIst = (c.seiten?.[w] ?? c.ist) as IstFuehrungsform
   const osmBr = c.breiteSeiten ? c.breiteSeiten[w] : c.breite
   const osm = (ist: IstFuehrungsform, q: Quelle): { ist: IstFuehrungsform; breite: number; quelle: SeitenQuelle } =>
@@ -277,7 +299,18 @@ export function candToSection(c: Cand, gleich = true): Section {
     if (c.veloGegenverkehr) s.osmVeloGegenverkehr = true
     if (c.oevGegen) s.oevGegen = true
   }
-  if (c.spuren) s.spuren = aWay === 'rechts' ? { a: c.spuren.vor, b: c.spuren.rueck } : { a: c.spuren.rueck, b: c.spuren.vor }
+  if (c.radwegSeparat) s.radwegSeparat = { a: c.radwegSeparat[aWay], b: c.radwegSeparat[bWay] }
+  if (c.parallel) {
+    const pa = c.parallel[aWay] ?? (c.parallel[bWay]?.beide ? c.parallel[bWay] : undefined)
+    const pb = c.parallel[bWay] ?? (c.parallel[aWay]?.beide ? c.parallel[aWay] : undefined)
+    s.parallelWeg = { ...(pa ? { a: pa.wayId } : {}), ...(pb ? { b: pb.wayId } : {}) }
+  }
+  if (c.spuren) {
+    const sp = c.spuren, vorA = aWay === 'rechts'
+    s.spuren = { a: vorA ? sp.vor : sp.rueck, b: vorA ? sp.rueck : sp.vor,
+      ...((vorA ? sp.busVor : sp.busRueck) ? { busA: vorA ? sp.busVor : sp.busRueck } : {}),
+      ...((vorA ? sp.busRueck : sp.busVor) ? { busB: vorA ? sp.busRueck : sp.busVor } : {}) }
+  }
   s.peilungA = peilungEntlang(c.geom, aWay === 'rechts')
   s.candsGegenA = aWay === 'rechts' ? [] : [c.id]
   if (c.bern?.luftbild) s.luftbild = { a: c.bern.luftbild[aWay], b: c.bern.luftbild[bWay] }
@@ -289,7 +322,16 @@ export function candToSection(c: Cand, gleich = true): Section {
   // Bus → Frequenzband aus dem Takt (GTFS). Haltestellentyp bleibt manuell.
   if (c.bern && (c.bern.oevHalt || c.bern.oevTram || c.bern.oevBus)) {
     s.oev = { oevHalt: !!c.bern.oevHalt, oevHaltName: c.bern.oevHaltName,
-              oevTram: !!c.bern.oevTram, oevBus: !!c.bern.oevBus, busPerH: c.bern.busPerH }
+              oevTram: !!c.bern.oevTram, oevBus: !!c.bern.oevBus, busPerH: c.bern.busPerH,
+              ...(c.bern.streckePerH ? { streckePerH: c.bern.streckePerH, streckeHalt: c.bern.streckeHalt } : {}) }
+    // Bus-Takt der Umweltspur aus dem Fahrplan (seit 21.10.2026): Takt [Min] = 60 / Fahrten pro Stunde (Abendspitze,
+    // stärkste Richtung), auf halbe Minuten; Chip «Fahrplan», von Hand änderbar
+    const perH = c.bern.streckePerH ?? c.bern.busPerH
+    if (perH && perH > 0) {
+      const taktMin = Math.round(60 / perH * 2) / 2
+      if (s.ist === 'Umweltspur') { s.oevTakt = taktMin; s.quelle.oevTakt = 'fahrplan' }
+      if (s.gegen?.ist === 'Umweltspur') s.gegen = { ...s.gegen, oevTakt: taktMin, quelle: { ...s.gegen.quelle, oevTakt: 'fahrplan' } }
+    }
     const auto = oevAngebotAuto(s.oev)
     // Herkunft der ÖV-Erkennung: Bern = amtlich (Geoportal), Zürich = OSM.
     // Bern setzt kein oevQuelle → Standard 'amtlich' (verhaltensidentisch wie bisher).
@@ -457,6 +499,15 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
     if (rep.sec.strassentyp === '') {
       const s = spender.find(x => x.sec.strassentyp !== '')
       if (s) { rep.sec.strassentyp = s.sec.strassentyp; rep.sec.quelle.strassentyp = s.sec.quelle.strassentyp }
+    }
+    // Bus-Takt der Umweltspur (Fahrplan): vom längsten Segment, das ihn kennt
+    if (rep.sec.ist === 'Umweltspur' && !Number.isFinite(rep.sec.oevTakt)) {
+      const s = spender.find(x => x.sec.ist === 'Umweltspur' && Number.isFinite(x.sec.oevTakt))
+      if (s) { rep.sec.oevTakt = s.sec.oevTakt; rep.sec.quelle.oevTakt = s.sec.quelle.oevTakt }
+    }
+    if (rep.sec.richtung === 'beide' && seiteB(rep.sec).ist === 'Umweltspur' && !Number.isFinite(seiteB(rep.sec).oevTakt)) {
+      const s = spender.find(x => seiteB(x.sec).ist === 'Umweltspur' && Number.isFinite(seiteB(x.sec).oevTakt))
+      if (s) { const g0 = gegenVon(rep.sec); rep.sec.gegen = { ...g0, oevTakt: seiteB(s.sec).oevTakt, quelle: { ...g0.quelle, oevTakt: gegenVon(s.sec).quelle.oevTakt } } }
     }
     if (!rep.sec.spuren) {
       const s = spender.find(x => x.sec.spuren)

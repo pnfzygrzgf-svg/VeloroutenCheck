@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bordkanten, messeAbKante, messeFlaeche, mittelinsel, parkierungTiefe, parkierungVersetzt, abstand, aufZentimeter, type Kante } from './breitenmessung'
+import { bordkanten, messeAbKante, messeFlaeche, mittelinsel, mittelstreifen, parkierungTiefe, parkierungVersetzt, abstand, aufZentimeter, type Kante } from './breitenmessung'
 import { zuLv95, zuWgs, type P } from './lv95'
 import type { AvFlaeche } from './av'
 
@@ -113,6 +113,10 @@ describe('trottoirbreiten — ab Bordsteinkante über die Trottoirfläche', () =
       gruen(rechteck(0, 8.3, 100, 9.8))])
     expect(r.links).toBeCloseTo(2.2, 6)
     expect(r.gruen?.links).toBeCloseTo(1.8, 6)
+    // Grünstreifen direkt hinter dem Bord, dahinter das Trottoir (Schwarzenburgstrasse, 21.10.2026)
+    const v = trottoirbreiten([achse], [strasseF, gruen(rechteck(0, 8, 100, 10.4)), trottoir(rechteck(0, 10.4, 100, 13.4))])
+    expect(v.links).toBeCloseTo(3, 6)
+    expect(v.gruen?.links).toBeCloseTo(2.4, 6)
     // einzelne Baumscheiben (unter der Hälfte der Querschnitte): kein Grünstreifen
     const b = trottoirbreiten([achse], [strasseF, { art: 'Trottoir', ringe: [rechteck(0, 8, 100, 11), rechteck(20, 8.5, 25, 9.5)] },
       gruen(rechteck(20, 8.5, 25, 9.5))])
@@ -168,9 +172,15 @@ describe('Mittelinsel (Nutzerbefund Laubeggstrasse, 20.10.2026)', () => {
   it('erkannt: Breite, Länge, Fahrbahn samt Insel', () => {
     expect(mittelinsel([achse], av)).toEqual({ breite: 2, laenge: 8, fahrbahn: 10, anzahl: 1 })
   })
-  it('die Fahrbahnbreite läuft über die Insel bis zum Bord der Gegenseite', () => {
+  it('die Fahrbahnbreite läuft über eine kurze Insel (bis 30 m) bis zum Bord der Gegenseite', () => {
+    const kurz = [strasse([rechteck(0, 0, 100, 10), rechteck(35, 4, 65, 6)]), { art: 'Verkehrsinsel', ringe: [rechteck(35, 4, 65, 6)] }]
+    expect(fahrbahnbreite([achse], kurz)?.median).toBeCloseTo(10, 1)
+  })
+  it('eine lange Insel ist ein Mittelstreifen (Bubenbergplatz, 21.10.2026): die Fahrbahn reicht bis zum Streifen', () => {
     const lange = [strasse([rechteck(0, 0, 100, 10), rechteck(5, 4, 95, 6)]), { art: 'Verkehrsinsel', ringe: [rechteck(5, 4, 95, 6)] }]
-    expect(fahrbahnbreite([achse], lange)?.median).toBeCloseTo(10, 1)
+    expect(fahrbahnbreite([achse], lange)?.median).toBeCloseTo(4, 1)
+    expect(mittelinsel([achse], lange)).toBeNull()
+    expect(mittelstreifen([achse], lange)).toEqual({ seite: 'links', breite: 2, laenge: 90, dahinter: 4 })
   })
   it('eine Insel am Rand (dahinter keine Strasse) ist keine Mittelinsel', () => {
     const rand: AvFlaeche[] = [strasse([rechteck(0, 0, 100, 8)]), { art: 'Verkehrsinsel', ringe: [rechteck(46, 8, 54, 10)] }]

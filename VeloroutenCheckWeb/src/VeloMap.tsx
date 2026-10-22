@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { ObsStats } from './obs'
@@ -25,6 +25,8 @@ export interface Cand {
   ohneFahrbahn?: boolean                  // Weg ohne Fahrbahn (OSM highway=cycleway/footway/path), seit 20.10.2026
   spuren?: Spuren                         // Fahrspuren je Richtung mit Pfeilen (OSM lanes/turn:lanes), seit 20.10.2026
   veloGegenverkehr?: boolean              // Einbahn, Velo in der Gegenrichtung erlaubt (oneway:bicycle=no)
+  radwegSeparat?: { rechts: boolean; links: boolean }   // OSM cycleway:*=separate je Way-Seite (Hinweis)
+  parallel?: import('./parallelwege').Parallel          // parallele Wege als Veloführung je Way-Seite (parallelwege.ts), seit 21.10.2026
   oevGegen?: boolean                      // Einbahn, Bus/ÖV in der Gegenrichtung (oneway:bus|psv|tram=no), seit 21.10.2026
   speed?: number                          // nur wenn ein maxspeed-Tag vorhanden ist
   breite?: number                         // nur wenn ein width-/cycleway:width-Tag vorhanden ist
@@ -54,6 +56,7 @@ export interface Cand {
     oevTram?: boolean                     // Tram-Linie verläuft entlang (OeV_Linien)
     oevBus?: boolean                      // Bus/Trolleybus verläuft entlang
     busPerH?: number                      // Bus-Fahrten/h Abendspitze (GTFS, stärkste Richtung)
+    streckePerH?: number; streckeHalt?: string   // Bus-Takt auf der Strecke (nächste Haltekante einer Linie des Segments, Bern)
     oevQuelle?: 'amtlich' | 'osm'         // Herkunft der ÖV-Erkennung (Bern: amtlich/Geoportal; Zürich: OSM)
   }
   obs?: ObsStats                          // OpenBikeSensor-Überholabstände (Zusatzinfo, siehe obs.ts)
@@ -127,7 +130,8 @@ const ORTHO = 'Orthofoto (swisstopo)'
 
 export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
                           attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
-                          teilModus = false, orthofoto = false, messung = null, av = null, obsStand, formen, onMeldung }: {
+                          teilModus = false, orthofoto = false, messung = null, av = null, obsStand, formen, onMeldung, onMarkerClick }: {
+  onMarkerClick?: (num: number) => void   // Abschnitts-Marker angeklickt (öffnet den Abschnitt im Panel, seit 22.10.2026)
   cands: Cand[]
   onLineClick: (id: number, lat: number, lon: number) => void   // Linie angeklickt (an-/abwählen oder teilen)
   onMapClick?: (lat: number, lon: number) => void
@@ -155,6 +159,17 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   const avRef = useRef<L.LayerGroup | null>(null)                   // AV-Flächen (Planung)
   const basisRef = useRef<Record<string, L.TileLayer>>({})          // Hintergründe nach Name
   const aktiveBasis = useRef(ORTHO)                                 // gerade gezeigter Hintergrund
+  const [basis, setBasis] = useState(ORTHO)                         // … für die Knöpfe auf der Karte
+  const namenRef = useRef<L.TileLayer | null>(null)                 // Strassennamen (nur über dem Orthofoto)
+  const [namen, setNamen] = useState(false)                       // Strassennamen aus, bis sie gewählt sind (Nutzerentscheid 22.10.2026)
+  // Hintergrund wechseln (Knöpfe unten links auf der Karte, seit 22.10.2026 statt der Leaflet-Ebenenwahl):
+  // die Strassennamen gehen mit dem Orthofoto an und aus, solange sie nicht abgewählt sind.
+  const basisWechseln = (name: string, mitNamen = namen) => {
+    const map = mapRef.current, b = basisRef.current, nm = namenRef.current
+    if (!map || !b[name]) return
+    if (aktiveBasis.current !== name) { b[aktiveBasis.current]?.remove(); b[name].addTo(map); aktiveBasis.current = name; setBasis(name) }
+    if (nm) { if (name === ORTHO && mitNamen) { if (!map.hasLayer(nm)) nm.addTo(map) } else nm.remove() }
+  }
 
   const lineRef = useRef<Map<number, L.Polyline>>(new Map())  // Cand-ID → Linie (für Highlight)
   const lastFit = useRef(0)            // zuletzt umgesetzter fitKey
@@ -173,9 +188,10 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     if (!elRef.current || mapRef.current) return
     const map = L.map(elRef.current).setView(center, 13)  // Anfangs-Mitte je Stadt
     // Drei Hintergründe zur Wahl: CyclOSM (Velo-Infrastruktur betont), Orthofoto (Führungsform
-    // am Luftbild prüfbar — OSM-Tags sagen nicht immer, was gebaut ist), Hell (ruhiger Kontrast
-    // für die Linienfarben). swisstopo deckt alle vier Städte ab. Standard ist seit 16.10.2026 das
-    // Orthofoto (Nutzerwunsch), vorher CyclOSM.
+    // am Luftbild prüfbar — OSM-Tags sagen nicht immer, was gebaut ist), Landeskarte grau (ruhiger
+    // Kontrast für die Linienfarben; seit 22.10.2026 statt «Hell (Carto)», dessen Kacheln ohne
+    // API-Schlüssel nur noch «API key required» zeigen). swisstopo deckt alle vier Städte ab.
+    // Standard ist seit 16.10.2026 das Orthofoto (Nutzerwunsch), vorher CyclOSM.
     const basemaps: Record<string, L.TileLayer> = {
       'CyclOSM': L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
         maxZoom: 19, attribution: '© OpenStreetMap-Mitwirkende · Stil: CyclOSM',
@@ -185,15 +201,20 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       [ORTHO]: L.tileLayer(
         'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',
         { maxZoom: 21, maxNativeZoom: 20, attribution: '© swisstopo' }),
-      'Hell (Carto)': L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20, attribution: '© OpenStreetMap-Mitwirkende · © CARTO',
-      }),
+      'Landeskarte grau (swisstopo)': L.tileLayer(
+        'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/{z}/{x}/{y}.jpeg',
+        { maxZoom: 21, maxNativeZoom: 19, attribution: '© swisstopo' }),
     }
     basemaps[ORTHO].addTo(map)
-    L.control.layers(basemaps, undefined, { position: 'topright' }).addTo(map)
+    // Strassennamen über dem Orthofoto (Nutzerbefund 22.10.2026: auf dem Luftbild fehlen die Namen):
+    // amtliches Strassenverzeichnis von swisstopo als WMS, ohne Schlüssel. Beim Wechsel auf eine
+    // Karte mit eigenen Namen geht die Ebene aus, zurück aufs Orthofoto wieder an; von Hand abwählbar.
+    namenRef.current = L.tileLayer.wms('https://wms.geo.admin.ch/', {
+      layers: 'ch.swisstopo.amtliches-strassenverzeichnis', format: 'image/png', transparent: true,
+      // erst ab Stufe 17: darunter zeichnet der WMS die Strassen als weisse Flächen und deckt das Luftbild zu
+      minZoom: 17, maxZoom: 21, attribution: '© swisstopo (Strassennamen)',
+    })
     basisRef.current = basemaps
-    // Die Ebenen-Auswahl meldet auch programmatische Wechsel (Leaflet: baselayerchange).
-    map.on('baselayerchange', (e: L.LayersControlEvent) => { aktiveBasis.current = e.name })
     // Schmales Layout: Zoomen nur mit Ctrl/Cmd + Mausrad. Die Karte liegt mitten in einer scrollenden
     // Seite — ein «nacktes» Rad-Ereignis soll die Seite scrollen, nicht die Karte zoomen (Scroll-Falle).
     // Breitbild (BREIT_MQ, Karte links in voller Höhe, daneben scrollt nur das Panel): keine Scroll-Falle,
@@ -349,17 +370,19 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         `<div style="position:absolute;left:5px;top:-10px;width:0;height:0;border-left:6px solid transparent;` +
         `border-right:6px solid transparent;border-bottom:10px solid #1e293b;` +
         `filter:drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff)"></div></div>`
-      L.marker([m.lat, m.lon], {
-        interactive: false,
+      const mk = L.marker([m.lat, m.lon], {
+        interactive: !!onMarkerClick,
         icon: L.divIcon({
           className: '',
           iconSize: [22, 22], iconAnchor: [11, 11],
-          html: `<div style="position:relative;width:22px;height:22px">${pfeil}` +
+          html: `<div style="position:relative;width:22px;height:22px${onMarkerClick ? ';cursor:pointer' : ''}">${pfeil}` +
             `<div style="position:absolute;left:0;top:0;width:22px;height:22px;border-radius:999px;background:#1e293b;` +
             `color:#fff;font:700 12px/22px system-ui,sans-serif;text-align:center;` +
             `box-shadow:0 0 0 2px #fff">${m.num}</div></div>`,
         }),
       }).addTo(lg)
+      // Klick auf die Nummer öffnet den Abschnitt im Panel (seit 22.10.2026)
+      if (onMarkerClick) mk.bindTooltip(`Abschnitt ${m.num} öffnen`, { direction: 'top' }).on('click', () => onMarkerClick(m.num))
     }
     // ÖV-Haltestellen als kleine Marker (Punkt + Name im Tooltip; klick-transparent).
     for (const st of stops ?? []) {
@@ -381,7 +404,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       map.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 })
       lastFit.current = fitKey
     }
-  }, [cands, onLineClick, markers, stops, attribution, fitKey, obsStand, formen])
+  }, [cands, onLineClick, markers, stops, attribution, fitKey, obsStand, formen, onMarkerClick])
 
   // Teil-Modus: Fadenkreuz über den Linien (CSS-Klasse am Karten-Container, index.css).
   useEffect(() => {
@@ -390,13 +413,10 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
 
   // Orthofoto einschalten (Breitenmessung). Es bleibt danach eingeschaltet: Zurück zu CyclOSM
   // (höchstens Stufe 19) hätte die Karte nach einer Messung auf Stufe 20/21 herausgezoomt
-  // (16.10.2026). Den Hintergrund wechselt man oben rechts.
+  // (16.10.2026). Den Hintergrund wechselt man unten links auf der Karte.
   useEffect(() => {
-    const map = mapRef.current, b = basisRef.current
-    if (!map || !b[ORTHO] || !orthofoto || aktiveBasis.current === ORTHO) return
-    b[aktiveBasis.current]?.remove()
-    b[ORTHO].addTo(map)
-  }, [orthofoto])
+    if (orthofoto) basisWechseln(ORTHO)
+  }, [orthofoto])   // eslint-disable-line react-hooks/exhaustive-deps
 
   // AV-Flächen zeichnen (Planung), mit Quellenangabe, solange sie zu sehen sind.
   useEffect(() => {
@@ -483,6 +503,26 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
 
   return (
     // Höhe/Rahmen über die Klasse (index.css): im Breitbild-Layout füllt die Karte die linke Spalte.
-    <div ref={elRef} className="vrc-velomap" />
+    // Die Knöpfe für den Hintergrund liegen als eigenes Element neben dem Leaflet-Container (nicht darin:
+    // React und Leaflet sollen sich keine Kindelemente teilen).
+    <div className="vrc-velomap-wrap">
+      <div ref={elRef} className="vrc-velomap" />
+      <div className="vrc-hintergrund" role="group" aria-label="Kartenhintergrund">
+        {([[ORTHO, 'Luftbild'], ['Landeskarte grau (swisstopo)', 'Karte'], ['CyclOSM', 'CyclOSM']] as const).map(([name, label]) => (
+          <button key={name} type="button" aria-pressed={basis === name} onClick={() => basisWechseln(name)} title={name}
+                  className={basis === name ? 'aktiv' : undefined}>
+            {label}
+          </button>
+        ))}
+        {/* Ergänzung zum Luftbild, kein eigener Hintergrund: Kästchen «+ Strassennamen», nur beim Luftbild (seit 22.10.2026
+            standardmässig aus) */}
+        {basis === ORTHO && (
+          <label className="namen" title="Strassennamen aus dem amtlichen Strassenverzeichnis über dem Luftbild (swisstopo, ab Zoomstufe 17)">
+            <input type="checkbox" checked={namen} onChange={e => { setNamen(e.target.checked); basisWechseln(ORTHO, e.target.checked) }} />
+            Strassennamen
+          </label>
+        )}
+      </div>
+    </div>
   )
 }

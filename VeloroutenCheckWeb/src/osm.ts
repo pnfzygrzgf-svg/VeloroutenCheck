@@ -94,7 +94,8 @@ export interface OsmWay { id: number; tags?: Record<string, string>; geometry?: 
 // rueck = dagegen; je Spur von links nach rechts in Fahrtrichtung. Aus lanes, lanes:forward/backward und
 // turn:lanes(:forward/:backward). Ohne Angabe je Richtung: bei Gegenverkehr die Hälfte von lanes (nur gerade Zahl).
 // Busspuren zählt OSM in lanes mit; sie werden nicht abgezogen.
-export interface Spuren { vor: Markierung[]; rueck: Markierung[] }
+// bus: Busspuren je Richtung (lanes:bus:forward/backward, seit 21.10.2026): in lanes enthalten; mit Umweltspur ersetzt sie eine Spur
+export interface Spuren { vor: Markierung[]; rueck: Markierung[]; busVor?: number; busRueck?: number }
 const PFEIL_OSM: Record<string, 'links' | 'geradeaus' | 'rechts'> = {
   left: 'links', slight_left: 'links', sharp_left: 'links', through: 'geradeaus', right: 'rechts', slight_right: 'rechts', sharp_right: 'rechts',
 }
@@ -122,7 +123,9 @@ export function spurenAusTags(t: Record<string, string>, einbahn: 'vor' | 'rueck
   if (n != null && nr == null && nv != null && n > nv) nr = n - nv
   if (n != null && nv == null && nr == null && n % 2 === 0) nv = nr = n / 2
   const vor = richtung(nv, pv), rueck = richtung(nr, pr)
-  return vor && rueck ? { vor, rueck } : undefined
+  if (!vor || !rueck) return undefined
+  const bv = zahl(t['lanes:bus:forward']), br = zahl(t['lanes:bus:backward'])
+  return { vor, rueck, ...(bv ? { busVor: bv } : {}), ...(br ? { busRueck: br } : {}) }
 }
 
 // OSM-Breitenangabe → Meter. OSM schreibt «1.5», «1.5 m», vereinzelt «1,5» — parseFloat las
@@ -163,6 +166,10 @@ export function wayToCand(w: OsmWay): Cand | null {
     ...(isRoad ? { breiteSeiten: { rechts: brSeite('right'), links: brSeite('left') } } : { ohneFahrbahn: true }),
     ...(einbahn ? { einbahn } : {}), ...(spuren ? { spuren } : {}),
     ...(einbahn && t['oneway:bicycle'] === 'no' ? { veloGegenverkehr: true } : {}),
+    // Radweg als eigener Weg neben der Strasse (cycleway:*=separate; seit 21.10.2026): nur Hinweis, setzt keine Führungsform
+    ...(isRoad && (['right', 'left'] as const).some(sd => (t[`cycleway:${sd}`] ?? t['cycleway:both'] ?? t.cycleway) === 'separate')
+      ? { radwegSeparat: { rechts: (t['cycleway:right'] ?? t['cycleway:both'] ?? t.cycleway) === 'separate',
+          links: (t['cycleway:left'] ?? t['cycleway:both'] ?? t.cycleway) === 'separate' } } : {}),
     // Einbahn, Bus bzw. ÖV in beide Richtungen (seit 21.10.2026, Nutzerbefund Helvetiaplatz)
     ...(einbahn && (t['oneway:bus'] === 'no' || t['oneway:psv'] === 'no' || t['oneway:tram'] === 'no') ? { oevGegen: true } : {}),
     speed: isFinite(sp) && sp > 0 ? sp : undefined,
@@ -267,6 +274,27 @@ async function overpassFetch(query: string): Promise<unknown> {
     }
   }
   throw new Error('Overpass überlastet (HTTP ' + (lastStatus || 'Netzwerkfehler') + ')')
+}
+
+// Wartehallen und Perrons an Haltestellen um eine Geometrie (seit 21.10.2026, Nutzerbefund Monbijoustrasse): wo eine
+// Wartehalle steht (amenity=shelter mit shelter_type=public_transport, Perron mit shelter=yes) bzw. ein Perron ohne
+// Wartehalle (shelter=no). Mittelpunkte in WGS84; leer, wenn Overpass nicht antwortet.
+export interface HaltestellenPunkt { lat: number; lon: number; wartehalle: boolean }
+export async function ladeWartehallen(geom: { lat: number; lon: number }[]): Promise<HaltestellenPunkt[]> {
+  if (!geom.length) return []
+  const pad = 0.0004
+  const s = Math.min(...geom.map(p => p.lat)) - pad, n = Math.max(...geom.map(p => p.lat)) + pad
+  const w = Math.min(...geom.map(p => p.lon)) - pad, e = Math.max(...geom.map(p => p.lon)) + pad
+  const bb = `${s},${w},${n},${e}`
+  const q = `[out:json][timeout:20];(nwr[amenity=shelter][shelter_type=public_transport](${bb});nwr[public_transport=platform][shelter](${bb}););out center tags;`
+  const data = await overpassFetch(q) as { elements?: { lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: Record<string, string> }[] }
+  return (data.elements ?? []).flatMap(el => {
+    const p = el.center ?? (el.lat != null && el.lon != null ? { lat: el.lat, lon: el.lon } : null)
+    if (!p) return []
+    const t = el.tags ?? {}
+    const mit = t.amenity === 'shelter' || t.shelter === 'yes'
+    return t.amenity === 'shelter' || t.shelter === 'yes' || t.shelter === 'no' ? [{ lat: p.lat, lon: p.lon, wartehalle: mit }] : []
+  })
 }
 
 // Overpass-Abfrage → Kandidaten (Rohsegmente).

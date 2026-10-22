@@ -758,6 +758,8 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
     const b = k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? q?.ersatz ?? velobreite(k, RS, 'minimal')
     if (f === RS) t.push({ art: 'Velostreifen', breite: b })
     if (f === RW) { t.push({ art: 'Radweg', breite: b }); t.push({ art: 'Trennstreifen', breite: k.m.trennung }) }
+    // Umweltspur bleibt (seit 21.10.2026 eigenes Teil); ihre Breite von heute, sonst die Vorgabe
+    if (f === UMWELTSPUR) t.push({ art: 'Umweltspur', breite: k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? soll(k, UMWELTSPUR) ?? 4.5 })
     return t
   }
   const links = rand('B'), rechts = rand('A').reverse()
