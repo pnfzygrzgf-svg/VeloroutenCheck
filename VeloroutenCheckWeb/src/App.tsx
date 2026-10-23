@@ -993,12 +993,13 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
   )
 }
 
-function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrbahnbreite, fbLaden, onBericht, onQuerschnitt, onQuerschnittVerwerfen, ort, onTeileMessen, kartenAktionen }: {
+function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrbahnbreite, fbLaden, onBericht, onQuerschnitt, onQuerschnittVerwerfen, onAlsHeute, ort, onTeileMessen, kartenAktionen }: {
   kartenAktionen?: React.ReactNode        // Abschnitt ohne Karte: gewählte Segmente übernehmen / teilen, direkt im Hinweis (Nutzerbefund 22.10.2026)
   ort?: Ort                               // Street View auch in der Planung (Nutzerwunsch 21.10.2026)
   onQuerschnitt?: () => void              // Querschnitt am Luftbild aufnehmen (seit 20.10.2026)
   onTeileMessen?: (teil?: { ziel: 'plan' | 'heute'; nr?: number }) => void   // Teil für Teil am Luftbild messen (seit 21.10.2026); mit Teil: dessen Breite
   onQuerschnittVerwerfen?: () => void     // den von Hand aufgenommenen Querschnitt von heute verwerfen
+  onAlsHeute?: () => void                 // die Elemente der Planung als Querschnitt von heute setzen (seit 23.10.2026)
   section: Section
   heute: AbschnittErgebnis               // Bewertung des Abschnitts wie eingegeben
   city: CityId
@@ -1244,7 +1245,14 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                 </button>
               ))}
             </span>
-            {unveraendert && <span>Die Planung ist noch wie heute.</span>}
+            {unveraendert ? <span>Die Planung ist noch wie heute.</span> : onAlsHeute && (
+              // Ausgangslage von Hand (Nutzerwunsch 23.10.2026: Parkierung ergänzen, Breiten ändern): in der Liste unten
+              // bearbeiten und hier als «heute» setzen; danach ist die Planung wieder gleich wie heute
+              <button type="button" onClick={onAlsHeute} style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                      title="Die Elemente der Planung werden zum Querschnitt von heute (Ausgangslage); so lassen sich Parkierung, Breiten und Elemente der Ausgangslage von Hand setzen">
+                Planung als heute übernehmen
+              </button>
+            )}
           </div>
           {skizze !== 'plan' && <QuerschnittSkizze titel="Heute" teile={ausgang.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} richtungen={{ a: rA, b: rB }} />}
           {skizze !== 'heute' && <QuerschnittSkizze titel="Planung" teile={a.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} richtungen={{ a: rA, b: rB }} />}
@@ -2103,6 +2111,15 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
                           onBericht={onBericht} onQuerschnitt={onQuerschnitt} ort={ort}
                           onTeileMessen={onMessen && section.candIds?.length ? teil => onMessen('A', true, teil) : undefined}
                           kartenAktionen={hatMarker ? undefined : kartenAktionen}
+                          onAlsHeute={section.aufteilung ? () => {
+                            // wie «Querschnitt am Luftbild · als heute» (qsUebernehmen): Fahrbahn = Summe der Fahrbahnelemente, Rest ausserhalb
+                            const teile = section.aufteilung!.teile.map(t => ({ ...t, angenommen: undefined }))
+                            const sum = (ts: Teil[]) => Math.round(ts.reduce((x, t) => x + (Number.isFinite(t.breite) ? t.breite : 0), 0) * 100) / 100
+                            const fahrbahn = sum(teile.filter(istFahrbahnTeil)), seitenraum = sum(teile.filter(t => !istFahrbahnTeil(t)))
+                            onChange({ querschnittHeute: { teile, fahrbahn, seitenraum }, gesamtbreite: undefined,
+                              ...(fahrbahn > 0 ? { fahrbahnbreite: fahrbahn } : {}),
+                              aufteilung: { ...section.aufteilung!, teile: teile.map(t => ({ ...t })), fahrbahn: fahrbahn > 0 ? fahrbahn : section.aufteilung!.fahrbahn, seitenraum } })
+                          } : undefined}
                           onQuerschnittVerwerfen={() => onChange({ querschnittHeute: undefined, gesamtbreite: undefined,
                             ...(section.aufteilung && JSON.stringify(section.aufteilung) === JSON.stringify(startAufteilung(section, city, CITIES[city].breiten))
                               ? { aufteilung: startAufteilung({ ...section, querschnittHeute: undefined, gesamtbreite: undefined }, city, CITIES[city].breiten) } : {}) })} />
@@ -2422,6 +2439,8 @@ interface Messung {
   ziel?: 'plan' | 'heute'                         // in die Planung oder in den Querschnitt von heute (Section.querschnittHeute)
   teilArt?: TeilArt
   teilNr?: number
+  an?: number                                     // Einfügestelle des neuen Elements (Index in der Liste); fehlt = ganz rechts (Rand A)
+  wie?: 'neu' | 'teil'                            // was mit der Messung geschieht: neues Element einfügen oder Breite eines Elements ersetzen
 }
 
 export default function App() {
@@ -3059,9 +3078,9 @@ export default function App() {
     // Formen, deren Breite die ganze Fläche ist (Velostrasse, Wege): Messart «Ganze Fläche» vorgewählt
     const f = seite === 'A' ? seiteA(sections[idx]) : seiteB(sections[idx])
     const flaeche = FLAECHEN_FORMEN.includes(f.ist as IstFuehrungsform)
-    setMessung({ secId, seite, titel: plan ? `Abschnitt ${idx + 1}, Element für Element` : `Abschnitt ${idx + 1}, Seite ${seite}`,
+    setMessung({ secId, seite, titel: plan ? `Abschnitt ${idx + 1}` : `Abschnitt ${idx + 1}, Seite ${seite}`,
       modus: plan ? 'hand' : flaeche ? 'flaeche' : 'kante', kanten: [], laden: true, punkte: [],
-      ...(plan ? { plan: true, teilArt: 'Trottoir' as TeilArt, ziel: teil?.ziel ?? 'plan', teilNr: teil?.nr } : {}) })
+      ...(plan ? { plan: true, teilArt: 'Trottoir' as TeilArt, ziel: teil?.ziel ?? 'plan', teilNr: teil?.nr, wie: teil?.nr != null ? 'teil' as const : 'neu' as const } : {}) })
     void messAvLaden(e, n, r)
   }
   // Karte weit verschoben → Bordsteinkanten um die neue Mitte nachladen.
@@ -3109,8 +3128,11 @@ export default function App() {
     const m = messungRef.current
     if (!m?.ergebnis || !m.plan) return
     const wert = aufZentimeter(m.ergebnis.breite)
-    const neuTeile = (teile: Teil[]) => (ziel === 'neu' ? [...teile, { art: m.teilArt ?? 'Trottoir', breite: wert }]
-      : teile.map((t, i) => (i === m.teilNr ? { ...t, breite: wert, angenommen: undefined } : t)))
+    // neues Element an der gewählten Stelle (Nutzerbefund 23.10.2026: die Position war nicht wählbar, «Heute» hat keine Liste)
+    const neuTeile = (teile: Teil[]) => {
+      if (ziel !== 'neu') return teile.map((t, i) => (i === m.teilNr ? { ...t, breite: wert, angenommen: undefined } : t))
+      const t = [...teile]; t.splice(Math.min(m.an ?? t.length, t.length), 0, { art: m.teilArt ?? 'Trottoir', breite: wert }); return t
+    }
     setSections(prev => prev.map(s => {
       if (s.id !== m.secId) return s
       if (m.ziel === 'heute') {
@@ -3131,8 +3153,8 @@ export default function App() {
     }))
     setMessung({ ...m, punkte: [], ergebnis: undefined })
     const wohin = m.ziel === 'heute' ? 'im Querschnitt von heute' : 'in der Planung'
-    setMsg(ziel === 'neu' ? `${numDE(wert, 2)} m als «${TEIL_LABEL[m.teilArt ?? 'Trottoir']}» ${wohin} angefügt; weiter messen oder «Fertig».`
-      : `${numDE(wert, 2)} m auf Element ${(m.teilNr ?? 0) + 1} ${wohin} übertragen; weiter messen oder «Fertig».`, 'ok')
+    setMsg(ziel === 'neu' ? `${numDE(wert, 2)} m als neues Element «${TEIL_LABEL[m.teilArt ?? 'Trottoir']}» ${wohin} eingefügt; weiter messen oder «Fertig».`
+      : `${numDE(wert, 2)} m als Breite von Element ${(m.teilNr ?? 0) + 1} ${wohin} übernommen; weiter messen oder «Fertig».`, 'ok')
   }
   const messungUebernehmen = () => {
     const m = messungRef.current
@@ -3698,10 +3720,12 @@ export default function App() {
                 {messung.plan ? (() => {
                   const sec = sections.find(s => s.id === messung.secId)
                   const teile = (messung.ziel === 'heute' ? (sec?.querschnittHeute?.teile ?? (sec ? startAufteilung(sec, city, cityCfg.breiten).teile : [])) : sec?.aufteilung?.teile) ?? []
-                  const kann = !!messung.ergebnis
                   return (
-                    <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
-                      <div role="group" aria-label="Ziel" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    // Zeilen als Raster «Beschriftung · Auswahl · Knopf» mit minmax(0, 1fr): die Auswahl schrumpft unter ihre
+                    // Textbreite (Nutzerbefund 23.10.2026: «Haltestelle: Wartebereich …» machte die Zeile breiter als die Leiste,
+                    // die Knöpfe waren abgeschnitten)
+                    <div style={{ marginTop: 8, display: 'grid', gap: 6, minWidth: 0 }}>
+                      <div role="group" aria-label="Ziel" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                         <span>Ziel:</span>
                         <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                           {([['plan', 'Planung'], ['heute', 'Heute (Ausgangslage)']] as const).map(([z, label]) => (
@@ -3713,33 +3737,71 @@ export default function App() {
                           ))}
                         </span>
                       </div>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span>Als neues Element:</span>
-                        <select value={messung.teilArt ?? 'Trottoir'} aria-label="Art des neuen Elements" style={{ ...selectStyle, flex: '1 1 160px', minWidth: 0 }}
-                                onChange={e => setMessung({ ...messung, teilArt: e.target.value as TeilArt })}>
-                          <TeilOptionen />
-                        </select>
-                        <button type="button" onClick={() => messungAlsTeil('neu')} disabled={!kann}
-                                style={{ border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 12.5, fontWeight: 600,
-                                         background: kann ? 'var(--accent)' : 'var(--text-faint)', color: '#fff', cursor: kann ? 'pointer' : 'default' }}>
-                          Anfügen
-                        </button>
-                      </div>
-                      {teile.length > 0 && (
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <span>Breite auf Element:</span>
-                          <select value={messung.teilNr ?? 0} aria-label="Bestehendes Element" style={{ ...selectStyle, flex: '1 1 160px', minWidth: 0 }}
-                                  onChange={e => setMessung({ ...messung, teilNr: Number(e.target.value) })}>
-                            {teile.map((t, i) => <option key={i} value={i}>{i + 1} · {TEIL_LABEL[t.art]}{Number.isFinite(t.breite) ? ` (${numDE(t.breite, 2)} m)` : ''}</option>)}
-                          </select>
-                          <button type="button" onClick={() => messungAlsTeil('teil')} disabled={!kann} style={{ ...kleinKnopfStyle, cursor: kann ? 'pointer' : 'default' }}>
-                            Übertragen
+                      {(() => {
+                        // Zwei Wege, klar getrennt (Nutzerbefund 23.10.2026): entweder ein NEUES Element einfügen (Art und Stelle) oder die
+                        // Breite eines BESTEHENDEN Elements ersetzen (welches). Ein Knopf, der sagt, was mit der Messung geschieht.
+                        const wie = messung.wie ?? 'neu'
+                        const zeile: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: 6, alignItems: 'center', minWidth: 0 }
+                        const auswahl: React.CSSProperties = { ...selectStyle, width: '100%', minWidth: 0, padding: '6px 8px', fontSize: 14 }
+                        const an = Math.min(messung.an ?? teile.length, teile.length)
+                        const stelle = an === 0 ? 'ganz links' : an >= teile.length ? 'ganz rechts' : `hinter ${an} · ${TEIL_LABEL[teile[an - 1].art]}`
+                        const nr = Math.min(messung.teilNr ?? 0, Math.max(0, teile.length - 1))
+                        const wert = messung.ergebnis ? numDE(aufZentimeter(messung.ergebnis.breite), 2) : null
+                        const aktion = !wert ? 'Zuerst messen: zwei Punkte auf dem Luftbild anklicken'
+                          : wie === 'neu' ? `${wert} m als neues Element «${TEIL_LABEL[messung.teilArt ?? 'Trottoir']}» ${stelle} einfügen`
+                          : teile.length ? `${wert} m als Breite von Element ${nr + 1} · ${TEIL_LABEL[teile[nr].art]} übernehmen` : 'Kein Element vorhanden'
+                        const geht = !!wert && (wie === 'neu' || teile.length > 0)
+                        return (<>
+                          <div role="group" aria-label="Verwendung der Messung" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <span>Messung:</span>
+                            <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                              {([['neu', 'Neues Element einfügen'], ['teil', 'Breite eines Elements ersetzen']] as const).map(([w, label]) => (
+                                <button key={w} type="button" aria-pressed={wie === w} onClick={() => setMessung({ ...messung, wie: w })}
+                                        style={{ border: 'none', padding: '4px 9px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                                                 background: wie === w ? 'var(--accent)' : '#fff', color: wie === w ? '#fff' : 'var(--text)' }}>
+                                  {label}
+                                </button>
+                              ))}
+                            </span>
+                          </div>
+                          {wie === 'neu' ? (<>
+                            <div style={zeile}>
+                              <span>Art:</span>
+                              <select value={messung.teilArt ?? 'Trottoir'} aria-label="Art des neuen Elements" style={auswahl}
+                                      onChange={e => setMessung({ ...messung, teilArt: e.target.value as TeilArt })}>
+                                <TeilOptionen />
+                              </select>
+                            </div>
+                            {/* Einfügestelle: ganz links (Rand B), hinter einem bestehenden Element, ganz rechts (Rand A, Standard) */}
+                            <div style={zeile}>
+                              <span>Stelle:</span>
+                              <select value={an} aria-label="Einfügestelle des neuen Elements"
+                                      title="Wo das neue Element in den Querschnitt kommt (von links nach rechts in Fahrtrichtung der Seite A)"
+                                      style={auswahl} onChange={e => setMessung({ ...messung, an: Number(e.target.value) })}>
+                                <option value={0}>ganz links (Rand Seite B)</option>
+                                {teile.slice(0, -1).map((t, i) => <option key={i} value={i + 1}>hinter {i + 1} · {TEIL_LABEL[t.art]}</option>)}
+                                {teile.length > 0 && <option value={teile.length}>ganz rechts (Rand Seite A)</option>}
+                              </select>
+                            </div>
+                          </>) : (
+                            <div style={zeile}>
+                              <span>Element:</span>
+                              <select value={nr} aria-label="Bestehendes Element" style={auswahl} disabled={!teile.length}
+                                      onChange={e => setMessung({ ...messung, teilNr: Number(e.target.value) })}>
+                                {teile.map((t, i) => <option key={i} value={i}>{i + 1} · {TEIL_LABEL[t.art]}{Number.isFinite(t.breite) ? ` (${numDE(t.breite, 2)} m)` : ''}</option>)}
+                              </select>
+                            </div>
+                          )}
+                          <button type="button" onClick={() => messungAlsTeil(wie)} disabled={!geht}
+                                  style={{ border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 600, textAlign: 'left',
+                                           background: geht ? 'var(--accent)' : 'var(--text-faint)', color: '#fff', cursor: geht ? 'pointer' : 'default' }}>
+                            {aktion}
                           </button>
-                        </div>
-                      )}
+                        </>)
+                      })()}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         <button type="button" onClick={() => setMessung(null)} style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: 'var(--accent)' }}>Fertig</button>
-                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Neue Elemente kommen rechts dazu (Rand der Seite A); in der Liste lassen sie sich verschieben.</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Nach jedem Übernehmen lässt sich weiter messen; «Fertig» schliesst das Werkzeug.</span>
                       </div>
                     </div>
                   )
