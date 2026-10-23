@@ -18,7 +18,7 @@ import type { AvFlaeche } from './av'
 import { artVorschlag, aufnahmeTeile, avArtAn, fangeLage, grenzenAufLinie, querLinie, GANZ, type QsArt, FANG_MAX_M as QS_FANG_MAX_M, FANG_PX as QS_FANG_PX } from './querschnittAufnahme'
 import {
   candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
-  luftbildHinweis, luftbildUebernehmen, setzeGemesseneBreite,
+  luftbildHinweis, luftbildUebernehmen, setzeGemesseneBreite, velostrasseGleich, velostrasseBreiteAusFahrbahn,
   type Quelle, type QuelleFeld, type Section, type Seite, type SeitenQuelle,
 } from './strecke'
 import { bewerteAbschnitt, aufzaehlen, type AbschnittErgebnis } from './bewertung'
@@ -246,7 +246,7 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
     fahrplan: { t: 'opentransportdata', bg: '#dcfce7', fg: '#166534', title: 'Fahrplan (opentransportdata.swiss / GTFS)' },
     markierung: { t: 'Markierung', bg: '#ffedd5', fg: '#9a3412', title: 'Aus der Fahrbahnmarkierung ermittelt (lokale Auswertung): Velostreifen auf dieser Seite — oder keiner, wenn die Striche nur auf der anderen Seite liegen' },
     luftbild: { t: 'Luftbild', bg: '#e0f2fe', fg: '#075985', title: 'Aus dem Luftbild-Hinweis übernommen (SWISSIMAGE © swisstopo, Erkennung mit dem Modell remote_velo der ETH Zürich) — bitte am Orthofoto prüfen' },
-    av: { t: 'AV', bg: '#f1f5f9', fg: '#334155', title: `Aus der amtlichen Vermessung ermittelt: Fahrbahn von Bordstein zu Bordstein, Median der Querschnitte alle 5 m (${avTitle || 'Amtliche Vermessung, geodienste.ch'})` },
+    av: { t: 'AV', bg: '#f1f5f9', fg: '#334155', title: `Aus der amtlichen Vermessung ermittelt: Fahrbahn von Bordstein zu Bordstein, Median der Querschnitte alle 5 m; bei der Velostrasse die Breite = Fahrbahn ohne Parkierung (${avTitle || 'Amtliche Vermessung, geodienste.ch'})` },
     gemessen: { t: 'gemessen', bg: '#ede9fe', fg: '#5b21b6', title: `Am Luftbild gemessen: ab der Bordsteinkante der amtlichen Vermessung bis zur angeklickten Stelle der Markierung (Luftbild © swisstopo; ${avTitle || 'Amtliche Vermessung, geodienste.ch'})` },
     angenommen: { t: '≤ 2000 angenommen', bg: '#fef9c3', fg: '#854d0e', title: 'Flächendeckende Verkehrsdaten Bern: kein Eintrag ⇒ DTV ≤ 2000 (ausserhalb Altstadt)' },
     fehlt: { t: 'Eingabe nötig', bg: '#fee2e2', fg: '#b91c1c' },
@@ -1638,7 +1638,15 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
     if ('ist' in patch) quelle.ist = 'manuell'
     if ('breite' in patch) quelle.breite = 'manuell'
     if ('parkenRechts' in patch) quelle.parkenRechts = 'manuell'
-    onChange({ gegen: { ...g, ...patch, quelle } })
+    // Velostrasse: eine Breite für beide Richtungen (velostrasseGleich)
+    const neu = velostrasseGleich({ ...section, gegen: { ...g, ...patch, quelle } }, 'B')
+    onChange({ gegen: neu.gegen, ...('breite' in patch && neu.breite !== section.breite ? { breite: neu.breite, quelle: neu.quelle } : {}) })
+  }
+  // Änderung an Seite A: bei der Velostrasse geht die Breite auch an die Seite B (seit 23.10.2026)
+  const aendereA = (patch: Partial<Seite>) => {
+    if (!('breite' in patch) || !section.gegen) { onChange(patch); return }
+    const neu = velostrasseGleich({ ...section, ...patch, quelle: { ...section.quelle, breite: 'manuell' } }, 'A')
+    onChange({ ...patch, ...(neu.gegen !== section.gegen ? { gegen: neu.gegen } : {}) })
   }
 
   return (
@@ -1954,7 +1962,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
             Gilt für beide Fahrtrichtungen, mit einer gemeinsamen Note.
           </div>
           <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite, parkenRechts: q.parkenRechts, oevTakt: q.oevTakt }}
-                       onChange={onChange} city={city} oevAngebot={section.oevAngebot}
+                       onChange={aendereA} city={city} oevAngebot={section.oevAngebot}
                        onMessen={onMessen && (() => onMessen('A'))} typAngenommen={!!section.hsTypAngenommen?.a}
                        onTypBestaetigt={() => onChange({ hsTypAngenommen: { ...section.hsTypAngenommen, a: false } })} />
         </div>
@@ -1972,7 +1980,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
           </button>
         </div>
         <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite, parkenRechts: q.parkenRechts, oevTakt: q.oevTakt }}
-                     onChange={onChange} city={city} oevAngebot={section.oevAngebot}
+                     onChange={aendereA} city={city} oevAngebot={section.oevAngebot}
                        onMessen={onMessen && (() => onMessen('A'))} typAngenommen={!!section.hsTypAngenommen?.a}
                        onTypBestaetigt={() => onChange({ hsTypAngenommen: { ...section.hsTypAngenommen, a: false } })} />
       </div>
@@ -2860,7 +2868,7 @@ export default function App() {
     return lage ? { ...hsi, wartehalle: lage } : hsi
   }
   const fahrbahnbreiteErmitteln = async (secId: number, ziel: 'abschnitt' | 'plan' = 'abschnitt') => {
-    const s = sections.find(x => x.id === secId)
+    const s = sectionsRef.current.find(x => x.id === secId)   // aktueller Stand, auch kurz nach dem Übernehmen
     if (!s || fbLaden != null) return
     if (!avAchsen(s).length) { setMsg('Fahrbahnbreite: Der Abschnitt hat keine Geometrie auf der Karte.', 'info'); return }
     setFbLaden(secId); setMsg('Ermittle die Fahrbahnbreite aus der amtlichen Vermessung …', 'info')
@@ -2886,7 +2894,7 @@ export default function App() {
       const wert = Math.round((hsi ? hsi.innen : r.median) * 10) / 10
       setSections(prev => prev.map(x => (x.id !== secId ? x
         : ziel === 'plan' ? (x.aufteilung ? { ...x, aufteilung: { ...x.aufteilung, fahrbahn: wert } } : x)
-        : { ...x, fahrbahnbreite: wert, mittelinsel: insel, quelle: { ...x.quelle, fahrbahnbreite: 'av' } })))
+        : velostrasseNachfuehren({ ...x, fahrbahnbreite: wert, mittelinsel: insel, quelle: { ...x.quelle, fahrbahnbreite: 'av' } }))))
       setMsg(`Fahrbahnbreite ${numDE(wert, 1)} m: Median aus ${r.n} Querschnitten, Spannweite ${numDE(r.min, 1)}–${numDE(r.max, 1)} m. ` +
         'Die Fläche umfasst auch Parkierung, Busbuchten und Tramgleise.'
         + (insel ? ` Mittelinsel ${numDE(insel.breite, 2)} m breit, ${insel.laenge} m lang; an ihr ${numDE(insel.fahrbahn, 1)} m von Bord zu Bord.` : ''), 'ok')
@@ -2896,9 +2904,18 @@ export default function App() {
   }
 
   // Alle Abschnitte ohne Fahrbahnbreite nacheinander aus der AV (Strecken-Knopf, seit 22.10.2026)
-  const fahrbahnbreitenAlle = async (ids: number[]) => {
+  const fahrbahnbreitenAlle = async (ids: number[], grund = '') => {
     for (const id of ids) await fahrbahnbreiteErmitteln(id)
-    setMsg(`Fahrbahnbreiten aus der AV für ${ids.length} ${ids.length === 1 ? 'Abschnitt' : 'Abschnitte'} ermittelt; Einzelheiten je Abschnitt am Chip «AV».`, 'ok')
+    setMsg(`${grund}Fahrbahnbreiten aus der AV für ${ids.length} ${ids.length === 1 ? 'Abschnitt' : 'Abschnitte'} ermittelt; Einzelheiten je Abschnitt am Chip «AV».`, 'ok')
+  }
+  // Velostrasse (Nutzerbefund Militärstrasse 23.10.2026): ihre Breite ist die Fahrbahn ohne Parkierung, also braucht die Bewertung
+  // die Fahrbahnbreite. Für Abschnitte von der Karte mit Velostrasse und ohne Fahrbahnbreite wird sie von selbst aus der AV
+  // ermittelt (nach dem Übernehmen und wenn die Form von Hand auf Velostrasse wechselt); die Breite der Form folgt daraus.
+  const velostrasseAvHolen = (liste: Section[]) => {
+    if (!cityCfg.avKanton) return
+    const ids = liste.filter(s => s.candIds?.length && !Number.isFinite(s.fahrbahnbreite)
+      && (seiteA(s).ist === 'Velostrasse' || (s.richtung === 'beide' && seiteB(s).ist === 'Velostrasse'))).map(s => s.id)
+    if (ids.length) setTimeout(() => void fahrbahnbreitenAlle(ids, 'Velostrasse: '), 0)
   }
 
   // Zoom und Ausschnitt bleiben, solange der Abschnitt (ganz oder teilweise) im Bild ist — wer
@@ -3004,6 +3021,8 @@ export default function App() {
           ...(pt.rechts && tr.rechts != null ? { parkA: true } : {}), ...(pt.links && tr.links != null ? { parkB: true } : {}),
           ...(tr.gruen?.rechts != null ? { gruenA: tr.gruen.rechts } : {}), ...(tr.gruen?.links != null ? { gruenB: tr.gruen.links } : {}) } }
         if (fb) { neu.fahrbahnbreite = Math.round(fb.median * 10) / 10; neu.quelle = { ...x.quelle, fahrbahnbreite: 'av' } }
+        // Velostrasse: Breite = Fahrbahn ohne Parkierung (Q 9), aus der AV vorbelegt, solange sie unbekannt ist (seit 23.10.2026)
+        neu = velostrasseNachfuehren(neu)
         neu.mittelinsel = insel
         neu.mittelstreifen = streifen ? { ...streifen, seite: streifen.seite === 'rechts' ? 'a' : 'b' } : null
         // paralleler Radweg auf der Trottoirfläche: die Ausgangslage zieht ihn vom Trottoir ab (parallelwege.ts)
@@ -3359,8 +3378,9 @@ export default function App() {
     const mit = mitParallelen(cands)
     const zu = mit.filter(c => !c.selected && cands.find(x => x.id === c.id)?.selected)
     setCands(mit)
-    const neu = candsToSections(mit, city)
+    const neu = candsToSections(mit, city).map(velostrasseNachfuehren)
     setSections(neu)
+    velostrasseAvHolen(neu)
     setZuSec(new Set(neu.slice(1).map(s => s.id)))   // nur der erste Abschnitt offen (Akkordeon)
     // Im Planmodus bleiben (Nutzerbefund 22.10.2026: nach dem Übernehmen aus dem Hinweis der Planung landete man in
     // «Bewerten»): alle neuen Abschnitte auf den Reiter «Planen», im ersten die Planung anlegen (nach dem Rendern,
@@ -3376,13 +3396,27 @@ export default function App() {
   // Manuelle Änderung eines getrackten Feldes setzt dessen Herkunft auf „manuell".
   const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram', 'strassentyp', 'richtung',
     'fahrbahnbreite', 'parkenRechts']
+  // Velostrasse: Breite aus Fahrbahnbreite und Parkierung ableiten, sobald beides bekannt ist (strecke.ts, seit 23.10.2026);
+  // greift bei jeder Änderung von Fahrbahnbreite, Form, Parkierung oder Seite B, nach «aus AV ermitteln» und beim Übernehmen
+  const parkBreiteStadt = standardBreite({ art: 'Parkierung', breite: NaN }, 'Veloroute', cityCfg.breiten)
+  const velostrasseNachfuehren = (s: Section): Section =>
+    (Number.isFinite(s.fahrbahnbreite) ? velostrasseBreiteAusFahrbahn(s, s.fahrbahnbreite, parkBreiteStadt) : s)
   const update = (id: number, patch: Partial<Section>) =>
     setSections(prev => prev.map(s => {
       if (s.id !== id) return s
       const quelle = { ...s.quelle }
       for (const k of TRACKED) if (k in patch) quelle[k] = 'manuell'
-      return { ...s, ...patch, quelle }
+      const neu = { ...s, ...patch, quelle }
+      return ['fahrbahnbreite', 'ist', 'parkenRechts', 'gegen', 'richtung'].some(k => k in patch) ? velostrasseNachfuehren(neu) : neu
     }))
+  // Form von Hand auf Velostrasse gewechselt: Fahrbahnbreite aus der AV holen, falls sie fehlt (velostrasseAvHolen)
+  const updateMitAv = (id: number, patch: Partial<Section>) => {
+    update(id, patch)
+    if (patch.ist === 'Velostrasse' || patch.gegen?.ist === 'Velostrasse') {
+      const s = sectionsRef.current.find(x => x.id === id)
+      if (s) velostrasseAvHolen([{ ...s, ...patch }])
+    }
+  }
   const add = () => setSections(prev => [...prev, defaultSection()])
   const remove = (id: number) => setSections(prev => prev.filter(s => s.id !== id))
   const tauschen = (id: number) => setSections(prev => prev.map(s => (s.id === id ? tauscheSeiten(s) : s)))
@@ -4066,7 +4100,7 @@ export default function App() {
             )}
             index={i} section={s} ergebnis={ergebnisse[i]}
             isWorst={i === worstIdx && sections.length > 1}
-            onChange={patch => update(s.id, patch)}
+            onChange={patch => updateMitAv(s.id, patch)}
             onTauschen={() => tauschen(s.id)}
             onLuftbild={welche => luftbildAnnehmen(s.id, welche)}
             onMessen={cityCfg.avKanton ? ((seite, plan, teil) => messungStarten(s.id, seite, plan, teil)) : undefined}

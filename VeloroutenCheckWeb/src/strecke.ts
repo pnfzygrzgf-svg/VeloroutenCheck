@@ -585,9 +585,38 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
 // Herkunft «gemessen». Seite B nur, wenn sie eigene Werte hat; bei gleichen Seiten gilt Seite A
 // für beide.
 export function setzeGemesseneBreite(s: Section, seite: 'A' | 'B', breite: number): Section {
-  if (seite === 'A') return { ...s, breite, quelle: { ...s.quelle, breite: 'gemessen' } }
+  if (seite === 'A') return velostrasseGleich({ ...s, breite, quelle: { ...s.quelle, breite: 'gemessen' } }, 'A')
   const g = gegenVon(s)
-  return { ...s, gegen: { ...g, breite, quelle: { ...g.quelle, breite: 'gemessen' } } }
+  return velostrasseGleich({ ...s, gegen: { ...g, breite, quelle: { ...g.quelle, breite: 'gemessen' } } }, 'B')
+}
+
+// ── Velostrasse: eine Breite für beide Richtungen (seit 23.10.2026, Nutzerbefund Militärstrasse) ──
+// Die Breite der Velostrasse ist das Fahrband der ganzen Fahrbahn ohne Parkierung (Q 9); sie gehört zu keiner Seite.
+// Haben beide Seiten die Form «Velostrasse» mit eigenen Werten (z. B. Parkierung nur auf einer Seite), gilt die Breite
+// der geänderten Seite (von) auch für die andere, samt Herkunft.
+export function velostrasseGleich(s: Section, von: 'A' | 'B'): Section {
+  if (!s.gegen || seiteA(s).ist !== 'Velostrasse' || s.gegen.ist !== 'Velostrasse') return s
+  if (von === 'A') return { ...s, gegen: { ...s.gegen, breite: s.breite, quelle: { ...s.gegen.quelle, breite: s.quelle.breite } } }
+  return { ...s, breite: s.gegen.breite, quelle: { ...s.quelle, breite: s.gegen.quelle.breite } }
+}
+// Breite der Velostrasse aus der Fahrbahnbreite: Fahrbahn minus Parkierung je Seite mit «Parkierung rechts: Ja» (parkBreite,
+// Vorgabe der Stadt), auf 5 cm. Gesetzt, wo die Breite unbekannt ist oder zuletzt so abgeleitet wurde (Herkunft «AV»):
+// ändert sich die Fahrbahnbreite oder die Parkierung, folgt die abgeleitete Breite nach; eine von Hand eingetragene oder
+// gemessene bleibt. Herkunft «AV», wenn die Fahrbahnbreite aus der AV oder gemessen ist, sonst «manuell» (Nutzerfrage 23.10.2026:
+// «warum wird die Breite nicht automatisch eingetragen, wenn Fahrbahnbreite und Parkplätze bekannt sind?»).
+export function velostrasseBreiteAusFahrbahn(s: Section, fahrbahn: number, parkBreite: number): Section {
+  if (!Number.isFinite(fahrbahn)) return s
+  const seiten = bewerteteSeiten(s)
+  if (!seiten.some(x => x.felder.ist === 'Velostrasse')) return s
+  const park = seiten.filter(x => x.felder.parkenRechts === 'ja').length
+  const breite = Math.max(0, Math.round((fahrbahn - park * parkBreite) * 20) / 20)
+  const herkunft: Quelle = s.quelle.fahrbahnbreite === 'av' || s.quelle.fahrbahnbreite === 'gemessen' ? 'av' : 'manuell'
+  const offen = (b: number, q?: Quelle) => !Number.isFinite(b) || q === 'av'
+  let neu = s
+  if (seiteA(s).ist === 'Velostrasse' && offen(s.breite, s.quelle.breite)) neu = { ...neu, breite, quelle: { ...neu.quelle, breite: herkunft } }
+  if (neu.gegen && neu.gegen.ist === 'Velostrasse' && offen(neu.gegen.breite, neu.gegen.quelle.breite))
+    neu = { ...neu, gegen: { ...neu.gegen, breite, quelle: { ...neu.gegen.quelle, breite: herkunft } } }
+  return neu
 }
 
 // ── Radstreifen aus dem Luftbild: Hinweis und Übernehmen (luftbild.ts) ────────

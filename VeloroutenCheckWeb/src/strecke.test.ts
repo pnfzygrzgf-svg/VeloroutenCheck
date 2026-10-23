@@ -394,3 +394,32 @@ describe('Parkierung je Seite aus amtlichen Parkfeldern', () => {
     expect(r.gegen?.parkenRechts).toBe('nein')
   })
 })
+
+import { velostrasseGleich, velostrasseBreiteAusFahrbahn, gegenVon as gegenVon2, defaultSection as leer } from './strecke'
+describe('Velostrasse: eine Breite für beide Richtungen (Militärstrasse, 23.10.2026)', () => {
+  const s = () => { const a = { ...leer(), ist: 'Velostrasse' as const, parkenRechts: 'ja' as const, breite: NaN, quelle: { fahrbahnbreite: 'av' as const } }
+    return { ...a, gegen: { ...gegenVon2(a), parkenRechts: 'nein' as const } } }
+  it('gemessen auf der Seite A gilt auch für B, und umgekehrt', () => {
+    const a = setzeGemesseneBreite(s(), 'A', 4.3)
+    expect(a.gegen?.breite).toBe(4.3); expect(a.gegen?.quelle.breite).toBe('gemessen')
+    const b = setzeGemesseneBreite(s(), 'B', 4.1)
+    expect(b.breite).toBe(4.1); expect(b.quelle.breite).toBe('gemessen')
+  })
+  it('von Hand: velostrasseGleich spiegelt die Breite der geänderten Seite', () => {
+    const v = velostrasseGleich({ ...s(), breite: 5, quelle: { breite: 'manuell' } }, 'A')
+    expect(v.gegen?.breite).toBe(5)
+    const r = { ...leer(), ist: 'Radstreifen' as const, breite: 1.5 }
+    expect(velostrasseGleich({ ...r, gegen: gegenVon2(r) }, 'A')).toEqual({ ...r, gegen: gegenVon2(r) })   // nur bei Velostrasse
+  })
+  it('aus der AV: Fahrbahn minus Parkierung je Seite mit Parkierung, nur wo unbekannt', () => {
+    const v = velostrasseBreiteAusFahrbahn(s(), 6.2, 1.9)
+    expect(v.breite).toBe(4.3); expect(v.gegen?.breite).toBe(4.3); expect(v.quelle.breite).toBe('av')
+    expect(velostrasseBreiteAusFahrbahn({ ...s(), breite: 5 }, 6.2, 1.9).breite).toBe(5)       // eingetragen bleibt
+    // zuletzt abgeleitet («AV»): folgt der neuen Fahrbahnbreite bzw. Parkierung; Herkunft «manuell», wenn die Fahrbahn von Hand ist
+    const ab = { ...v, quelle: { ...v.quelle, fahrbahnbreite: 'av' as const } }
+    expect(velostrasseBreiteAusFahrbahn(ab, 7.0, 1.9).breite).toBe(5.1)
+    expect(velostrasseBreiteAusFahrbahn({ ...ab, gegen: { ...ab.gegen!, parkenRechts: 'ja' } }, 7.0, 1.9).breite).toBe(3.2)
+    expect(velostrasseBreiteAusFahrbahn({ ...s(), quelle: { fahrbahnbreite: 'manuell' } }, 6.2, 1.9).quelle.breite).toBe('manuell')
+    expect(velostrasseBreiteAusFahrbahn({ ...leer(), ist: 'Mischverkehr' }, 6.2, 1.9).breite).toBeNaN()
+  })
+})
