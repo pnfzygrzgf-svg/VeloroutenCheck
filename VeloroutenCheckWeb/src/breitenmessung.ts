@@ -159,7 +159,7 @@ function median(werte: number[]): number {
 
 // Querschnitte alle QUER_SCHRITT_M auf der Strassenfläche, ohne die Segment-Enden: Punkt auf der
 // Achse und die Richtungen nach links und rechts (Einheitsvektoren, links/rechts in Linienrichtung).
-interface Querschnitt { p: P; links: P; rechts: P }
+interface Querschnitt { p: P; links: P; rechts: P; s: number }   // s: Abstand entlang der Achse [m]
 function querschnitte(achsen: P[][], flaechen: AvFlaeche[]): Querschnitt[] {
   const strassen = flaechen.filter(f => f.art === 'Strasse_Weg').map(f => ({ f, box: box(f.ringe) }))
   const aufStrasse = (p: P) => strassen.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
@@ -179,7 +179,7 @@ function querschnitte(achsen: P[][], flaechen: AvFlaeche[]): Querschnitt[] {
         if (s < frei || s > gesamt - frei) continue
         const t = s - bisher
         const p: P = [a[0] + d[0] * t, a[1] + d[1] * t]
-        if (aufStrasse(p)) aus.push({ p, links, rechts })
+        if (aufStrasse(p)) aus.push({ p, links, rechts, s })
       }
       bisher += l
     }
@@ -567,11 +567,19 @@ export function mittelinsel(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[
 // zur Achse: Insel, Streifen (aussen), Fahrbahn von der Insel bis zum Bord gegenüber (innen) und das Trottoir hinter dem
 // Streifen. Unter HS_UMFAHRUNG_MAX_M ist der Streifen eine Veloumfahrung, sonst eine Fahrspur.
 export const HS_INSEL_MIN_LAENGE_M = 15, HS_STREIFEN_MAX_M = 4.5, HS_UMFAHRUNG_MAX_M = 3.0
+// Perron als breites «Trottoir» zwischen zwei Strassenflächen (seit 23.10.2026, Nutzerbefund Helvetiaplatz): die AV führt das
+// Perron einer Haltestelle dort nicht als Verkehrsinsel, sondern als Trottoir von 6 bis 16 m Breite, dahinter eine zweite
+// Strasse (Tramtrassee bzw. andere Fahrbahn). Es gilt als Perron, wenn OSM darauf eine Wartehalle oder ein Perron kennt
+// (perronPunkte, Pflicht: breite Trottoirs zwischen zwei Strassen gibt es auch an Plätzen ohne Haltestelle), es mindestens
+// HS_INSEL_MIN_LAENGE_M lang und höchstens HS_PERRON_MAX_M breit ist. Die Strasse dahinter gehört nicht zum Abschnitt.
+export const HS_PERRON_MAX_M = 12
 const HS_SCHRITT_M = 4
+export interface HsiBasis { seite: 'links' | 'rechts'; insel: number; aussen: number; innen: number; trottoir: number | null; laenge: number }
 // wartehalle: wo die Wartehalle steht (wartehalleLage, aus OSM): auf der Insel, hinter dem Streifen, keine (Perron ohne)
 export type WartehalleLage = 'insel' | 'hinten' | 'keine'
 export interface Haltestelleninsel { seite: 'links' | 'rechts'; insel: number; aussen: number; innen: number; trottoir: number | null; laenge: number
-  wartehalle?: WartehalleLage }
+  wartehalle?: WartehalleLage
+  perron?: boolean }      // Perron als Trottoirfläche zwischen zwei Strassen: aussen ist die Strasse dahinter (nicht Teil des Abschnitts)
 export function haltestelleninsel(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen)): Haltestelleninsel | null {
   const aufStrasse = flaechenTest(flaechen, 'Strasse_Weg'), aufInsel = flaechenTest(flaechen, 'Verkehrsinsel'), aufKurzeInsel = kurzeInselTest(flaechen)
   const aufTrottoir = flaechenTest(flaechen, 'Trottoir')
@@ -654,6 +662,50 @@ export function wartehalleLage(achsen: P[][], flaechen: AvFlaeche[], seite: 'lin
   if (hier.some(x => x.wartehalle && !nahInsel(x.p) && !aufStrasse(x.p))) return 'hinten'
   if (hier.some(x => !x.wartehalle && nahInsel(x.p))) return 'keine'
   return undefined
+}
+
+// ── Perron als Trottoirfläche zwischen zwei Strassen (seit 23.10.2026, Nutzerbefund Helvetiaplatz) ─────────────────
+// Gesucht wird nicht eine Fläche, sondern ein Muster in den Querschnitten (querschnitte, alle QUER_SCHRITT_M): auf einer
+// Seite hinter dem Bord Trottoir von höchstens HS_PERRON_MAX_M, unmittelbar dahinter wieder Strasse (Tramtrassee bzw.
+// zweite Fahrbahn). Die Flächen selbst taugen nicht als Kandidaten: am Helvetiaplatz ist das Perron Teil einer 285 m
+// langen Trottoirfläche über den ganzen Platz. Pflicht ist ein Punkt aus OSM (Wartehalle oder Perron) im Perron eines
+// dieser Querschnitte (bis 0,5 m daneben, längs bis QUER_SCHRITT_M vom Querschnitt): breite Trottoirs zwischen zwei
+// Strassen gibt es auch an Plätzen ohne Haltestelle. Mindestens drei Querschnitte über HS_INSEL_MIN_LAENGE_M; bei beiden
+// Seiten die längere. aussen = die Strasse dahinter (gehört nicht zum Abschnitt), innen = Fahrbahn bis zum Bord gegenüber.
+export function haltestellenperron(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen), punkte: P[]): Haltestelleninsel | null {
+  if (!punkte.length) return null
+  const aufStrasse = flaechenTest(flaechen, 'Strasse_Weg'), aufKurzeInsel = kurzeInselTest(flaechen), aufTrottoir = flaechenTest(flaechen, 'Trottoir')
+  const ringeTr = flaechen.filter(x => x.art === 'Trottoir').map(x => x.ringe)
+  const hinter = (p: P, d: P, s: number): P => [p[0] + d[0] * s, p[1] + d[1] * s]
+  let best: Haltestelleninsel | null = null
+  for (const seite of ['links', 'rechts'] as const) {
+    const treffer: { along: number; w: number; aussen: number; innen: number; mitPunkt: boolean }[] = []
+    for (const q of querschnitte(achsen, flaechen)) {
+      const d = q[seite], gegen = q[seite === 'links' ? 'rechts' : 'links'], achse: P = [-d[1], d[0]]
+      const tB = bisBord(q.p, d, kanten, aufStrasse, aufKurzeInsel), tG = bisBord(q.p, gegen, kanten, aufStrasse, aufKurzeInsel)
+      if (!Number.isFinite(tB) || !Number.isFinite(tG)) continue
+      const bord = hinter(q.p, d, tB)
+      if (!aufTrottoir(hinter(bord, d, SCHRITT_UEBER_M))) continue
+      const w = schnitte(bord, d, ringeTr, HS_PERRON_MAX_M + 1).find(t => t > SCHRITT_UEBER_M && !aufTrottoir(hinter(bord, d, t + SCHRITT_UEBER_M)))
+      if (w == null || w > HS_PERRON_MAX_M || w < TROTTOIR_MIN_M) continue
+      if (!aufStrasse(hinter(bord, d, w + SCHRITT_UEBER_M))) continue
+      const a2 = strahl(hinter(bord, d, w + SCHRITT_UEBER_M), d, kanten, QUER_MAX_M)
+      // Punkt aus OSM im Perron dieses Querschnitts: quer zwischen Bord und Perronrand, längs (lokal) bis QUER_SCHRITT_M daneben
+      const mitPunkt = punkte.some(pt => {
+        const quer = (pt[0] - q.p[0]) * d[0] + (pt[1] - q.p[1]) * d[1], along = (pt[0] - q.p[0]) * achse[0] + (pt[1] - q.p[1]) * achse[1]
+        return quer >= tB - 0.5 && quer <= tB + w + 0.5 && Math.abs(along) <= QUER_SCHRITT_M
+      })
+      treffer.push({ along: q.s, w, aussen: Number.isFinite(a2) ? a2 + SCHRITT_UEBER_M : QUER_MAX_M, innen: tB + tG, mitPunkt })
+    }
+    if (treffer.length < 3 || !treffer.some(t => t.mitPunkt)) continue
+    // Länge: Spanne der Querschnitte entlang der Achse plus ein Raster (jeder Querschnitt steht für QUER_SCHRITT_M)
+    const alongs = treffer.map(t => t.along), laenge = Math.round(Math.max(...alongs) - Math.min(...alongs) + QUER_SCHRITT_M)
+    if (laenge < HS_INSEL_MIN_LAENGE_M) continue
+    const kand: Haltestelleninsel = { seite, insel: Math.round(median(treffer.map(t => t.w)) * 20) / 20, aussen: Math.round(median(treffer.map(t => t.aussen)) * 20) / 20,
+      innen: Math.round(median(treffer.map(t => t.innen)) * 10) / 10, trottoir: null, laenge, perron: true, wartehalle: 'insel' }
+    if (!best || kand.laenge > best.laenge) best = kand
+  }
+  return best
 }
 
 // ── Mittelstreifen (seit 21.10.2026, Nutzerbefund Bubenbergplatz) ────────────────────────────────────────────

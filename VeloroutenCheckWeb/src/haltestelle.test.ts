@@ -108,7 +108,7 @@ describe('Vorschlag im Haltestellenbereich (Nutzerbefund Muristrasse 20.10.2026)
   })
 })
 
-import { haltestelleninsel, mittelinsel, mittelstreifen } from './breitenmessung'
+import { haltestelleninsel, haltestellenperron, mittelinsel, mittelstreifen } from './breitenmessung'
 import { haltestelleninselUebernehmen, startAufteilung as start } from './aufteilung'
 import { seiteB } from './strecke'
 import type { AvFlaeche } from './av'
@@ -179,5 +179,48 @@ describe('Wartehalle aus OSM (Monbijoustrasse 21.10.2026)', () => {
     expect(ohne.teile.slice(0, 3).map(t => t.art)).toEqual(['Haltestelle', 'RadwegAbgesetzt', 'HaltEinstieg'])
     const unbekannt = start({ ...s, haltestelleninsel: { seite: 'b', insel: 2.7, aussen: 1.2, innen: 7.8, trottoir: 3, laenge: 60 } }, 'bern')
     expect(unbekannt.teile[2].art).toBe('Haltestelle')
+  })
+})
+
+describe('Perron als breites Trottoir zwischen zwei Strassen (Helvetiaplatz, 23.10.2026)', () => {
+  const r = (e0: number, n0: number, e1: number, n1: number): P[] => [[e0, n0], [e1, n0], [e1, n1], [e0, n1], [e0, n0]]
+  // Achse nach Osten in der Einbahn-Fahrbahn 7,50; Norden = links = Seite B: Perron 10,00 als Trottoir (60 m lang),
+  // dahinter die zweite Strasse 9,50 (Tramtrassee); Süden Trottoir 2,00
+  const av: AvFlaeche[] = [
+    { art: 'Strasse_Weg', ringe: [r(0, -3.75, 100, 3.75)] },
+    { art: 'Trottoir', ringe: [r(20, 3.75, 80, 13.75)] },
+    { art: 'Strasse_Weg', ringe: [r(0, 13.75, 100, 23.25)] },
+    { art: 'Trottoir', ringe: [r(0, -5.75, 100, -3.75)] },
+  ]
+  const achse: P[] = [[0, 0], [100, 0]]
+  it('nur mit Wartehalle bzw. Perron aus OSM auf der Fläche; Breite, Fahrbahn bis zum Perron, Strasse dahinter', () => {
+    expect(haltestelleninsel([achse], av)).toBeNull()                       // keine Verkehrsinsel
+    expect(haltestellenperron([achse], av, undefined, [])).toBeNull()        // ohne OSM-Punkt: ein Platz, kein Perron
+    expect(haltestellenperron([achse], av, undefined, [[50, 8]])).toEqual({ seite: 'links', insel: 10, aussen: 9.5, innen: 7.5, trottoir: null, laenge: 60,
+      perron: true, wartehalle: 'insel' })
+    expect(haltestellenperron([achse], av, undefined, [[50, -4.5]])).toBeNull()   // Punkt auf dem Trottoir gegenüber: dahinter keine Strasse
+  })
+  it('breiter als 12 m: kein Perron', () => {
+    const breit: AvFlaeche[] = [av[0], { art: 'Trottoir', ringe: [r(20, 3.75, 80, 17.75)] }, { art: 'Strasse_Weg', ringe: [r(0, 17.75, 100, 27)] }, av[3]]
+    expect(haltestellenperron([achse], breit, undefined, [[50, 8]])).toBeNull()
+  })
+  it('Einbahn mit ÖV im Gegenverkehr: Perron auf der Seite B in der Ausgangslage, ohne Fahrspur dahinter; Seite A ohne Typ', () => {
+    const s: Section = { ...defaultSection(), richtung: 'eine', ist: 'Mischverkehr', parkenRechts: 'nein', oevAngebot: 'tram', tram: true, oevGegen: true,
+      trottoir: { a: 2, b: NaN } }
+    const neu = haltestelleninselUebernehmen(s, haltestellenperron([achse], av, undefined, [[50, 8]])!, 'bern', true)
+    expect(neu.fahrbahnbreite).toBe(7.5)
+    expect(neu.haltestelleninsel?.perron).toBe(true)
+    expect(seiteA(neu).haltestellentyp).toBe('keine')            // Perron liegt auf der Seite B; die Einbahn bewertet nur A
+    const a = start(neu)
+    expect(a.teile.map(t => `${t.art} ${t.breite}`)).toEqual(['Haltestelle 10', 'Tram 3.75', 'Tram 3.75', 'Trottoir 2'])
+    expect(a.fahrbahn).toBe(7.5)
+  })
+  it('Perron auf der Seite A der Einbahn: Inselhaltestelle angenommen', () => {
+    const gespiegelt: AvFlaeche[] = av.map(f => ({ ...f, ringe: f.ringe.map(rg => rg.map(([e, n]) => [e, -n] as P)) }))
+    const s: Section = { ...defaultSection(), richtung: 'eine', ist: 'Mischverkehr', parkenRechts: 'nein', oevAngebot: 'tram', tram: true }
+    const neu = haltestelleninselUebernehmen(s, haltestellenperron([achse], gespiegelt, undefined, [[50, -8]])!, 'bern', true)
+    expect(neu.haltestelleninsel?.seite).toBe('a')
+    expect(seiteA(neu).haltestellentyp).toBe('Inselhaltestelle')
+    expect(neu.hsTypAngenommen?.a).toBe(true)
   })
 })

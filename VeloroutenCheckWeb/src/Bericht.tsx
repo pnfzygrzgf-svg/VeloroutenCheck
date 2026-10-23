@@ -23,6 +23,7 @@ import {
   BILD_LABEL, FUSSNETZ, FUSS_QUELLE, STANDARD_QUELLE, MARKIERUNG_LABEL, RICHTWERT_QUELLE, LICHTRAUM_QUELLE, teilName, type Aufteilung,
 } from './aufteilung'
 import { SkizzeSvg, breiteCm } from './Querschnitt'
+import { quellenFuer, quellenZeile } from './quellen'
 import { AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE } from './farben'
 import { ausschnitt, wmsBildUrl } from './kartenbild'
 
@@ -332,7 +333,9 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
               <h2>Quellen</h2>
               <ul className="klein">
                 <li>Richtwerte und Vorgaben: {STANDARD_QUELLE[city]}{city !== 'bern' ? `; Ersatz: ${RICHTWERT_QUELLE}` : ''}; Trottoirs: {FUSS_QUELLE[city]}; Lichtraum von Lastwagen und Bus: {LICHTRAUM_QUELLE}; Tram 2,80 m
-                  (1,40 m ab Gleisachse, Masterplan); Haltestelle 3,10 m und Trennung mit Pfosten 0,70 m: Festlegung VeloroutenCheck.</li>
+                  (1,40 m ab Gleisachse, Masterplan); Trennung mit Pfosten 0,70 m: Festlegung VeloroutenCheck.</li>
+                {/* Werke je Stadt mit Adresse (seit 23.10.2026, quellen.ts) */}
+                {quellenFuer(city, 'vorgabe').map(q => <li key={q.id}>{quellenZeile(q)}</li>)}
                 <li>Luftbild: © swisstopo, SWISSIMAGE (wms.geo.admin.ch)</li>
                 {quellen.map(q => <li key={q}>{q}</li>)}
                 <li>Strassennetz: © OpenStreetMap-Mitwirkende, ODbL</li>

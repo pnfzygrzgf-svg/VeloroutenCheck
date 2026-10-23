@@ -663,10 +663,11 @@ export const einbahnParkLinks = (s: Section): boolean => s.richtung === 'eine' &
 // der Rest bis zur Gesamtbreite (statt der gemessenen Trottoirs)
 export function startAufteilung(s: Section, stadt: Stadt = 'bern', breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>): Aufteilung {
   let a = startAufteilungRoh(s, stadt, breiten)
-  // Haltestelleninsel: die Insel liegt ausserhalb der Fahrbahn (bis zur Insel); ein Fahrstreifen dahinter (HS 5) zählt zur Fahrbahn
-  const hsi = s.richtung === 'beide' && !s.querschnittHeute ? s.haltestelleninsel : undefined
+  // Haltestelleninsel: die Insel liegt ausserhalb der Fahrbahn (bis zur Insel); ein Fahrstreifen dahinter (HS 5) zählt zur Fahrbahn;
+  // hinter einem Perron (Helvetiaplatz) liegt eine zweite Strasse, die nicht zum Abschnitt gehört. Auch auf der Einbahn (seit 23.10.2026).
+  const hsi = !s.querschnittHeute ? s.haltestelleninsel : undefined
   if (hsi) a = { ...a, seitenraum: Number.isFinite(a.seitenraum ?? NaN) ? Math.round((a.seitenraum! + auf5cm(hsi.insel)) * 100) / 100 : a.seitenraum,
-    fahrbahn: hsi.aussen < HS_UMFAHRUNG_MAX_M ? a.fahrbahn : Math.round((a.fahrbahn + auf5cm(hsi.aussen)) * 100) / 100 }
+    fahrbahn: hsi.aussen < HS_UMFAHRUNG_MAX_M || hsi.perron ? a.fahrbahn : Math.round((a.fahrbahn + auf5cm(hsi.aussen)) * 100) / 100 }
   return s.gesamtbreite != null && Number.isFinite(a.fahrbahn) ? { ...a, seitenraum: Math.max(0, Math.round((s.gesamtbreite - a.fahrbahn) * 100) / 100) } : a
 }
 function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>): Aufteilung {
@@ -747,8 +748,10 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
   // (Wartebereich) statt Parkierung und Velostreifen; die Fahrbahn (s.fahrbahnbreite) reicht bis zur Insel
   const hsiStreifen = new Set<Teil>()
   const hsiTeile = (seite: 'a' | 'b'): Teil[] | null => {
-    const h = s.richtung === 'beide' ? s.haltestelleninsel : undefined
+    const h = s.haltestelleninsel
     if (!h || h.seite !== seite) return null
+    // Perron (Helvetiaplatz): nur der Wartebereich; die Strasse dahinter gehört nicht zum Abschnitt
+    if (h.perron) return [{ art: 'Haltestelle', breite: auf5cm(h.insel) }]
     const streifen: Teil = h.aussen < HS_UMFAHRUNG_MAX_M ? { art: 'RadwegAbgesetzt', breite: auf5cm(h.aussen) }
       : { art: 'Fahrspur', breite: auf5cm(h.aussen), richtung: seite === 'a' ? 'A' : 'B' }
     hsiStreifen.add(streifen)
@@ -761,7 +764,7 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
   // (Querschnitt durch die Haltestelleninsel oder Haltestellenbereich)
   const KAP_TYPEN: Haltestellentyp[] = ['Kaphaltestelle', 'Fahrbahnhaltestelle Bus', 'Fahrbahnhaltestelle', 'Kap', 'Fahrbahnhaltestelle mit Veloführung auf Fahrbahn']
   const wartenAmRand = (seite: 'a' | 'b'): boolean => {
-    const h = s.richtung === 'beide' ? s.haltestelleninsel : undefined
+    const h = s.haltestelleninsel
     const f = seite === 'a' ? seiteA(s) : seiteB(s)
     // Insel ohne Wartehalle: gewartet wird hinter der Veloumfahrung (auch wenn OSM das Häuschen dort nicht kennt)
     if (h && h.seite === seite) return h.aussen < HS_UMFAHRUNG_MAX_M && inselOhneHalle(h)
@@ -770,7 +773,7 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
   const rand0 = (seite: 'a' | 'b', m?: number): Teil[] => (wartenAmRand(seite) && m != null && Number.isFinite(m) && m > 0.005
     ? [{ art: 'Haltestelle', breite: auf5cm(m) }] : trottoir(m))
   const links = [...rand0('b', ohnePark(s.trottoir?.b, trB, 'b')), ...gruenAusAv(s.trottoir?.gruenB), ...(s.richtung === 'eine'
-    ? (einbahnParkLinks(s) ? [parkTeil('b', trB)] : [])
+    ? hsiTeile('b') ?? (einbahnParkLinks(s) ? [parkTeil('b', trB)] : [])
     : hsiTeile('b') ?? rand(seiteB(s), trB, 'b'))]
   const rechts = [...(hsiTeile('a')?.reverse() ?? rand(seiteA(s), trA, 'a').reverse()), ...gruenAusAv(s.trottoir?.gruenA),
     ...rand0('a', ohnePark(s.trottoir?.a, trA, 'a'))]
@@ -895,27 +898,32 @@ const inselOhneHalle = (h: { insel: number; wartehalle?: 'insel' | 'hinten' | 'k
   h.wartehalle ? h.wartehalle !== 'insel' : h.insel < HS_INSEL_WARTEHALLE_MIN_M - 1e-9
 export const hatHaltestelle = (s: Section): boolean =>
   s.oevAngebot !== 'keine' || !!s.oev?.oevHalt || seiteA(s).haltestellentyp !== 'keine' || seiteB(s).haltestellentyp !== 'keine'
+// Auch auf der Einbahn (seit 23.10.2026, Helvetiaplatz: Einbahn mit ÖV im Gegenverkehr): dort bekommt nur die Seite A einen Typ,
+// und nur wenn die Insel bzw. das Perron auf ihrer Seite liegt; die Seite B wird nicht bewertet. Ein Perron (Trottoirfläche
+// zwischen zwei Strassen) gilt als Inselhaltestelle.
 export function haltestelleninselUebernehmen(s: Section, hsi: { seite: 'links' | 'rechts'; insel: number; aussen: number; innen: number;
-  trottoir: number | null; laenge: number; wartehalle?: 'insel' | 'hinten' | 'keine' }, stadt: Stadt, fahrbahnSetzen: boolean): Section {
-  if (s.richtung !== 'beide' || !hatHaltestelle(s)) return s
+  trottoir: number | null; laenge: number; wartehalle?: 'insel' | 'hinten' | 'keine'; perron?: boolean }, stadt: Stadt, fahrbahnSetzen: boolean): Section {
+  if (!hatHaltestelle(s)) return s
+  const einbahn = s.richtung !== 'beide'
   const seite: 'a' | 'b' = hsi.seite === 'rechts' ? 'a' : 'b'
   const neu: Section = { ...s, haltestelleninsel: { ...hsi, seite }, mittelinsel: null }
   if (fahrbahnSetzen) { neu.fahrbahnbreite = hsi.innen; neu.quelle = { ...s.quelle, fahrbahnbreite: 'av' } }
   if (hsi.trottoir != null) neu.trottoir = { ...(s.trottoir ?? { a: NaN, b: NaN }), [seite]: hsi.trottoir }
   const typen = haltestellenTypen(stadt)
-  const umfahrung = hsi.aussen < HS_UMFAHRUNG_MAX_M
+  const umfahrung = !hsi.perron && hsi.aussen < HS_UMFAHRUNG_MAX_M
   const typInsel: Haltestellentyp = umfahrung ? 'Haltestelle mit Veloumfahrung' : 'Inselhaltestelle'
   const typGegen: Haltestellentyp | null = s.tram || s.oevAngebot === 'tram' ? 'Kaphaltestelle' : null
   const fA = seiteA(neu), fB = seiteB(neu)
   const setze = (f: Seite, typ: Haltestellentyp | null, breite?: number): Seite | null =>
     (typ && f.haltestellentyp === 'keine' && typen.includes(typ) ? { ...f, haltestellentyp: typ, ohneHaltestelle: false,
       ...(breite != null && !Number.isFinite(f.haltestelleBreite) ? { haltestelleBreite: breite } : {}) } : null)
-  const neuA = setze(fA, seite === 'a' ? typInsel : typGegen, seite === 'a' && umfahrung ? hsi.aussen : undefined)
-  const neuB = setze(fB, seite === 'b' ? typInsel : typGegen, seite === 'b' && umfahrung ? hsi.aussen : undefined)
+  const neuA = einbahn && seite !== 'a' ? null : setze(fA, seite === 'a' ? typInsel : typGegen, seite === 'a' && umfahrung ? hsi.aussen : undefined)
+  const neuB = einbahn ? null : setze(fB, seite === 'b' ? typInsel : typGegen, seite === 'b' && umfahrung ? hsi.aussen : undefined)
   if (!neuA && !neuB) return neu
   const angenommen = { ...s.hsTypAngenommen, ...(neuA ? { a: true } : {}), ...(neuB ? { b: true } : {}) }
   const a = neuA ?? fA, b = neuB ?? fB
   const mitA: Section = { ...neu, haltestellentyp: a.haltestellentyp, haltestelleBreite: a.haltestelleBreite, ohneHaltestelle: a.ohneHaltestelle,
     hsTypAngenommen: angenommen }
+  if (einbahn) return mitA
   return seitenGleich(a, b) ? { ...mitA, gegen: undefined } : { ...mitA, gegen: { ...gegenVon(neu), ...b } }
 }

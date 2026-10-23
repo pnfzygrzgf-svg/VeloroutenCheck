@@ -105,7 +105,8 @@ export interface Section extends Seite {
   // Haltestelleninsel aus der AV (breitenmessung.ts haltestelleninsel, seit 21.10.2026): Seite, Insel (Wartebereich), Streifen
   // dahinter (Veloumfahrung bzw. Fahrspur), Fahrbahn bis zum Bord gegenüber, Trottoir hinter dem Streifen [m]
   haltestelleninsel?: { seite: 'a' | 'b'; insel: number; aussen: number; innen: number; trottoir: number | null; laenge: number
-    wartehalle?: 'insel' | 'hinten' | 'keine' }
+    wartehalle?: 'insel' | 'hinten' | 'keine'
+    perron?: boolean }   // Perron als Trottoirfläche zwischen zwei Strassen (Helvetiaplatz): die Strasse dahinter gehört nicht zum Abschnitt
   hsTypAngenommen?: { a?: boolean; b?: boolean }   // Haltestellentyp aus der AV vorbelegt (zu bestätigen)
   radwegSeparat?: { a: boolean; b: boolean }   // OSM: Radweg als eigener Weg neben der Strasse (cycleway:*=separate), Hinweis
   parallelWeg?: { a?: number; b?: number }     // OSM-Way des parallelen Wegs, der die Seite bildet (parallelwege.ts)

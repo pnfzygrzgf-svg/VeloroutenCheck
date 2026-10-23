@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  fuehrungsart, haltestellenLoesung, haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
+  haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
   brauchtBreite, brauchtDtvTempo, erfuellungsgrad, FEELSAFE, SCORE_PRO_NOTE, BREITE_SATZ, PARKEN_ABZUG, HALTESTELLE_ABZUG, TRAM_DECKEL,
   FUSSWEG_BASIS, HALTESTELLENBEREICH_MAX_M, HALTESTELLENBEREICH_NICHT_ERFUELLT, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   GEGENVERKEHR_FORMEN, GEGENVERKEHR_DEFAULT,
-  type Fuehrungsart, type IstFuehrungsform, type Routentyp, type ParkenRechts,
-  type OevAngebot, type Haltestellentyp, type Haltestellenloesung, type NotenErgebnis, type BreitenSoll,
+  type IstFuehrungsform, type Routentyp, type ParkenRechts,
+  type OevAngebot, type Haltestellentyp, type NotenErgebnis, type BreitenSoll,
   type Stadt, type Strassentyp, type VergleichsNote,
 } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, BREIT_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
@@ -13,7 +13,7 @@ import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeAvFuer, avQuelle } from './av'
 import Strassensuche from './Strassensuche'
 import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, fahrbahnMitRandstein, RANG_TEXT, type TrottoirAnpassung, type Vorschlag } from './vorschlag'
-import { bordkanten, messeAbKante, messeFlaeche, abstand, aufZentimeter, fahrbahnbreite, haltestelleninsel, wartehalleLage, wegAufTrottoir, type Haltestelleninsel, mittelinsel, mittelstreifen, parkierungAufTrottoir, parkierungTiefe, parkierungVersetzt, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
+import { bordkanten, messeAbKante, messeFlaeche, abstand, aufZentimeter, fahrbahnbreite, haltestelleninsel, haltestellenperron, wartehalleLage, wegAufTrottoir, type Haltestelleninsel, mittelinsel, mittelstreifen, parkierungAufTrottoir, parkierungTiefe, parkierungVersetzt, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
 import type { AvFlaeche } from './av'
 import { artVorschlag, aufnahmeTeile, avArtAn, fangeLage, grenzenAufLinie, querLinie, GANZ, type QsArt, FANG_MAX_M as QS_FANG_MAX_M, FANG_PX as QS_FANG_PX } from './querschnittAufnahme'
 import {
@@ -23,6 +23,7 @@ import {
 } from './strecke'
 import { bewerteAbschnitt, aufzaehlen, type AbschnittErgebnis } from './bewertung'
 import { QuerschnittSkizze, breiteCm } from './Querschnitt'
+import { quellenFuer, type QuellenGruppe } from './quellen'
 import Bericht from './Bericht'
 import { ladeFussnetz, ladeFussnetzBasel, FUSSNETZ_BASEL, FUSSNETZ_GEOPORTAL } from './fussnetz'
 import {
@@ -162,14 +163,6 @@ const AttribContext = createContext('Geoinformation Stadt Bern')
 // Quellenangabe der amtlichen Vermessung für den Chip «gemessen» (stadtabhängig, leer ohne Messung).
 const AvContext = createContext('')
 
-const COLOR: Record<Fuehrungsart, { bg: string; fg: string }> = {
-  'Mischverkehr':                  { bg: '#7c3aed', fg: '#ffffff' },   // wie auf der Karte (ISTCOLOR)
-  'Velostrasse':                   { bg: '#2563eb', fg: '#ffffff' },
-  'Radstreifen':                   { bg: '#eab308', fg: '#3b2f00' },
-  'Radstreifen oder Radweg':       { bg: '#84a44b', fg: '#ffffff' },
-  'Radweg':                        { bg: '#4d7c0f', fg: '#ffffff' },
-}
-
 const IST_OPTIONS: IstFuehrungsform[] = [
   'Mischverkehr', 'Radstreifen', 'Radweg strassenbegleitend / Geschützter Radstreifen', 'Radweg abgesetzt',
   'Zweirichtungsradweg', 'Umweltspur', 'Velostrasse', 'Kombinierter Fuss-/Radweg', 'Fussweg Velo gestattet',
@@ -240,28 +233,6 @@ function noteColor(n: number): { bg: string; fg: string } {
 // beiden um (Standard Schulnote); der Schalter ist weg, jede Stelle zeigt beides in dieser Reihenfolge.
 function Beurteilung({ note }: { note: number }) {
   return <>{erfuellungsgrad(note)}<span style={{ fontWeight: 600, fontSize: '0.85em', opacity: 0.85 }}> · Note {numDE(note, 1)}</span></>
-}
-
-const DTV_BANDS   = ['< 2 000', '2 000 – 5 000', '5 000 – 10 000', '> 10 000']
-const SPEED_BANDS = ['≤ 30', '31 – 40', '41 – 50', '51 – 80']
-const DTV_REP     = [1000, 3500, 7500, 15000]   // Repräsentant je DTV-Band (für die Tabelle)
-const SPEED_REP   = [30, 40, 50, 60]            // Repräsentant je Tempo-Band
-
-// Entscheidungstabelle Haltestellen: ÖV-Angebot (Zeilen) × Routentyp (Spalten) → Soll-Lösung.
-const OEV_ROWS: { label: string; v: OevAngebot }[] = [
-  { label: 'Tram', v: 'tram' },
-  { label: 'Bus < 5 Min', v: 'bus_unter5' },
-  { label: 'Bus 5–15 Min', v: 'bus_5_15' },
-  { label: 'Bus ≥ 15 Min', v: 'bus_ab15' },
-]
-const ROUTE_COLS: { label: string; r: Routentyp }[] = [
-  { label: 'Veloroute', r: 'Veloroute' },
-  { label: 'Velohauptroute', r: 'Velohauptroute' },
-]
-const HALT_COLOR: Record<Haltestellenloesung, { bg: string; fg: string }> = {
-  'Separate Velofläche': { bg: '#15803d', fg: '#ffffff' },
-  'Übergang':            { bg: '#5f7a2e', fg: '#ffffff' },
-  'Mischverkehr':        { bg: '#6b7280', fg: '#ffffff' },
 }
 
 // Herkunfts-Chip am Feld: blau „amtlich" (Geodaten Stadt Bern), grau „OSM";
@@ -2155,6 +2126,56 @@ function downloadCsv(csv: string) {
   setTimeout(() => { a.remove(); URL.revokeObjectURL(url) }, 1000)
 }
 
+// ── Quellen und Grundlagen (seit 23.10.2026, quellen.ts) ─────────────────────
+// Je gewählter Stadt: die allgemeinen Werke und die der Stadt, in zwei Gruppen (Vorgaben und Normen; Daten und Dienste).
+// Je Eintrag: Name als Link (wo es eine öffentliche Adresse gibt), Titel, Herausgeber, Ausgabe, Ebene, Geltung (Stadt
+// oder alle Städte) und wofür die App es braucht.
+const STADT_NAME: Record<Stadt, string> = { bern: 'Bern', zurich: 'Zürich', basel: 'Basel', luzern: 'Luzern' }
+function QuellenTeil({ city }: { city: CityId }) {
+  const gruppe = (g: QuellenGruppe, titel: string) => {
+    const liste = quellenFuer(city, g)
+    return (
+      <div style={{ marginTop: 10 }}>
+        <h3 style={{ fontSize: 13.5, margin: '0 0 6px', color: 'var(--text-strong)' }}>{titel}</h3>
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8 }}>
+          {liste.map(q => (
+            <li key={q.id} style={{ fontSize: 12.5, lineHeight: 1.45, paddingLeft: 10, borderLeft: '3px solid var(--border)' }}>
+              <div>
+                {q.url
+                  ? <a href={q.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontWeight: 700 }}>{q.name} ↗</a>
+                  : <strong>{q.name}</strong>}
+                {q.titel && <span style={{ color: 'var(--text-muted-strong)' }}> · {q.titel}</span>}
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span>{q.herausgeber}{q.ausgabe ? ` · ${q.ausgabe}` : ''} · {q.ebene}</span>
+                <span style={{ fontSize: 10.5, fontWeight: 700, borderRadius: 999, padding: '1px 7px',
+                               background: q.staedte ? '#dbeafe' : 'var(--border-subtle)', color: q.staedte ? '#1e40af' : 'var(--text-muted-strong)' }}>
+                  {q.staedte ? q.staedte.map(x => STADT_NAME[x]).join(', ') : 'alle Städte'}
+                </span>
+              </div>
+              <div style={{ color: 'var(--text)' }}>{q.verwendung}</div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+  return (
+    <details id="quellen" className="vrc-klappe" style={{ marginTop: 28 }}>
+      <summary style={{ cursor: 'pointer', fontSize: 16, fontWeight: 700, color: 'var(--text)', userSelect: 'none' }}>
+        Quellen und Grundlagen ({STADT_NAME[city]})
+      </summary>
+      <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+        Worauf sich Bewertung und Planung für {STADT_NAME[city]} stützen; die Liste wechselt mit der Stadt oben auf der Karte.
+        Standards einer Stadt gelten für deren eigene Projekte, Normen sind Fachregeln ohne Gesetzeskraft. Wo ein Werk eine
+        öffentliche Adresse hat, führt der Name dorthin.
+      </div>
+      {gruppe('vorgabe', 'Vorgaben und Normen')}
+      {gruppe('daten', 'Daten und Dienste')}
+    </details>
+  )
+}
+
 // ── Einstiegsseite ───────────────────────────────────────────────────────────
 /** Aufklappbare Einstiegshilfe im Panel (Standard der Check-Apps): Schritte und Grenzen */
 function SoFunktionierts() {
@@ -2205,7 +2226,8 @@ function SoFunktionierts() {
         <li><b>Ergebnis lesen:</b> vorne steht der Erfüllungsgrad (von «Gar nicht erfüllt» bis «Vollständig erfüllt»), dahinter
           die Note von 1 bis 6, aus der er entsteht. Die Bewertung gilt je Seite, je Abschnitt (die schlechtere Seite) und für die
           ganze Strecke (der schlechteste Abschnitt). «Wie die Beurteilung entsteht» im Ergebnis zeigt jeden Abzug; die Herleitung
-          steht im Referenzteil unten. «Als CSV exportieren» sichert die Bewertung als Datei.</li>
+          steht im Referenzteil unten; «Quellen und Grundlagen» darüber nennt je Stadt die Vorgaben, Normen und Daten mit Link.
+          «Als CSV exportieren» sichert die Bewertung als Datei.</li>
       </ol>
       <p><b>Grenzen</b></p>
       <ul>
@@ -2806,12 +2828,16 @@ export default function App() {
     return { achsen, flaechen }
   }
   // ziel 'plan': in die verfügbare Fahrbahnbreite der Aufteilung statt ins Feld der Grunddaten.
-  // Haltestelleninsel: wo die Wartehalle steht, aus OSM (Nutzerbefund Monbijoustrasse 21.10.2026); ohne Antwort ohne Angabe
-  const mitWartehalle = async (s: Section, achsen: P[][], flaechen: AvFlaeche[], hsi: Haltestelleninsel | null): Promise<Haltestelleninsel | null> => {
-    if (!hsi) return null
+  // Haltestelleninsel bzw. Perron aus der AV, mit den Wartehallen und Perrons aus OSM: sie machen eine Trottoirfläche zwischen
+  // zwei Strassen zum Perron (Helvetiaplatz, 23.10.2026) und sagen bei einer Insel, wo die Wartehalle steht (Monbijoustrasse,
+  // 21.10.2026). Ohne Antwort von OSM nur die Insel, ohne Angabe zur Wartehalle.
+  const haltestelleninselMitOsm = async (s: Section, achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[]): Promise<Haltestelleninsel | null> => {
     const geom = (s.candIds ?? []).flatMap(id => candsRef.current.find(c => c.id === id)?.geom ?? [])
     const punkte = await ladeWartehallen(geom).catch(() => [])
-    const lage = wartehalleLage(achsen, flaechen, hsi.seite, punkte.map(x => ({ p: zuLv95(x.lat, x.lon), wartehalle: x.wartehalle })))
+    const lv = punkte.map(x => ({ p: zuLv95(x.lat, x.lon), wartehalle: x.wartehalle }))
+    const hsi = haltestelleninsel(achsen, flaechen, kanten) ?? haltestellenperron(achsen, flaechen, kanten, lv.map(x => x.p))
+    if (!hsi || hsi.perron) return hsi
+    const lage = wartehalleLage(achsen, flaechen, hsi.seite, lv)
     return lage ? { ...hsi, wartehalle: lage } : hsi
   }
   const fahrbahnbreiteErmitteln = async (secId: number, ziel: 'abschnitt' | 'plan' = 'abschnitt') => {
@@ -2830,7 +2856,7 @@ export default function App() {
       const r = fahrbahnbreite(achsen, flaechen)
       const insel = mittelinsel(achsen, flaechen)
       // Haltestelleninsel: die Fahrbahn misst nur bis zur Insel (Achsen in Richtung der Seite A für die Seite)
-      const hsi = hatHaltestelle(s) && s.richtung === 'beide' ? await mitWartehalle(s, avAchsen(s, true), flaechen, haltestelleninsel(avAchsen(s, true), flaechen)) : null
+      const hsi = hatHaltestelle(s) ? await haltestelleninselMitOsm(s, avAchsen(s, true), flaechen, bordkanten(flaechen)) : null
       if (hsi && ziel === 'abschnitt') {
         setSections(prev => prev.map(x => (x.id !== secId ? x : haltestelleninselUebernehmen(x, hsi, city, true))))
         setMsg(`Fahrbahnbreite ${numDE(hsi.innen, 1)} m bis zur Haltestelleninsel (Seite ${hsi.seite === 'rechts' ? 'A' : 'B'}: Wartebereich `
@@ -2945,7 +2971,7 @@ export default function App() {
       const versetzt = parkierungVersetzt(achsen, park ?? [], tiefe)    // Parkierung abwechselnd A und B
       const insel = mittelinsel(achsen, flaechen, kanten)              // Mittelinsel (kurze Insel, auch Schutzinsel)
       // Haltestelleninsel (Wartebereich mit Veloumfahrung bzw. Fahrspur dahinter), nur mit Haltestelle im Abschnitt
-      const hsi = hatHaltestelle(s) && s.richtung === 'beide' ? await mitWartehalle(s, achsen, flaechen, haltestelleninsel(achsen, flaechen, kanten)) : null
+      const hsi = hatHaltestelle(s) ? await haltestelleninselMitOsm(s, achsen, flaechen, kanten) : null
       // lange Insel ohne Haltestelle: Mittelstreifen, trennt zwei Fahrbahnteile (nur Hinweis)
       const streifen = hsi ? null : mittelstreifen(achsen, flaechen, kanten)
       const fb = Number.isFinite(s.fahrbahnbreite) ? null : fahrbahnbreite(achsen, flaechen, kanten)
@@ -2988,7 +3014,9 @@ export default function App() {
         + `${streifen ? ` · Mittelstreifen Seite ${streifen.seite === 'rechts' ? 'A' : 'B'} (${numDE(streifen.breite, 2)} m breit, ${streifen.laenge} m lang): die Fahrbahn reicht bis zum Streifen; `
           + (streifen.dahinter < 3 ? `dahinter nur ein Streifen von ${numDE(streifen.dahinter, 1)} m, vermutlich eine Haltestelleninsel mit Veloumfahrung: ÖV-Angebot und Haltestellentyp wählen und die AV neu laden`
             : `dahinter liegt ein zweiter Fahrbahnteil von ${numDE(streifen.dahinter, 1)} m (Gegenfahrbahn oder Tram-/Bustrassee), der nicht zu diesem Abschnitt gehört`) : ''}`
-        + `${hsi ? ` · Haltestelleninsel Seite ${hsi.seite === 'rechts' ? 'A' : 'B'}: Wartebereich ${numDE(hsi.insel, 2)} m, dahinter `
+        + `${hsi?.perron ? ` · Perron Seite ${hsi.seite === 'rechts' ? 'A' : 'B'} (Trottoirfläche mit Wartehalle aus OSM): Wartebereich ${numDE(hsi.insel, 2)} m, `
+          + `Fahrbahn bis zum Perron ${numDE(hsi.innen, 1)} m; die Strasse dahinter (${numDE(hsi.aussen, 1)} m) gehört nicht zum Abschnitt; Haltestellentyp angenommen, bitte prüfen` : ''}`
+        + `${hsi && !hsi.perron ? ` · Haltestelleninsel Seite ${hsi.seite === 'rechts' ? 'A' : 'B'}: Wartebereich ${numDE(hsi.insel, 2)} m, dahinter `
           + `${hsi.aussen < 3 ? 'Veloumfahrung' : 'Fahrspur'} ${numDE(hsi.aussen, 2)} m, Fahrbahn bis zur Insel ${numDE(hsi.innen, 1)} m`
           + `${hsi.wartehalle === 'insel' ? ', Wartehalle auf der Insel (OSM)' : hsi.wartehalle === 'hinten' ? ', Wartehalle hinter der Veloumfahrung (OSM)'
             : hsi.wartehalle === 'keine' ? ', Insel ohne Wartehalle (OSM)' : ''}; Haltestellentyp angenommen, bitte prüfen` : ''}.`, 'ok')
@@ -4010,97 +4038,19 @@ export default function App() {
         </button>
       </div>
 
-      {/* Referenz: Herleitung der Note, Entscheidungstabellen + Hinweise — eingeklappt, um Scroll zu sparen (Punkt 6).
+      {/* Quellen und Grundlagen je Stadt (seit 23.10.2026, nach dem Muster von fgsCheck; quellen.ts): Vorgaben, Normen,
+          Daten mit Link. Die Berner Entscheidungstabellen (Soll-Führungsform, Soll-Haltestellenlösung) standen bis dahin
+          hier für alle Städte; sie sind weg, die Soll-Tabellen stehen in den verlinkten Werken (Nutzerentscheid 23.10.2026). */}
+      <QuellenTeil city={city} />
+
+      {/* Referenz: Herleitung der Note — eingeklappt, um Scroll zu sparen (Punkt 6).
           id «referenz»: die Herleitung im Ergebnis (zurHerleitung) klappt den Teil auf und springt zu «herleitung-note». */}
-      <details id="referenz" className="vrc-klappe" style={{ marginTop: 28 }}>
+      <details id="referenz" className="vrc-klappe" style={{ marginTop: 20 }}>
         <summary style={{ cursor: 'pointer', fontSize: 16, fontWeight: 700, color: 'var(--text)', userSelect: 'none' }}>
-          Referenz: Herleitung der Note, Entscheidungstabellen &amp; Hinweise
+          Referenz: Herleitung der Note
         </summary>
         <div style={{ marginTop: 12 }}>
       <HerleitungNote />
-      <h2 style={{ fontSize: 16, margin: '8px 0 10px' }}>Entscheidungstabelle (Soll-Führungsform)</h2>
-      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 8px' }}>
-        Gilt für <strong>Bern</strong> (Masterplan). Zürich, Basel und Luzern verwenden eigene
-        Soll-Tabellen; die Note des Abschnitts berücksichtigt sie bereits.
-      </p>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
-          <thead>
-            <tr>
-              <th style={th}>DTV MIV ↓ \ km/h →</th>
-              {SPEED_BANDS.map(s => <th key={s} style={th}>{s}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {DTV_BANDS.map((dLabel, ri) => (
-              <tr key={dLabel}>
-                <th style={{ ...th, textAlign: 'left' }}>{dLabel}</th>
-                {SPEED_BANDS.map((_, ci) => {
-                  const art = fuehrungsart(DTV_REP[ri], SPEED_REP[ci])
-                  const col = COLOR[art]
-                  return (
-                    <td key={ci} style={{ ...td, background: col.bg, color: col.fg }}>{art}</td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Entscheidungstabelle Haltestellen (Soll-Veloverkehrslösung) */}
-      <h2 style={{ fontSize: 16, margin: '28px 0 10px' }}>Entscheidungstabelle (Soll-Haltestellenlösung)</h2>
-      <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 8px' }}>
-        Gilt für <strong>Bern</strong>. Luzern verwendet ein abweichendes Schema (kein Tram);
-        Zürich kriterienbasiert (kein automatischer Abzug); Basel über Typ und Breite.
-      </p>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
-          <thead>
-            <tr>
-              <th style={th}>ÖV-Angebot ↓ \ Routentyp →</th>
-              {ROUTE_COLS.map(c => <th key={c.r} style={th}>{c.label}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {OEV_ROWS.map(row => (
-              <tr key={row.v}>
-                <th style={{ ...th, textAlign: 'left' }}>{row.label}</th>
-                {ROUTE_COLS.map(c => {
-                  const loesung = haltestellenLoesung(c.r, row.v)
-                  if (!loesung) return <td key={c.r} style={td}>—</td>
-                  const col = HALT_COLOR[loesung]
-                  const stern = loesung === 'Übergang' ? ' *' : ''
-                  return (
-                    <td key={c.r} style={{ ...td, background: col.bg, color: col.fg }}>{loesung}{stern}</td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p style={{ marginTop: 8, fontSize: 12, color: 'var(--text-faint)' }}>
-        Soll-Veloverkehrslösung an der Haltestelle (Masterplan). <strong>* Übergang</strong>:
-        Einzelfallprüfung. Der vorhandene Haltestellentyp wird separat gegen die Soll-Lösung
-        geprüft (Abzug nur, wenn «Separate Velofläche» gefordert ist, aber ein Mischverkehr-Typ
-        vorliegt).
-      </p>
-      <p style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted-strong)' }}>
-        <strong>Separate Velofläche</strong> meint: Veloumfahrung · Haltestelle mit rückwärtigem
-        Radweg · Inselhaltestelle · Kapüberfahrt.<br />
-        <strong>Mischverkehr</strong> meint: Kaphaltestelle ohne Umfahrung · Fahrbahnhaltestelle Bus
-        · Busbucht.
-      </p>
-
-      <p style={{ marginTop: 24, fontSize: 12, color: 'var(--text-faint)' }}>
-        <strong>Zum DTV:</strong> Der amtliche DTV-Wert stammt aus den Flächendeckenden
-        Verkehrsdaten (Geoportal Stadt Bern) und wird aus den Tages-/Nachtwerten geschätzt
-        (DTV ≈ 16·Nt + 8·Nn). Er gibt nur eine <strong>Grössenordnung</strong> an und ist
-        <strong> kein verbindliches Zählresultat</strong>; geführt nur für Strassen mit
-        DTV&nbsp;&gt;&nbsp;2&apos;000&nbsp;Mfz/Tag bzw. die Altstadt. Herkunft je Feld am Chip
-        (Geoportal/OSM). Herleitung und Quellen: siehe README.
-      </p>
         </div>
       </details>
 
@@ -4134,10 +4084,3 @@ export default function App() {
   )
 }
 
-const th: React.CSSProperties = {
-  border: '1px solid var(--border-subtle)', padding: '6px 8px', background: '#f8fafc',
-  fontSize: 12, color: 'var(--text-muted-strong)', textAlign: 'center', whiteSpace: 'nowrap',
-}
-const td: React.CSSProperties = {
-  border: '1px solid #ffffff', padding: '8px', textAlign: 'center', whiteSpace: 'nowrap',
-}
