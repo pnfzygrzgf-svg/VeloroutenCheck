@@ -91,7 +91,7 @@ export const QUELLEN: readonly Quelle[] = [
     verwendung: 'Strassennetz, Name, Tempo, Breite, Führungsform, Fahrspuren und Pfeile, Einbahn, parallele Radwege, Wartehallen (Overpass API, live).' },
   { id: 'geo_bern', name: 'Geoportal Stadt Bern', herausgeber: 'Stadt Bern, Geoinformation', ebene: 'Geodaten', gruppe: 'daten', staedte: ['bern'],
     url: 'https://map.bern.ch/',
-    verwendung: 'Verkehrsmenge (DTV), Tempo, Veloroutennetz des Masterplans, Velostrassen, Haltestellen und ÖV-Linien, Parkfelder, Richtplan Fussverkehr (live). ' +
+    verwendung: 'Verkehrsmenge (DTV), Tempo, Veloroutennetz des Masterplans, Velostrassen, Haltestellen und ÖV-Linien, Parkfelder (Auto für die Parkierung, Velo und Motorrad für den Platzbedarf in der Planung), Richtplan Fussverkehr (live). ' +
       'Der DTV ist aus Tages- und Nachtwerten geschätzt (DTV ≈ 16·Nt + 8·Nn), nur eine Grössenordnung, und nur für Strassen über 2 000 Fahrzeuge je Tag ' +
       'sowie die Altstadt geführt; ohne Eintrag gilt «≤ 2 000 angenommen».' },
   { id: 'ogd_zh', name: 'Open Data Stadt Zürich', herausgeber: 'Stadt Zürich', ebene: 'Geodaten', gruppe: 'daten', staedte: ['zurich'],

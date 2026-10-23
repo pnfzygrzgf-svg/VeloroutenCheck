@@ -100,11 +100,15 @@ function punkteAus(g: { type?: string; coordinates?: unknown } | null | undefine
 // bei Spezialfeldern ohne Polizei, Lastwagen und Sanität.
 const BERN_TYPEN = ['Parkfeld_Gebuehrenpflichtig', 'Parkfeld_blau_APK', 'Parkfeld_weiss_APK', 'Parkfeld_weiss_Kurzzeit',
   'Parkverbot', 'Spezialfeld', 'Andere_Unbekannt']
+// Velo- und Motorradfelder als Flächen (seit 23.10.2026, Nutzerwunsch Bernastrasse): nicht für «Parkierung rechts»
+// (kein Dooring), aber für die Karte und den Platzbedarf in der Planung (Element «Zweiradabstellplatz»)
+const BERN_ZWEIRAD: Record<string, 'velo' | 'motorrad'> = { Parkplatz_Velo_Mofa: 'velo', Parkplatz_Motorrad: 'motorrad' }
 export const bernSpezialAusgeschlossen = (pr: Record<string, unknown>): boolean =>
   /polizei|lastwagen|lkw|sanit|ambulanz|feuerwehr/i.test(`${pr.Art_beschrieb ?? ''} ${pr.Subgruppe_beschrieb ?? ''} ${pr.Gruppe_beschrieb ?? ''}`)
 // Die zählenden Felder je Flächen-Typ (für die Vorbelegung als Punkte, für die Karte als Flächen).
-async function bernFelder([a, b, c, d]: Box): Promise<{ typ: string; g: { type?: string; coordinates?: unknown } | null | undefined; anzahl?: number }[]> {
-  const ant = await Promise.all(BERN_TYPEN.map(t => holeJson<GeoJson & { crs?: { properties?: { name?: string } } }>(
+async function bernFelder([a, b, c, d]: Box, mitZweirad = false): Promise<{ typ: string; g: { type?: string; coordinates?: unknown } | null | undefined; anzahl?: number }[]> {
+  const typen = mitZweirad ? [...BERN_TYPEN, ...Object.keys(BERN_ZWEIRAD)] : BERN_TYPEN
+  const ant = await Promise.all(typen.map(t => holeJson<GeoJson & { crs?: { properties?: { name?: string } } }>(
     'https://map.bern.ch/arcgis/services/Geoportal/Parkplaetze_oeffentlich/MapServer/WFSServer?SERVICE=WFS&VERSION=2.0.0' +
     `&REQUEST=GetFeature&TYPENAMES=Geoportal_Parkplaetze_oeffentlich_2:${t}&OUTPUTFORMAT=GEOJSON` +
     `&SRSNAME=urn:ogc:def:crs:EPSG::2056&BBOX=${a},${b},${c},${d},urn:ogc:def:crs:EPSG::2056`, 30000)))
@@ -112,10 +116,10 @@ async function bernFelder([a, b, c, d]: Box): Promise<{ typ: string; g: { type?:
   if (ant.some(j => j.features?.length && !/(^|[^0-9])2056$/.test(j.crs?.properties?.name ?? '')))
     throw new Error('Parkfelder Bern nicht in LV95')
   return ant.flatMap((j, i) => (j.features ?? [])
-    .filter(f => BERN_TYPEN[i] !== 'Spezialfeld' || !bernSpezialAusgeschlossen(f.properties ?? {}))
+    .filter(f => typen[i] !== 'Spezialfeld' || !bernSpezialAusgeschlossen(f.properties ?? {}))
     .map(f => {
       const n = Number(f.properties?.ANZAHL_PARKFELDER)   // Felder der Reihe (für die Anordnung, parkierungTiefe)
-      return { typ: BERN_TYPEN[i], g: f.geometry, ...(Number.isFinite(n) && n > 0 ? { anzahl: n } : {}) }
+      return { typ: typen[i], g: f.geometry, ...(Number.isFinite(n) && n > 0 ? { anzahl: n } : {}) }
     }))
 }
 async function bernLaden(box: Box): Promise<P[]> {
@@ -128,7 +132,8 @@ async function bernLaden(box: Box): Promise<P[]> {
 // als 2-m-Streifen, Punkte als Quadrate), ihre Tiefe ist nicht messbar (seit 20.10.2026, parkierungTiefe)
 export type ParkArt = 'laengs' | 'schraeg' | 'quer'
 // anzahl: Felder der Reihe (Bern ANZAHL_PARKFELDER): Länge je Feld unterscheidet schräg und senkrecht (seit 20.10.2026)
-export interface ParkFlaeche { verbot: boolean; ringe: P[][]; art?: ParkArt; symbol?: boolean; anzahl?: number }
+// zweirad: Velo- bzw. Motorradfeld (Bern): auf der Karte eigene Farbe, in der Planung Platzbedarf, nicht für Dooring
+export interface ParkFlaeche { verbot: boolean; ringe: P[][]; art?: ParkArt; symbol?: boolean; anzahl?: number; zweirad?: 'velo' | 'motorrad' }
 // Zürich (seit 17.10.2026): Längsstreifen als Linien, als 2 m breite Streifen gezeichnet, und Einzelfelder
 // als Punkte, als 2 × 2 m grosse Quadrate (die Daten nennen nur Längs/Quer/Schräg, nicht den Winkel zur Strasse).
 // Luzern (seit 17.10.2026): Flächen wie für die Vorbelegung. Basel: keine Geometrie.
@@ -190,11 +195,11 @@ export async function ladeParkflaechen(stadt: ParkStadt, box: Box): Promise<Park
   if (stadt !== 'bern') return []
   const ring = (xs: unknown): P[] => (Array.isArray(xs)
     ? xs.filter(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map(p => [p[0], p[1]] as P) : [])
-  return (await bernFelder(box)).flatMap(({ typ, g, anzahl }) => {
+  return (await bernFelder(box, true)).flatMap(({ typ, g, anzahl }) => {
     if (!g || !Array.isArray(g.coordinates)) return []
     const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []
     return (polys as unknown[]).filter(Array.isArray).map(poly => ({ verbot: typ === 'Parkverbot', ringe: (poly as unknown[]).map(ring),
-      ...(anzahl && polys.length === 1 ? { anzahl } : {}) }))
+      ...(anzahl && polys.length === 1 ? { anzahl } : {}), ...(BERN_ZWEIRAD[typ] ? { zweirad: BERN_ZWEIRAD[typ] } : {}) }))
   })
 }
 

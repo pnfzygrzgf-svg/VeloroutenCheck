@@ -104,11 +104,11 @@ export function standortFehlerText(code: number): string {
 export const BREIT_MQ = 'screen and (min-width: 1100px)'
 
 // Farben der AV-Flächen und Parkfelder: farben.ts (ohne Leaflet, auch im Bericht verwendet)
-export { AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE } from './farben'
-import { AV_FARBEN, AV_DECKKRAFT, PARK_FARBE, PARKVERBOT_FARBE } from './farben'
+export { AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, ZWEIRAD_FARBE } from './farben'
+import { AV_FARBEN, AV_DECKKRAFT, PARK_FARBE, PARKVERBOT_FARBE, ZWEIRAD_FARBE } from './farben'
 export interface AvAnzeige {
   flaechen: { art: string; ringe: { lat: number; lon: number }[][] }[]
-  park?: { verbot: boolean; ringe: { lat: number; lon: number }[][] }[]
+  park?: { verbot: boolean; zweirad?: boolean; ringe: { lat: number; lon: number }[][] }[]
   quelle: string            // Quellenangabe (Attribution der Karte)
 }
 
@@ -430,7 +430,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         fillOpacity: AV_DECKKRAFT[f.art] ?? 0.25, interactive: false }).addTo(ag)
     }
     for (const f of av.park ?? []) {
-      const farbe = f.verbot ? PARKVERBOT_FARBE : PARK_FARBE
+      const farbe = f.verbot ? PARKVERBOT_FARBE : f.zweirad ? ZWEIRAD_FARBE : PARK_FARBE
       L.polygon(f.ringe.map(r => r.map(ll)), { pane: 'av', color: farbe, weight: 1.5, fillColor: farbe, fillOpacity: 0.35,
         interactive: false }).addTo(ag)
     }

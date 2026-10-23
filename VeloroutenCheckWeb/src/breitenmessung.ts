@@ -15,6 +15,7 @@
 
 import type { AvFlaeche } from './av'
 import type { P } from './lv95'
+import { parkAnteile, verdichten } from './parkierung'
 
 export interface Kante { a: P; b: P }
 
@@ -510,6 +511,30 @@ export function parkierungVersetzt(achsen: P[][], park: { ringe: P[][] }[], tief
   if (beide > VERSETZT_UEBERLAPP * Math.min(nl, nr)) return null
   const tl = tiefe.links?.tiefe ?? PARK_TIEFE_ANNAHME.laengs, tr = tiefe.rechts?.tiefe ?? PARK_TIEFE_ANNAHME.laengs
   return Math.abs(tl - tr) > 0.05 ? (tl < tr ? 'links' : 'rechts') : nl <= nr ? 'links' : 'rechts'
+}
+
+// ── Velo- und Motorradfelder je Seite (Bern, seit 23.10.2026, Nutzerwunsch Bernastrasse) ─────────────────────────
+// Für den Platzbedarf in der Planung: Anteil der Länge je Seite wie bei der Parkierung (parkAnteile, ab ZWEIRAD_SCHWELLE;
+// Zweiradfelder sind kurz), Tiefe quer zur Achse (parkierungTiefe, Annahme 2,00 m), und ob sie auf der Trottoirfläche
+// liegen (parkierungAufTrottoir). Zählen nicht als Parkierung (kein Dooring).
+export interface Zweiradfeld { tiefe: number; art: 'velo' | 'motorrad' | 'beide'; trottoir?: boolean; anteil: number }
+export const ZWEIRAD_SCHWELLE = 0.1, ZWEIRAD_TIEFE_ANNAHME = 2.0
+export function zweiradJeSeite(achsen: P[][], flaechen: AvFlaeche[], park: { ringe: P[][]; zweirad?: 'velo' | 'motorrad' }[]):
+  { links?: Zweiradfeld; rechts?: Zweiradfeld } {
+  const zr = park.filter(f => f.zweirad)
+  if (!zr.length) return {}
+  const achse = achsen.flat()
+  const punkte = (art?: 'velo' | 'motorrad') => zr.filter(f => !art || f.zweirad === art).flatMap(f => verdichten(f.ringe[0] ?? []))
+  const alle = parkAnteile(achse, punkte()), velo = parkAnteile(achse, punkte('velo')), moto = parkAnteile(achse, punkte('motorrad'))
+  const tiefe = parkierungTiefe(achsen, zr), aufTr = parkierungAufTrottoir(achsen, flaechen, zr)
+  const out: { links?: Zweiradfeld; rechts?: Zweiradfeld } = {}
+  for (const seite of ['links', 'rechts'] as const) {
+    if (alle[seite] < ZWEIRAD_SCHWELLE) continue
+    const t = tiefe[seite]?.tiefe
+    out[seite] = { tiefe: Math.round((t ?? ZWEIRAD_TIEFE_ANNAHME) * 20) / 20, anteil: Math.round(alle[seite] * 100) / 100,
+      art: velo[seite] > 0 && moto[seite] > 0 ? 'beide' : moto[seite] > 0 ? 'motorrad' : 'velo', ...(aufTr[seite] ? { trottoir: true } : {}) }
+  }
+  return out
 }
 
 // ── Mittelinsel aus der AV (seit 20.10.2026, Nutzerbefund Laubeggstrasse) ──────────────────────────────

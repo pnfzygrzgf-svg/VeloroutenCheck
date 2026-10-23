@@ -115,7 +115,7 @@ export const TEIL_ARTEN: TeilArt[] = ['Trottoir', 'Haltestelle', 'Gruen', 'Parki
   'Pfosten', 'Radweg', 'Trennstreifen', 'Fahrspur', 'Gemeinsam', 'Kernfahrbahn', 'Velostrasse', 'Tram', 'Mittelinsel',
   'FussRadweg', 'Zweirichtungsradweg', 'RadwegAbgesetzt', 'FusswegVelo', 'HaltAbstand', 'HaltEinstieg', 'Umweltspur']
 export const TEIL_LABEL: Record<TeilArt, string> = {
-  Trottoir: 'Trottoir', Haltestelle: 'Haltestelle: Wartebereich (Wartehäuschen und Warteraum)', Gruen: 'Grünstreifen', Parkierung: 'Längsparkierung (Autos)', Veloabstellplatz: 'Veloabstellplatz',
+  Trottoir: 'Trottoir', Haltestelle: 'Haltestelle: Wartebereich (Wartehäuschen und Warteraum)', Gruen: 'Grünstreifen', Parkierung: 'Längsparkierung (Autos)', Veloabstellplatz: 'Zweiradabstellplatz (Velo, Motorrad)',
   Parklet: 'Parklet', Sicherheitsstreifen: 'Sicherheitsstreifen zur Parkierung', Velostreifen: 'Velostreifen',
   Pfosten: 'Trennung mit Pfosten', Radweg: 'Radweg (baulich getrennt)', Trennstreifen: 'Trennstreifen zum Radweg',
   Fahrspur: 'Fahrspur', Gemeinsam: 'Fahrbahn ohne Mittellinie (Gegenverkehr)', Kernfahrbahn: 'Kernfahrbahn (ohne Mittellinie, beide Richtungen)',
@@ -690,6 +690,12 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
   }
   const pTiefe = (seite: 'a' | 'b') => quer(seite)?.tiefe ?? pBreite
   const parkHat = (f: Seite) => f.parkenRechts === 'ja' && f.ist !== 'Radweg strassenbegleitend / Geschützter Radstreifen'
+  // Velo- und Motorradfelder (s.zweirad, Bern, seit 23.10.2026): wo keine Autoparkierung steht, als Zweiradabstellplatz am
+  // Rand, mit der gemessenen Tiefe; auf der Trottoirfläche als «auf Trottoirniveau» (ausserhalb der Fahrbahn)
+  const zweiradTeil = (seite: 'a' | 'b'): Teil[] => {
+    const z = s.zweirad?.[seite]
+    return z ? [{ art: 'Veloabstellplatz', breite: auf5cm(z.tiefe), ...(z.trottoir ? { trottoirniveau: true } : {}) }] : []
+  }
   // Versetzte Parkierung (parkierungVersetzt): nur wenn gegenüber auch Parkierung steht
   const versetzt = s.parkVersetzt && s.richtung === 'beide' && parkHat(seiteA(s)) && parkHat(seiteB(s)) ? s.parkVersetzt : undefined
   const aufTr = (f: Seite, park?: boolean, m?: number) => !!park && parkHat(f) && m != null && Number.isFinite(m)
@@ -721,7 +727,7 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
       t.push(parkTeil(seite, aufTrottoir))
       if (f.parkenSicherheitsstreifen) t.push({ art: 'Sicherheitsstreifen', breite: vorgabe('Sicherheitsstreifen', stadt)!.wert,
         ...(versetzt === seite ? { versetzt: true } : {}) })
-    }
+    } else t.push(...zweiradTeil(seite))
     // Breite heute unbekannt (online oft: OSM ohne Breite, nicht gemessen): Vorgabe einsetzen und als
     // angenommen kennzeichnen. Vorher zählte sie als 0 m, und die Fahrspuren bekamen den ganzen Rest
     // (Laubeggstrasse, Nutzerbefund 16.10.2026: 2 × 4,90 m statt Velostreifen + 2 Spuren).
@@ -737,6 +743,9 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
   // Trottoirs aus der AV (s.trottoir), sobald gemessen: ausserhalb der Fahrbahn, ganz aussen.
   const ohnePark = (m: number | undefined, ja: boolean, seite: 'a' | 'b') => {
     let r = ja ? Math.max(0, m! - pTiefe(seite)) : m
+    // Zweiradfelder auf der Trottoirfläche: ihre Tiefe vom Trottoir abziehen (wie die Parkierung auf Trottoirniveau)
+    const z = s.zweirad?.[seite]
+    if (!ja && z?.trottoir && !parkHat(seite === 'a' ? seiteA(s) : seiteB(s)) && r != null && Number.isFinite(r)) r = Math.max(0, r - z.tiefe)
     // paralleler Radweg auf der Trottoirfläche (trottoir.wegA/B): seine Breite vom gemessenen Trottoir abziehen
     const f = seite === 'a' ? seiteA(s) : seiteB(s), wegDa = seite === 'a' ? s.trottoir?.wegA : s.trottoir?.wegB
     if (wegDa && r != null && Number.isFinite(r) && WEG_TEIL[f.ist as IstFuehrungsform] && Number.isFinite(f.breite)) r = Math.max(0, r - f.breite)
@@ -773,7 +782,7 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
   const rand0 = (seite: 'a' | 'b', m?: number): Teil[] => (wartenAmRand(seite) && m != null && Number.isFinite(m) && m > 0.005
     ? [{ art: 'Haltestelle', breite: auf5cm(m) }] : trottoir(m))
   const links = [...rand0('b', ohnePark(s.trottoir?.b, trB, 'b')), ...gruenAusAv(s.trottoir?.gruenB), ...(s.richtung === 'eine'
-    ? hsiTeile('b') ?? (einbahnParkLinks(s) ? [parkTeil('b', trB)] : [])
+    ? hsiTeile('b') ?? (einbahnParkLinks(s) ? [parkTeil('b', trB)] : zweiradTeil('b'))
     : hsiTeile('b') ?? rand(seiteB(s), trB, 'b'))]
   const rechts = [...(hsiTeile('a')?.reverse() ?? rand(seiteA(s), trA, 'a').reverse()), ...gruenAusAv(s.trottoir?.gruenA),
     ...rand0('a', ohnePark(s.trottoir?.a, trA, 'a'))]

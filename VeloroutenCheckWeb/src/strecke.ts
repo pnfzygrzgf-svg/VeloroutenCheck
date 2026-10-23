@@ -14,7 +14,7 @@ import type { Aufteilung, FussNetz, Markierung } from './aufteilung'
 import { mergeObs, type ObsStats } from './obs'
 import { peilung, type LL } from './geo'
 import { PARK_SCHWELLE } from './parkierung'
-import type { Mittelinsel, ParkTiefe } from './breitenmessung'
+import type { Mittelinsel, ParkTiefe, Zweiradfeld } from './breitenmessung'
 
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
 // Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
@@ -112,6 +112,7 @@ export interface Section extends Seite {
   parallelWeg?: { a?: number; b?: number }     // OSM-Way des parallelen Wegs, der die Seite bildet (parallelwege.ts)
   oevGegen?: boolean      // Einbahn, Bus bzw. Tram auch in der Gegenrichtung (OSM oneway:bus/psv/tram=no; seit 21.10.2026)
   parkVersetzt?: 'a' | 'b'   // Parkierung abwechselnd A und B: diese Seite zählt im Querschnitt nicht (parkierungVersetzt)
+  zweirad?: { a?: Zweiradfeld; b?: Zweiradfeld }   // Velo-/Motorradfelder je Seite (Bern, zweiradJeSeite): Platzbedarf in der Planung
   // Fahrspuren je Seite aus OSM (lanes, turn:lanes; seit 20.10.2026): je Spur der Pfeil, von links nach rechts in
   // Fahrtrichtung der Seite; auf der Einbahn nur a
   spuren?: { a: Markierung[]; b: Markierung[]; busA?: number; busB?: number }   // busA/B: Busspuren der Seite (OSM lanes:bus)

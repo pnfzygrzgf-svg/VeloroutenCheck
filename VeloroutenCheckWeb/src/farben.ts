@@ -8,3 +8,4 @@ export const AV_FARBEN: Record<string, string> = {
 export const AV_DECKKRAFT: Record<string, number> = { Strasse_Weg: 0.25, Trottoir: 0.45, Verkehrsinsel: 0.6, Gebaeude: 0.5 }
 // Parkfelder der Stadt darüber: blau, Parkverbotsfelder orange (beide zählen als Parkierung).
 export const PARK_FARBE = '#2563eb', PARKVERBOT_FARBE = '#f97316'
+export const ZWEIRAD_FARBE = '#0891b2'   // Velo- und Motorradfelder (Bern, seit 23.10.2026)

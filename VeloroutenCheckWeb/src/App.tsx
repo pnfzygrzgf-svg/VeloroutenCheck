@@ -8,12 +8,12 @@ import {
   type OevAngebot, type Haltestellentyp, type NotenErgebnis, type BreitenSoll,
   type Stadt, type Strassentyp, type VergleichsNote,
 } from './fuehrungsform'
-import { VeloMap, ISTCOLOR, BREIT_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
+import { VeloMap, ISTCOLOR, BREIT_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, ZWEIRAD_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
 import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeAvFuer, avQuelle } from './av'
 import Strassensuche from './Strassensuche'
 import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, fahrbahnMitRandstein, RANG_TEXT, type TrottoirAnpassung, type Vorschlag } from './vorschlag'
-import { bordkanten, messeAbKante, messeFlaeche, abstand, aufZentimeter, fahrbahnbreite, haltestelleninsel, haltestellenperron, wartehalleLage, wegAufTrottoir, type Haltestelleninsel, mittelinsel, mittelstreifen, parkierungAufTrottoir, parkierungTiefe, parkierungVersetzt, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
+import { bordkanten, messeAbKante, messeFlaeche, abstand, aufZentimeter, fahrbahnbreite, haltestelleninsel, haltestellenperron, wartehalleLage, zweiradJeSeite, wegAufTrottoir, type Haltestelleninsel, mittelinsel, mittelstreifen, parkierungAufTrottoir, parkierungTiefe, parkierungVersetzt, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
 import type { AvFlaeche } from './av'
 import { artVorschlag, aufnahmeTeile, avArtAn, fangeLage, grenzenAufLinie, querLinie, GANZ, type QsArt, FANG_MAX_M as QS_FANG_MAX_M, FANG_PX as QS_FANG_PX } from './querschnittAufnahme'
 import {
@@ -1222,7 +1222,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8, fontSize: 12.5 }}>
             <span style={{ color: 'var(--text-muted)' }}>AV auf der Karte:</span>
             {[...AV_LEGENDE.map(([art, text]) => [AV_FARBEN[art], text]),
-                            ...(av.park ? [[PARK_FARBE, 'Parkfeld'], [PARKVERBOT_FARBE, 'Parkverbotsfeld']] : [])].map(([farbe, text]) => (
+                            ...(av.park ? [[PARK_FARBE, 'Parkfeld'], [PARKVERBOT_FARBE, 'Parkverbotsfeld'], [ZWEIRAD_FARBE, 'Velo-/Motorradfeld']] : [])].map(([farbe, text]) => (
               <span key={text} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--text-muted-strong)' }}>
                 <span style={{ width: 12, height: 12, borderRadius: 2, background: farbe, border: '1px solid rgba(0,0,0,0.25)' }} />
                 {text}
@@ -2964,11 +2964,14 @@ export default function App() {
       // dabei nie verloren (Nutzerbefund 16.10.2026): Hat eine schon geänderte Planung keine,
       // kommen die gemessenen an die Ränder (mitTrottoirs).
       const achsen = avAchsen(s, true), kanten = bordkanten(flaechen)
-      const pt = parkierungAufTrottoir(achsen, flaechen, park ?? [])   // Parkierung auf der Trottoirfläche je Seite
-      const tiefe = parkierungTiefe(achsen, park ?? [])                 // Tiefe und Anordnung der Parkierung je Seite
+      // Autoparkierung (für Trottoirniveau, Tiefe, versetzt) getrennt von den Velo- und Motorradfeldern (Platzbedarf, seit 23.10.2026)
+      const auto = (park ?? []).filter(f => !f.zweirad)
+      const zweirad = zweiradJeSeite(achsen, flaechen, park ?? [])
+      const pt = parkierungAufTrottoir(achsen, flaechen, auto)   // Parkierung auf der Trottoirfläche je Seite
+      const tiefe = parkierungTiefe(achsen, auto)                 // Tiefe und Anordnung der Parkierung je Seite
       // Trottoir mit Parkierung darauf darf um die Parktiefe breiter sein als die Grenze für Plätze (Neubrückstrasse)
       const tr = trottoirbreiten(achsen, flaechen, kanten, { links: pt.links ? (tiefe.links?.tiefe ?? 2) + 0.5 : 0, rechts: pt.rechts ? (tiefe.rechts?.tiefe ?? 2) + 0.5 : 0 })
-      const versetzt = parkierungVersetzt(achsen, park ?? [], tiefe)    // Parkierung abwechselnd A und B
+      const versetzt = parkierungVersetzt(achsen, auto, tiefe)          // Parkierung abwechselnd A und B
       const insel = mittelinsel(achsen, flaechen, kanten)              // Mittelinsel (kurze Insel, auch Schutzinsel)
       // Haltestelleninsel (Wartebereich mit Veloumfahrung bzw. Fahrspur dahinter), nur mit Haltestelle im Abschnitt
       const hsi = hatHaltestelle(s) ? await haltestelleninselMitOsm(s, achsen, flaechen, kanten) : null
@@ -2993,6 +2996,8 @@ export default function App() {
         if (tiefe.links || tiefe.rechts) neu.parkTiefe = { ...(tiefe.rechts ? { a: tiefe.rechts } : {}), ...(tiefe.links ? { b: tiefe.links } : {}) }
         if (versetzt) neu.parkVersetzt = versetzt === 'rechts' ? 'a' : 'b'
         else delete neu.parkVersetzt
+        if (zweirad.links || zweirad.rechts) neu.zweirad = { ...(zweirad.rechts ? { a: zweirad.rechts } : {}), ...(zweirad.links ? { b: zweirad.links } : {}) }
+        else delete neu.zweirad
         if (netz) neu.fussnetzGeoportal = netz.netz
         if (hsi) neu = haltestelleninselUebernehmen(neu, hsi, city, !!fb || x.quelle.fahrbahnbreite === 'av')
         if (x.aufteilung && JSON.stringify(x.aufteilung) === JSON.stringify(startAufteilung(x, city, cityCfg.breiten))) neu.aufteilung = startAufteilung(neu, city, cityCfg.breiten)
@@ -3011,6 +3016,8 @@ export default function App() {
         `${fb ? `, Fahrbahnbreite ${numDE(Math.round(fb.median * 10) / 10, 1)} m` : ''} (Median der Querschnitte alle 5 m)`
         + `${pText(tiefe.rechts, 'A')}${pText(tiefe.links, 'B')}`
         + `${versetzt ? ` · Parkierung versetzt (abwechselnd Seite A und B; Seite ${versetzt === 'rechts' ? 'A' : 'B'} zählt im Querschnitt nicht)` : ''}`
+        + (['rechts', 'links'] as const).map(k => { const z = zweirad[k]; return z ? ` · ${z.art === 'beide' ? 'Velo- und Motorradfelder' : z.art === 'motorrad' ? 'Motorradfelder' : 'Velofelder'} Seite ${k === 'rechts' ? 'A' : 'B'} `
+          + `(${numDE(z.tiefe, 2)} m tief, ${Math.round(z.anteil * 100)} % der Länge${z.trottoir ? ', auf dem Trottoir' : ''}; in der Planung als Zweiradabstellplatz)` : '' }).join('')
         + `${streifen ? ` · Mittelstreifen Seite ${streifen.seite === 'rechts' ? 'A' : 'B'} (${numDE(streifen.breite, 2)} m breit, ${streifen.laenge} m lang): die Fahrbahn reicht bis zum Streifen; `
           + (streifen.dahinter < 3 ? `dahinter nur ein Streifen von ${numDE(streifen.dahinter, 1)} m, vermutlich eine Haltestelleninsel mit Veloumfahrung: ÖV-Angebot und Haltestellentyp wählen und die AV neu laden`
             : `dahinter liegt ein zweiter Fahrbahnteil von ${numDE(streifen.dahinter, 1)} m (Gegenfahrbahn oder Tram-/Bustrassee), der nicht zu diesem Abschnitt gehört`) : ''}`
@@ -3033,7 +3040,7 @@ export default function App() {
   const planAvWgs = useMemo(() => (planAv ? {
     flaechen: planAv.flaechen.filter(f => f.art in AV_FARBEN)
       .map(f => ({ art: f.art, ringe: f.ringe.map(r => r.map(p => zuWgs(p[0], p[1]))) })),
-    park: planAv.park.map(f => ({ verbot: f.verbot, ringe: f.ringe.map(r => r.map(p => zuWgs(p[0], p[1]))) })),
+    park: planAv.park.map(f => ({ verbot: f.verbot, ...(f.zweirad ? { zweirad: true } : {}), ringe: f.ringe.map(r => r.map(p => zuWgs(p[0], p[1]))) })),
     quelle: [avQuelle(cityCfg.avKanton ?? ''), ...(planAv.park.length && cityCfg.parkierung ? [PARK_QUELLE[cityCfg.parkierung] ?? ''] : [])]
       .filter(Boolean).join(' · '),
   } : null), [planAv, cityCfg.avKanton, cityCfg.parkierung])
