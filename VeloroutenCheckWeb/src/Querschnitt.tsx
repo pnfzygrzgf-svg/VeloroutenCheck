@@ -42,8 +42,11 @@ const KUERZEST: Record<TeilArt, string> = {
 }
 // Parkierung auf Trottoirniveau (seit 17.10.2026) liegt wie das Trottoir erhöht, ausserhalb der Fahrbahn;
 // die Mittelinsel (seit 20.10.2026) ist erhöht, gehört aber zur Fahrbahn (Bordstein–Bordstein)
+// Radweg mit Trennstreifen (seit 24.10.2026, Nutzerbefund: der Trennstreifen allein ragte wie eine Schwelle heraus): beide auf
+// RADWEG_CM, also ein kleiner Absatz von der Fahrbahn hinauf und vom Trottoir hinunter; der Trennstreifen nur in anderer Farbe
+const RADWEG_CM = 5
 const erhoeht = (t: Teil) => (t.art === 'Trottoir' || t.art === 'Haltestelle' || t.art === 'HaltAbstand' || t.art === 'HaltEinstieg' || t.art === 'Gruen' || t.art === 'Mittelinsel' || t.trottoirniveau || istWeg(t) ? BORD_CM
-  : t.art === 'Trennstreifen' ? 10 : 0)
+  : t.art === 'Trennstreifen' || t.art === 'Radweg' ? RADWEG_CM : 0)
 
 // Figuren je Teil (Datei ohne Endung, Grösse der Bilddatei in cm, Versatz dx zur Mitte des Teils)
 // und ab welcher Teilbreite sie passen. links: Teil liegt links der Fahrbahnmitte (Dateien

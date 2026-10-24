@@ -5,7 +5,8 @@
 // Startpunkt der Planung (danach frei änderbar); je eine Variante ohne und mit Randsteinanpassung;
 // Tempo 30 nur, wenn sonst nichts reicht.
 //
-// Gesucht ist die erste Massnahme, die die Note auf mindestens ZIEL (4,5, «weitgehend erfüllt») bringt,
+// Gesucht ist die erste Massnahme, die die Note auf mindestens ZIEL bringt (seit 24.10.2026 5,5, «vollständig erfüllt»,
+// Nutzerentscheid; vorher 4,5 «weitgehend erfüllt» wie der lokale Zielbild-Rechner, der bei 4,5 bleibt),
 // in der Rangfolge des lokalen Rechners:
 //   Rang 1  Markierung ohne Parkierungsabbau: Sicherheitsstreifen · Radstreifen verbreitern · Radstreifen
 //           markieren (eine Seite / beide) · Velo vom Fussweg in die Fahrbahn
@@ -43,7 +44,8 @@ import { FUSSNETZ, KERN_DTV_MAX, KERN_KMH_MAX, STANDARD_QUELLE, WEG_TEIL, auf5cm
 import { numDE } from './csv'
 import type { ParkTiefe } from './breitenmessung'
 
-export const ZIEL = 4.5
+export const ZIEL = 5.5
+export const ZIEL_TEXT = numDE(ZIEL, 1)
 const RS: IstFuehrungsform = 'Radstreifen'
 const RW: IstFuehrungsform = 'Radweg strassenbegleitend / Geschützter Radstreifen'
 const MISCH: IstFuehrungsform = 'Mischverkehr'
@@ -253,8 +255,12 @@ function velostrasse(e: Eingaben): Eingaben | null {
 // sind das Trottoir der Seite und die Fahrbahn ohne die Autos (MIV) und die Teile der Gegenseite.
 export const HS_UMFAHRUNG: Haltestellentyp = 'Haltestelle mit Veloumfahrung'
 export const HS1_MIN_M = 7.0, HS1_STD_M = 7.9
-function hsPlatz(e: Eingaben, s: S): number | null {
-  const tr = e.trottoir[s]
+// Trottoir unbekannt (seit 24.10.2026): angenommen, das heutige Trottoir bleibt als Trottoir hinter der Veloumfahrung (HS1_TROTTOIR_M);
+// der Rest des Umbaus muss aus der Fahrbahn neben dem Autoverkehr kommen. Vorher wurde dann nicht geprüft, und die Planung nahm
+// alles aus der Fahrbahn (Haltestellenbereich Muristrasse: 8,60 m Fahrbahn, für die Tramspuren blieben 0,70 m).
+const HS1_TROTTOIR_M = 2.0
+function hsPlatz(e: Eingaben, s: S, trottoirAnnahme = false): number | null {
+  const tr = e.trottoir[s] ?? (trottoirAnnahme ? HS1_TROTTOIR_M : null)
   if (tr == null || e.fahrbahn == null) return null
   const o: S = s === 'A' ? 'B' : 'A'
   const fo = e.einbahn ? null : formVon(e, o)
@@ -266,7 +272,7 @@ function haltestelleUmbauen(e: Eingaben, s: S): Eingaben | null {
   if (!e.halt || e.hsOhne[s] || !haltestellenTypen(e.stadt).includes(HS_UMFAHRUNG)) return null
   const typ = e.hsTyp[s] !== 'keine' ? e.hsTyp[s] : 'Kaphaltestelle'
   if (haltestellenFamilie(e.stadt, typ) === 'Separate') return null
-  const platz = hsPlatz(e, s)
+  const platz = hsPlatz(e, s) ?? hsPlatz(e, s, true)
   if (platz != null && platz < HS1_MIN_M - 1e-9) return null
   const k = kopie(e); k.hsTyp[s] = HS_UMFAHRUNG; k.hsUmbau = [...(e.hsUmbau ?? []), s]
   return k
@@ -471,11 +477,16 @@ export interface Vorschlag {
   noteVor: number | null
   noteNach?: number
   alternative: string
-  alternativen: { text: string; noteNach: number; k: Eingaben }[]   // zum Übernehmen (Nutzerwunsch 20.10.2026)
+  // zum Übernehmen (Nutzerwunsch 20.10.2026); art (seit 24.10.2026, bei der bestmöglichen Verbesserung): «günstiger» = erste
+  // Verbesserung in der gewohnten Rangfolge, «pilot» = beste Verbesserung mit schmalem Kern; ohne art wie bisher
+  alternativen: { text: string; noteNach: number; k: Eingaben; art?: 'guenstiger' | 'pilot' }[]
   blocker: string
   vermerk: string
   varianten: number                 // geprüfte Varianten
   k?: Eingaben                      // die Eingaben des Vorschlags (für die Aufteilung)
+  // Kein Vorschlag erreicht das Ziel, aber einer verbessert die Note (seit 24.10.2026, Nutzerwunsch): bestmögliche Verbesserung
+  // des Katalogs mit rang, text, noteNach und k; erreicht bleibt false, blocker nennt, warum das Ziel nicht erreicht wird
+  teilweise?: boolean
 }
 export const RANG_TEXT: Record<number, string> = {
   0: 'keine Massnahme nötig', 1: 'Markierung', 2: 'Kernfahrbahn', 3: 'Parkierung aufheben', 4: 'Velostrasse', 5: 'Haltestelle umbauen',
@@ -577,14 +588,15 @@ function fehltText(e: Eingaben): string {
 }
 
 // Der Vorschlag für einen Abschnitt; fahrbahn: verfügbares Mass (mit Randsteinanpassung grösser)
-export function vorschlagRechnen(base: Section, fahrbahn?: number | null, stadt: Stadt = 'bern', breiten?: Breiten): Vorschlag {
-  const res = vorschlagStadt(base, fahrbahn, stadt, breiten)
+// ziel: Note, die die Massnahme mindestens erreichen muss (Standard ZIEL; die Tests des Katalogs rechnen auch mit 4,5)
+export function vorschlagRechnen(base: Section, fahrbahn?: number | null, stadt: Stadt = 'bern', breiten?: Breiten, ziel = ZIEL): Vorschlag {
+  const res = vorschlagStadt(base, fahrbahn, stadt, breiten, ziel)
   if (stadt === 'bern') return res
   // Ausser Bern ohne die Hinweise auf die Berner Querschnittsblätter
   const ohneQ = (t: string) => t.replace(/ \(Q [^)]*\)/g, '')
   return { ...res, text: ohneQ(res.text), alternative: ohneQ(res.alternative), alternativen: res.alternativen.map(a => ({ ...a, text: ohneQ(a.text) })) }
 }
-function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stadt: Stadt, breiten?: Breiten): Vorschlag {
+function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stadt: Stadt, breiten?: Breiten, ziel = ZIEL): Vorschlag {
   const e = eingabenVon(base, stadt, breiten)
   if (fahrbahn !== undefined) e.fahrbahn = fahrbahn == null ? null : r2(fahrbahn - e.insel)
   const nv = noten(base, e), n0 = nv.n
@@ -595,7 +607,7 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
   if (e.ohneFahrbahn && (!Number.isFinite(dtvEff(base, stadt)) || !Number.isFinite(base.speed)))
     vermerke.push('Weg ohne Fahrbahn ohne DTV oder Tempo: gerechnet ohne Motorfahrzeugverkehr')
   if (!e.ist) { res.blocker = 'keine Führungsform erfasst'; return res }
-  if (n0 != null && n0 >= ZIEL) { Object.assign(res, { erreicht: true, rang: 0, text: RANG_TEXT[0], noteNach: n0, vermerk: vermerke.join(' · ') }); return res }
+  if (n0 != null && n0 >= ziel) { Object.assign(res, { erreicht: true, rang: 0, text: RANG_TEXT[0], noteNach: n0, vermerk: vermerke.join(' · ') }); return res }
   // Die Note braucht online bei Formen mit Breitenvorgabe die Breite (lokal nicht): dann zuerst ergänzen
   // Masse ausser Bern: die der Stadt, sonst die Berner als Ersatz (nur wenn eine Massnahme gesucht wird)
   if (e.m.ersatz.length) vermerke.push(`Masse nach ${STANDARD_QUELLE[stadt]}; Ersatz Bern (${STANDARD_QUELLE.bern}): ${e.m.ersatz.join(', ')}`)
@@ -651,34 +663,59 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
     formVon(c.k, s) === formVon(e, s) && c.k.breite[s] === e.breite[s] && c.k.park[s] === e.park[s] && c.k.sich[s] === e.sich[s]))
   const kandHb = kand.filter(hbUnberuehrt)
   res.varianten = kandHb.length
-  const treffer = kandHb.map(c => ({ ...c, n: noten(base, c.k).n }))
-    .filter((c): c is Kand & { n: number } => c.n != null && c.n >= ZIEL)
+  const benotet = kandHb.map(c => ({ ...c, n: noten(base, c.k).n })).filter((c): c is Kand & { n: number } => c.n != null)
+  const treffer = benotet.filter(c => c.n >= ziel)
     .sort((x, y) => x.rang - y.rang || x.weg - y.weg || x.text.split(' + ').length - y.text.split(' + ').length
       || Number(x.text.includes('beidseitig')) - Number(y.text.includes('beidseitig')) || y.n - x.n)
   const piloten = treffer.filter(t => t.text.includes('(Pilot)'))
   const haupt = treffer.filter(t => !t.text.includes('(Pilot)'))
   const altText = (t: Kand & { n: number }) => `${t.text} → ${numDE(t.n, 1)}`
+  // Vermerke zum gewählten Vorschlag (Platz der Veloumfahrung, Platz neben dem Weg, Fahrbahnbreite unbekannt)
+  const vermerkeZu = (r1: Kand) => {
+    if (r1.k.hsUmbau?.length) {
+      if (r1.k.hsUmbau.some(s => hsPlatz(e, s) == null))
+        vermerke.push(`Platz für die Veloumfahrung nicht geprüft (Trottoir oder Fahrbahnbreite unbekannt): je Seite ausserhalb der Haltekante ${m2(HS1_MIN_M)}, im Standard ${m2(HS1_STD_M)}`)
+      if (e.tram) vermerke.push('Tramhaltestelle: Platzbedarf der Haltekante nicht geprüft')
+    }
+    if (r1.k.platzOffen) vermerke.push('Platz neben dem Weg nicht geprüft: die App kennt die Fläche daneben nicht')
+    else if (e.fahrbahn == null && !e.ohneFahrbahn && !/^(Tempo 30|Velo in die Fahrbahn)/.test(r1.text.replace(/^Tempo 30 \+ /, '')))
+      vermerke.push('Fahrbahnbreite unbekannt: Platz nicht geprüft, der Vorschlag nennt nur die nötige Führungsform')
+  }
   if (!haupt.length) {
     res.erreicht = false
     res.blocker = (e.ohneFahrbahn ? '' : fehltText(e)) || ([e.ist, e.geg].includes(UMWELTSPUR)
-      ? 'Umweltspur bei dichtem Bus-Takt (Massnahme liegt beim ÖV)' : 'mit keiner Massnahme des Katalogs auf 4,5')
+      ? 'Umweltspur bei dichtem Bus-Takt (Massnahme liegt beim ÖV)' : `mit keiner Massnahme des Katalogs auf ${numDE(ziel, 1)}`)
     if (piloten.length) {
       res.alternative = `nur im Pilot möglich: ${altText(piloten[0])}`
       res.alternativen = [{ text: piloten[0].text, noteNach: piloten[0].n, k: piloten[0].k }]
+    }
+    // Bestmögliche Verbesserung (Nutzerwunsch 24.10.2026: «dann hätte es einen Vorschlag zur Verbesserung»): die Massnahme mit der
+    // höchsten Note über der von heute, ohne Pilot; bei gleicher Note wie sonst nach Rang, Parkierung, Eingriffen, eine Seite vor beiden.
+    // Dazu als Zusatzzeilen (Nutzerwunsch 24.10.2026): «oder günstiger» = die erste Verbesserung in der gewohnten Rangfolge, wenn
+    // sie eine andere ist; «oder im Pilot» = die beste mit schmalem Kern, wenn sie mehr bringt als die bestmögliche Verbesserung.
+    const eingriffe = (c: Kand) => c.text.split(' + ').length
+    const nachRang = (x: Kand & { n: number }, y: Kand & { n: number }) => x.rang - y.rang || x.weg - y.weg || eingriffe(x) - eingriffe(y)
+      || Number(x.text.includes('beidseitig')) - Number(y.text.includes('beidseitig')) || y.n - x.n
+    const verbessert = benotet.filter(c => c.n > n0 + 1e-9)
+    const besser = verbessert.filter(c => !c.text.includes('(Pilot)'))
+      .sort((x, y) => y.n - x.n || nachRang(x, y))
+    if (besser.length) {
+      const b = besser[0]
+      Object.assign(res, { teilweise: true, rang: b.rang, text: b.text, noteNach: b.n, k: b.k })
+      vermerkeZu(b)
+      const g = [...besser].sort(nachRang)[0]
+      const zusatz: Vorschlag['alternativen'] = []
+      if (g.text !== b.text) zusatz.push({ text: g.text, noteNach: g.n, k: g.k, art: 'guenstiger' })
+      const p = !piloten.length ? verbessert.filter(c => c.text.includes('(Pilot)')).sort((x, y) => y.n - x.n || nachRang(x, y))[0] : undefined
+      if (p && p.n > b.n + 1e-9) zusatz.push({ text: p.text, noteNach: p.n, k: p.k, art: 'pilot' })
+      res.alternativen = [...res.alternativen, ...zusatz]
     }
     res.vermerk = vermerke.join(' · ')
     return res
   }
   const r1 = haupt[0]
   Object.assign(res, { erreicht: true, rang: r1.rang, text: r1.text, noteNach: r1.n, k: r1.k })
-  if (r1.k.hsUmbau?.length) {
-    if (r1.k.hsUmbau.some(s => hsPlatz(e, s) == null))
-      vermerke.push(`Platz für die Veloumfahrung nicht geprüft (Trottoir oder Fahrbahnbreite unbekannt): je Seite ausserhalb der Haltekante ${m2(HS1_MIN_M)}, im Standard ${m2(HS1_STD_M)}`)
-    if (e.tram) vermerke.push('Tramhaltestelle: Platzbedarf der Haltekante nicht geprüft')
-  }
-  if (r1.k.platzOffen) vermerke.push('Platz neben dem Weg nicht geprüft: die App kennt die Fläche daneben nicht')
-  else if (e.fahrbahn == null && !e.ohneFahrbahn && !/^(Tempo 30|Velo in die Fahrbahn)/.test(r1.text.replace(/^Tempo 30 \+ /, '')))
-    vermerke.push('Fahrbahnbreite unbekannt: Platz nicht geprüft, der Vorschlag nennt nur die nötige Führungsform')
+  vermerkeZu(r1)
   res.vermerk = vermerke.join(' · ')
   // Alternative: anderer Rang, andere Parkierung oder (bei Wegen) Trennen statt Verbreitern
   const trennt = (x: string) => x.startsWith('Fuss- und Veloverkehr trennen')
@@ -699,7 +736,8 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
 // ── Randsteinanpassung: Trottoirs je Seite gegen die Vorgabe des Fussverkehrsnetzes ──
 // ist: Trottoir heute (ohne Parkierung auf Trottoirniveau, auf 5 cm wie seitenraumVon), NaN = keines;
 // frei: was über der Vorgabe liegt (darf weg); fehlt: was bis zur Vorgabe fehlt (kommt dazu)
-export interface TrottoirAnpassung { vorgabe: number; ist: Record<S, number>; frei: Record<S, number>; fehlt: Record<S, number> }
+// verfehlt (seit 24.10.2026): nur teilweise verbreitert (vorschlagMitRandstein), so viel fehlt danach je Seite noch bis zur Vorgabe
+export interface TrottoirAnpassung { vorgabe: number; ist: Record<S, number>; frei: Record<S, number>; fehlt: Record<S, number>; verfehlt?: Record<S, number> }
 const trottoirHeute = (s: Section, seite: S, parkM = PARK_M): number => {
   const m = seite === 'A' ? s.trottoir?.a : s.trottoir?.b
   if (m == null || !Number.isFinite(m)) return NaN
@@ -717,6 +755,37 @@ export function trottoirAnpassung(s: Section, a: Aufteilung, stadt: Stadt = 'ber
 }
 // verfügbare Fahrbahn mit Randsteinanpassung
 export const fahrbahnMitRandstein = (fb: number, t: TrottoirAnpassung): number => r2(fb + t.frei.A + t.frei.B - t.fehlt.A - t.fehlt.B)
+
+// Randsteinanpassung so weit wie möglich (seit 24.10.2026, Nutzerentscheid, Befund Kirchenfeldstrasse 307351482: Radweg und
+// Trottoirs auf 2,50 m zusammen 1,45 m zu breit für den Strassenraum, also gar kein Vorschlag): Erreicht mit den Trottoirs auf der
+// Vorgabe keine Massnahme das Ziel, werden sie nur so weit verbreitert, dass eine Massnahme es noch erreicht — die grösste
+// Verbreiterung in 5-cm-Schritten (binäre Suche; mehr Fahrbahn macht einen Vorschlag nicht schlechter), auf die Seiten im
+// Verhältnis dessen verteilt, was ihnen fehlt. Was danach noch fehlt, steht in verfehlt und im Vermerk. Geht es auch ohne jede
+// Verbreiterung nicht, bleibt das Ergebnis mit den Trottoirs auf der Vorgabe (mit der bestmöglichen Verbesserung, falls es eine gibt).
+export function vorschlagMitRandstein(base: Section, fb: number, ta: TrottoirAnpassung, stadt: Stadt = 'bern', breiten?: Breiten, ziel = ZIEL):
+  { v: Vorschlag; ta: TrottoirAnpassung } {
+  const voll = vorschlagRechnen(base, fahrbahnMitRandstein(fb, ta), stadt, breiten, ziel)
+  const summe = r2(ta.fehlt.A + ta.fehlt.B)
+  if (voll.erreicht || summe < 0.05) return { v: voll, ta }
+  const mitW = (w: number): TrottoirAnpassung => {
+    const wA = summe > 0 ? Math.min(ta.fehlt.A, auf5cm(w * ta.fehlt.A / summe)) : 0, wB = r2(Math.min(ta.fehlt.B, w - wA))
+    return { ...ta, fehlt: { A: wA, B: wB }, verfehlt: { A: r2(ta.fehlt.A - wA), B: r2(ta.fehlt.B - wB) } }
+  }
+  const versuch = (w: number) => { const t = mitW(w); return { t, v: vorschlagRechnen(base, fahrbahnMitRandstein(fb, t), stadt, breiten, ziel) } }
+  let lo = 0, hi = Math.round(summe / 0.05) - 1                 // Schritte zu 5 cm; hi + 1 = voll (nicht erreicht)
+  let best = versuch(0)
+  if (!best.v.erreicht) return { v: voll, ta }
+  while (lo < hi) {                                             // grösstes w mit erreicht
+    const mid = Math.ceil((lo + hi) / 2), r = versuch(r2(mid * 0.05))
+    if (r.v.erreicht) { lo = mid; best = r } else hi = mid - 1
+  }
+  if (lo === 0) best = versuch(0)
+  const t = best.t, fehltNoch = (['A', 'B'] as const).filter(s => (t.verfehlt?.[s] ?? 0) > 0.001)
+  const hinweis = `Trottoirs nur teilweise auf die Vorgabe ${m2(ta.vorgabe)}: ` + (['A', 'B'] as const).filter(s => Number.isFinite(ta.ist[s]))
+    .map(s => `Seite ${s} ${m2(ta.ist[s])} → ${m2(r2(ta.ist[s] + t.fehlt[s]))}${(t.verfehlt?.[s] ?? 0) > 0.001 ? ` (${m2(t.verfehlt![s])} unter der Vorgabe)` : ''}`).join(', ')
+    + (fehltNoch.length ? '; mehr Platz für das Trottoir liesse die Massnahme nicht zu' : '')
+  return { v: { ...best.v, vermerk: [hinweis, best.v.vermerk].filter(Boolean).join(' · ') }, ta: t }
+}
 
 // ── Aufteilung aus einem Vorschlag: Teile von links (Rand Seite B) nach rechts (Rand Seite A) ──
 // randstein: Anpassung der Trottoirs (null = Randstein bleibt)

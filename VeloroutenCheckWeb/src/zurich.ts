@@ -61,14 +61,23 @@ function kategorieToRoutentyp(kat: unknown): Routentyp | undefined {
 }
 
 async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
-  // WFS 2.0: Standard-Achsenreihenfolge für EPSG:4326 ist lat,lon → bbox = minLat,minLon,maxLat,maxLon.
-  const params = new URLSearchParams({
+  // WFS 1.1.0 mit bbox lon,lat (EPSG:4326): seit Oktober 2026 antwortet der Dienst auf WFS 2.0.0 mit HTTP 500 und einer
+  // HTML-Seite (Nutzerbefund Langstrasse 24.10.2026: «Nicht erreichbar: Velonetzplanung»); 1.1.0 liefert dieselben Linien
+  // mit CORS «*». Fällt 1.1.0 aus, wird 2.0.0 (bbox lat,lon) versucht.
+  const v11 = new URLSearchParams({
+    service: 'WFS', version: '1.1.0', request: 'GetFeature',
+    typeName: 'view_velonetz', outputFormat: 'application/json', srsName: 'EPSG:4326',
+    bbox: `${bbox.w},${bbox.s},${bbox.e},${bbox.n},EPSG:4326`,
+  })
+  const v20 = new URLSearchParams({
     service: 'WFS', version: '2.0.0', request: 'GetFeature',
     typeNames: 'view_velonetz', outputFormat: 'application/json', srsName: 'EPSG:4326',
     bbox: `${bbox.s},${bbox.w},${bbox.n},${bbox.e},urn:ogc:def:crs:EPSG::4326`,
   })
   // Timeout: ein hängender WFS darf enrichAll/die UI nicht dauerhaft blockieren.
-  const data = await holeJson<{ features?: GeoJsonFeature[] }>(`${VELONETZ_WFS}?${params}`, 15000)
+  let data: { features?: GeoJsonFeature[] }
+  try { data = await holeJson<{ features?: GeoJsonFeature[] }>(`${VELONETZ_WFS}?${v11}`, 15000) }
+  catch { data = await holeJson<{ features?: GeoJsonFeature[] }>(`${VELONETZ_WFS}?${v20}`, 15000) }
   return (data.features || []).filter(istLinie)
 }
 

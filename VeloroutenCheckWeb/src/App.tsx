@@ -12,7 +12,7 @@ import { VeloMap, ISTCOLOR, BREIT_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, Z
 import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeAvFuer, avQuelle } from './av'
 import Strassensuche from './Strassensuche'
-import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, fahrbahnMitRandstein, RANG_TEXT, type TrottoirAnpassung, type Vorschlag } from './vorschlag'
+import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, RANG_TEXT, type TrottoirAnpassung, type Vorschlag, ZIEL_TEXT, vorschlagMitRandstein } from './vorschlag'
 import { bordkanten, messeAbKante, messeFlaeche, abstand, aufZentimeter, fahrbahnbreite, haltestelleninsel, haltestellenperron, wartehalleLage, zweiradJeSeite, wegAufTrottoir, type Haltestelleninsel, mittelinsel, mittelstreifen, parkierungAufTrottoir, parkierungTiefe, parkierungVersetzt, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
 import type { AvFlaeche } from './av'
 import { artVorschlag, aufnahmeTeile, avArtAn, fangeLage, grenzenAufLinie, querLinie, GANZ, type QsArt, FANG_MAX_M as QS_FANG_MAX_M, FANG_PX as QS_FANG_PX } from './querschnittAufnahme'
@@ -903,7 +903,7 @@ const PFEIL_ZEICHEN: Record<Pfeil, string> = { links: '←', geradeaus: '↑', r
 const PFEIL_NAME: Record<Pfeil, string> = { links: 'links', geradeaus: 'geradeaus', rechts: 'rechts' }
 
 // ── Massnahmenvorschlag (seit 17.10.2026 Bern, seit 20.10.2026 alle Städte mit Planung; vorschlag.ts) ──
-// Erste Massnahme in der Rangfolge, die die Note auf 4,5 bringt; Note und Masse nach der Stadt (Ersatz Bern).
+// Erste Massnahme in der Rangfolge, die die Note auf ZIEL (5,5) bringt; Note und Masse nach der Stadt (Ersatz Bern).
 // Je eine Zeile ohne und mit Randsteinanpassung; «Übernehmen» ersetzt die Teile (danach frei änderbar), ebenso bei jeder Alternative.
 function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: Aufteilung; onChange: (a: Aufteilung) => void; city: Stadt }) {
   const breiten = CITIES[city].breiten
@@ -912,38 +912,53 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
   // verfügbare Fahrbahnbreite der Planung (Feld oben), sonst die des Abschnitts
   const fb = Number.isFinite(a.fahrbahn) ? a.fahrbahn : section.fahrbahnbreite
   const ohne = useMemo(() => vorschlagRechnen(section, Number.isFinite(fb) ? fb : null, city, breiten), [section, fb, city, breiten])
-  const mit = useMemo(() => (ta && aendert && Number.isFinite(fb) ? vorschlagRechnen(section, fahrbahnMitRandstein(fb, ta), city, breiten) : null),
+  // mit Randsteinanpassung, so weit wie möglich (vorschlagMitRandstein): taMit sind die Trottoirs, mit denen der Vorschlag rechnet
+  const mitR = useMemo(() => (ta && aendert && Number.isFinite(fb) ? vorschlagMitRandstein(section, fb, ta, city, breiten) : null),
     [section, fb, a.fussnetz, city])   // eslint-disable-line react-hooks/exhaustive-deps
+  const mit = mitR?.v ?? null, taMit = mitR?.ta ?? ta
   // Was die Randsteinanpassung an den Trottoirs tut, je Seite
-  const trText = ta && aendert ? (['A', 'B'] as const).filter(s => Number.isFinite(ta.ist[s])).map(s =>
-    ta.fehlt[s] > 0.001 ? `Seite ${s} ${numDE(ta.ist[s], 2)} → ${numDE(ta.vorgabe, 2)} m`
-      : ta.frei[s] > 0.001 ? `Seite ${s} ${numDE(ta.ist[s], 2)} m, bis ${numDE(ta.vorgabe, 2)} m schmaler möglich`
-      : `Seite ${s} ${numDE(ta.ist[s], 2)} m wie die Vorgabe`).join(' · ') : ''
+  const trText = taMit && aendert ? (['A', 'B'] as const).filter(s => Number.isFinite(taMit.ist[s])).map(s =>
+    taMit.fehlt[s] > 0.001 ? `Seite ${s} ${numDE(taMit.ist[s], 2)} → ${numDE(taMit.ist[s] + taMit.fehlt[s], 2)} m`
+        + ((taMit.verfehlt?.[s] ?? 0) > 0.001 ? ` (Vorgabe ${numDE(taMit.vorgabe, 2)} m um ${numDE(taMit.verfehlt![s], 2)} m verfehlt)` : '')
+      : (taMit.verfehlt?.[s] ?? 0) > 0.001 ? `Seite ${s} ${numDE(taMit.ist[s], 2)} m bleibt (Vorgabe ${numDE(taMit.vorgabe, 2)} m um ${numDE(taMit.verfehlt![s], 2)} m verfehlt)`
+      : taMit.frei[s] > 0.001 ? `Seite ${s} ${numDE(taMit.ist[s], 2)} m, bis ${numDE(taMit.vorgabe, 2)} m schmaler möglich`
+      : `Seite ${s} ${numDE(taMit.ist[s], 2)} m wie die Vorgabe`).join(' · ') : ''
+  const trZeile = trText ? `${taMit?.verfehlt ? 'Trottoirs so weit wie möglich' : 'Trottoirs auf die Vorgabe'}: ${trText}` : ''
   const zeile = (titel: string, v: Vorschlag | null, randstein: TrottoirAnpassung | null, ersatz?: string, zusatz?: string) => {
     if (!v) return (
       <div style={{ padding: '6px 0', borderTop: '1px solid var(--border-subtle)' }}>
         <b>{titel}:</b> <span style={{ color: 'var(--text-muted-strong)' }}>{ersatz}</span>
       </div>
     )
-    const plan = v.erreicht && v.rang ? aufteilungAusVorschlag(section, a, v, randstein) : null
+    const plan = (v.erreicht || v.teilweise) && v.rang ? aufteilungAusVorschlag(section, a, v, randstein) : null
     const planNote = plan ? bewerteAufteilung(section, plan, city, breiten).note : null
     return (
       <div style={{ padding: '6px 0', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 260px', minWidth: 0 }}>
           <b>{titel}:</b>{' '}
-          {v.erreicht === true && v.rang === 0 && <span>Die Note erreicht schon {numDE(4.5, 1)}; keine Massnahme nötig.</span>}
+          {v.erreicht === true && v.rang === 0 && <span>Die Note erreicht schon {ZIEL_TEXT} (vollständig erfüllt); keine Massnahme nötig.</span>}
           {v.erreicht === true && v.rang != null && v.rang > 0 && (
             <span>{v.text} <span style={{ color: 'var(--text-muted-strong)' }}>(Rang {v.rang}, {RANG_TEXT[v.rang]}; Note {
               v.noteVor != null ? numDE(v.noteVor, 1) : '–'} → {v.noteNach != null ? numDE(v.noteNach, 1) : '–'})</span></span>
           )}
-          {v.erreicht !== true && <span style={{ color: '#92400e' }}>kein Vorschlag: {v.blocker}</span>}
-          {zusatz && <div style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>Trottoirs auf die Vorgabe: {zusatz}</div>}
+          {/* Ziel nicht erreichbar, aber eine Verbesserung (seit 24.10.2026): die bestmögliche mit dem Erfüllungsgrad, den sie bringt */}
+          {v.teilweise && v.rang != null && v.noteNach != null && (<>
+            <span>{v.text} <span style={{ color: 'var(--text-muted-strong)' }}>(Rang {v.rang}, {RANG_TEXT[v.rang]}; Note {
+              v.noteVor != null ? numDE(v.noteVor, 1) : '–'} → {numDE(v.noteNach, 1)})</span></span>
+            <div style={{ fontSize: 12, color: '#92400e' }}>
+              Bestmögliche Verbesserung: erreicht «{erfuellungsgrad(v.noteNach)}», nicht {ZIEL_TEXT} (vollständig erfüllt); {v.blocker}.
+            </div>
+          </>)}
+          {v.erreicht !== true && !v.teilweise && <span style={{ color: '#92400e' }}>kein Vorschlag: {v.blocker}</span>}
+          {zusatz && <div style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>{zusatz}</div>}
           {v.alternativen.map((alt, j) => {
             const altPlan = aufteilungAusVorschlag(section, a, { ...v, text: alt.text, noteNach: alt.noteNach, k: alt.k }, randstein)
             return (
               <div key={j} style={{ fontSize: 12, color: 'var(--text-muted-strong)', display: 'flex', gap: 8, alignItems: 'center',
                                     flexWrap: 'wrap', marginTop: 3 }}>
-                <span style={{ flex: '1 1 220px' }}>{v.erreicht ? 'Alternative' : 'Nur im Pilot möglich'}: {alt.text} → {numDE(alt.noteNach, 1)}</span>
+                <span style={{ flex: '1 1 220px' }}>{alt.art === 'guenstiger' ? 'Oder günstiger' : alt.art === 'pilot' ? 'Oder im Pilot'
+                  : v.erreicht ? 'Alternative' : 'Nur im Pilot möglich'}: {alt.text} → {numDE(alt.noteNach, 1)}
+                  {alt.art && <> («{erfuellungsgrad(alt.noteNach)}»)</>}</span>
                 <button type="button" disabled={!altPlan} onClick={() => altPlan && onChange(altPlan)}
                         title={altPlan ? 'Ersetzt die Elemente der Planung durch diese Alternative; danach frei änderbar'
                           : 'Verfügbare Fahrbahnbreite fehlt: zuerst «aus AV ermitteln» oder eintragen'}
@@ -962,7 +977,7 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
             </div>
           )}
         </div>
-        {v.erreicht && v.rang != null && v.rang > 0 && (
+        {(v.erreicht || v.teilweise) && v.rang != null && v.rang > 0 && (
           <button type="button" disabled={!plan} onClick={() => plan && onChange(plan)}
                   title={plan ? 'Ersetzt die Elemente der Planung durch den Vorschlag; danach frei änderbar'
                     : 'Verfügbare Fahrbahnbreite fehlt: zuerst «aus AV ermitteln» oder eintragen'}
@@ -979,14 +994,14 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
                                                   padding: '8px 12px', marginBottom: 10, fontSize: 13 }}>
       <summary style={{ fontWeight: 700, color: 'var(--text-strong)' }}>Vorschlag</summary>
       {zeile('Ohne Randsteinanpassung', ohne, null)}
-      {zeile('Mit Randsteinanpassung', mit, ta, !ta
+      {zeile('Mit Randsteinanpassung', mit, taMit, !ta
         ? (fussnetzOptionen(city).length === 0 ? 'Für diese Stadt gibt es kein Fussverkehrsnetz mit Trottoir-Vorgabe; nur ohne Randsteinanpassung.'
           : !a.fussnetz ? 'Fussverkehrsnetz wählen (oben); die Trottoirs kommen dann auf dessen Vorgabe.'
           : 'Trottoirs aus der AV fehlen: zuerst «AV auf der Karte zeigen».')
-        : 'Die Trottoirs entsprechen genau der Vorgabe des Fussverkehrsnetzes; wie ohne Randsteinanpassung.', trText)}
+        : 'Die Trottoirs entsprechen genau der Vorgabe des Fussverkehrsnetzes; wie ohne Randsteinanpassung.', trZeile)}
       {/* Erklärung als Fussnote (seit 22.10.2026 nach dem Ergebnis, vorher davor) */}
       <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>
-        Die erste Massnahme, die die Note auf mindestens 4,5 bringt; Rangfolge Markierung, Kernfahrbahn, Parkierung aufheben,
+        Die erste Massnahme, die die Note auf mindestens {ZIEL_TEXT} bringt (vollständig erfüllt); Rangfolge Markierung, Kernfahrbahn, Parkierung aufheben,
         Velostrasse, Radweg bauen, Tempo 30. «Übernehmen» setzt sie als Startpunkt, danach ist alles frei änderbar.
       </div>
     </details>
@@ -2245,7 +2260,8 @@ function SoFunktionierts() {
           jedes Stück wird ein Element. Die App prüft jedes Element gegen die
           Vorgaben der Stadt (wo eine Stadt kein Mass nennt, gilt das Berner, mit «Ersatz Bern» ausgewiesen), rechnet die Bilanz über den ganzen Querschnitt und zeigt die Note mit der Planung neben der von heute. Die Karte
           zeigt dazu die amtliche Vermessung und die Parkfelder (Basel: keine Parkfelder in den offenen Daten). Der Kasten «Vorschlag»
-          schlägt die erste Massnahme vor, die die Note auf 4,5 bringt, ohne und mit Randsteinanpassung (dann kommen die Trottoirs auf
+          schlägt die erste Massnahme vor, die die Note auf 5,5 bringt (vollständig erfüllt), sonst die bestmögliche Verbesserung mit ihrem
+          Erfüllungsgrad, ohne und mit Randsteinanpassung (dann kommen die Trottoirs auf
           die Vorgabe des Fussverkehrsnetzes); ausser in Bern mit den Massen der Stadt, wo sie keine nennt mit den Berner; «Übernehmen» bzw. «Alternative übernehmen» setzt sie als Startpunkt. «Bericht / PDF» (oben und in der Planung) druckt Karte, Skizzen, Prüfung und Bewertung. Im Breitbild lässt sich der
           Eingabebereich am Trenner zur Karte breiter ziehen; bei offener Planung ist er schon breiter.</li>
         <li><b>Ergebnis lesen:</b> vorne steht der Erfüllungsgrad (von «Gar nicht erfüllt» bis «Vollständig erfüllt»), dahinter

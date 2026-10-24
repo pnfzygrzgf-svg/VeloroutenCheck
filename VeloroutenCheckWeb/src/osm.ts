@@ -8,7 +8,7 @@ import type { IstFuehrungsform } from './fuehrungsform'
 import type { Cand } from './VeloMap'
 import type { Markierung } from './aufteilung'
 import { distPointToLineM, teileLinie } from './geo'
-import { overpassAbgebrochen } from './cityShared'
+import { overpassFetch } from './overpass'
 
 type LL = { lat: number; lon: number }
 
@@ -218,63 +218,7 @@ export function teileInListe(cs: Cand[], id: number, lat: number, lon: number): 
   return { cands, neu }
 }
 
-// Overpass-Endpunkte: Hauptinstanz + Ausweich-Mirror (Failover bei Überlastung/Ausfall).
-const OVERPASS_ENDPOINTS = [
-  'https://overpass.osm.ch/api/interpreter',       // Schweizer Mirror (SOSM) — schnell/zuverlässig für CH-Daten
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-]
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-const REQUEST_TIMEOUT_MS = 12000   // Per-Versuch-Timeout: hängende Mirror schnell überspringen (Failover)
-const MAX_BACKOFF_MS = 10000       // Obergrenze fürs Warten (auch bei grossem Retry-After)
-
-// fetch mit hartem Timeout (AbortController) — verhindert, dass eine nicht antwortende
-// Instanz den ganzen Ladevorgang blockiert.
-async function fetchMitTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
-  const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), ms)
-  try { return await fetch(url, { ...init, signal: ctrl.signal }) }
-  finally { clearTimeout(t) }
-}
-
-// Eine Overpass-Anfrage mit Robustheit gegen Rate-Limits (429), kurze Server-Fehler (5xx) und
-// hängende Instanzen: Per-Versuch-Timeout, Retry mit exponentiellem Backoff (gedeckelt),
-// `Retry-After`-Header beachten, über die Mirror-Liste rotieren. Erst wenn alle Endpunkte/Versuche
-// scheitern, wird ein Fehler geworfen.
-async function overpassFetch(query: string): Promise<unknown> {
-  const init: RequestInit = { method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'data=' + encodeURIComponent(query) }
-  const maxRunden = 2                          // Runden über die gesamte Endpunkt-Liste
-  let lastStatus = 0
-  for (let runde = 0; runde < maxRunden; runde++) {
-    for (const url of OVERPASS_ENDPOINTS) {
-      let res: Response
-      try {
-        res = await fetchMitTimeout(url, init, REQUEST_TIMEOUT_MS)
-      } catch { lastStatus = 0; continue }     // Timeout/Netzwerk-/CORS-Fehler → nächster Mirror
-      if (res.ok) {
-        // Auch HTTP 200 kann ein abgebrochenes Ergebnis sein (`remark`: Zeitüberschreitung/
-        // Speichergrenze) oder gar kein JSON (Fehlerseite) → wie ein Server-Fehler behandeln.
-        let data: { remark?: unknown }
-        try { data = await res.json() } catch { lastStatus = 0; continue }
-        if (overpassAbgebrochen(data)) { lastStatus = 504; continue }
-        return data
-      }
-      lastStatus = res.status
-      // 429 (Rate-Limit) / 504 (Timeout) / 5xx: kurz warten und weiterprobieren; 4xx sonst sofort werfen.
-      if (res.status === 429 || res.status === 504 || res.status >= 500) {
-        const ra = parseInt(res.headers.get('Retry-After') || '', 10)
-        const wartMs = Math.min(MAX_BACKOFF_MS, Number.isFinite(ra) ? ra * 1000 : 1000 * 2 ** runde)
-        await sleep(wartMs)
-        continue
-      }
-      throw new Error('Overpass HTTP ' + res.status)
-    }
-  }
-  throw new Error('Overpass überlastet (HTTP ' + (lastStatus || 'Netzwerkfehler') + ')')
-}
+// Overpass: gemeinsame Anbindung in overpass.ts (seit 24.10.2026)
 
 // Wartehallen und Perrons an Haltestellen um eine Geometrie (seit 21.10.2026, Nutzerbefund Monbijoustrasse): wo eine
 // Wartehalle steht (amenity=shelter mit shelter_type=public_transport, Perron mit shelter=yes) bzw. ein Perron ohne

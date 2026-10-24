@@ -4,6 +4,8 @@ import { bewerteAbschnitt } from './bewertung'
 import { abschnittMitAufteilung, bilanz, haltestelleEinfuegen, haltUmfeld, pruefeTeil, startAufteilung, type Teil } from './aufteilung'
 import { vorschlagRechnen, aufteilungAusVorschlag } from './vorschlag'
 import { defaultSection, gegenVon, seiteA, type Section } from './strecke'
+// Die Tests des Katalogs rechnen mit dem bisherigen Ziel 4,5 (die Logik der Ränge ist unabhängig vom Ziel; seit 24.10.2026 online 5,5)
+const vorschlag45 = (...a: Parameters<typeof vorschlagRechnen>) => vorschlagRechnen(a[0], a[1], a[2], a[3], 4.5)
 
 // Haltestellenbereich und Haltestellen in der Planung (Nutzerentscheide 20.10.2026, Masterplan HS 1–7)
 describe('Haltestellenbereich: Note allein aus der Haltestelle (nur Bern)', () => {
@@ -74,7 +76,7 @@ describe('Vorschlag Rang 5: Haltestelle umbauen (Veloumfahrung), mit Platzprüfu
   const s = (trA: number): Section => ({ ...defaultSection(), routentyp: 'Velohauptroute', dtv: 8000, speed: 50, ist: 'Radstreifen', breite: 1.8,
     fahrbahnbreite: 9.6, parkenRechts: 'nein', oevAngebot: 'tram', tram: true, haltestellentyp: 'Kaphaltestelle', gegen: g, trottoir: { a: trA, b: 2.5 } })
   it('genug Platz: Rang 5, die Planung zeigt HS 1 auf der Seite und geht auf', () => {
-    const v = vorschlagRechnen(s(6), 9.6)
+    const v = vorschlag45(s(6), 9.6)
     expect([v.rang, v.text]).toEqual([5, 'Haltestelle Seite A umbauen (separate Velofläche)'])
     expect(v.vermerk).toContain('Tramhaltestelle')
     const a = aufteilungAusVorschlag(s(6), startAufteilung(s(6)), v, null)!
@@ -83,7 +85,7 @@ describe('Vorschlag Rang 5: Haltestelle umbauen (Veloumfahrung), mit Platzprüfu
     expect(bilanz(a).rest).toBeCloseTo(0, 6)
   })
   it('zu wenig Platz (unter 7,00 m ausserhalb der Haltekante): kein Umbau', () =>
-    expect(vorschlagRechnen(s(3.5), 9.6).rang).not.toBe(5))
+    expect(vorschlag45(s(3.5), 9.6).rang).not.toBe(5))
 })
 
 describe('Vorschlag im Haltestellenbereich (Nutzerbefund Muristrasse 20.10.2026)', () => {
@@ -91,14 +93,14 @@ describe('Vorschlag im Haltestellenbereich (Nutzerbefund Muristrasse 20.10.2026)
   const s: Section = { ...defaultSection(), routentyp: 'Velohauptroute', dtv: 8000, speed: 50, ist: 'Radstreifen', breite: 1.54, fahrbahnbreite: 8.6,
     parkenRechts: 'nein', oevAngebot: 'tram', tram: true, haltestellentyp: 'Kaphaltestelle', gegen: g, haltestellenbereich: true }
   it('auf der Seite mit Haltestelle keine Markierung, kein Kern, kein Radweg; nur der Umbau', () => {
-    const v = vorschlagRechnen(s, 8.6)
+    const v = vorschlag45(s, 8.6)
     for (const t of [v.text, ...v.alternativen.map(a => a.text)]) {
       expect(t).not.toMatch(/beidseitig|Seite A [0-9]|Kernfahrbahn/)
       if (/Seite A/.test(t)) expect(t).toMatch(/^(Tempo 30 \+ )?Haltestelle Seite A umbauen/)
     }
   })
   it('Trottoir unbekannt: der Umbau nimmt den Platz aus der Fahrbahn, nichts entsteht aus dem Nichts', () => {
-    const v = vorschlagRechnen(s, 8.6)
+    const v = vorschlag45(s, 8.6)
     const alle = [v, ...v.alternativen.map(a => ({ ...v, text: a.text, noteNach: a.noteNach, k: a.k }))]
     const u = alle.find(x => x.k?.hsUmbau?.includes('A'))
     if (!u) return

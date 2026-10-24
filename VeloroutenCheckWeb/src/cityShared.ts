@@ -12,6 +12,7 @@ import {
   bboxOfLL, bboxOverlap, padBbox, mehrteilig, type LL, type BboxLL,
 } from './geo'
 import { holeJson } from './netz'
+import { overpassFetch } from './overpass'
 
 // ── Geo-Matching gegen ein GeoJSON-Liniennetz ─────────────────────────────────
 export interface GeoJsonFeature {
@@ -149,13 +150,6 @@ export function bboxOf(cands: Cand[], padM = BBOX_PAD_M): Bbox {
 // Für Städte ohne (genutzte) Geoportal-ÖV-Quelle. Herkunft daher `osm` (oevQuelle).
 export type OevInfoOsm = OevInfo & { oevQuelle?: 'amtlich' | 'osm' }
 
-const OVERPASS = [
-  'https://overpass.osm.ch/api/interpreter',        // Schweizer Mirror (SOSM) — schnell/zuverlässig für CH
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-]
-
 interface OsmEl {
   type: string; id: number
   lat?: number; lon?: number                 // node
@@ -163,27 +157,12 @@ interface OsmEl {
   tags?: Record<string, string>
 }
 
-// Overpass liefert auch ein ABGEBROCHENES Ergebnis mit HTTP 200: Zeitüberschreitung oder
-// Speichergrenze stehen dann als `remark` in der Antwort, `elements` ist leer oder unvollständig.
-// Das ist ein Fehler, kein «hier gibt es nichts» → nächster Mirror.
-export function overpassAbgebrochen(data: { remark?: unknown }): boolean {
-  return typeof data.remark === 'string' && /runtime error|timed out|out of memory/i.test(data.remark)
-}
-
+// Overpass über die gemeinsame Anbindung (overpass.ts): Doubletten zusammengefasst, Wiederholung bei duplicate_query,
+// Rate-Limit und Abbruch (seit 24.10.2026; vorher ein Versuch je Server)
+export { overpassAbgebrochen } from './overpass'
 async function overpass(query: string): Promise<OsmEl[]> {
-  let lastErr: unknown
-  for (const url of OVERPASS) {
-    try {
-      // hängenden Mirror nicht ewig abwarten → Failover
-      const data = await holeJson<{ elements?: OsmEl[]; remark?: string }>(url, 12000, {
-        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'data=' + encodeURIComponent(query),
-      })
-      if (overpassAbgebrochen(data)) { lastErr = new Error('Overpass: ' + data.remark); continue }
-      return data.elements || []
-    } catch (e) { lastErr = e }
-  }
-  throw lastErr ?? new Error('Overpass nicht erreichbar')
+  const data = await overpassFetch(query) as { elements?: OsmEl[] }
+  return data.elements || []
 }
 
 // Gebündelte Bus-Takt-Snapshots (public/oev_takt_<stadt>.json = [{lat,lon,n,name}], via oev_takt.py) —
