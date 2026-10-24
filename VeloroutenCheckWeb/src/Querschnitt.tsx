@@ -155,20 +155,36 @@ interface SkizzeProps {
   // Blickrichtung in der Skizze (Nutzerwunsch 21.10.2026): Himmelsrichtungen der Seiten A und B; die Skizze zeigt oben
   // links «Seite B · kommt entgegen», oben rechts «Seite A · Blickrichtung»
   richtungen?: { a?: string | null; b?: string | null }
+  // Kennwerte (seit 24.10.2026, Nutzerwunsch: «damit die Skizzen alleine funktionieren»): Titel, Tempo, DTV und Routentyp
+  // in der ersten Zeile der Zeichnung, lang und kurz (schmale Bildschirme)
+  kennwerte?: { lang: string; kurz: string }
+}
+
+// Zeile der Kennwerte: Tempo, Verkehrsmenge (DTV) und Routentyp; fehlende Werte als «–», ein angenommener DTV gekennzeichnet
+export function kennwerteText(k: { tempo?: number; dtv?: number; dtvAngenommen?: boolean; route?: string }): { lang: string; kurz: string } {
+  const tausend = (x: number) => Math.round(x).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '\u2019')
+  const tempo = Number.isFinite(k.tempo) ? `${k.tempo} km/h` : '–'
+  const dtv = k.dtvAngenommen ? '≤ 2\u2019000' : Number.isFinite(k.dtv) ? tausend(k.dtv!) : '–'
+  const route = k.route || 'Routentyp –'
+  return {
+    lang: `Tempo ${tempo} · DTV ${dtv} Fz/Tag${k.dtvAngenommen ? ' (angenommen)' : ''} · ${route}`,
+    kurz: `${Number.isFinite(k.tempo) ? `T${k.tempo}` : 'T –'} · DTV ${dtv} · ${route}`,
+  }
 }
 
 export function QuerschnittSkizze(p: SkizzeProps) {
   const [ref, px] = useBreitePx<HTMLDivElement>()
   return (
     <div ref={ref} style={{ marginTop: 6 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-strong)' }}>{p.titel}</div>
+      {/* Titel nur noch ausserhalb, wenn die Zeichnung keine Kennwerte trägt (sonst steht er in ihrer ersten Zeile) */}
+      {!p.kennwerte && <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-strong)' }}>{p.titel}</div>}
       {px > 0 && <SkizzeSvg {...p} px={px} basis={import.meta.env.BASE_URL} />}
     </div>
   )
 }
 
 // Die Zeichnung selbst, für eine bekannte Breite in Pixeln (px) und den Pfad der Figuren (basis).
-export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis, richtungen }: SkizzeProps & { px: number; basis: string }) {
+export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis, richtungen, kennwerte }: SkizzeProps & { px: number; basis: string }) {
   // Versetzte Parkierung (abwechselnd Seite A und B) liegt an anderer Stelle: nicht im Querschnitt, nur als Hinweis darunter
   const teile = alle.filter(t => !t.versetzt)
   const versetzt = alle.flatMap((t, k) => {
@@ -198,8 +214,9 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis, 
     const links = l.x + l.b / 2 < mitte
     return figuren(l.t, l.b, links, einbahn, l.i).map(fg => ({ l, fg }))
   })
-  // Kopfzeile mit der Blickrichtung über den Figuren
-  const KOPF = 1.6 * f
+  // Kopfzeile mit der Blickrichtung über den Figuren; darüber, mit Kennwerten, eine Zeile mit Titel, Tempo, DTV, Routentyp
+  const ZEILE_K = kennwerte ? 1.5 * f : 0
+  const KOPF = 1.6 * f + ZEILE_K
   const yBoden = Math.max(230, ...figs.map(({ l, fg }) => fg.h + erhoeht(l.t))) + LUFT_CM + KOPF
   // Markierungen in Draufsicht: eigener Streifen unter dem Boden, nur wenn es welche gibt
   const marks = lage.filter(l => l.b > 0 && (l.t.markierung ?? 'keine') in MARK_DATEI)
@@ -212,7 +229,7 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis, 
 
   return (
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H * s} role="img"
-             aria-label={`${titel}: ${teile.map(t => `${KURZ[t.art]} ${Number.isFinite(t.breite) ? numDE(t.breite, 2) : '?'} m`).join(', ')}`}>
+             aria-label={`${titel}${kennwerte ? ` (${kennwerte.lang})` : ''}: ${teile.map(t => `${KURZ[t.art]} ${Number.isFinite(t.breite) ? numDE(t.breite, 2) : '?'} m`).join(', ')}`}>
           <defs>
             <pattern id="vrc-schraffur" width="20" height="20" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
               <rect width="20" height="20" fill="#6b7280" />
@@ -232,9 +249,20 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis, 
             return (
               <g fontSize={0.95 * f} fill="var(--text-muted)">
                 <title>{`links Seite B${rb ? ` (Richtung ${rb})` : ''}, kommt entgegen; rechts Seite A${ra ? ` (Richtung ${ra})` : ''}, Blickrichtung`}</title>
-                <text x={x0} y={1.05 * f}>{links[k]}</text>
-                <text x={x0 + gesamt} y={1.05 * f} textAnchor="end" fontWeight={600}>{rechts[k]}</text>
+                <text x={x0} y={1.05 * f + ZEILE_K}>{links[k]}</text>
+                <text x={x0 + gesamt} y={1.05 * f + ZEILE_K} textAnchor="end" fontWeight={600}>{rechts[k]}</text>
               </g>
+            )
+          })()}
+          {/* Titel und Kennwerte (Tempo, DTV, Routentyp): die Zeichnung trägt sie selbst, auch kopiert oder im Bericht */}
+          {kennwerte && (() => {
+            const breit = W - 2 * RAND_CM
+            const passt = (t: string) => (titel.length + 3 + t.length) * 0.55 * f <= breit
+            const text = passt(kennwerte.lang) ? kennwerte.lang : kennwerte.kurz
+            return (
+              <text x={RAND_CM} y={1.1 * f} fontSize={f} fill="var(--text-strong)">
+                <tspan fontWeight={700}>{titel}</tspan><tspan fill="var(--text-muted-strong)">{` · ${text}`}</tspan>
+              </text>
             )
           })()}
           {/* Boden */}

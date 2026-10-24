@@ -22,7 +22,7 @@ import {
   bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, pruefeKernfahrbahn, pruefeTeil, pruefungText, haltUmfeld, startAufteilung, umfeldVon,
   BILD_LABEL, FUSSNETZ, FUSS_QUELLE, STANDARD_QUELLE, MARKIERUNG_LABEL, RICHTWERT_QUELLE, LICHTRAUM_QUELLE, teilName, type Aufteilung,
 } from './aufteilung'
-import { SkizzeSvg, breiteCm } from './Querschnitt'
+import { SkizzeSvg, breiteCm, kennwerteText } from './Querschnitt'
 import { quellenFuer, quellenZeile } from './quellen'
 import { AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE } from './farben'
 import { ausschnitt, wmsBildUrl } from './kartenbild'
@@ -255,10 +255,13 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
               <p className="klein">In Fahrtrichtung der Seite A gesehen: links der Rand der Seite B, rechts der Rand der Seite A.
                 «Heute» ist die Ausgangslage aus den Eingaben des Abschnitts{section.trottoir ? ' und den Trottoirs aus der AV' : ''}.</p>
               <div className="bericht-skizze">
-                <div className="bericht-skizze-titel">Heute</div>
-                <SkizzeSvg titel="Heute" teile={ausgang.teile} einbahn={einbahn} massstabCm={massstab} px={DRUCK_PX} basis={basis} richtungen={{ a: rA, b: rB }} />
-                <div className="bericht-skizze-titel">Planung</div>
-                <SkizzeSvg titel="Planung" teile={a.teile} einbahn={einbahn} massstabCm={massstab} px={DRUCK_PX} basis={basis} richtungen={{ a: rA, b: rB }} />
+                {/* Titel, Tempo, DTV und Routentyp stehen in der Zeichnung (seit 24.10.2026) */}
+                <SkizzeSvg titel="Heute" teile={ausgang.teile} einbahn={einbahn} massstabCm={massstab} px={DRUCK_PX} basis={basis} richtungen={{ a: rA, b: rB }}
+                           kennwerte={kennwerteText({ tempo: section.speed, dtv: section.dtv, dtvAngenommen: dtvAssumed(section, city),
+                             route: section.routentyp ? routenLabel?.[section.routentyp] ?? section.routentyp : '' })} />
+                <SkizzeSvg titel="Planung" teile={a.teile} einbahn={einbahn} massstabCm={massstab} px={DRUCK_PX} basis={basis} richtungen={{ a: rA, b: rB }}
+                           kennwerte={kennwerteText({ tempo: a.tempo ?? section.speed, dtv: section.dtv, dtvAngenommen: dtvAssumed(section, city),
+                             route: section.routentyp ? routenLabel?.[section.routentyp] ?? section.routentyp : '' })} />
               </div>
               <p className="klein">Illustrationen: Streetmix (streetmix.net), CC BY-SA 4.0. Boden, Masse und Markierungsstriche: eigene Zeichnung.</p>
             </section>

@@ -22,7 +22,7 @@ import {
   type Quelle, type QuelleFeld, type Section, type Seite, type SeitenQuelle,
 } from './strecke'
 import { bewerteAbschnitt, aufzaehlen, type AbschnittErgebnis } from './bewertung'
-import { QuerschnittSkizze, breiteCm } from './Querschnitt'
+import { QuerschnittSkizze, breiteCm, kennwerteText } from './Querschnitt'
 import { quellenFuer, type QuellenGruppe } from './quellen'
 import Bericht from './Bericht'
 import { ladeFussnetz, ladeFussnetzBasel, FUSSNETZ_BASEL, FUSSNETZ_GEOPORTAL } from './fussnetz'
@@ -1269,8 +1269,17 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
               </button>
             )}
           </div>
-          {skizze !== 'plan' && <QuerschnittSkizze titel="Heute" teile={ausgang.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} richtungen={{ a: rA, b: rB }} />}
-          {skizze !== 'heute' && <QuerschnittSkizze titel="Planung" teile={a.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} richtungen={{ a: rA, b: rB }} />}
+          {(() => {
+            // Tempo, DTV und Routentyp in der Zeichnung (seit 24.10.2026); die Planung mit ihrem Tempo, falls der Vorschlag Tempo 30 setzt
+            const route = section.routentyp ? (CITIES[city].routenOptions?.find(o => o.value === section.routentyp)?.label ?? section.routentyp) : ''
+            const kw = (tempo: number) => kennwerteText({ tempo, dtv: section.dtv, dtvAngenommen: dtvAssumed(section, city), route })
+            return (<>
+              {skizze !== 'plan' && <QuerschnittSkizze titel="Heute" teile={ausgang.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} richtungen={{ a: rA, b: rB }}
+                                                       kennwerte={kw(section.speed)} />}
+              {skizze !== 'heute' && <QuerschnittSkizze titel="Planung" teile={a.teile} einbahn={section.richtung === 'eine'} massstabCm={massstab} richtungen={{ a: rA, b: rB }}
+                                                        kennwerte={kw(a.tempo ?? section.speed)} />}
+            </>)
+          })()}
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
             Von links nach rechts in Fahrtrichtung der Seite A gesehen (links der Rand der Seite B).{' '}
             {section.querschnittHeute || section.gesamtbreite != null ? (

@@ -50,3 +50,15 @@ describe('Querschnitt-Skizze', () => {
     expect(s).toContain('car-sideways-right')
   })
 })
+
+import { kennwerteText } from './Querschnitt'
+describe('Kennwerte in der Skizze (24.10.2026)', () => {
+  it('Tempo, DTV mit Tausendertrennung, Routentyp; lang und kurz', () => {
+    expect(kennwerteText({ tempo: 50, dtv: 13174, route: 'Velohauptroute' }))
+      .toEqual({ lang: 'Tempo 50 km/h · DTV 13’174 Fz/Tag · Velohauptroute', kurz: 'T50 · DTV 13’174 · Velohauptroute' })
+  })
+  it('DTV angenommen, fehlende Werte', () => {
+    expect(kennwerteText({ tempo: 30, dtvAngenommen: true, route: 'Veloroute' }).lang).toBe('Tempo 30 km/h · DTV ≤ 2’000 Fz/Tag (angenommen) · Veloroute')
+    expect(kennwerteText({ tempo: NaN, dtv: NaN }).lang).toBe('Tempo – · DTV – Fz/Tag · Routentyp –')
+  })
+})
