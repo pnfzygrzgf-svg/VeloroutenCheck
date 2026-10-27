@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bordkanten, messeAbKante, messeFlaeche, mittelinsel, mittelstreifen, parkierungTiefe, parkierungVersetzt, abstand, aufZentimeter, type Kante } from './breitenmessung'
+import { bordkanten, fangeAnKante, messeAbKante, messeFlaeche, mittelinsel, mittelstreifen, parkierungTiefe, parkierungVersetzt, abstand, aufZentimeter, type Kante } from './breitenmessung'
 import { zuLv95, zuWgs, type P } from './lv95'
 import type { AvFlaeche } from './av'
 
@@ -157,6 +157,15 @@ describe('parkierungTiefe — Tiefe und Anordnung der Parkierung je Seite (Eggh�
     // nur eine Seite: nicht versetzt
     expect(parkierungVersetzt([achse], [{ ringe: [l] }])).toBeNull()
   })
+  it('gekrümmte Längsreihe als eine Fläche (Aargauerstalden): Breite des Bandes statt Ausdehnung quer zum Achsstück', () => {
+    // Bogen 60° mit Radius 100 m (Achse), Reihe 1,90 m breit aussen daneben (Radius 104 bis 105,9), 19 Felder
+    const bogen = (rad: number, n: number): P[] => Array.from({ length: n + 1 }, (_, i) => { const w = (i / n) * Math.PI / 3; return [rad * Math.cos(w), rad * Math.sin(w)] as P })
+    const reiheBogen = [...bogen(104, 20), ...bogen(105.9, 20).reverse()]
+    const r = parkierungTiefe([bogen(100, 30)], [{ ringe: [reiheBogen], anzahl: 19 }])
+    const t = r.links ?? r.rechts
+    expect(t?.art).toBe('laengs')
+    expect(t?.tiefe).toBeCloseTo(1.9, 1)
+  })
   it('Zürcher Symbole: Anordnung aus den Daten, Tiefe angenommen', () => {
     const q = (e: number): P[] => [[e - 1, 3], [e + 1, 3], [e + 1, 5], [e - 1, 5]]
     const r = parkierungTiefe([achse], [20, 30, 40].map(e => ({ ringe: [q(e)], art: 'schraeg' as const, symbol: true })))
@@ -185,5 +194,17 @@ describe('Mittelinsel (Nutzerbefund Laubeggstrasse, 20.10.2026)', () => {
   it('eine Insel am Rand (dahinter keine Strasse) ist keine Mittelinsel', () => {
     const rand: AvFlaeche[] = [strasse([rechteck(0, 0, 100, 8)]), { art: 'Verkehrsinsel', ringe: [rechteck(46, 8, 54, 10)] }]
     expect(mittelinsel([achse], rand)).toBeNull()
+  })
+})
+
+describe('fangeAnKante — Punkt an die Bordsteinkante fangen (Zwei Punkte, seit 27.10.2026)', () => {
+  const kante: Kante = { a: [0, 0], b: [100, 0] }
+  it('nahe der Kante: nächste Stelle; weiter weg: kein Fang', () => {
+    expect(fangeAnKante([10, 0.4], [kante], 0.5)).toEqual([10, 0])
+    expect(fangeAnKante([10, 0.8], [kante], 0.5)).toBeNull()
+  })
+  it('zweiter Punkt: Fusspunkt des Lots vom ersten, damit die Messung rechtwinklig ist', () => {
+    // erster Punkt auf der Markierung bei (20, 3,2), Klick schräg daneben nahe der Kante
+    expect(fangeAnKante([20.3, 0.3], [kante], 0.5, [20, 3.2])).toEqual([20, 0])
   })
 })

@@ -13,9 +13,9 @@ import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeAvFuer, avQuelle } from './av'
 import Strassensuche from './Strassensuche'
 import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, RANG_TEXT, type TrottoirAnpassung, type Vorschlag, ZIEL_TEXT, vorschlagMitRandstein } from './vorschlag'
-import { bordkanten, messeAbKante, messeFlaeche, abstand, aufZentimeter, fahrbahnbreite, haltestelleninsel, haltestellenperron, wartehalleLage, zweiradJeSeite, wegAufTrottoir, type Haltestelleninsel, mittelinsel, mittelstreifen, parkierungAufTrottoir, parkierungTiefe, parkierungVersetzt, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
+import { bordkanten, fangeAnKante, messeAbKante, messeFlaeche, abstand, aufZentimeter, fahrbahnbreite, haltestelleninsel, haltestellenperron, wartehalleLage, zweiradJeSeite, wegAufTrottoir, type Haltestelleninsel, mittelinsel, mittelstreifen, parkierungAufTrottoir, parkierungTiefe, parkierungVersetzt, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
 import type { AvFlaeche } from './av'
-import { luftbildLaden, profilLesen, markierungenFinden, markierungenAbschnitt, LAENGS_M } from './markierungen'
+import { luftbildLaden, profilLesen, markierungenFinden, markierungenAbschnitt, ohneRinne, LAENGS_M, LUFTBILD_NAME, type LuftbildQuelle } from './markierungen'
 import { artVorschlag, aufnahmeTeile, avArtAn, fangeLage, grenzenAufLinie, querLinie, GANZ, type QsArt, FANG_MAX_M as QS_FANG_MAX_M, FANG_PX as QS_FANG_PX } from './querschnittAufnahme'
 import {
   candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
@@ -28,7 +28,7 @@ import { quellenFuer, type QuellenGruppe } from './quellen'
 import Bericht from './Bericht'
 import { ladeFussnetz, ladeFussnetzBasel, FUSSNETZ_BASEL, FUSSNETZ_GEOPORTAL } from './fussnetz'
 import {
-  bilanz, bilanzText, markierungPasst, bewerteAufteilung, haltUmfeld, hatHaltestelle, haltestelleninselUebernehmen, haltestelleEinfuegen, HS_VORLAGEN, fussnetzOptionen, FUSS_QUELLE, STANDARD_QUELLE, mitSeitenraum, bildVon, linksDerMitte, markierungenFuer, pruefungText, richtungenFuer, richtungVon, FUSSNETZ, mitTrottoirs, pruefeKernfahrbahn, pruefeTeil, standardBreite, startAufteilung, umfeldVon, istFahrbahnTeil,
+  bilanz, bilanzText, markierungPasst, inselImQuerschnitt, VELOSTREIFEN_UEBLICH, bewerteAufteilung, haltUmfeld, hatHaltestelle, haltestelleninselUebernehmen, haltestelleEinfuegen, HS_VORLAGEN, fussnetzOptionen, FUSS_QUELLE, STANDARD_QUELLE, mitSeitenraum, bildVon, linksDerMitte, markierungenFuer, pruefungText, richtungenFuer, richtungVon, FUSSNETZ, mitTrottoirs, pruefeKernfahrbahn, pruefeTeil, standardBreite, startAufteilung, umfeldVon, istFahrbahnTeil,
   BILDER, BILD_LABEL, MARKIERUNG_LABEL, PFEILE, markierungAus, parkTiefeVorbelegt, pfeileVon, TEIL_GRUPPEN, TEIL_LABEL, auf5cm,
   type Aufteilung, type Bild, type FussNetz, type Pfeil, type Richtung, type Teil, type TeilArt, type TeilPruefung,
 } from './aufteilung'
@@ -45,7 +45,7 @@ import * as luzern from './luzern'
 import { type OevInfo } from './bern'
 import { enrichObs, type ObsStats } from './obs'
 import { enrichVelostreifen, type VeloInfo } from './velostreifen'
-import { enrichLuftbild, LUFTBILD_SCHWELLE, type LuftbildInfo } from './luftbild'
+import { enrichLuftbild, LUFTBILD_SCHWELLE, LUFTBILD_ERKENNUNG_BILD, type LuftbildInfo } from './luftbild'
 import { enrichParkierung, ladeParkflaechen, PARK_MAX_M, PARK_QUELLE, type Box as ParkBox, type ParkFlaeche, type ParkInfo, type ParkStadt } from './parkierung'
 
 // ── Städte-Registry: pro Stadt die Datenquellen + Beschriftungen bündeln ───────
@@ -246,7 +246,7 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
     osm: { t: 'OSM', bg: 'var(--border-subtle)', fg: 'var(--text-muted-strong)', title: 'OpenStreetMap' },
     fahrplan: { t: 'opentransportdata', bg: '#dcfce7', fg: '#166534', title: 'Fahrplan (opentransportdata.swiss / GTFS)' },
     markierung: { t: 'Markierung', bg: '#ffedd5', fg: '#9a3412', title: 'Aus der Fahrbahnmarkierung ermittelt (lokale Auswertung): Velostreifen auf dieser Seite — oder keiner, wenn die Striche nur auf der anderen Seite liegen' },
-    luftbild: { t: 'Luftbild', bg: '#e0f2fe', fg: '#075985', title: 'Aus dem Luftbild-Hinweis übernommen (SWISSIMAGE © swisstopo, Erkennung mit dem Modell remote_velo der ETH Zürich) — bitte am Orthofoto prüfen' },
+    luftbild: { t: 'Luftbild', bg: '#e0f2fe', fg: '#075985', title: 'Aus dem Luftbild-Hinweis übernommen (Bern: SWISSIMAGE 2024 © swisstopo und Orthofoto Stadt Bern 2026, Zürich und Basel: SWISSIMAGE; Erkennung mit dem Modell remote_velo der ETH Zürich) — bitte am Luftbild prüfen' },
     av: { t: 'AV', bg: '#f1f5f9', fg: '#334155', title: `Aus der amtlichen Vermessung ermittelt: Fahrbahn von Bordstein zu Bordstein, Median der Querschnitte alle 5 m; bei der Velostrasse die Breite = Fahrbahn ohne Parkierung (${avTitle || 'Amtliche Vermessung, geodienste.ch'})` },
     gemessen: { t: 'gemessen', bg: '#ede9fe', fg: '#5b21b6', title: `Am Luftbild gemessen: ab der Bordsteinkante der amtlichen Vermessung bis zur angeklickten Stelle der Markierung (Luftbild © swisstopo; ${avTitle || 'Amtliche Vermessung, geodienste.ch'})` },
     angenommen: { t: '≤ 2000 angenommen', bg: '#fef9c3', fg: '#854d0e', title: 'Flächendeckende Verkehrsdaten Bern: kein Eintrag ⇒ DTV ≤ 2000 (ausserhalb Altstadt)' },
@@ -317,6 +317,30 @@ function NumberField({ label, unit, value, onChange, chip, kompakt, dezimalen }:
         <span style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{unit}</span>
       </span>
     </label>
+  )
+}
+
+// Übliche Masse als Knöpfe (seit 27.10.2026, Nutzerwunsch: Velostreifen 1,50 · 1,80 · 2,00 · 2,20 · 2,50 m als Vorschlag sichtbar;
+// eine Auswahlliste im Feld war zu versteckt). Ein Klick setzt die Breite, das aktuelle Mass ist hervorgehoben.
+function UeblicheMasse({ werte, wert, onWahl, label }: { werte: number[]; wert: number; onWahl: (v: number) => void; label: string }) {
+  return (
+    <span role="group" aria-label={label} title={`${label}: ein Klick setzt die Breite`}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--text-muted-strong)', flexWrap: 'wrap' }}>
+      übliche Breite
+      <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+        {werte.map(v => {
+          const an = Math.abs(v - wert) < 0.005
+          return (
+            <button key={v} type="button" aria-pressed={an} onClick={() => onWahl(v)}
+                    style={{ border: 'none', padding: '3px 7px', fontSize: 12.5, fontWeight: an ? 700 : 500, cursor: 'pointer',
+                             background: an ? 'var(--accent)' : '#fff', color: an ? '#fff' : 'var(--text)' }}>
+              {numDE(v, 2)}
+            </button>
+          )
+        })}
+      </span>
+      m
+    </span>
   )
 }
 
@@ -482,6 +506,12 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
                   title="Auf dem Luftbild ab der Bordsteinkante bis zur Markierung messen">
             📏 Am Luftbild messen
           </button>
+        </div>
+      )}
+      {(ist === 'Radstreifen' || ist === 'Einbahn Velogegenverkehr mit Markierung') && (
+        <div style={{ flexBasis: '100%', marginTop: -4 }}>
+          <UeblicheMasse werte={VELOSTREIFEN_UEBLICH} wert={felder.breite} label="Übliche Breite des Radstreifens"
+                         onWahl={v => onChange({ breite: v })} />
         </div>
       )}
       {/* Parkierung rechts (Dooring) bei Fahrbahn-Führungsformen (siehe PARKEN_RELEVANT) */}
@@ -1073,6 +1103,15 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   }
   const setTeile = (teile: Teil[]) => (heuteListe ? onHeute!(teile) : onChange({ ...a, teile }))
   const aendere = (i: number, t: Teil) => setTeile(L.map((x, j) => (j === i ? t : x)))
+  // Rest der Fahrbahn für ein Fahrbahnelement (seit 27.10.2026, Nutzerwunsch: Fahrbahn, Velostreifen und eine Spur gemessen → die
+  // zweite Spur ist bekannt): Fahrbahnbreite minus die übrigen Fahrbahnelemente; null, wenn nichts zu tun ist
+  const fbZiel = heuteListe ? section.fahrbahnbreite : a.fahrbahn
+  const restFuer = (i: number): number | null => {
+    if (!istFahrbahnTeil(L[i]) || !Number.isFinite(fbZiel)) return null
+    const andere = L.reduce((m, x, j) => (j !== i && istFahrbahnTeil(x) && Number.isFinite(x.breite) ? m + x.breite : m), 0)
+    const rest = Math.round((fbZiel - andere) * 100) / 100
+    return rest > 0 && !(Math.abs(rest - L[i].breite) < 0.005) ? rest : null
+  }
   // Breite in 10-cm-Schritten (auf 5 cm gerundet, nicht unter 0); leer → ab der Vorgabe
   const schritt = (i: number, t: Teil, d: number) => {
     const basis = Number.isFinite(t.breite) ? t.breite : vorgabe(t.art, t.bild)
@@ -1142,10 +1181,18 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
     const status = section.querschnittHeute ? 'Der Querschnitt von heute ist von Hand gesetzt.'
       : av?.markierungLaden ? 'Suche die Markierungen im Luftbild …'
       : !section.markierung ? (section.candIds?.length ? 'Die Spurbreiten kommen mit der AV aus dem Luftbild.' : 'Ohne Abschnitt von der Karte keine Messung: Breiten von Hand.')
-      : mp?.passt ? `Breiten der Fahrbahnelemente aus den Markierungen im Luftbild (${mp.querschnitte} von ${section.markierung.stuecke.length} Querschnitten); bitte prüfen.`
+      : mp?.passt ? `Breiten der Fahrbahnelemente aus den Markierungen im Luftbild (${mp.querschnitte} von ${section.markierung.stuecke.length} Querschnitten)`
+        + `${mp.parkOhneLinie ? `; die Parkierung Seite ${mp.parkOhneLinie === 'a' ? 'A' : 'B'} hat keine Randlinie, sie ist mit ${numDE((ft => ft[mp.parkOhneLinie === 'a' ? ft.length - 1 : 0]?.breite ?? NaN)(ausgang.teile.filter(t => istFahrbahnTeil(t) && !t.versetzt)), 2)} m vom Randstück abgezogen` : ''}; bitte prüfen.`
       : !section.markierung.breiten.length ? 'Im Luftbild keine Markierungen erkannt: die Spuren sind gleichmässig verteilt.'
       : mp?.unplausibel ? `Im Luftbild erkannt, aber nicht glaubhaft (${mp.unplausibel}): die Spuren sind gleichmässig verteilt; bitte messen.`
       : `Im Luftbild ${section.markierung.stuecke.join(', ')} Stücke je Querschnitt erkannt, die Ausgangslage hat ${mp?.erwartet} Fahrbahnelemente: die Spuren sind gleichmässig verteilt (Linie im Schatten, verdeckt oder fehlend, oder Parkierung bzw. Radstreifen im Reiter «Bewerten» anders erfasst).`
+    // Hinweis aufs gelesene Luftbild (Nutzerwunsch 27.10.2026): in Bern liest die Suche zwei Bilder, die Querschnitte können aus einem
+    // anderen Bild stammen als dem Kartenhintergrund
+    const lb = section.markierung?.luftbild
+    const bildHinweis = !section.markierung || section.querschnittHeute || av?.markierungLaden ? null
+      : lb === 'beide' ? 'Gelesen wurden zwei Luftbilder: das Orthofoto der Stadt Bern vom 19.03.2026 und SWISSIMAGE 2024 (swisstopo); '
+        + 'jeder Querschnitt in beiden. Die Breiten können darum aus einem anderen Bild stammen als dem Kartenhintergrund.'
+      : lb ? `Gelesen: ${LUFTBILD_NAME[lb]}.` : null
     return (
       <div style={{ margin: unten ? '12px 0 4px' : '0 0 10px', padding: '10px 12px', borderRadius: 8, background: '#f0fdfa', border: '1px solid #99f6e4', fontSize: 13 }}>
         <div style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{unten ? 'Schritt 1 von 2: alles geprüft?' : 'Schritt 1 von 2: Querschnitt von heute prüfen'}</div>
@@ -1155,6 +1202,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
           Erst danach beginnt die Planung mit dem Vorschlag.
         </div>}
         <div style={{ marginTop: 4, fontWeight: 600, color: mp && !mp.passt ? '#92400e' : 'var(--text-strong)' }}>{status}</div>
+        {bildHinweis && !unten && <div style={{ marginTop: 2, fontSize: 12, color: 'var(--text-muted)' }}>{bildHinweis}</div>}
         <button type="button" onClick={() => { onHeuteBestaetigt!(); setListe('plan'); setPlanHinweis('') }} disabled={!!av?.markierungLaden}
                 style={{ marginTop: 8, border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13.5, fontWeight: 600,
                          background: av?.markierungLaden ? 'var(--text-faint)' : 'var(--accent)', color: '#fff', cursor: av?.markierungLaden ? 'default' : 'pointer' }}>
@@ -1476,6 +1524,20 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
               </div>
               {/* Einzelheiten: Bild (was darauf steht), Pfeil, Anordnung der Parkierung, Richtung, Verschieben, Einfügen */}
               <div style={{ display: 'flex', gap: '4px 8px', alignItems: 'center', flexWrap: 'wrap', paddingLeft: 26, marginTop: 4 }}>
+                {(() => {
+                  const rest = restFuer(i)
+                  return rest != null && (
+                    <button type="button" onClick={() => aendere(i, { ...t, breite: rest, angenommen: undefined })}
+                            style={{ ...kleinKnopfStyle, padding: '3px 8px', fontSize: 12.5 }}
+                            title={`Breite = Fahrbahn ${numDE(fbZiel, 2)} m minus die übrigen Fahrbahnelemente`}>
+                      = Rest {numDE(rest, 2)} m
+                    </button>
+                  )
+                })()}
+                {t.art === 'Velostreifen' && (
+                  <UeblicheMasse werte={VELOSTREIFEN_UEBLICH} wert={t.breite} label={`Übliche Breite Velostreifen Element ${i + 1}`}
+                                 onWahl={v => aendere(i, { ...t, breite: v, angenommen: undefined })} />
+                )}
                 {bilder && (
                   <select value={bildVon(t)} aria-label={`Bild Element ${i + 1}`} title="Was auf dem Element steht (Skizze; bei der Fahrspur auch die Vorgabe)"
                           onChange={e => bildWechsel(i, t, e.target.value as Bild)} style={{ ...detailSelect, flex: '0 1 150px' }}>
@@ -1907,6 +1969,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
             Mittelinsel (AV): {numDE(section.mittelinsel.breite, 2)} m breit, {section.mittelinsel.laenge} m lang
             {section.mittelinsel.anzahl > 1 ? ` (die längste von ${section.mittelinsel.anzahl})` : ''}; Fahrbahn an der Insel
             {' '}{numDE(section.mittelinsel.fahrbahn, 1)} m von Bord zu Bord samt Insel. Nur Hinweis, nicht in der Note.
+            {!inselImQuerschnitt(section) && ' Nicht in der Ausgangslage der Planung: die Fahrbahn an der Insel ist viel breiter als im Abschnitt (vermutlich eine Verzweigung).'}
           </div>
         )}
         {onFahrbahnbreite && (
@@ -2046,8 +2109,8 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
                         background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a' }}>
             <div>
               <strong>Luftbild:</strong> Radstreifen erkannt auf {lbSeiten.join(' und ')}. Das ist nur ein
-              Hinweis aus einer automatischen Erkennung — bitte am Orthofoto prüfen (Kartenhintergrund
-              «Orthofoto»). Eine Breite liefert das Luftbild nicht.
+              Hinweis aus einer automatischen Erkennung — bitte am Luftbild prüfen (Kartenhintergrund
+              «{city === 'bern' ? 'Bern 2026' : 'Luftbild'}»). Eine Breite liefert das Luftbild nicht.
             </div>
             <button type="button" onClick={() => onLuftbild(lbHinweis)}
                     style={{ marginTop: 6, border: '1px solid #93c5fd', background: '#fff', color: '#1e3a8a',
@@ -2055,7 +2118,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
               {lbKnopf}
             </button>
             <div style={{ marginTop: 6, fontSize: 11.5, opacity: 0.8 }}>
-              SWISSIMAGE © swisstopo · Erkennung: Modell remote_velo, ETH Zürich
+              {LUFTBILD_ERKENNUNG_BILD[city] ?? 'SWISSIMAGE © swisstopo'} · Erkennung: Modell remote_velo, ETH Zürich
             </div>
           </div>
         )}
@@ -2598,7 +2661,7 @@ interface Messung {
   teilArt?: TeilArt
   teilNr?: number
   an?: number                                     // Einfügestelle des neuen Elements (Index in der Liste); fehlt = ganz rechts (Rand A)
-  wie?: 'neu' | 'teil'                            // was mit der Messung geschieht: neues Element einfügen oder Breite eines Elements ersetzen
+  wie?: 'neu' | 'teil' | 'fahrbahn'               // was mit der Messung geschieht: neues Element, Breite eines Elements ersetzen oder Fahrbahnbreite
 }
 
 export default function App() {
@@ -3220,7 +3283,7 @@ export default function App() {
       // die Planung aus AV und Luftbild messen); einmal je Abschnitt, im Hintergrund. Eine unveränderte Planung folgt.
       if (!s.markierung && !s.querschnittHeute && !s.ohneFahrbahn) {
         setMkLaden(secId)
-        markierungenAbschnitt(achsen, flaechen).then(m => {
+        markierungenAbschnitt(achsen, flaechen, city === 'bern' ? 'bern2026' : 'swissimage').then(m => {
           setSections(prev => prev.map(x => {
             if (x.id !== secId) return x
             const vorher = startAufteilung(x, city, cityCfg.breiten)
@@ -3305,7 +3368,16 @@ export default function App() {
         ergebnis: r ? { breite: r.breite, von: r.fuss, bis: p } : undefined,
         fehler: r ? undefined : `Keine Bordsteinkante innert ${FANG_M} m. Näher bei der Kante klicken oder mit «Zwei Punkte» messen.` })
     } else {
-      const punkte = m.punkte.length >= 2 ? [p] : [...m.punkte, p]
+      // Nahe einer Bordsteinkante (orange) rastet der Punkt auf ihr ein (seit 27.10.2026, Nutzerwunsch), der zweite rechtwinklig zum
+      // ersten; Fangradius wie beim Querschnitt am Luftbild (QS_FANG_PX Bildschirmpunkte, höchstens QS_FANG_MAX_M)
+      const map = mapRef.current
+      let q = p
+      if (map && m.kanten.length) {
+        const pt = map.latLngToContainerPoint([lat, lon]), q2 = map.containerPointToLatLng([pt.x + QS_FANG_PX, pt.y])
+        const radius = Math.min(QS_FANG_MAX_M, abstand(p, zuLv95(q2.lat, q2.lng)))
+        q = fangeAnKante(p, m.kanten, radius, m.punkte.length === 1 ? m.punkte[0] : undefined) ?? p
+      }
+      const punkte = m.punkte.length >= 2 ? [q] : [...m.punkte, q]
       setMessung({ ...m, punkte, fehler: undefined,
         ergebnis: punkte.length === 2 ? { breite: abstand(punkte[0], punkte[1]), von: punkte[0], bis: punkte[1] } : undefined })
     }
@@ -3313,10 +3385,27 @@ export default function App() {
   const messKlickRef = useRef(messKlick)
   messKlickRef.current = messKlick
   // Teil für Teil: die Messung als neues Teil anfügen (rechts, Rand der Seite A) oder auf ein bestehendes Teil übertragen
-  const messungAlsTeil = (ziel: 'neu' | 'teil') => {
+  const messungAlsTeil = (ziel: 'neu' | 'teil' | 'fahrbahn') => {
     const m = messungRef.current
     if (!m?.ergebnis || !m.plan) return
     const wert = aufZentimeter(m.ergebnis.breite)
+    // Als Fahrbahnbreite (seit 27.10.2026, Nutzerwunsch: ganze Fläche messen, dann die Elemente; das letzte ergibt sich mit «= Rest»)
+    if (ziel === 'fahrbahn') {
+      setSections(prev => prev.map(s => {
+        if (s.id !== m.secId) return s
+        if (m.ziel === 'heute') {
+          const unveraendert = !!s.aufteilung && JSON.stringify(s.aufteilung) === JSON.stringify(startAufteilung(s, city, cityCfg.breiten))
+          const neu: Section = { ...s, fahrbahnbreite: wert, quelle: { ...s.quelle, fahrbahnbreite: 'gemessen' } }
+          if (!s.aufteilung || unveraendert) neu.aufteilung = startAufteilung(neu, city, cityCfg.breiten)
+          return neu
+        }
+        const a = s.aufteilung ?? startAufteilung(s, city, cityCfg.breiten)
+        return { ...s, aufteilung: { ...a, fahrbahn: wert } }
+      }))
+      setMessung({ ...m, punkte: [], ergebnis: undefined })
+      setMsg(`${numDE(wert, 2)} m als Fahrbahnbreite ${m.ziel === 'heute' ? 'von heute' : 'der Planung'} übernommen; die übrigen Elemente messen, das letzte mit «= Rest» in der Liste.`, 'ok')
+      return
+    }
     // neues Element an der gewählten Stelle (Nutzerbefund 23.10.2026: die Position war nicht wählbar, «Heute» hat keine Liste)
     const neuTeile = (teile: Teil[]) => {
       if (ziel !== 'neu') return teile.map((t, i) => (i === m.teilNr ? { ...t, breite: wert, angenommen: undefined } : t))
@@ -3428,8 +3517,17 @@ export default function App() {
     try {
       const u: P = [-linie.r[1], linie.r[0]], L = LAENGS_M / 2 + 1
       const ecken: P[] = [[-L, von - 1], [-L, bis + 1], [L, von - 1], [L, bis + 1]].map(([sl, t]) => [linie.c[0] + u[0] * sl + linie.r[0] * t, linie.c[1] + u[1] * sl + linie.r[1] * t])
-      const bild = await luftbildLaden(ecken)
-      const mk = markierungenFinden(profilLesen(bild, linie.c, linie.r, von + 0.3, bis - 0.3))
+      // In Bern beide Luftbilder (Orthofoto 2026 zuerst, dann SWISSIMAGE); es gilt das mit mehr Linien (Schatten des Märzflugs)
+      const lesen = async (q: LuftbildQuelle) => {
+        const bild = await luftbildLaden(ecken, q)
+        return { bild, mk: ohneRinne(markierungenFinden(profilLesen(bild, linie.c, linie.r, von + 0.3, bis - 0.3)), von, bis) }
+      }
+      const erst = await lesen(city === 'bern' ? 'bern2026' : 'swissimage')
+      const zweit = erst.bild.quelle === 'bern2026' ? await lesen('swissimage') : null
+      const { bild, mk } = zweit && zweit.mk.length > erst.mk.length ? zweit : erst
+      const bildText = !zweit ? LUFTBILD_NAME[bild.quelle]
+        : bild.quelle === 'swissimage' ? `SWISSIMAGE 2024; das Orthofoto Stadt Bern 2026 fand ${erst.mk.length === 1 ? 'eine Linie' : `${erst.mk.length} Linien`}, die Punkte können darum neben den Linien im Kartenbild «Bern 2026» liegen`
+        : `Orthofoto Stadt Bern 2026; SWISSIMAGE 2024 fand ${zweit.mk.length === 1 ? 'eine Linie' : `${zweit.mk.length} Linien`}, die Punkte können darum neben den Linien im Kartenbild «Luftbild» liegen`
       const q2 = qsaRef.current
       if (!q2 || q2.secId !== q.secId) return
       const lagen = [...new Set([...q2.lagen, von, ...mk.map(m => m.t), bis].map(t => Math.round(t * 100) / 100))].sort((a, b) => a - b)
@@ -3445,8 +3543,8 @@ export default function App() {
       })
       const stuecke = lagen.slice(1).map((t, i) => numDE(t - lagen[i], 2)).join(' · ')
       setQsa({ ...q2, linie, grenzen, lagen, arten, klicks: [...q2.klicks, ...lagen.filter(t => !q2.lagen.includes(t))], mkLaden: false,
-        mkText: mk.length ? `${mk.length} ${mk.length === 1 ? 'Linie' : 'Linien'} im Luftbild erkannt, Stücke ${stuecke} m. Bitte prüfen: Linien im Schatten oder unter Autos können fehlen, Pfeile, Flicke und Gleise falsch erkannt sein.`
-          : `Keine Linien erkannt (Fahrbahn ${numDE(bis - von, 2)} m). Ohne Markierung, im Schatten oder verdeckt: Punkte bitte von Hand setzen.` })
+        mkText: mk.length ? `${mk.length} ${mk.length === 1 ? 'Linie' : 'Linien'} im Luftbild erkannt (gelesen: ${bildText}), Stücke ${stuecke} m. Bitte prüfen: Linien im Schatten oder unter Autos können fehlen, Pfeile, Flicke und Gleise falsch erkannt sein.`
+          : `Keine Linien erkannt (Fahrbahn ${numDE(bis - von, 2)} m${zweit ? '; gelesen: Orthofoto Stadt Bern 2026 und SWISSIMAGE 2024' : `; gelesen: ${LUFTBILD_NAME[bild.quelle]}`}). Ohne Markierung, im Schatten oder verdeckt: Punkte bitte von Hand setzen.` })
     } catch (err) {
       setQsa(x => (x && x.secId === q.secId ? { ...x, mkLaden: false, mkText: `Luftbild nicht lesbar: ${(err as Error).message}` } : x))
     }
@@ -3919,7 +4017,7 @@ export default function App() {
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
                      attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} obsStand={cityCfg.obsStand}
-                     teilModus={teilModus} orthofoto={messAktiv || planAv != null || qsa != null} messung={messAnzeige ?? qsAnzeige} av={planAvWgs} formen={formen}
+                     teilModus={teilModus} orthofoto={messAktiv || planAv != null || qsa != null} bern2026={city === 'bern'} messung={messAnzeige ?? qsAnzeige} av={planAvWgs} formen={formen}
                      onMeldung={(t, art) => setMsg(t, art)} onMarkerClick={markerKlick} />
             {/* Kartenkopf: Stadt und Strassensuche (während einer Messung steht dort deren Werkzeugleiste) */}
             {!messung && !qsa && (
@@ -3956,12 +4054,12 @@ export default function App() {
                     ? 'Weit hineinzoomen und auf die Markierung klicken, an der Stelle, bis zu der die Breite zählt. Gemessen wird rechtwinklig bis zur Bordsteinkante (orange).'
                     : messung.modus === 'flaeche'
                     ? 'In die Fläche klicken (Velostrasse, Weg): gemessen wird rechtwinklig von der nächsten Kante bis zur gegenüberliegenden (orange). Bei der Velostrasse zählt die Parkierung nicht mit.'
-                    : 'Weit hineinzoomen, zuerst die Bordsteinkante und dann die Markierung anklicken.'}
+                    : 'Weit hineinzoomen und zwei Punkte anklicken, etwa Markierung und Markierung oder Markierung und Bordsteinkante. Nahe einer orangen Kante rastet der Punkt auf ihr ein, der zweite rechtwinklig zum ersten.'}
                 </div>
                 <div style={{ marginTop: 6, fontWeight: 600, color: messung.fehler ? '#b91c1c' : 'var(--text-strong)' }}>
                   {messung.modus !== 'hand' && messung.laden ? 'Lade Bordsteinkanten …'
                     : messung.fehler ?? (messung.ergebnis ? `Breite: ${numDE(messung.ergebnis.breite, 2)} m`
-                      : messung.modus === 'hand' && messung.punkte.length === 1 ? 'Jetzt die Markierung anklicken.' : 'Noch nicht gemessen.')}
+                      : messung.modus === 'hand' && messung.punkte.length === 1 ? 'Jetzt den zweiten Punkt anklicken.' : 'Noch nicht gemessen.')}
                 </div>
                 {messung.plan ? (() => {
                   const sec = sections.find(s => s.id === messung.secId)
@@ -3994,6 +4092,7 @@ export default function App() {
                         const nr = Math.min(messung.teilNr ?? 0, Math.max(0, teile.length - 1))
                         const wert = messung.ergebnis ? numDE(aufZentimeter(messung.ergebnis.breite), 2) : null
                         const aktion = !wert ? 'Zuerst messen: zwei Punkte auf dem Luftbild anklicken'
+                          : wie === 'fahrbahn' ? `${wert} m als Fahrbahnbreite (Bord bis Bord) ${messung.ziel === 'heute' ? 'von heute' : 'der Planung'} übernehmen`
                           : wie === 'neu' ? `${wert} m als neues Element «${TEIL_LABEL[messung.teilArt ?? 'Trottoir']}» ${stelle} einfügen`
                           : teile.length ? `${wert} m als Breite von Element ${nr + 1} · ${TEIL_LABEL[teile[nr].art]} übernehmen` : 'Kein Element vorhanden'
                         const geht = !!wert && (wie === 'neu' || teile.length > 0)
@@ -4001,7 +4100,7 @@ export default function App() {
                           <div role="group" aria-label="Verwendung der Messung" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                             <span>Messung:</span>
                             <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                              {([['neu', 'Neues Element einfügen'], ['teil', 'Breite eines Elements ersetzen']] as const).map(([w, label]) => (
+                              {([['neu', 'Neues Element einfügen'], ['teil', 'Breite eines Elements ersetzen'], ['fahrbahn', 'Fahrbahnbreite']] as const).map(([w, label]) => (
                                 <button key={w} type="button" aria-pressed={wie === w} onClick={() => setMessung({ ...messung, wie: w })}
                                         style={{ border: 'none', padding: '4px 9px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
                                                  background: wie === w ? 'var(--accent)' : '#fff', color: wie === w ? '#fff' : 'var(--text)' }}>
@@ -4010,7 +4109,11 @@ export default function App() {
                               ))}
                             </span>
                           </div>
-                          {wie === 'neu' ? (<>
+                          {wie === 'fahrbahn' ? (
+                            <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+                              Am besten mit «Ganze Fläche» in die Fahrbahn klicken. Danach die übrigen Elemente messen; das letzte setzt «= Rest» in der Liste.
+                            </div>
+                          ) : wie === 'neu' ? (<>
                             <div style={zeile}>
                               <span>Art:</span>
                               <select value={messung.teilArt ?? 'Trottoir'} aria-label="Art des neuen Elements" style={auswahl}

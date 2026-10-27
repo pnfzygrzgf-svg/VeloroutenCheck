@@ -204,7 +204,8 @@ describe('wayToCand — Seiten, Breite je Seite, Einbahn', () => {
 })
 
 import { spurenAusTags } from './osm'
-import { candToSection } from './strecke'
+import { candToSection, defaultSection } from './strecke'
+import type { Markierung } from './aufteilung'
 import { startAufteilung, pfeileVon, markierungAus, pruefeTeil, umfeldVon, formJeSeite } from './aufteilung'
 describe('Fahrspuren und Pfeile aus OSM (lanes, turn:lanes; Kirchenfeldstrasse, way 44425592)', () => {
   const kirchenfeld = { highway: 'primary', name: 'Kirchenfeldstrasse', 'cycleway:both': 'lane', lanes: '3', 'lanes:forward': '2',
@@ -216,6 +217,14 @@ describe('Fahrspuren und Pfeile aus OSM (lanes, turn:lanes; Kirchenfeldstrasse, 
     expect(spurenAusTags({ lanes: '3', 'lanes:backward': '1' }, undefined)).toEqual({ vor: ['keine', 'keine'], rueck: ['keine'] })
     expect(spurenAusTags({ lanes: '2', 'turn:lanes': 'left|through' }, 'vor')).toEqual({ vor: ['links', 'geradeaus'], rueck: [] })
     expect(spurenAusTags({ highway: 'residential' }, undefined)).toBeUndefined()
+    // alle Spuren in einer Richtung (Kirchenfeldstrasse 1349754377): Gegenrichtung ohne Spur
+    expect(spurenAusTags({ lanes: '2', 'turn:lanes:forward': 'left|through;right' }, undefined)).toEqual({ vor: ['links', 'geradeaus-rechts'], rueck: [] })
+  })
+  it('alle Spuren in Richtung A (Kirchenfeldstrasse 1349754377): Ausgangslage mit zwei Spuren der Seite A, keine Spur B', () => {
+    const s = { ...defaultSection(), ist: 'Radstreifen' as const, breite: 1.5, fahrbahnbreite: 10,
+      spuren: { a: ['links', 'geradeaus-rechts'] as Markierung[], b: [] as Markierung[] } }
+    const sp = startAufteilung(s).teile.filter(t => t.art === 'Fahrspur')
+    expect(sp.map(t => [t.richtung, t.markierung])).toEqual([['A', 'links'], ['A', 'geradeaus-rechts']])
   })
   it('Pfeile kombiniert und zurück', () => {
     expect(pfeileVon('geradeaus-rechts')).toEqual(['geradeaus', 'rechts'])

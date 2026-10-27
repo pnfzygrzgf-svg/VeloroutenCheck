@@ -88,6 +88,28 @@ function fusspunkt(p: P, k: Kante): { d: number; fuss: P } {
   return { d: Math.hypot(p[0] - fuss[0], p[1] - fuss[1]), fuss }
 }
 
+// Punkt an eine Bordsteinkante fangen (seit 27.10.2026, Nutzerwunsch: beim Messen mit zwei Punkten «magnetisch» an der AV-Linie,
+// damit sich eine Spur von der Markierung bis zur Kante messen lässt und nicht nur ab der Kante). Ohne ersten Punkt die nächste
+// Stelle der Kante; mit erstem Punkt (von) der Fusspunkt des Lots von ihm auf die Kante, wenn er im Fangradius liegt, sodass die
+// Messung rechtwinklig zur Kante ist. null, wenn keine Kante näher als radiusM ist.
+export function fangeAnKante(p: P, kanten: Kante[], radiusM: number, von?: P): P | null {
+  let best: P | null = null, bestD = radiusM
+  for (const k of kanten) {
+    const de = k.b[0] - k.a[0], dn = k.b[1] - k.a[1], ll = de * de + dn * dn
+    if (ll < 1e-9) continue
+    const auf = (q: P): { u: number; f: P } => {
+      const u = ((q[0] - k.a[0]) * de + (q[1] - k.a[1]) * dn) / ll
+      return { u, f: [k.a[0] + u * de, k.a[1] + u * dn] }
+    }
+    const naechst = auf(p), uk = Math.max(0, Math.min(1, naechst.u))
+    let q: P = [k.a[0] + uk * de, k.a[1] + uk * dn]
+    if (von) { const lot = auf(von); if (lot.u >= 0 && lot.u <= 1 && abstand(lot.f, p) <= radiusM) q = lot.f }
+    const d = abstand(q, p)
+    if (d <= bestD) { bestD = d; best = q }
+  }
+  return best
+}
+
 // Messung ab Bordsteinkante: kürzester Abstand vom Klick (auf der Markierung) zur nächsten
 // Bordsteinkante, höchstens maxM. Rückgabe: Breite [m] und Fusspunkt auf der Kante.
 export function messeAbKante(klick: P, kanten: Kante[], maxM = FANG_M): { breite: number; fuss: P } | null {
@@ -416,6 +438,24 @@ const TIEF_AB_M = 2.6
 const SCHRAEG_AB_M = 2.85
 const WINKEL45_AB_M = 3.2     // zwischen schräg 60° (2,90 m) und 45° (3,55 m je Feld)
 export const PARK_TIEFE_ANNAHME: Record<'laengs' | 'schraeg' | 'quer', number> = { laengs: 1.9, schraeg: 5.25, quer: 5.0 }
+// Gekrümmte Reihen (seit 27.10.2026, Nutzerbefund Aargauerstalden 585349949: 54 Längsfelder als EINE Fläche entlang der Kurve,
+// rund 270 m lang, quer zum nächsten geraden Achsstück 21,60 m «tief» → Schrägparkierung 45°): Ist die Ausdehnung quer zur
+// Achse grösser als PARK_TIEF_MAX_M (tiefer ist keine Parkierung, senkrecht 5,00, schräg 60° 5,25 m), gilt die Breite des
+// Bandes aus Fläche A und Umfang U (Rechteck: Breite = (U − √(U² − 16·A)) / 4, Länge = A / Breite): dort 1,80 m auf 277 m,
+// 5,1 m je Feld → längs. Ist auch sie nicht glaubhaft, zählt die Fläche nicht.
+const PARK_TIEF_MAX_M = 7
+export function bandBreite(r: P[]): { breite: number; laenge: number } | null {
+  let a = 0, u = 0
+  for (let i = 0; i < r.length; i++) {
+    const p = r[i], q = r[(i + 1) % r.length]
+    a += p[0] * q[1] - q[0] * p[1]; u += Math.hypot(q[0] - p[0], q[1] - p[1])
+  }
+  a = Math.abs(a) / 2
+  const disk = u * u - 16 * a
+  if (!(a > 0) || disk < 0) return null
+  const breite = (u - Math.sqrt(disk)) / 4
+  return breite > 0 ? { breite, laenge: a / breite } : null
+}
 // Tiefe der Schrägparkierung je Winkel (Normalien Stadt Bern 2.10.22)
 export const PARK_WINKEL_TIEFE: Record<ParkWinkel, number> = { 45: 4.9, 60: 5.25 }
 
@@ -441,8 +481,13 @@ export function parkierungTiefe(achsen: P[][], park: { ringe: P[][]; art?: 'laen
     const de = seg[1][0] - seg[0][0], dn = seg[1][1] - seg[0][1], l = Math.hypot(de, dn)
     const n: P = [-dn / l, de / l], d: P = [de / l, dn / l]
     const quer = r.map(p => p[0] * n[0] + p[1] * n[1]), laengs = r.map(p => p[0] * d[0] + p[1] * d[1])
-    je[seite].push({ tiefe: Math.max(...quer) - Math.min(...quer), laenge: Math.max(...laengs) - Math.min(...laengs), art: f.art, symbol: f.symbol,
-      anzahl: f.anzahl })
+    let tiefe = Math.max(...quer) - Math.min(...quer), laenge = Math.max(...laengs) - Math.min(...laengs)
+    if (tiefe > PARK_TIEF_MAX_M && !f.symbol) {   // gekrümmte Reihe: Breite des Bandes
+      const b = bandBreite(r)
+      if (!b || b.breite > PARK_TIEF_MAX_M) continue
+      tiefe = b.breite; laenge = b.laenge
+    }
+    je[seite].push({ tiefe, laenge, art: f.art, symbol: f.symbol, anzahl: f.anzahl })
   }
   const auswerten = (xs: typeof je.links): ParkTiefe | undefined => {
     if (!xs.length) return undefined

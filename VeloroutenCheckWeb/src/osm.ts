@@ -109,6 +109,7 @@ export function spurenAusTags(t: Record<string, string>, einbahn: 'vor' | 'rueck
   const zahl = (v?: string) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : undefined }
   const pfeile = (v?: string) => (v ? v.split('|').map(pfeilAusOsm) : undefined)
   const richtung = (n: number | undefined, p: Markierung[] | undefined): Markierung[] | undefined => {
+    if (n === 0) return []
     const k = n ?? p?.length
     return k ? Array.from({ length: k }, (_, i) => (p && p.length === k ? p[i] : 'keine')) : undefined
   }
@@ -122,8 +123,12 @@ export function spurenAusTags(t: Record<string, string>, einbahn: 'vor' | 'rueck
   if (n != null && nv == null && nr != null && n > nr) nv = n - nr
   if (n != null && nr == null && nv != null && n > nv) nr = n - nv
   if (n != null && nv == null && nr == null && n % 2 === 0) nv = nr = n / 2
+  // Alle Spuren in einer Richtung (seit 27.10.2026, Nutzerbefund Kirchenfeldstrasse 1349754377: lanes=2 und
+  // turn:lanes:forward «left|through;right», im Luftbild zwei Spuren mit Pfeilen in dieselbe Richtung): Gegenrichtung ohne Spur
+  if (n != null && nv === n && nr == null) nr = 0
+  if (n != null && nr === n && nv == null) nv = 0
   const vor = richtung(nv, pv), rueck = richtung(nr, pr)
-  if (!vor || !rueck) return undefined
+  if (!vor || !rueck || vor.length + rueck.length === 0) return undefined
   const bv = zahl(t['lanes:bus:forward']), br = zahl(t['lanes:bus:backward'])
   return { vor, rueck, ...(bv ? { busVor: bv } : {}), ...(br ? { busRueck: br } : {}) }
 }

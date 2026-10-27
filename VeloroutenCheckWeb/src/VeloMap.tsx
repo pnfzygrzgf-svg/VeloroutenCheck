@@ -127,10 +127,13 @@ export interface MessAnzeige {
   quer?: { punkte: LLo[]; marken: { p: LLo; text: string }[] }
 }
 const ORTHO = 'Orthofoto (swisstopo)'
+const NAH_ZOOM = 19                                                 // ab hier gewählte Linien dünn (Markierungen sichtbar)
+const BERN26 = 'Orthofoto Stadt Bern 2026'
+const LUFTBILDER = [ORTHO, BERN26]                                  // Hintergründe mit Strassennamen-Kästchen
 
 export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
                           attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
-                          teilModus = false, orthofoto = false, messung = null, av = null, obsStand, formen, onMeldung, onMarkerClick }: {
+                          teilModus = false, orthofoto = false, bern2026 = false, messung = null, av = null, obsStand, formen, onMeldung, onMarkerClick }: {
   onMarkerClick?: (num: number) => void   // Abschnitts-Marker angeklickt (öffnet den Abschnitt im Panel, seit 22.10.2026)
   cands: Cand[]
   onLineClick: (id: number, lat: number, lon: number) => void   // Linie angeklickt (an-/abwählen oder teilen)
@@ -145,6 +148,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   fitKey?: number                         // ändert sich → Karte auf die Segmente einpassen (nur «Strasse laden»)
   teilModus?: boolean                     // «Segment teilen» aktiv → Fadenkreuz über den Linien
   orthofoto?: boolean                     // true → Hintergrund aufs Orthofoto schalten (Breitenmessung); bleibt danach
+  bern2026?: boolean                      // Stadt Bern gewählt → Knopf «Bern 2026» (Orthofoto der Stadt, seit 27.10.2026)
   messung?: MessAnzeige | null            // Breitenmessung: Kanten, Punkte, Messlinie
   av?: AvAnzeige | null                   // AV-Flächen eines Abschnitts (Aufteilung planen)
   // Führungsform je Cand-ID aus dem übernommenen Abschnitt (seit 17.10.2026): Farbe nach Seite A, eine
@@ -168,10 +172,34 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     const map = mapRef.current, b = basisRef.current, nm = namenRef.current
     if (!map || !b[name]) return
     if (aktiveBasis.current !== name) { b[aktiveBasis.current]?.remove(); b[name].addTo(map); aktiveBasis.current = name; setBasis(name) }
-    if (nm) { if (name === ORTHO && mitNamen) { if (!map.hasLayer(nm)) nm.addTo(map) } else nm.remove() }
+    if (nm) { if (LUFTBILDER.includes(name) && mitNamen) { if (!map.hasLayer(nm)) nm.addTo(map) } else nm.remove() }
   }
 
   const lineRef = useRef<Map<number, L.Polyline>>(new Map())  // Cand-ID → Linie (für Highlight)
+  // Linien je Cand-ID (Rand, Linie, gestrichelte Seite B) für den Stil nach Zoom und Messung
+  const gewaehltRef = useRef<Map<number, { sel: boolean; teile: L.Polyline[] }>>(new Map())
+  const hlRef = useRef<Set<number> | undefined>(undefined)
+  const messAktivRef = useRef(false)
+  // Die Linie eines gewählten Segments liegt auf der OSM-Achse, meist genau auf der Mittellinie der Fahrbahn
+  // (Nutzerbefund 27.10.2026: «die Mittellinie ist nicht mehr zu sehen, es kann nicht gemessen werden»). Darum ab
+  // NAH_ZOOM nur noch dünn und durchscheinend, und während einer Messung gar nicht (Klicks gehen weiter an die Messung).
+  const stilSetzen = () => {
+    const map = mapRef.current
+    if (!map) return
+    const nah = map.getZoom() >= NAH_ZOOM, weg = messAktivRef.current
+    for (const [id, { sel, teile: [rand, line, b] }] of gewaehltRef.current) {
+      if (!sel) {   // abgewählt: dünn gestrichelt, nah noch dünner
+        rand.setStyle({ opacity: weg || nah ? 0 : 0.55 })
+        line.setStyle(weg ? { opacity: 0 } : nah ? { weight: 1.5, opacity: 0.6 } : { weight: 2.5, opacity: 0.95 })
+        continue
+      }
+      const on = !!hlRef.current?.has(id)
+      rand.setStyle({ opacity: weg || nah ? 0 : 0.9 })
+      line.setStyle(weg ? { opacity: 0 } : nah ? { weight: on ? 3 : 2, opacity: on ? 0.7 : 0.45 } : { weight: on ? 10 : 6, opacity: on ? 1 : 0.95 })
+      b?.setStyle(weg ? { opacity: 0 } : nah ? { weight: 2, opacity: 0.45 } : { weight: 6, opacity: 0.95 })
+      if (on && !weg) line.bringToFront()
+    }
+  }
   const lastFit = useRef(0)            // zuletzt umgesetzter fitKey
   const suppress = useRef(false)        // Klick auf Linie soll keinen Karten-Klick auslösen
   const clickCb = useRef(onMapClick)    // immer den aktuellen Callback aufrufen
@@ -204,6 +232,15 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       'Landeskarte grau (swisstopo)': L.tileLayer(
         'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/{z}/{x}/{y}.jpeg',
         { maxZoom: 21, maxNativeZoom: 19, attribution: '© swisstopo' }),
+      // Orthofoto der Stadt Bern, Flug 19.03.2026, 10 cm (Nutzerwunsch 27.10.2026: SWISSIMAGE zeigt in Bern
+      // den Stand 2024). Nur als WMS (ArcGIS, liefert auch EPSG:3857, obwohl die Capabilities nur 2056/4326
+      // nennen); deckt nur das Gemeindegebiet ab, darum auf dessen Ausdehnung begrenzt (LV95 2588000–2605000 /
+      // 1196000–1205000, gerundet). Knopf nur, wenn Bern gewählt ist (bern2026).
+      [BERN26]: L.tileLayer.wms('https://map.bern.ch/arcgis/services/Geoportal/Orthofoto_2026_1/MapServer/WMSServer', {
+        layers: '0', styles: '', format: 'image/jpeg', version: '1.3.0', maxZoom: 21,
+        bounds: L.latLngBounds([46.91, 7.27], [47.0, 7.51]),
+        attribution: '© Geodaten Stadt Bern (Orthofoto 19.03.2026)',
+      }),
     }
     basemaps[ORTHO].addTo(map)
     // Strassennamen über dem Orthofoto (Nutzerbefund 22.10.2026: auf dem Luftbild fehlen die Namen):
@@ -282,6 +319,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       if (suppress.current) { suppress.current = false; return }
       clickCb.current?.(e.latlng.lat, e.latlng.lng)
     })
+    map.on('zoomend', () => stilSetzen())
     mapRef.current = map
     readyCb.current?.(map)
     return () => {
@@ -307,7 +345,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     const map = mapRef.current, lg = layerRef.current
     if (!map || !lg) return
     lg.clearLayers()
-    lineRef.current.clear()
+    lineRef.current.clear(); gewaehltRef.current.clear()
     const bounds = L.latLngBounds([])
     for (const c of cands) {
       const pts = c.geom.map(p => [p.lat, p.lon] as [number, number])
@@ -348,9 +386,11 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       hit.addTo(lg)         // unten (Trefffläche)
       rand.addTo(lg)        // Rand für die Sichtbarkeit auf Karte und Luftbild
       line.addTo(lg)        // sichtbare Linie darüber
-      if (c.selected && istB)   // Seite B anders: gestrichelt in ihrer Farbe über der Linie der Seite A
-        L.polyline(pts, { color: ISTCOLOR[istB] || '#0f766e', weight: 6, opacity: 0.95, dashArray: '8 10', interactive: false }).addTo(lg)
+      const linieB = c.selected && istB   // Seite B anders: gestrichelt in ihrer Farbe über der Linie der Seite A
+        ? L.polyline(pts, { color: ISTCOLOR[istB] || '#0f766e', weight: 6, opacity: 0.95, dashArray: '8 10', interactive: false }).addTo(lg)
+        : undefined
       lineRef.current.set(c.id, line)
+      gewaehltRef.current.set(c.id, { sel: !!c.selected, teile: linieB ? [rand, line, linieB] : [rand, line] })
       pts.forEach(p => bounds.extend(p))
     }
     // Schnittpunkte geteilter Ways: weisser Punkt am Anfang jedes Teils ausser dem ersten
@@ -396,6 +436,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         }),
       }).bindTooltip(`ÖV-Haltestelle: ${escapeHtml(st.name)}`, { direction: 'top' }).addTo(lg)
     }
+    stilSetzen()
     // Einpassen nur auf Anforderung (fitKey, gesetzt von «Strasse laden»). Bis zum 29.09.2026 passte
     // jede Änderung der Segment-Menge neu ein — auch jeder Klick-Zusatz: die Karte sprang, und das
     // erste kurze Segment zoomte sie auf die höchste Stufe. Klick und «Kartenausschnitt laden»
@@ -415,8 +456,13 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   // (höchstens Stufe 19) hätte die Karte nach einer Messung auf Stufe 20/21 herausgezoomt
   // (16.10.2026). Den Hintergrund wechselt man unten links auf der Karte.
   useEffect(() => {
-    if (orthofoto) basisWechseln(ORTHO)
+    if (orthofoto && !LUFTBILDER.includes(aktiveBasis.current)) basisWechseln(ORTHO)   // ein Luftbild bleibt stehen
   }, [orthofoto])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stadt gewechselt: das Berner Orthofoto deckt nur Bern ab → zurück auf SWISSIMAGE
+  useEffect(() => {
+    if (!bern2026 && aktiveBasis.current === BERN26) basisWechseln(ORTHO)
+  }, [bern2026])   // eslint-disable-line react-hooks/exhaustive-deps
 
   // AV-Flächen zeichnen (Planung), mit Quellenangabe, solange sie zu sehen sind.
   useEffect(() => {
@@ -444,6 +490,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     if (!map || !mg) return
     mg.clearLayers()
     map.getContainer().classList.toggle('vrc-messmodus', !!messung)
+    messAktivRef.current = !!messung; stilSetzen()
     if (!messung) return
     const ll = (p: LLo) => [p.lat, p.lon] as [number, number]
     // Alle Kanten als EINE Linie mit vielen Teilen (ein SVG-Pfad statt tausender Ebenen).
@@ -491,15 +538,9 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   // Highlight des gehoverten Abschnitts: betroffene Linien dicker + nach vorn, ohne Neuzeichnen.
   // Nur gewählte Segmente anfassen (abgewählte behalten ihren dünnen, gestrichelten Stil).
   useEffect(() => {
-    const hl = highlightIds
-    const selected = new Set(cands.filter(c => c.selected).map(c => c.id))
-    for (const [id, line] of lineRef.current) {
-      if (!selected.has(id)) continue
-      const on = !!hl && hl.has(id)
-      line.setStyle({ weight: on ? 10 : 6, opacity: on ? 1 : 0.95 })
-      if (on) line.bringToFront()
-    }
-  }, [highlightIds, cands])
+    hlRef.current = highlightIds
+    stilSetzen()
+  }, [highlightIds, cands])   // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     // Höhe/Rahmen über die Klasse (index.css): im Breitbild-Layout füllt die Karte die linke Spalte.
@@ -508,17 +549,17 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     <div className="vrc-velomap-wrap">
       <div ref={elRef} className="vrc-velomap" />
       <div className="vrc-hintergrund" role="group" aria-label="Kartenhintergrund">
-        {([[ORTHO, 'Luftbild'], ['Landeskarte grau (swisstopo)', 'Karte'], ['CyclOSM', 'CyclOSM']] as const).map(([name, label]) => (
+        {([[ORTHO, 'Luftbild'], ...(bern2026 ? [[BERN26, 'Bern 2026']] : []), ['Landeskarte grau (swisstopo)', 'Karte'], ['CyclOSM', 'CyclOSM']] as [string, string][]).map(([name, label]) => (
           <button key={name} type="button" aria-pressed={basis === name} onClick={() => basisWechseln(name)} title={name}
                   className={basis === name ? 'aktiv' : undefined}>
             {label}
           </button>
         ))}
-        {/* Ergänzung zum Luftbild, kein eigener Hintergrund: Kästchen «+ Strassennamen», nur beim Luftbild (seit 22.10.2026
-            standardmässig aus) */}
-        {basis === ORTHO && (
+        {/* Ergänzung zum Luftbild, kein eigener Hintergrund: Kästchen «+ Strassennamen», nur bei den Luftbildern (seit
+            22.10.2026 standardmässig aus) */}
+        {LUFTBILDER.includes(basis) && (
           <label className="namen" title="Strassennamen aus dem amtlichen Strassenverzeichnis über dem Luftbild (swisstopo, ab Zoomstufe 17)">
-            <input type="checkbox" checked={namen} onChange={e => { setNamen(e.target.checked); basisWechseln(ORTHO, e.target.checked) }} />
+            <input type="checkbox" checked={namen} onChange={e => { setNamen(e.target.checked); basisWechseln(basis, e.target.checked) }} />
             Strassennamen
           </label>
         )}

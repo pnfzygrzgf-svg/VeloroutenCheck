@@ -2,6 +2,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Radstreifen aus dem Luftbild (Stadt Bern) → gebündelter Snapshot für den Rechner.
 #
+# ABGELÖST am 27.10.2026: Bern wird jetzt wie die anderen Städte mit tools/luftbild_stadt.py erzeugt, aus zwei Flügen
+# (SWISSIMAGE 2024 und Orthofoto Stadt Bern 2026). Dieses Skript schreibt nur SWISSIMAGE aus dem GeoPackage.
+#
 # Quelle: eigener Lauf des Modells «remote_velo» (ETH Zürich, Papini/Zani/Adey 2026, MIT-Lizenz)
 # auf SWISSIMAGE 10 cm (© swisstopo), beide Modelle (curriculum und paper). Erzeugt wird das
 # GeoPackage lokal mit _lokal/luftbild_erkennung (erkennen.py, schreiben.py); dieses Skript liest

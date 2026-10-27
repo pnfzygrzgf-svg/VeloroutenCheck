@@ -118,7 +118,7 @@ export interface Section extends Seite {
   // Zahl zu ihren Fahrbahnelementen passt (mitMarkierung). stuecke: Zahl der Stücke je Querschnitt (Hinweis bei Abweichung)
   // alle: Stücke je Querschnitt; die Ausgangslage nimmt die Querschnitte, deren Zahl zu ihren Elementen passt (Kirchenfeldstrasse:
   // einer mit fünf Stücken, zwei mit vier, weil eine Linie im Schatten liegt)
-  markierung?: { breiten: number[]; querschnitte: number; stuecke: number[]; alle?: number[][] }
+  markierung?: { breiten: number[]; querschnitte: number; stuecke: number[]; alle?: number[][]; luftbild?: 'swissimage' | 'bern2026' | 'beide' }   // luftbild: gelesenes Bild (seit 27.10.2026)
   heuteBestaetigt?: boolean   // Schritt 1 der Planung erledigt: der Querschnitt von heute ist geprüft (seit 25.10.2026)
   // Fahrspuren je Seite aus OSM (lanes, turn:lanes; seit 20.10.2026): je Spur der Pfeil, von links nach rechts in
   // Fahrtrichtung der Seite; auf der Einbahn nur a

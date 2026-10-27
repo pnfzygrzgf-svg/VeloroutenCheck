@@ -681,11 +681,26 @@ const MK_PLAUSIBEL: Partial<Record<TeilArt, [number, number]>> = {
   Velostreifen: [1.0, 2.6], Fahrspur: [2.5, 5.5], Tram: [2.8, 5.5], Gemeinsam: [3.0, 7.5], Parkierung: [1.5, 2.6], Umweltspur: [3.0, 5.5],
   Sicherheitsstreifen: [0.3, 1.2], Kernfahrbahn: [3.0, 6.0],
 }
-// Breiten je Element aus den Querschnitten, deren Zahl Stücke zu den Elementen passt (Median), wenn alle plausibel sind
-function markierungBreiten(s: Section, fb: Teil[]): { breiten: number[] | null; erkannt: number; querschnitte: number; unplausibel?: string } {
+// Breiten je Element aus den Querschnitten, deren Zahl Stücke zu den Elementen passt (Median), wenn alle plausibel sind.
+// Parkierung am Rand ohne Randlinie (seit 27.10.2026, Nutzerbefund Aargauerstalden 585349949: Längsparkierung ohne Linie,
+// erkannt nur die Mittellinie → 2 Stücke für Spur, Spur, Parkierung): Passt kein Querschnitt, aber welche mit einem Stück
+// weniger, und liegt am Rand eine Parkierung, wird sie mit ihrer Breite vom Randstück abgezogen. Dann zählen nur Querschnitte,
+// in denen jedes Stück glaubhaft ist (Aargauerstalden: 3,15 · 6,74 → 3,15 · 4,84 · 1,90; 7,51 · 2,38 fällt weg).
+function markierungBreiten(s: Section, fb: Teil[]): { breiten: number[] | null; erkannt: number; querschnitte: number; unplausibel?: string; parkOhneLinie?: 'a' | 'b' } {
   const m = s.markierung!
   const alle = m.alle?.length ? m.alle : m.breiten.length ? [m.breiten] : []
-  const passend = alle.filter(e => e.length === fb.length)
+  let passend = alle.filter(e => e.length === fb.length), parkOhneLinie: 'a' | 'b' | undefined
+  const glaubhaft = (e: number[]) => fb.every((t, k) => { const g = MK_PLAUSIBEL[t.art]; return !g || (e[k] >= g[0] && e[k] <= g[1]) })
+  if (!passend.length && fb.length >= 2 && !fb.some(t => t.art === 'Mittelinsel')) {
+    for (const [k, seite] of [[fb.length - 1, 'a'], [0, 'b']] as const) {
+      const t = fb[k]
+      if (t.art !== 'Parkierung' || !Number.isFinite(t.breite)) continue
+      const geteilt = alle.filter(e => e.length === fb.length - 1)
+        .map(e => (k === 0 ? [t.breite, e[0] - t.breite, ...e.slice(1)] : [...e.slice(0, -1), e[e.length - 1] - t.breite, t.breite]))
+        .map(e => e.map(x => Math.round(x * 100) / 100)).filter(glaubhaft)
+      if (geteilt.length) { passend = geteilt; parkOhneLinie = seite; break }
+    }
+  }
   if (!passend.length || fb.some(t => t.art === 'Mittelinsel'))
     return { breiten: null, erkannt: m.breiten.length, querschnitte: 0 }
   const median = (xs: number[]) => { const q = [...xs].sort((x, y) => x - y), k = Math.floor(q.length / 2); return q.length % 2 ? q[k] : (q[k - 1] + q[k]) / 2 }
@@ -693,14 +708,20 @@ function markierungBreiten(s: Section, fb: Teil[]): { breiten: number[] | null; 
   const falsch = fb.findIndex((t, k) => { const g = MK_PLAUSIBEL[t.art]; return !!g && (br[k] < g[0] || br[k] > g[1]) })
   if (falsch >= 0) return { breiten: null, erkannt: fb.length, querschnitte: passend.length,
     unplausibel: `${TEIL_LABEL[fb[falsch].art]} ${String(br[falsch]).replace('.', ',')} m` }
-  return { breiten: br, erkannt: fb.length, querschnitte: passend.length }
+  return { breiten: br, erkannt: fb.length, querschnitte: passend.length, ...(parkOhneLinie ? { parkOhneLinie } : {}) }
 }
-export function markierungPasst(s: Section, a: Aufteilung): { passt: boolean; erkannt: number; erwartet: number; querschnitte: number; unplausibel?: string } | null {
+export function markierungPasst(s: Section, a: Aufteilung): { passt: boolean; erkannt: number; erwartet: number; querschnitte: number; unplausibel?: string; parkOhneLinie?: 'a' | 'b' } | null {
   if (!s.markierung || s.querschnittHeute) return null
   const fb = a.teile.filter(t => istFahrbahnTeil(t) && !t.versetzt)
   const r = markierungBreiten(s, fb)
-  return { passt: !!r.breiten, erkannt: r.erkannt, erwartet: fb.length, querschnitte: r.querschnitte, ...(r.unplausibel ? { unplausibel: r.unplausibel } : {}) }
+  return { passt: !!r.breiten, erkannt: r.erkannt, erwartet: fb.length, querschnitte: r.querschnitte, ...(r.unplausibel ? { unplausibel: r.unplausibel } : {}),
+    ...(r.parkOhneLinie ? { parkOhneLinie: r.parkOhneLinie } : {}) }
 }
+const RUND_REST_MAX_M = 0.5
+// Übliche Breiten markierter Velostreifen (Nutzervorgabe 27.10.2026): Vorschlag für erkannte Streifen und Auswahl im Breitenfeld
+export const VELOSTREIFEN_UEBLICH = [1.5, 1.8, 2.0, 2.2, 2.5]
+const uebliches = (m: number): number => VELOSTREIFEN_UEBLICH.reduce((best, x) => (Math.abs(x - m) < Math.abs(best - m) ? x : best))
+const SPUR_ARTEN = new Set<TeilArt>(['Fahrspur', 'Tram', 'Gemeinsam', 'Kernfahrbahn', 'Umweltspur'])
 function mitMarkierung(a: Aufteilung, s: Section): Aufteilung {
   if (!s.markierung || s.querschnittHeute) return a
   const r = markierungBreiten(s, a.teile.filter(t => istFahrbahnTeil(t) && !t.versetzt))
@@ -711,10 +732,27 @@ function mitMarkierung(a: Aufteilung, s: Section): Aufteilung {
   const fest = (q?: Quelle) => q === 'gemessen' || q === 'manuell'
   const rand: [number, number, Quelle | undefined][] = [[0, 1, s.richtung === 'beide' ? (s.gegen?.quelle.breite ?? s.quelle.breite) : undefined],
     [idx.length - 1, idx.length - 2, s.quelle.breite]]
+  const behalten = new Set<number>()   // Breiten, die nicht aus dem Luftbild kommen (gemessen, von Hand, Parkierung ohne Linie)
   for (const [k, nb, q] of rand) {
     const t = a.teile[idx[k]]
     if (idx.length < 2 || t.art !== 'Velostreifen' || !fest(q) || !Number.isFinite(t.breite)) continue
-    br[nb] = Math.round((br[nb] + br[k] - t.breite) * 100) / 100; br[k] = t.breite
+    br[nb] = Math.round((br[nb] + br[k] - t.breite) * 100) / 100; br[k] = t.breite; behalten.add(k)
+  }
+  if (r.parkOhneLinie) behalten.add(r.parkOhneLinie === 'a' ? idx.length - 1 : 0)
+  // Auf 5 cm (seit 27.10.2026, Nutzerwunsch Aargauerstalden: «3,18 und 4,82 vorgeschlagen, gemessen 3,20 und 4,90»; die Erkennung
+  // ist nicht zentimetergenau), Velostreifen auf das nächste übliche Mass (VELOSTREIFEN_UEBLICH); der Rest bis zur Fahrbahnbreite an
+  // eine Spur: neben der Parkierung ohne Linie, sonst die breiteste (dort 10,00 − 1,90 − 3,20 = 4,90). Nur bei kleinem Rest (bis
+  // RUND_REST_MAX_M), sonst stimmt die Fahrbahn nicht.
+  for (let k = 0; k < br.length; k++) {
+    if (behalten.has(k)) continue
+    br[k] = a.teile[idx[k]].art === 'Velostreifen' ? uebliches(br[k]) : auf5cm(br[k])
+  }
+  const rest = Math.round((s.fahrbahnbreite - br.reduce((m, x) => m + x, 0)) * 100) / 100
+  if (Number.isFinite(rest) && rest !== 0 && Math.abs(rest) <= RUND_REST_MAX_M) {
+    const spur = (k: number) => !behalten.has(k) && SPUR_ARTEN.has(a.teile[idx[k]].art)
+    const nb = r.parkOhneLinie === 'a' ? idx.length - 2 : r.parkOhneLinie === 'b' ? 1 : -1
+    const ziel = nb >= 0 && spur(nb) ? nb : br.reduce((best, x, k) => (spur(k) && (best < 0 || x > br[best]) ? k : best), -1)
+    if (ziel >= 0) br[ziel] = Math.round((br[ziel] + rest) * 100) / 100
   }
   const teile = a.teile.map((t, i) => { const k = idx.indexOf(i); return k < 0 ? t : { ...t, breite: br[k], angenommen: undefined, ausLuftbild: true } })
   return { ...a, teile }
@@ -837,13 +875,14 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
     ...rand0('a', ohnePark(s.trottoir?.a, trA, 'a'))]
   // Fahrspuren aus OSM (s.spuren, lanes/turn:lanes; Nutzerbefund 20.10.2026, Kirchenfeldstrasse: eine Spur Richtung B,
   // zwei Richtung A mit «←» und «↑→»): Anzahl je Seite und Pfeile; sonst eine auf der Einbahn, zwei bei Gegenverkehr
-  const osm = s.spuren && s.spuren.a.length > 0 && (s.richtung === 'eine' || s.spuren.b.length > 0) ? s.spuren : undefined
+  // Eine Richtung ohne Spur (alle Spuren in der anderen, Kirchenfeldstrasse 1349754377) ist erlaubt, nicht aber gar keine
+  const osm = s.spuren && (s.richtung === 'eine' ? s.spuren.a.length > 0 : s.spuren.a.length + s.spuren.b.length > 0) ? s.spuren : undefined
   // Einbahn mit Bus bzw. Tram in der Gegenrichtung (s.oevGegen, Helvetiaplatz): dazu eine Gegenspur in Richtung B
   const gegenOev = s.richtung === 'eine' && !!s.oevGegen
   // Umweltspur mit Busspur in OSM (lanes:bus): sie ist eine der Spuren der Seite und ersetzt die äusserste
   const busWeg = { a: osm && (s.spuren?.busA ?? 0) >= 1 && seiteA(s).ist === 'Umweltspur' ? 1 : 0,
     b: osm && s.richtung === 'beide' && (s.spuren?.busB ?? 0) >= 1 && seiteB(s).ist === 'Umweltspur' ? 1 : 0 }
-  const nSpuren = (osm ? Math.max(1, osm.a.length - busWeg.a) + (s.richtung === 'eine' ? 0 : Math.max(0, osm.b.length - busWeg.b))
+  const nSpuren = (osm ? (osm.a.length ? Math.max(1, osm.a.length - busWeg.a) : 0) + (s.richtung === 'eine' ? 0 : Math.max(0, osm.b.length - busWeg.b))
     : s.richtung === 'eine' ? 1 : 2) + (gegenOev ? 1 : 0)
   const mitPfeil = !!osm && [...osm.a, ...osm.b].some(m => m !== 'keine')
   // Spuren je Seite in der Reihenfolge der Skizze (links Rand B, rechts Rand A): Seite B kommt entgegen, ihre linke
@@ -875,7 +914,7 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
   const rest = Number.isFinite(s.fahrbahnbreite) ? Math.max(0, s.fahrbahnbreite - belegt) : NaN
   // Mittelinsel aus der AV (Nutzerentscheid 20.10.2026: Teil der Fahrbahn): Ausgangslage im Querschnitt durch die
   // Insel — Fahrbahn von Bord zu Bord samt Insel, je eine Fahrspur links und rechts davon
-  const mi = s.mittelinsel
+  const mi = inselImQuerschnitt(s) ? s.mittelinsel : null
   if (mi && s.richtung === 'beide' && seiteA(s).ist !== 'Velostrasse') {
     const fb = mi.fahrbahn
     const jeSpur = auf5cm(Math.max(0, fb - belegt - mi.breite) / nSpuren)
@@ -897,6 +936,16 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
   const jeSpur = Number.isFinite(rest) ? auf5cm(rest / nSpuren) : pruefeTeil({ art, breite: NaN }, 'Veloroute', undefined, umfeld).soll!
   const sp = mitRest(spurenMit(jeSpur, art), rest)
   return { fahrbahn: s.fahrbahnbreite, teile: [...links, ...sp.b, ...sp.a, ...rechts], seitenraum, ...netz }
+}
+
+// Mittelinsel in der Ausgangslage nur, wenn die Fahrbahn an ihr zum Abschnitt passt (seit 27.10.2026, Nutzerbefund Aargauerstalden
+// 585349949: Insel an der Verzweigung, Fahrbahn dort 23,2 m samt Insel, im Abschnitt 10,0 m → zwei «Fahrspuren» von 10,05 m). Neben
+// der Insel darf die Fahrbahn um höchstens INSEL_AUFWEITUNG_MAX_M breiter sein als der Median des Abschnitts (Aufweitung um die Insel
+// herum); sonst bleibt die Insel ein Hinweis.
+export const INSEL_AUFWEITUNG_MAX_M = 3
+export const inselImQuerschnitt = (s: Section): boolean => {
+  const mi = s.mittelinsel
+  return !!mi && !(Number.isFinite(s.fahrbahnbreite) && mi.fahrbahn - mi.breite > s.fahrbahnbreite + INSEL_AUFWEITUNG_MAX_M)
 }
 
 // ── Haltestelle einfügen (seit 20.10.2026, Nutzerentscheid): Querschnitte HS 1, 2, 4, 5 des Masterplans auf einer Seite ──

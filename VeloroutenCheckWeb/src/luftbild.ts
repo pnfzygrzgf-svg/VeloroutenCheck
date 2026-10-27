@@ -23,6 +23,12 @@ import { holeJson } from './netz'
 // Anteil der Länge [0…1], an dem rechts bzw. links der WAY-Richtung ein Fund liegt.
 export interface LuftbildInfo { rechts: number; links: number }
 
+// Luftbild, auf dem die Erkennung lief, je Stadt (Quellenangabe im Hinweis). Bern seit 27.10.2026 zwei Flüge zusammen:
+// SWISSIMAGE 2024 und das Orthofoto der Stadt vom 19.03.2026 (tools/luftbild_stadt.py, Begründung dort).
+export const LUFTBILD_ERKENNUNG_BILD: Record<string, string> = {
+  bern: 'SWISSIMAGE 2024 © swisstopo und Orthofoto Stadt Bern 2026 © Geodaten Stadt Bern', zurich: 'SWISSIMAGE © swisstopo', basel: 'SWISSIMAGE © swisstopo',
+}
+
 const SAMPLE_M = 15
 const OVERLAP_M = 12   // wie bei der Markierung: Achse ↔ Streifen
 // Ab diesem Anteil der Länge gilt eine Seite als «Radstreifen erkannt». 30 % statt der 50 % der

@@ -14,9 +14,16 @@
 # Erzeugt VeloroutenCheckWeb/public/luftbild_<stadt>.json =
 #   { "quelle": "...", "flugjahre": [..], "linien": [[lon1, lat1, lon2, lat2], ...] }
 #
+# Bern seit 27.10.2026 aus zwei Flügen: SWISSIMAGE 2024 (Ordner luftbild_erkennung) und dem Orthofoto der Stadt vom
+# 19.03.2026 (erkennen.py --quelle bern2026, Ordner bern2026; die Funde tragen «quelle»: «bern2026»). Mehrere Ordner werden
+# zusammengelegt. Grund: im Märzflug liegen mehr Streifen im Schatten. Probe 27.10.2026 an den Velostreifen des Berner
+# Markierungsplans (velostreifen_bern.json, Punkte alle 5 m mit Fund in 3 m): 2024 allein 82 %, 2026 allein 78 %, beide 88 %;
+# der Anteil Funde ohne Velostreifen daneben bleibt gleich (rund 51 %, darin Umweltspuren und rote Flächen).
+#
 # Braucht GDAL (osgeo). Aufruf:
-#   python3 tools/luftbild_stadt.py <stadt> <ordner mit funde_*.jsonl>
+#   python3 tools/luftbild_stadt.py <stadt> <ordner mit funde_*.jsonl> [weitere Ordner …]
 #   z. B. python3 tools/luftbild_stadt.py zurich _lokal/luftbild_erkennung/zuerich
+#         python3 tools/luftbild_stadt.py bern _lokal/luftbild_erkennung _lokal/luftbild_erkennung/bern2026
 # ─────────────────────────────────────────────────────────────────────────────
 import json, math, os, sys
 from osgeo import osr
@@ -35,15 +42,15 @@ def mittellinie(p):
 
 
 def main():
-    if len(sys.argv) != 3:
-        sys.exit("Aufruf: python3 tools/luftbild_stadt.py <stadt> <ordner mit funde_*.jsonl>")
-    stadt, ordner = sys.argv[1], sys.argv[2]
+    if len(sys.argv) < 3:
+        sys.exit("Aufruf: python3 tools/luftbild_stadt.py <stadt> <ordner mit funde_*.jsonl> [weitere Ordner …]")
+    stadt, ordnerliste = sys.argv[1], sys.argv[2:]
     lv95 = osr.SpatialReference(); lv95.ImportFromEPSG(2056)
     wgs = osr.SpatialReference(); wgs.ImportFromEPSG(4326)
     wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)   # lon, lat
     tr = osr.CoordinateTransformation(lv95, wgs)
-    linien, jahre = [], set()
-    for m in MODELLE:
+    linien, jahre, bilder = [], set(), set()
+    for ordner, m in ((o, m) for o in ordnerliste for m in MODELLE):
         pfad = os.path.join(ordner, f"funde_{m}.jsonl")
         if not os.path.exists(pfad):
             sys.exit(f"{pfad} fehlt")
@@ -56,8 +63,12 @@ def main():
             linien.append([round(lon1, 6), round(lat1, 6), round(lon2, 6), round(lat2, 6)])
             if f.get("jahr"):
                 jahre.add(int(f["jahr"]))
+            bilder.add(f.get("quelle", "swissimage"))
+    namen = {"swissimage": "Luftbild SWISSIMAGE 10 cm © swisstopo",
+             "bern2026": "Orthofoto Stadt Bern 19.03.2026, 10 cm © Geodaten Stadt Bern"}
+    bild = " und ".join(namen[b] for b in ("swissimage", "bern2026") if b in bilder)
     out = {
-        "quelle": "Luftbild SWISSIMAGE 10 cm © swisstopo; Erkennung: Modell remote_velo, ETH Zürich "
+        "quelle": f"{bild}; Erkennung: Modell remote_velo, ETH Zürich "
                   "(MIT-Lizenz), eigener Lauf mit den Modellen curriculum und paper",
         "flugjahre": sorted(jahre),
         "linien": linien,

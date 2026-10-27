@@ -19,6 +19,10 @@
 //      Achse) mitten auf dem Schaft: Reicht in einem Profil ein solcher Fleck auf BEIDEN Seiten mindestens PFEIL_RAND_M über
 //      den Kandidaten hinaus, ist es ein Pfeil (Probe Kirchenfeldstrasse: zwei Pfeile hintereinander bei 1,21 m). Ein helles
 //      Autodach neben einer Linie berührt sie nur auf einer Seite (Probe Bernastrasse: Linie des Parkstreifens).
+// Luftbild (seit 27.10.2026): in Bern zuerst das Orthofoto der Stadt vom 19.03.2026 (WMS map.bern.ch, 10 cm), passend zum
+// Kartenhintergrund «Bern 2026». Es deckt nur das Gemeindegebiet ab (ausserhalb weiss); ist ein Ausschnitt zu mehr als
+// AUSSERHALB weiss oder nicht ladbar, gilt SWISSIMAGE. Damit beide dasselbe Pixelraster haben, holt der WMS genau den
+// Ausschnitt der Kacheln von Stufe 20 in EPSG:3857 (ein Bild statt Kacheln).
 // Das Ergebnis ist ein Vorschlag: die Lage jeder Linie quer zur Achse (Meter ab dem Mittelpunkt der Querlinie, wie in
 // querschnittAufnahme.ts), ihre Breite und wie durchgehend sie ist.
 
@@ -38,10 +42,16 @@ function mercPx(lat: number, lon: number): [number, number] {
   return [(lon + 180) / 360 * n, (1 - Math.log(Math.tan(phi) + 1 / Math.cos(phi)) / Math.PI) / 2 * n]
 }
 
-export interface Bild { hell: (px: number, py: number) => number }
+export type LuftbildQuelle = 'swissimage' | 'bern2026'
+export const LUFTBILD_NAME: Record<LuftbildQuelle | 'beide', string> = {
+  swissimage: 'SWISSIMAGE (swisstopo)', bern2026: 'Orthofoto Stadt Bern 2026', beide: 'Orthofoto Stadt Bern 2026 und SWISSIMAGE' }
+const BERN26_WMS = 'https://map.bern.ch/arcgis/services/Geoportal/Orthofoto_2026_1/MapServer/WMSServer'
+const WMS_MAX_PX = 4096, AUSSERHALB = 0.1
+export interface Bild { hell: (px: number, py: number) => number; quelle: LuftbildQuelle }
 
-// Kacheln für alle Punkte laden (LV95) und eine Helligkeitsfunktion (global in Pixeln, bilinear) liefern
-export async function luftbildLaden(punkte: P[]): Promise<Bild> {
+// Kacheln für alle Punkte laden (LV95) und eine Helligkeitsfunktion (global in Pixeln, bilinear) liefern. quelle 'bern2026':
+// zuerst das Berner Orthofoto, sonst (ausserhalb, nicht erreichbar) SWISSIMAGE.
+export async function luftbildLaden(punkte: P[], quelle: LuftbildQuelle = 'swissimage'): Promise<Bild> {
   const pxs = punkte.map(p => { const w = zuWgs(p[0], p[1]); return mercPx(w.lat, w.lon) })
   const x0 = Math.floor(Math.min(...pxs.map(p => p[0])) / KACHEL), x1 = Math.floor(Math.max(...pxs.map(p => p[0])) / KACHEL)
   const y0 = Math.floor(Math.min(...pxs.map(p => p[1])) / KACHEL), y1 = Math.floor(Math.max(...pxs.map(p => p[1])) / KACHEL)
@@ -55,16 +65,38 @@ export async function luftbildLaden(punkte: P[]): Promise<Bild> {
     img.onerror = () => fehler(new Error('Luftbild-Kachel nicht geladen'))
     img.src = KACHEL_URL(x, y)
   })
-  const jobs: Promise<void>[] = []
-  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push(lade(x, y))
-  await Promise.all(jobs)
-  const d = ctx.getImageData(0, 0, w, h).data
+  let d: Uint8ClampedArray | null = null, genutzt: LuftbildQuelle = 'swissimage'
+  if (quelle === 'bern2026' && w <= WMS_MAX_PX && h <= WMS_MAX_PX) {
+    try {
+      // Ausschnitt der Kacheln in EPSG:3857 (Meter je Pixel auf Stufe Z)
+      const R = 6378137, m = 2 * Math.PI * R / (2 ** Z * KACHEL), X = (gx: number) => gx * m - Math.PI * R, Y = (gy: number) => Math.PI * R - gy * m
+      const bbox = [X(x0 * KACHEL), Y((y1 + 1) * KACHEL), X((x1 + 1) * KACHEL), Y(y0 * KACHEL)].map(v => v.toFixed(2)).join(',')
+      await new Promise<void>((ok, fehler) => {
+        const img = new Image(); img.crossOrigin = 'anonymous'
+        img.onload = () => { ctx.drawImage(img, 0, 0); ok() }
+        img.onerror = () => fehler(new Error('Orthofoto Bern nicht geladen'))
+        img.src = `${BERN26_WMS}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=0&STYLES=&CRS=EPSG:3857&BBOX=${bbox}&WIDTH=${w}&HEIGHT=${h}&FORMAT=image/jpeg`
+      })
+      const b = ctx.getImageData(0, 0, w, h).data
+      let weiss = 0
+      for (let k = 0; k < b.length; k += 4) if (b[k] >= 252 && b[k + 1] >= 252 && b[k + 2] >= 252) weiss++
+      if (weiss / (w * h) <= AUSSERHALB) { d = b; genutzt = 'bern2026' }
+    } catch { /* SWISSIMAGE */ }
+  }
+  if (!d) {
+    const jobs: Promise<void>[] = []
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push(lade(x, y))
+    await Promise.all(jobs)
+    d = ctx.getImageData(0, 0, w, h).data
+  }
+  const daten = d
   const lum = (ix: number, iy: number) => {
     if (ix < 0 || iy < 0 || ix >= w || iy >= h) return NaN
     const k = (iy * w + ix) * 4
-    return 0.299 * d[k] + 0.587 * d[k + 1] + 0.114 * d[k + 2]
+    return 0.299 * daten[k] + 0.587 * daten[k + 1] + 0.114 * daten[k + 2]
   }
   return {
+    quelle: genutzt,
     hell: (gx: number, gy: number) => {
       const px = gx - x0 * KACHEL - 0.5, py = gy - y0 * KACHEL - 0.5
       const ix = Math.floor(px), iy = Math.floor(py), fx = px - ix, fy = py - iy
@@ -157,7 +189,16 @@ import { grenzenAufLinie, querLinie } from './querschnittAufnahme'
 import type { AvFlaeche } from './av'
 const POSITIONEN = [0.25, 0.5, 0.75]
 const BORD_FREI_M = 0.3   // am Bord: Rinne und Randstein sind hell
-export async function markierungenAbschnitt(achsen: P[][], flaechen: AvFlaeche[]): Promise<{ breiten: number[]; querschnitte: number; stuecke: number[]; alle: number[][] } | null> {
+// Linien näher am Bord sind die Kante der Rinne, keine Spurgrenze: kein Element ist so schmal (Velostreifen ab 1,0 m).
+// Probe 27.10.2026 Bernastrasse: an vielen Querschnitten ein «Stück» von 0,32 bis 0,43 m am Bord, im Berner Orthofoto
+// 2026 häufiger als in SWISSIMAGE.
+export const BORD_LINIE_MIN_M = 0.6
+export const ohneRinne = (mk: Markierung[], von: number, bis: number): Markierung[] =>
+  mk.filter(m => m.t - von >= BORD_LINIE_MIN_M - 1e-9 && bis - m.t >= BORD_LINIE_MIN_M - 1e-9)
+// In Bern liest die Erkennung beide Luftbilder (seit 27.10.2026): Probe Kirchenfeldstrasse 44425592 — im Märzflug 2026 liegt
+// der Radstreifen A an allen drei Stellen im Schatten, in SWISSIMAGE 2024 an einer nicht. Alle Querschnitte beider Bilder
+// gehen in die Auswahl (markierungPasst nimmt die mit der erwarteten Zahl Stücke).
+export async function markierungenAbschnitt(achsen: P[][], flaechen: AvFlaeche[], quelle: LuftbildQuelle = 'swissimage'): Promise<{ breiten: number[]; querschnitte: number; stuecke: number[]; alle: number[][]; luftbild: LuftbildQuelle | 'beide' } | null> {
   const linie = achsen.flat()
   const st = [0]
   for (let i = 1; i < linie.length; i++) st.push(st[i - 1] + Math.hypot(linie[i][0] - linie[i - 1][0], linie[i][1] - linie[i - 1][1]))
@@ -168,6 +209,8 @@ export async function markierungenAbschnitt(achsen: P[][], flaechen: AvFlaeche[]
     return [linie[i - 1][0] + f * (linie[i][0] - linie[i - 1][0]), linie[i - 1][1] + f * (linie[i][1] - linie[i - 1][1])]
   }
   const ergebnisse: number[][] = []
+  const gelesen = new Set<LuftbildQuelle>()
+  const quellen: LuftbildQuelle[] = quelle === 'bern2026' ? ['bern2026', 'swissimage'] : ['swissimage']
   for (const pos of POSITIONEN) {
     const ql = querLinie(achsen, punktBei(pos * L))
     if (!ql) continue
@@ -177,10 +220,14 @@ export async function markierungenAbschnitt(achsen: P[][], flaechen: AvFlaeche[]
     if (!Number.isFinite(von) || bis - von < 3) continue
     const u: P = [-ql.r[1], ql.r[0]], h = LAENGS_M / 2 + 1
     const ecken: P[] = [[-h, von - 1], [-h, bis + 1], [h, von - 1], [h, bis + 1]].map(([sl, t]) => [ql.c[0] + u[0] * sl + ql.r[0] * t, ql.c[1] + u[1] * sl + ql.r[1] * t])
-    const bild = await luftbildLaden(ecken)
-    const mk = markierungenFinden(profilLesen(bild, ql.c, ql.r, von + BORD_FREI_M, bis - BORD_FREI_M))
-    const ts = [von, ...mk.map(m => m.t), bis]
-    ergebnisse.push(ts.slice(1).map((t, i) => Math.round((t - ts[i]) * 100) / 100))
+    for (const q of quellen) {
+      const bild = await luftbildLaden(ecken, q)
+      if (bild.quelle !== q) continue                     // ausserhalb von Bern: SWISSIMAGE kommt ohnehin
+      gelesen.add(q)
+      const mk = ohneRinne(markierungenFinden(profilLesen(bild, ql.c, ql.r, von + BORD_FREI_M, bis - BORD_FREI_M)), von, bis)
+      const ts = [von, ...mk.map(m => m.t), bis]
+      ergebnisse.push(ts.slice(1).map((t, i) => Math.round((t - ts[i]) * 100) / 100))
+    }
   }
   if (!ergebnisse.length) return null
   const zahl = new Map<number, number>()
@@ -189,5 +236,6 @@ export async function markierungenAbschnitt(achsen: P[][], flaechen: AvFlaeche[]
   const gleich = ergebnisse.filter(e => e.length === n)
   const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
   return { breiten: Array.from({ length: n }, (_, k) => Math.round(median(gleich.map(e => e[k])) * 100) / 100), querschnitte: gleich.length,
-    stuecke: ergebnisse.map(e => e.length), alle: ergebnisse }
+    stuecke: ergebnisse.map(e => e.length), alle: ergebnisse,
+    luftbild: gelesen.size > 1 ? 'beide' : gelesen.has('bern2026') ? 'bern2026' : 'swissimage' }
 }

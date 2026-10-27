@@ -173,6 +173,13 @@ describe('Mittelinsel in Ausgangslage und Vorschlag', () => {
     expect(a.fahrbahn).toBe(12)
     expect(a.teile).toEqual([{ art: 'Fahrspur', breite: 5 }, { art: 'Mittelinsel', breite: 2 }, { art: 'Fahrspur', breite: 5 }])
   })
+  it('Insel an einer Verzweigung (Aargauerstalden): Fahrbahn an der Insel viel breiter als im Abschnitt → nicht in der Ausgangslage', () => {
+    const v = abschnitt({ dtv: 6000, speed: 50, ist: 'Mischverkehr', fahrbahnbreite: 10, routentyp: 'Velohauptroute',
+      mittelinsel: { breite: 1.25, laenge: 12, fahrbahn: 23.2, anzahl: 1 } })
+    const a = startAufteilung(v)
+    expect(a.fahrbahn).toBe(10)
+    expect(a.teile.some(t => t.art === 'Mittelinsel')).toBe(false)
+  })
   it('Vorschlag: keine Kernfahrbahn, die Insel bleibt in der Planung', () => {
     const v = vorschlag45(s, 12)
     expect(v.text).not.toMatch(/Kernfahrbahn/)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { markierungenFinden, type Profil } from './markierungen'
+import { markierungenFinden, ohneRinne, type Profil } from './markierungen'
 
 // Markierungen aus dem Profil (Probe 25.10.2026): Lage, Breite, durchgehend oder mehrere Striche, Pfeile verworfen
 const profil = (felder: { von: number; bis: number; anteil: number; laeufe: number }[], pfeil: [number, number][] = []): Profil => {
@@ -39,10 +39,10 @@ describe('Breiten aus den Markierungen in der Ausgangslage (Kirchenfeldstrasse 4
   const fb = (s: Section) => startAufteilung(s).teile.filter(t => t.art !== 'Trottoir').map(t => `${t.art} ${t.breite}`)
   it('ohne Markierung: gleichmässig verteilt', () =>
     expect(fb(basis())).toEqual(['Velostreifen 1.8', 'Fahrspur 3.65', 'Fahrspur 3.6', 'Fahrspur 3.6', 'Velostreifen 1.37']))
-  it('passende Zahl Stücke: Spuren aus dem Luftbild; gemessene Velostreifen bleiben, der Unterschied geht an die Spur daneben', () => {
+  it('passende Zahl Stücke: Spuren aus dem Luftbild auf 5 cm; gemessene Velostreifen bleiben, der Rest bis 14,00 m geht an die breiteste Spur', () => {
     const s = { ...basis(), markierung: { breiten: [1.87, 4.52, 2.96, 3.28, 1.37], querschnitte: 2, stuecke: [5, 5, 4] } }
     expect(markierungPasst(s, startAufteilung(basis()))).toEqual({ passt: true, erkannt: 5, erwartet: 5, querschnitte: 1 })
-    expect(fb(s)).toEqual(['Velostreifen 1.8', 'Fahrspur 4.59', 'Fahrspur 2.96', 'Fahrspur 3.28', 'Velostreifen 1.37'])
+    expect(fb(s)).toEqual(['Velostreifen 1.8', 'Fahrspur 4.58', 'Fahrspur 2.95', 'Fahrspur 3.3', 'Velostreifen 1.37'])
     expect(startAufteilung(s).teile.find(t => t.art === 'Fahrspur')?.ausLuftbild).toBe(true)
   })
   it('falsche Zahl Stücke (Linie im Schatten): bleibt gleichmässig, markierungPasst nennt erkannt und erwartet', () => {
@@ -54,11 +54,51 @@ describe('Breiten aus den Markierungen in der Ausgangslage (Kirchenfeldstrasse 4
     const s = { ...basis(), markierung: { breiten: [1.87, 4.52, 2.96, 4.65], querschnitte: 2, stuecke: [5, 4, 4],
       alle: [[1.87, 4.55, 2.93, 3.3, 1.35], [1.83, 4.59, 2.95, 4.63], [1.85, 4.52, 2.96, 4.67]] } }
     expect(markierungPasst(s, startAufteilung(basis()))).toMatchObject({ passt: true, querschnitte: 1 })
-    expect(fb(s)).toEqual(['Velostreifen 1.8', 'Fahrspur 4.62', 'Fahrspur 2.93', 'Fahrspur 3.28', 'Velostreifen 1.37'])
+    expect(fb(s)).toEqual(['Velostreifen 1.8', 'Fahrspur 4.58', 'Fahrspur 2.95', 'Fahrspur 3.3', 'Velostreifen 1.37'])
+  })
+  it('Velostreifen aus dem Luftbild (nicht gemessen): das nächste übliche Mass (1,50 · 1,80 · 2,00 · 2,20 · 2,50 m)', () => {
+    const ohneMessung = (): Section => { const b = basis(); return { ...b, quelle: {}, gegen: { ...b.gegen!, quelle: {} } } }
+    const s = { ...ohneMessung(), markierung: { breiten: [1.87, 4.55, 2.93, 3.3, 1.35], querschnitte: 1, stuecke: [5] } }
+    // 1,87 → 1,80 und 1,35 → 1,50; Spuren auf 5 cm; Rest −0,10 m an die breiteste Spur
+    expect(fb(s)).toEqual(['Velostreifen 1.8', 'Fahrspur 4.45', 'Fahrspur 2.95', 'Fahrspur 3.3', 'Velostreifen 1.5'])
   })
   it('unplausibel (Velostreifen 3,26 m): bleibt gleichmässig, mit Grund', () => {
     const s = { ...basis(), markierung: { breiten: [3.26, 4, 3, 2, 1.4], querschnitte: 2, stuecke: [5, 5, 5] } }
     expect(fb(s)).toEqual(fb(basis()))
     expect(markierungPasst(s, startAufteilung(basis()))?.unplausibel).toBe('Velostreifen 3,26 m')
+  })
+})
+
+describe('Parkierung am Rand ohne Randlinie (Aargauerstalden 585349949)', () => {
+  // Mischverkehr beidseitig, Längsparkierung Seite A 1,90 m, Fahrbahn 10,00 m; erkannt nur die Mittellinie
+  const basis = (): Section => {
+    const a = { ...defaultSection(), ist: 'Mischverkehr' as const, parkenRechts: 'ja' as const, fahrbahnbreite: 10,
+      spuren: { a: ['keine'] as never, b: ['keine'] as never } }
+    return { ...a, gegen: { ...gegenVon(a), parkenRechts: 'nein' } }
+  }
+  const fb = (s: Section) => startAufteilung(s).teile.filter(t => t.art !== 'Trottoir').map(t => `${t.art} ${t.breite}`)
+  it('ein Stück weniger: die Parkierung wird mit ihrer Breite vom Randstück abgezogen, unglaubhafte Querschnitte fallen weg', () => {
+    expect(fb(basis())).toEqual(['Fahrspur 4.05', 'Fahrspur 4.05', 'Parkierung 1.9'])
+    const s = { ...basis(), markierung: { breiten: [7.51, 5.61], querschnitte: 3, stuecke: [2, 2, 1, 2, 1, 1],
+      alle: [[7.51, 2.38], [3.15, 6.74], [17.86], [12.25, 5.61], [10.06], [10.06]] } }
+    expect(markierungPasst(s, startAufteilung(basis()))).toMatchObject({ passt: true, querschnitte: 1, parkOhneLinie: 'a' })
+    expect(fb(s)).toEqual(['Fahrspur 3.15', 'Fahrspur 4.95', 'Parkierung 1.9'])   // Rest an die Spur neben der Parkierung
+    // im Abschnitt des Nutzers 3,18: auf 5 cm 3,20, daneben 10,00 − 1,90 − 3,20 = 4,90 (von Hand gemessen 3,20 und 4,90)
+    const s2 = { ...basis(), markierung: { breiten: [3.18, 6.72], querschnitte: 1, stuecke: [2], alle: [[3.18, 6.72]] } }
+    expect(fb(s2)).toEqual(['Fahrspur 3.2', 'Fahrspur 4.9', 'Parkierung 1.9'])
+  })
+  it('mit Randlinie (gleich viele Stücke) bleibt es beim bisherigen Weg', () => {
+    const s = { ...basis(), markierung: { breiten: [3.3, 4.7, 2.0], querschnitte: 1, stuecke: [3, 2], alle: [[3.3, 4.7, 2.0], [3.15, 6.74]] } }
+    expect(markierungPasst(s, startAufteilung(basis()))?.parkOhneLinie).toBeUndefined()
+    expect(fb(s)).toEqual(['Fahrspur 3.3', 'Fahrspur 4.7', 'Parkierung 2'])
+  })
+})
+
+// Kante der Rinne am Bord ist keine Spurgrenze (Probe 27.10.2026 Bernastrasse, Stücke von 0,32 bis 0,43 m)
+describe('ohneRinne', () => {
+  const m = (t: number) => ({ t, breite: 0.15, anteil: 0.9, laeufe: 1 })
+  it('verwirft Linien näher als 0,6 m am Bord, behält die übrigen', () => {
+    expect(ohneRinne([m(-4.6), m(-3.2), m(0), m(4.45)], -5, 5).map(x => x.t)).toEqual([-3.2, 0])
+    expect(ohneRinne([m(-4.4), m(4.4)], -5, 5).map(x => x.t)).toEqual([-4.4, 4.4])
   })
 })
