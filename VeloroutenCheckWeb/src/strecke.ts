@@ -113,6 +113,13 @@ export interface Section extends Seite {
   oevGegen?: boolean      // Einbahn, Bus bzw. Tram auch in der Gegenrichtung (OSM oneway:bus/psv/tram=no; seit 21.10.2026)
   parkVersetzt?: 'a' | 'b'   // Parkierung abwechselnd A und B: diese Seite zählt im Querschnitt nicht (parkierungVersetzt)
   zweirad?: { a?: Zweiradfeld; b?: Zweiradfeld }   // Velo-/Motorradfelder je Seite (Bern, zweiradJeSeite): Platzbedarf in der Planung
+  // Markierungen im Luftbild (seit 25.10.2026, markierungenAbschnitt): Breiten der Stücke zwischen den Bordkanten von links (Rand B)
+  // nach rechts (Rand A), Median über die Querschnitte mit der häufigsten Zahl Stücke; die Ausgangslage setzt sie ein, wenn die
+  // Zahl zu ihren Fahrbahnelementen passt (mitMarkierung). stuecke: Zahl der Stücke je Querschnitt (Hinweis bei Abweichung)
+  // alle: Stücke je Querschnitt; die Ausgangslage nimmt die Querschnitte, deren Zahl zu ihren Elementen passt (Kirchenfeldstrasse:
+  // einer mit fünf Stücken, zwei mit vier, weil eine Linie im Schatten liegt)
+  markierung?: { breiten: number[]; querschnitte: number; stuecke: number[]; alle?: number[][] }
+  heuteBestaetigt?: boolean   // Schritt 1 der Planung erledigt: der Querschnitt von heute ist geprüft (seit 25.10.2026)
   // Fahrspuren je Seite aus OSM (lanes, turn:lanes; seit 20.10.2026): je Spur der Pfeil, von links nach rechts in
   // Fahrtrichtung der Seite; auf der Einbahn nur a
   spuren?: { a: Markierung[]; b: Markierung[]; busA?: number; busB?: number }   // busA/B: Busspuren der Seite (OSM lanes:bus)
@@ -204,6 +211,7 @@ export function tauscheSeiten(s: Section): Section {
   if (s.haltestelleninsel) neu.haltestelleninsel = { ...s.haltestelleninsel, seite: s.haltestelleninsel.seite === 'a' ? 'b' : 'a' }
   if (s.hsTypAngenommen) neu.hsTypAngenommen = { a: s.hsTypAngenommen.b, b: s.hsTypAngenommen.a }
   if (s.querschnittHeute) neu.querschnittHeute = { ...s.querschnittHeute, teile: [...s.querschnittHeute.teile].reverse() }
+  if (s.markierung) neu.markierung = { ...s.markierung, breiten: [...s.markierung.breiten].reverse(), ...(s.markierung.alle ? { alle: s.markierung.alle.map(e => [...e].reverse()) } : {}) }
   if (s.candIds) {
     const gegen = new Set(s.candsGegenA ?? [])
     neu.candsGegenA = s.candIds.filter(id => !gegen.has(id))

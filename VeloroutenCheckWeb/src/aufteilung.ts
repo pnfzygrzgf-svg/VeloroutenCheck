@@ -34,7 +34,7 @@ import {
   type Stadt,
 } from './fuehrungsform'
 import { bewerteAbschnitt, type AbschnittErgebnis } from './bewertung'
-import { gegenVon, seiteA, seiteB, seitenGleich, type Section, type Seite } from './strecke'
+import { gegenVon, seiteA, seiteB, seitenGleich, type Quelle, type Section, type Seite } from './strecke'
 import { numDE } from './csv'
 import { PARK_SCHWELLE } from './parkierung'
 import { HS_UMFAHRUNG_MAX_M, PARK_TIEFE_ANNAHME, PARK_WINKEL_TIEFE, type ParkWinkel } from './breitenmessung'
@@ -99,7 +99,8 @@ export const fussnetzOptionen = (stadt: Stadt): FussNetz[] => (Object.keys(FUSSN
 // winkel: Schrägparkierung 45° oder 60°, fehlt = Winkel offen; versetzt: Parkierung an anderer Stelle als die
 // gegenüber (abwechselnd Seite A und B): zählt für die Bewertung, aber nicht in Bilanz und Skizze des Querschnitts
 export interface Teil { art: TeilArt; breite: number; bild?: Bild; markierung?: Markierung; richtung?: Richtung; angenommen?: boolean; trottoirniveau?: boolean
-  parkart?: 'schraeg' | 'quer' | 'tief'; winkel?: ParkWinkel; tiefeGemessen?: boolean; versetzt?: boolean }   // tiefeGemessen: Tiefe aus den Parkfeldern (bleibt beim Umstellen)
+  parkart?: 'schraeg' | 'quer' | 'tief'; winkel?: ParkWinkel; tiefeGemessen?: boolean; versetzt?: boolean   // tiefeGemessen: Tiefe aus den Parkfeldern (bleibt beim Umstellen)
+  ausLuftbild?: boolean }   // Breite aus den Markierungen im Luftbild (mitMarkierung, seit 25.10.2026)
 // fahrbahn: verfügbares Mass Bordstein–Bordstein [m], NaN = leer; fussnetz: Netz für die Trottoir-Vorgabe
 // fussnetzQuelle 'geoportal': aus dem Richtplan Fussverkehr vorbelegt (fussnetz.ts), sonst von Hand
 // seitenraum: Breite ausserhalb der Fahrbahn heute, beide Seiten zusammen [m] (Trottoirs aus der AV),
@@ -662,13 +663,61 @@ export const einbahnParkLinks = (s: Section): boolean => s.richtung === 'eine' &
 // Ganzer Querschnitt am Luftbild gemessen (Section.gesamtbreite, seit 21.10.2026): die Breite ausserhalb der Fahrbahn ist
 // der Rest bis zur Gesamtbreite (statt der gemessenen Trottoirs)
 export function startAufteilung(s: Section, stadt: Stadt = 'bern', breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>): Aufteilung {
-  let a = startAufteilungRoh(s, stadt, breiten)
+  let a = mitMarkierung(startAufteilungRoh(s, stadt, breiten), s)
   // Haltestelleninsel: die Insel liegt ausserhalb der Fahrbahn (bis zur Insel); ein Fahrstreifen dahinter (HS 5) zählt zur Fahrbahn;
   // hinter einem Perron (Helvetiaplatz) liegt eine zweite Strasse, die nicht zum Abschnitt gehört. Auch auf der Einbahn (seit 23.10.2026).
   const hsi = !s.querschnittHeute ? s.haltestelleninsel : undefined
   if (hsi) a = { ...a, seitenraum: Number.isFinite(a.seitenraum ?? NaN) ? Math.round((a.seitenraum! + auf5cm(hsi.insel)) * 100) / 100 : a.seitenraum,
     fahrbahn: hsi.aussen < HS_UMFAHRUNG_MAX_M || hsi.perron ? a.fahrbahn : Math.round((a.fahrbahn + auf5cm(hsi.aussen)) * 100) / 100 }
   return s.gesamtbreite != null && Number.isFinite(a.fahrbahn) ? { ...a, seitenraum: Math.max(0, Math.round((s.gesamtbreite - a.fahrbahn) * 100) / 100) } : a
+}
+// Breiten aus den Markierungen im Luftbild (s.markierung, seit 25.10.2026, Nutzerwunsch Kirchenfeldstrasse: die Spuren waren gleich
+// verteilt, obwohl die eine Spur Richtung B breiter ist): Passt die Zahl der erkannten Stücke zu den Fahrbahnelementen der
+// Ausgangslage (ohne versetzte, ohne Parkierung auf Trottoirniveau, ohne Mittelinsel), bekommen sie die Breiten der Stücke in der
+// Reihenfolge von links nach rechts. Ein von Hand eingetragener oder gemessener Velostreifen am Rand behält seine Breite; der
+// Unterschied geht an das Element daneben. Nicht bei einem von Hand aufgenommenen Querschnitt (querschnittHeute).
+// Plausible Breite je Element (sonst ist eher eine Linie falsch erkannt oder verpasst; Kirchenfeldstrasse 307351482: «Radstreifen» 3,26 m)
+const MK_PLAUSIBEL: Partial<Record<TeilArt, [number, number]>> = {
+  Velostreifen: [1.0, 2.6], Fahrspur: [2.5, 5.5], Tram: [2.8, 5.5], Gemeinsam: [3.0, 7.5], Parkierung: [1.5, 2.6], Umweltspur: [3.0, 5.5],
+  Sicherheitsstreifen: [0.3, 1.2], Kernfahrbahn: [3.0, 6.0],
+}
+// Breiten je Element aus den Querschnitten, deren Zahl Stücke zu den Elementen passt (Median), wenn alle plausibel sind
+function markierungBreiten(s: Section, fb: Teil[]): { breiten: number[] | null; erkannt: number; querschnitte: number; unplausibel?: string } {
+  const m = s.markierung!
+  const alle = m.alle?.length ? m.alle : m.breiten.length ? [m.breiten] : []
+  const passend = alle.filter(e => e.length === fb.length)
+  if (!passend.length || fb.some(t => t.art === 'Mittelinsel'))
+    return { breiten: null, erkannt: m.breiten.length, querschnitte: 0 }
+  const median = (xs: number[]) => { const q = [...xs].sort((x, y) => x - y), k = Math.floor(q.length / 2); return q.length % 2 ? q[k] : (q[k - 1] + q[k]) / 2 }
+  const br = fb.map((_, k) => Math.round(median(passend.map(e => e[k])) * 100) / 100)
+  const falsch = fb.findIndex((t, k) => { const g = MK_PLAUSIBEL[t.art]; return !!g && (br[k] < g[0] || br[k] > g[1]) })
+  if (falsch >= 0) return { breiten: null, erkannt: fb.length, querschnitte: passend.length,
+    unplausibel: `${TEIL_LABEL[fb[falsch].art]} ${String(br[falsch]).replace('.', ',')} m` }
+  return { breiten: br, erkannt: fb.length, querschnitte: passend.length }
+}
+export function markierungPasst(s: Section, a: Aufteilung): { passt: boolean; erkannt: number; erwartet: number; querschnitte: number; unplausibel?: string } | null {
+  if (!s.markierung || s.querschnittHeute) return null
+  const fb = a.teile.filter(t => istFahrbahnTeil(t) && !t.versetzt)
+  const r = markierungBreiten(s, fb)
+  return { passt: !!r.breiten, erkannt: r.erkannt, erwartet: fb.length, querschnitte: r.querschnitte, ...(r.unplausibel ? { unplausibel: r.unplausibel } : {}) }
+}
+function mitMarkierung(a: Aufteilung, s: Section): Aufteilung {
+  if (!s.markierung || s.querschnittHeute) return a
+  const r = markierungBreiten(s, a.teile.filter(t => istFahrbahnTeil(t) && !t.versetzt))
+  if (!r.breiten) return a
+  const br = [...r.breiten]
+  const idx = a.teile.map((t, i) => (istFahrbahnTeil(t) && !t.versetzt ? i : -1)).filter(i => i >= 0)
+  // gemessener bzw. von Hand eingetragener Velostreifen am Rand: Breite bleibt, Unterschied ans Element daneben
+  const fest = (q?: Quelle) => q === 'gemessen' || q === 'manuell'
+  const rand: [number, number, Quelle | undefined][] = [[0, 1, s.richtung === 'beide' ? (s.gegen?.quelle.breite ?? s.quelle.breite) : undefined],
+    [idx.length - 1, idx.length - 2, s.quelle.breite]]
+  for (const [k, nb, q] of rand) {
+    const t = a.teile[idx[k]]
+    if (idx.length < 2 || t.art !== 'Velostreifen' || !fest(q) || !Number.isFinite(t.breite)) continue
+    br[nb] = Math.round((br[nb] + br[k] - t.breite) * 100) / 100; br[k] = t.breite
+  }
+  const teile = a.teile.map((t, i) => { const k = idx.indexOf(i); return k < 0 ? t : { ...t, breite: br[k], angenommen: undefined, ausLuftbild: true } })
+  return { ...a, teile }
 }
 function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>): Aufteilung {
   // Von Hand am Luftbild aufgenommen: dieser Querschnitt ist die Ausgangslage
