@@ -969,12 +969,12 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
           <b>{titel}:</b>{' '}
           {v.erreicht === true && v.rang === 0 && <span>Die Note erreicht schon {ZIEL_TEXT} (vollständig erfüllt); keine Massnahme nötig.</span>}
           {v.erreicht === true && v.rang != null && v.rang > 0 && (
-            <span>{v.text} <span style={{ color: 'var(--text-muted-strong)' }}>(Rang {v.rang}, {RANG_TEXT[v.rang]}; Note {
+            <span>{v.text} <span style={{ color: 'var(--text-muted-strong)' }}>(Note {
               v.noteVor != null ? numDE(v.noteVor, 1) : '–'} → {v.noteNach != null ? numDE(v.noteNach, 1) : '–'})</span></span>
           )}
           {/* Ziel nicht erreichbar, aber eine Verbesserung (seit 24.10.2026): die bestmögliche mit dem Erfüllungsgrad, den sie bringt */}
           {v.teilweise && v.rang != null && v.noteNach != null && (<>
-            <span>{v.text} <span style={{ color: 'var(--text-muted-strong)' }}>(Rang {v.rang}, {RANG_TEXT[v.rang]}; Note {
+            <span>{v.text} <span style={{ color: 'var(--text-muted-strong)' }}>(Note {
               v.noteVor != null ? numDE(v.noteVor, 1) : '–'} → {numDE(v.noteNach, 1)})</span></span>
             <div style={{ fontSize: 12, color: '#92400e' }}>
               Bestmögliche Verbesserung: erreicht «{erfuellungsgrad(v.noteNach)}», nicht {ZIEL_TEXT} (vollständig erfüllt); {v.blocker}.
@@ -987,7 +987,7 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
             return (
               <div key={j} style={{ fontSize: 12, color: 'var(--text-muted-strong)', display: 'flex', gap: 8, alignItems: 'center',
                                     flexWrap: 'wrap', marginTop: 3 }}>
-                <span style={{ flex: '1 1 220px' }}>{alt.art === 'guenstiger' ? 'Oder günstiger' : alt.art === 'pilot' ? 'Oder im Pilot'
+                <span style={{ flex: '1 1 220px' }}>{alt.art === 'pilot' ? 'Oder im Pilot'
                   : v.erreicht ? 'Alternative' : 'Nur im Pilot möglich'}: {alt.text} → {numDE(alt.noteNach, 1)}
                   {alt.art && <> («{erfuellungsgrad(alt.noteNach)}»)</>}</span>
                 <button type="button" disabled={!altPlan} onClick={() => altPlan && onChange(altPlan)}
@@ -1001,6 +1001,38 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
             )
           })}
           {v.vermerk && <div style={{ fontSize: 12, color: '#92400e' }}>{v.vermerk}</div>}
+          {/* Alle Varianten (seit 27.10.2026, Nutzerwunsch): je Stufe, Parkierung und Pilot die beste, die den Erfüllungsgrad hebt */}
+          {(v.alle?.length ?? 0) > 1 && (
+            <details style={{ marginTop: 4, fontSize: 12 }}>
+              <summary style={{ cursor: 'pointer', color: 'var(--accent)' }}>Alle Varianten ({v.alle!.length})</summary>
+              <div style={{ color: 'var(--text-muted)', margin: '2px 0 4px' }}>
+                Je Stufe der Rangfolge und je Parkierung (bleibt, eine Seite weg, beide weg) die beste Variante, die den Erfüllungsgrad
+                von heute hebt; nach Note geordnet.
+              </div>
+              {v.alle!.map((x, j) => {
+                const xPlan = aufteilungAusVorschlag(section, a, { ...v, text: x.text, noteNach: x.noteNach, k: x.k, rang: x.rang }, randstein)
+                const istVorschlag = x.text === v.text
+                return (
+                  <div key={j} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '3px 0',
+                                        borderTop: j ? '1px dashed var(--border-subtle)' : undefined, color: 'var(--text-muted-strong)' }}>
+                    <span style={{ flex: '1 1 220px' }}>
+                      {numDE(x.noteNach, 1)} («{erfuellungsgrad(x.noteNach)}») · {RANG_TEXT[x.rang]} · {x.text}{istVorschlag ? ' (= Vorschlag)' : ''}
+                    </span>
+                    {/* der Vorschlag selbst ohne eigenen Knopf: der grosse «Übernehmen» der Zeile tut dasselbe (Nutzerentscheid 27.10.2026) */}
+                    {!istVorschlag && (
+                      <button type="button" disabled={!xPlan} onClick={() => xPlan && onChange(xPlan)}
+                              title={xPlan ? 'Ersetzt die Elemente der Planung durch diese Variante; danach frei änderbar'
+                                : 'Verfügbare Fahrbahnbreite fehlt: zuerst «aus AV ermitteln» oder eintragen'}
+                              style={{ ...kleinKnopfStyle, fontSize: 12, padding: '3px 8px', color: xPlan ? 'var(--accent)' : 'var(--text-faint)',
+                                       borderColor: 'var(--accent)', cursor: xPlan ? 'pointer' : 'default' }}>
+                        Übernehmen
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </details>
+          )}
           {plan && planNote !== v.noteNach && (
             <div style={{ fontSize: 12, color: '#92400e' }}>
               In der Planung ergibt sich Note {planNote != null ? numDE(planNote, 1) : '–'}: Die Einbahn mit Velogegenverkehr
@@ -1030,10 +1062,30 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
           : !a.fussnetz ? 'Fussverkehrsnetz wählen (oben); die Trottoirs kommen dann auf dessen Vorgabe.'
           : 'Trottoirs aus der AV fehlen: zuerst «AV auf der Karte zeigen».')
         : 'Die Trottoirs entsprechen genau der Vorgabe des Fussverkehrsnetzes; wie ohne Randsteinanpassung.', trZeile)}
-      {/* Erklärung als Fussnote (seit 22.10.2026 nach dem Ergebnis, vorher davor) */}
+      {/* Erklärung als Fussnote (seit 22.10.2026 nach dem Ergebnis, vorher davor). Die Rangfolge steht seit 27.10.2026 nur hier, als
+          Liste mit der Stufe der Vorschläge (Nutzerbefund: «Rang 2, Kernfahrbahn» in der Vorschlagszeile verwirrte) */}
       <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>
-        Die erste Massnahme, die die Note auf mindestens {ZIEL_TEXT} bringt (vollständig erfüllt); Rangfolge Markierung, Kernfahrbahn, Parkierung aufheben,
-        Velostrasse, Radweg bauen, Tempo 30. «Übernehmen» setzt sie als Startpunkt, danach ist alles frei änderbar.
+        Vorgeschlagen wird die erste Massnahme in der Rangfolge, die die Note auf mindestens {ZIEL_TEXT} bringt (vollständig erfüllt);
+        reicht keine, die bestmögliche Verbesserung. «Übernehmen» setzt sie als Startpunkt, danach ist alles frei änderbar.
+        <details style={{ marginTop: 4 }}>
+          <summary style={{ cursor: 'pointer' }}>Rangfolge der Massnahmen</summary>
+          <ol style={{ margin: '4px 0 0', paddingLeft: 20 }}>
+            {[1, 2, 3, 4, 5, 6, 7].map(r => {
+              const bei = [ohne?.rang === r && (ohne.erreicht || ohne.teilweise) ? 'ohne' : '', mit?.rang === r && (mit.erreicht || mit.teilweise) ? 'mit' : ''].filter(Boolean)
+              return (
+                <li key={r} style={bei.length ? { fontWeight: 700, color: 'var(--text-strong)' } : undefined}>
+                  {RANG_TEXT[r]}{bei.length ? ` ← Vorschlag ${bei.join(' und ')} Randsteinanpassung` : ''}
+                </li>
+              )
+            })}
+          </ol>
+          <div style={{ marginTop: 2 }}>Unter gleicher Stufe: weniger Parkierung weg, weniger Eingriffe, eine Seite vor beiden, bessere Note.</div>
+          {/* Nutzerfrage 27.10.2026: «in dieser Rangfolge fehlten die Varianten mit Randsteinanpassung, oder?» */}
+          <div style={{ marginTop: 2 }}>
+            Die Randsteinanpassung ist keine Stufe: Beide Zeilen gehen dieselbe Rangfolge durch, «mit Randsteinanpassung» mit den
+            Trottoirs auf der Vorgabe des Fussverkehrsnetzes (ein Umbau), also mit entsprechend breiterer oder schmalerer Fahrbahn.
+          </div>
+        </details>
       </div>
     </details>
   )

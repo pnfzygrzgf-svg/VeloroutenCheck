@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, fahrbahnMitRandstein, vorschlagMitRandstein, ZIEL } from './vorschlag'
 import { bewerteAufteilung, bilanz, istFahrbahnTeil, pruefeTeil, startAufteilung, teilName, type Aufteilung } from './aufteilung'
 import { defaultSection, gegenVon, type Section } from './strecke'
+import { erfuellungsgrad } from './fuehrungsform'
 // Die Tests des Katalogs rechnen mit dem bisherigen Ziel 4,5 (die Logik der Ränge ist unabhängig vom Ziel; seit 24.10.2026 online 5,5)
 const vorschlag45 = (...a: Parameters<typeof vorschlagRechnen>) => vorschlagRechnen(a[0], a[1], a[2], a[3], 4.5)
 
@@ -260,17 +261,42 @@ describe('Ziel 5,5 «vollständig erfüllt» (online seit 24.10.2026)', () => {
     expect(v.blocker).toMatch(/5,5|fehlt|zu schmal|Umweltspur/)
     expect(aufteilungAusVorschlag(s, startAufteilung(s), v, null)).not.toBeNull()
   })
-  it('bestmögliche Verbesserung mit Zusatzzeilen: «günstiger» in der gewohnten Rangfolge, «im Pilot» nur wenn sie mehr bringt', () => {
+  it('bestmögliche Verbesserung mit Zusatzzeilen: «im Pilot» nur wenn sie mehr bringt; alle Varianten heben den Erfüllungsgrad', () => {
     for (const s of [abschnitt({ dtv: 8000, speed: 50, ist: 'Mischverkehr', tram: true, oevAngebot: 'tram', parkenRechts: 'nein', fahrbahnbreite: 9 }),
       abschnitt({ dtv: 6000, speed: 50, ist: 'Mischverkehr', parkenRechts: 'ja', fahrbahnbreite: 9.4, routentyp: 'Velohauptroute' }),
       abschnitt({ dtv: 6000, speed: 50, ist: 'Mischverkehr', parkenRechts: 'ja', fahrbahnbreite: 6.5 })]) {
       const v = vorschlagRechnen(s)
       if (!v.teilweise) continue
-      const g = v.alternativen.find(a => a.art === 'guenstiger'), p = v.alternativen.find(a => a.art === 'pilot')
-      if (g) { expect(g.text).not.toBe(v.text); expect(g.noteNach).toBeLessThanOrEqual(v.noteNach!); expect(g.noteNach).toBeGreaterThan(v.noteVor!) }
+      const p = v.alternativen.find(a => a.art === 'pilot')
+      for (const x of v.alle ?? []) expect(erfuellungsgrad(x.noteNach)).not.toBe(erfuellungsgrad(v.noteVor!))   // nicht 1,0 → 2,0
+      const noten = (v.alle ?? []).map(x => x.noteNach)
+      expect(noten).toEqual([...noten].sort((x, y) => y - x))                                                    // nach Note
+      expect(new Set((v.alle ?? []).map(x => `${x.rang}|${x.weg}|${x.pilot}`)).size).toBe(v.alle?.length ?? 0)  // je Gruppe eine
       if (p) { expect(p.text).toMatch(/\(Pilot\)/); expect(p.noteNach).toBeGreaterThan(v.noteNach!) }
-      expect(v.text).not.toMatch(/\(Pilot\)/)
+      if (/\(Pilot\)/.test(v.text)) { expect(p).toBeUndefined(); expect(v.vermerk).toMatch(/Pilot: schmaler Kern/) }
     }
+  })
+  it('alle Varianten (Aargauerstalden, Fahrbahn 10,0 m): der Vorschlag mit Parkierung und die Variante mit Abbau, je eine je Gruppe', () => {
+    const a = { ...defaultSection(), dtv: 5818, speed: 50, routentyp: 'Veloroute' as const, ist: 'Mischverkehr' as const, parkenRechts: 'ja' as const, fahrbahnbreite: 10 }
+    const s = { ...a, gegen: { ...gegenVon(a), parkenRechts: 'nein' as const } }
+    const v = vorschlagRechnen(s, 10)
+    expect(v.text).toMatch(/^Parkierung Seite A bleibt/)
+    expect(v.alle?.some(x => x.text === v.text)).toBe(true)
+    const pa = v.alle?.find(x => x.weg > 0 && !x.pilot && x.rang === 3)
+    expect(pa?.text).toMatch(/^Parkierung Seite A aufheben \+ Radstreifen markieren beidseitig 1,80 m als Kernfahrbahn/)
+    expect(pa?.noteNach).toBe(v.noteNach)
+    expect(v.alle!.map(x => x.text)).toEqual([v.text, pa!.text])           // statt 32 verbessernder Varianten; ohne Tempo 30 und Pilot mit gleicher Note
+  })
+  it('Pilot als Vorschlag, wenn ohne Pilot nichts den Erfüllungsgrad hebt (Aargauerstalden, Fahrbahn 7,0 m)', () => {
+    const a = { ...defaultSection(), dtv: 5818, speed: 50, routentyp: 'Veloroute' as const, ist: 'Mischverkehr' as const, parkenRechts: 'ja' as const, fahrbahnbreite: 7 }
+    const s = { ...a, gegen: { ...gegenVon(a), parkenRechts: 'nein' as const } }
+    const v = vorschlagRechnen(s, 7)
+    expect(v.text).toMatch(/schmalem Kern .*\(Pilot\)/)
+    expect(v.noteNach).toBe(5)
+    expect(v.teilweise).toBe(true)
+    expect(v.alternativen).toEqual([])
+    expect(v.vermerk).toMatch(/ohne Pilot höchstens Note 2,0 \(«Gar nicht erfüllt», Parkierung Seite A aufheben\)/)
+    expect(aufteilungAusVorschlag(s, startAufteilung(s), v, null)).not.toBeNull()
   })
 })
 

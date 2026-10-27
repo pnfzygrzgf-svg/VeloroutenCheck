@@ -36,7 +36,7 @@
 // (FUSSNETZ, Masterplan Fussverkehr) — schmalere werden auf die Vorgabe verbreitert (zulasten der Fahrbahn),
 // breitere dürfen bis auf die Vorgabe schmaler werden. Ohne gewähltes Netz gibt es diese Variante nicht.
 
-import { brauchtBreite, fuehrungsart, haltestellenFamilie, haltestellenTypen, istRang, sollBreite, type BreitenSoll, type Fuehrungsart,
+import { brauchtBreite, erfuellungsgrad, fuehrungsart, haltestellenFamilie, haltestellenTypen, istRang, sollBreite, type BreitenSoll, type Fuehrungsart,
   type Haltestellentyp, type IstFuehrungsform, type Routentyp, type Stadt, type Strassentyp } from './fuehrungsform'
 import { bewerteAbschnitt } from './bewertung'
 import { dtvEff, gegenVon, seiteA, seiteB, type Section } from './strecke'
@@ -477,9 +477,9 @@ export interface Vorschlag {
   noteVor: number | null
   noteNach?: number
   alternative: string
-  // zum Übernehmen (Nutzerwunsch 20.10.2026); art (seit 24.10.2026, bei der bestmöglichen Verbesserung): «günstiger» = erste
-  // Verbesserung in der gewohnten Rangfolge, «pilot» = beste Verbesserung mit schmalem Kern; ohne art wie bisher
-  alternativen: { text: string; noteNach: number; k: Eingaben; art?: 'guenstiger' | 'pilot' }[]
+  // zum Übernehmen (Nutzerwunsch 20.10.2026); art (seit 24.10.2026, bei der bestmöglichen Verbesserung): «pilot» = beste
+  // Verbesserung mit schmalem Kern; ohne art wie bisher. «Günstiger» und «mit Parkierungsabbau» stehen seit 27.10.2026 in «alle».
+  alternativen: { text: string; noteNach: number; k: Eingaben; art?: 'pilot' }[]
   blocker: string
   vermerk: string
   varianten: number                 // geprüfte Varianten
@@ -487,6 +487,10 @@ export interface Vorschlag {
   // Kein Vorschlag erreicht das Ziel, aber einer verbessert die Note (seit 24.10.2026, Nutzerwunsch): bestmögliche Verbesserung
   // des Katalogs mit rang, text, noteNach und k; erreicht bleibt false, blocker nennt, warum das Ziel nicht erreicht wird
   teilweise?: boolean
+  // Alle Varianten (seit 27.10.2026, Nutzerwunsch «können nicht alle Vorschläge angezeigt werden?»): je Stufe der Rangfolge,
+  // Parkierung (weg 0/1/2) und Pilot ja/nein die beste Variante, nur solche, die den Erfüllungsgrad von heute heben; nach Note,
+  // dann Rangfolge. Ungefiltert wären es am Aargauerstalden 32 je Zeile, meist fast gleich (andere Breite, eine Seite, Tempo 30 davor).
+  alle?: { text: string; noteNach: number; k: Eingaben; rang: number; weg: 0 | 1 | 2; pilot: boolean }[]
 }
 export const RANG_TEXT: Record<number, string> = {
   0: 'keine Massnahme nötig', 1: 'Markierung', 2: 'Kernfahrbahn', 3: 'Parkierung aufheben', 4: 'Velostrasse', 5: 'Haltestelle umbauen',
@@ -664,6 +668,26 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
   const kandHb = kand.filter(hbUnberuehrt)
   res.varianten = kandHb.length
   const benotet = kandHb.map(c => ({ ...c, n: noten(base, c.k).n })).filter((c): c is Kand & { n: number } => c.n != null)
+  // gemeinsame Ordnung unter gleicher Note: Stufe, Parkierung, Eingriffe, eine Seite vor beiden, bessere Note
+  const eingriffe = (c: Kand) => c.text.split(' + ').length
+  const nachRang = (x: Kand & { n: number }, y: Kand & { n: number }) => x.rang - y.rang || x.weg - y.weg || eingriffe(x) - eingriffe(y)
+    || Number(x.text.includes('beidseitig')) - Number(y.text.includes('beidseitig')) || y.n - x.n
+  if (n0 != null) {
+    const gruppen = new Map<string, Kand & { n: number }>()
+    for (const c of benotet.filter(c => c.n > n0 + 1e-9 && erfuellungsgrad(c.n) !== erfuellungsgrad(n0))) {
+      const key = `${c.rang}|${c.weg}|${c.text.includes('(Pilot)')}`, da = gruppen.get(key)
+      if (!da || c.n > da.n + 1e-9 || (Math.abs(c.n - da.n) < 1e-9 && nachRang(c, da) < 0)) gruppen.set(key, c)
+    }
+    // Tempo 30 davor und Pilot nur, wenn sie mehr bringen als dieselbe Parkierung ohne sie (Aargauerstalden: «Tempo 30 + …» und der
+    // schmale Kern mit derselben Note 5,0 wie der Minimalfall waren reines Rauschen)
+    const g = [...gruppen.values()]
+    const pil = (c: Kand) => c.text.includes('(Pilot)')
+    const ohneZusatz = (c: Kand & { n: number }) =>
+      (c.rang === 7 && g.some(y => y.rang !== 7 && y.weg === c.weg && pil(y) === pil(c) && y.n >= c.n - 1e-9))
+      || (pil(c) && g.some(y => !pil(y) && y.weg === c.weg && y.n >= c.n - 1e-9))
+    res.alle = g.filter(c => !ohneZusatz(c)).sort((x, y) => y.n - x.n || nachRang(x, y))
+      .map(c => ({ text: c.text, noteNach: c.n, k: c.k, rang: c.rang, weg: c.weg, pilot: c.text.includes('(Pilot)') }))
+  }
   const treffer = benotet.filter(c => c.n >= ziel)
     .sort((x, y) => x.rang - y.rang || x.weg - y.weg || x.text.split(' + ').length - y.text.split(' + ').length
       || Number(x.text.includes('beidseitig')) - Number(y.text.includes('beidseitig')) || y.n - x.n)
@@ -693,19 +717,30 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
     // höchsten Note über der von heute, ohne Pilot; bei gleicher Note wie sonst nach Rang, Parkierung, Eingriffen, eine Seite vor beiden.
     // Dazu als Zusatzzeilen (Nutzerwunsch 24.10.2026): «oder günstiger» = die erste Verbesserung in der gewohnten Rangfolge, wenn
     // sie eine andere ist; «oder im Pilot» = die beste mit schmalem Kern, wenn sie mehr bringt als die bestmögliche Verbesserung.
-    const eingriffe = (c: Kand) => c.text.split(' + ').length
-    const nachRang = (x: Kand & { n: number }, y: Kand & { n: number }) => x.rang - y.rang || x.weg - y.weg || eingriffe(x) - eingriffe(y)
-      || Number(x.text.includes('beidseitig')) - Number(y.text.includes('beidseitig')) || y.n - x.n
     const verbessert = benotet.filter(c => c.n > n0 + 1e-9)
     const besser = verbessert.filter(c => !c.text.includes('(Pilot)'))
       .sort((x, y) => y.n - x.n || nachRang(x, y))
+    // Pilot als Vorschlag (seit 27.10.2026, Nutzerwunsch: «dann könnte doch der Pilot vorgeschlagen werden»): Hebt ohne Pilot keine
+    // Massnahme den Erfüllungsgrad (Aargauerstalden mit 7,0 m Fahrbahn: nur «Parkierung Seite A aufheben» 1,0 → 2,0), wohl aber
+    // eine mit schmalem Kern, wird sie der Vorschlag; erreicht sie das Ziel, gilt es als erreicht (im Pilot).
+    const hebt = (n: number) => erfuellungsgrad(n) !== erfuellungsgrad(n0)
+    const pil = piloten[0] ?? verbessert.filter(c => c.text.includes('(Pilot)')).sort((x, y) => y.n - x.n || nachRang(x, y))[0]
+    if ((!besser.length || !hebt(besser[0].n)) && pil && hebt(pil.n)) {
+      const ok = pil.n >= ziel
+      Object.assign(res, { erreicht: ok, rang: pil.rang, text: pil.text, noteNach: pil.n, k: pil.k, alternative: '', alternativen: [] })
+      if (ok) { res.blocker = ''; delete res.teilweise } else res.teilweise = true
+      vermerkeZu(pil)
+      vermerke.push(`Pilot: schmaler Kern unter der Vorgabe, nur als Versuch; ohne Pilot ${besser.length
+        ? `höchstens Note ${numDE(besser[0].n, 1)} («${erfuellungsgrad(besser[0].n)}», ${besser[0].text})` : 'keine Verbesserung'}`)
+      res.vermerk = vermerke.join(' · ')
+      return res
+    }
     if (besser.length) {
       const b = besser[0]
       Object.assign(res, { teilweise: true, rang: b.rang, text: b.text, noteNach: b.n, k: b.k })
       vermerkeZu(b)
-      const g = [...besser].sort(nachRang)[0]
+      // «Oder günstiger» (24.10.) und «Oder mit Parkierungsabbau» (27.10.) stehen seit 27.10.2026 in «alle»
       const zusatz: Vorschlag['alternativen'] = []
-      if (g.text !== b.text) zusatz.push({ text: g.text, noteNach: g.n, k: g.k, art: 'guenstiger' })
       const p = !piloten.length ? verbessert.filter(c => c.text.includes('(Pilot)')).sort((x, y) => y.n - x.n || nachRang(x, y))[0] : undefined
       if (p && p.n > b.n + 1e-9) zusatz.push({ text: p.text, noteNach: p.n, k: p.k, art: 'pilot' })
       res.alternativen = [...res.alternativen, ...zusatz]
