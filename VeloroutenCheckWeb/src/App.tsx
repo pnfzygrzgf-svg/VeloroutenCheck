@@ -2532,7 +2532,7 @@ function Landing({ onStart }: { onStart: () => void }) {
     <main style={{ maxWidth: 680, margin: '0 auto', padding: '24px 16px 56px',
                    fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text)' }}>
       <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="" aria-hidden="true"
-           title="Zum Rechner" onClick={onStart}
+           title="Zur Bewertung und Planung" onClick={onStart}
            style={{ width: 225, maxWidth: '60%', display: 'block', margin: '8px auto 6px', cursor: 'pointer' }} />
       <h1 className="start-titel">VeloroutenCheck</h1>
       <p className="start-untertitel">Qualität der Veloinfrastruktur <span className="marke">Beta</span></p>
@@ -2540,7 +2540,7 @@ function Landing({ onStart }: { onStart: () => void }) {
         <button onClick={onStart}
                 style={{ border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer',
                          borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 600 }}>
-          Zum Rechner →
+          Zur Bewertung und Planung →
         </button>
       </div>
       <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 14px' }}>
