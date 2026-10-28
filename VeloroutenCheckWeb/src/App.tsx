@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
   brauchtBreite, brauchtDtvTempo, erfuellungsgrad, FEELSAFE, SCORE_PRO_NOTE, BREITE_SATZ, PARKEN_ABZUG, HALTESTELLE_ABZUG, TRAM_DECKEL,
@@ -8,7 +9,7 @@ import {
   type OevAngebot, type Haltestellentyp, type NotenErgebnis, type BreitenSoll,
   type Stadt, type Strassentyp, type VergleichsNote,
 } from './fuehrungsform'
-import { VeloMap, ISTCOLOR, BREIT_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, ZWEIRAD_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
+import { VeloMap, ISTCOLOR, BREIT_MQ, MOBIL_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, ZWEIRAD_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
 import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeAvFuer, avQuelle } from './av'
 import Strassensuche from './Strassensuche'
@@ -156,7 +157,7 @@ const CITIES: Record<CityId, CityCfg> = {
   // },
 }
 
-// Kurzlabel je Stadt für die kompakte Vergleichszeile (andere Standards).
+// Kurzlabel je Stadt für die kompakte Vergleichszeile (andere Standards) und die Stadtwahl auf Mobile.
 const STADT_KURZ: Record<CityId, string> = { bern: 'BE', zurich: 'ZH', basel: 'BS', luzern: 'LU' }
 
 // Quellenangabe der amtlichen Anreicherung für den Herkunfts-Chip (stadtabhängig).
@@ -239,6 +240,7 @@ function Beurteilung({ note }: { note: number }) {
 // Herkunfts-Chip am Feld: blau „amtlich" (Geodaten Stadt Bern), grau „OSM";
 // bei „manuell"/leer kein Chip. Für leere Pflichtfelder ein rötlicher „Eingabe nötig"-Chip.
 function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
+  const [auf, setAuf] = useState(false)            // Erklärung auf Tippen (seit 28.10.2026: Touch kennt kein title)
   const amtlichTitle = useContext(AttribContext)   // stadtabhängige Quellenangabe (Bern/Zürich)
   const avTitle = useContext(AvContext)            // Quellenangabe der amtlichen Vermessung (Messung)
   const map: Record<string, { t: string; bg: string; fg: string; title?: string }> = {
@@ -258,13 +260,25 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
     : q === 'gemessen' ? 'gemessen' : q === 'av' ? 'av' : null
   if (!key) return null
   const c = map[key]
-  return (
-    <span title={c.title} style={{ fontSize: 10.5, fontWeight: 700, color: c.fg, background: c.bg,
+  const chip = (
+    <span style={{ fontSize: 'var(--fs-105)', fontWeight: 700, color: c.fg, background: c.bg,
                    borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap',
-                   display: 'inline-block', verticalAlign: 'middle', marginLeft: 6,
+                   display: 'inline-block', verticalAlign: 'middle', marginLeft: c.title ? 0 : 6,
                    cursor: c.title ? 'help' : 'default' }}>
       {c.t}
     </span>
+  )
+  if (!c.title) return chip
+  // Mit Erklärung: Knopf, ein Tippen zeigt sie unter dem Feld (wie ⓘ), der Tooltip bleibt für die Maus
+  return (
+    <>
+      <button type="button" onClick={e => { e.preventDefault(); setAuf(v => !v) }} aria-expanded={auf} title={c.title}
+              aria-label={`Herkunft: ${c.t}${auf ? ' (Erklärung schliessen)' : ''}`}
+              style={{ border: 'none', background: 'none', padding: 0, marginLeft: 6, minHeight: 0, cursor: 'help', verticalAlign: 'middle', font: 'inherit' }}>
+        {chip}
+      </button>
+      {auf && <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--text-muted-strong)', marginTop: 2, lineHeight: 1.4 }}>{c.title}</span>}
+    </>
   )
 }
 
@@ -352,7 +366,7 @@ const fieldStyle: React.CSSProperties = {
 }
 // Dezente Gruppen-Überschrift in der Eingabemaske (Grunddaten / ÖV-Haltestelle).
 const groupLabelStyle: React.CSSProperties = {
-  fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+  fontSize: 'var(--fs-11)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
   color: 'var(--text-muted)', marginBottom: 8,
 }
 
@@ -384,11 +398,24 @@ const kleinKnopfStyle: React.CSSProperties = {
 }
 // Werkzeugleiste auf der Karte (seit 22.10.2026 ein Rahmen für alle Messwerkzeuge: Breite einer Seite, Element für
 // Element, Querschnitt): Titel mit ✕ (auch Esc), Inhalt, Quellenzeile.
-function Kartenleiste({ titel, breit, onSchliessen, quelle, children }: {
-  titel: string; breit?: boolean; onSchliessen: () => void; quelle: string; children: React.ReactNode
+// Mobile-Ansicht (seit 28.10.2026, index.css; MOBIL_MQ): für die wenigen Stellen, an denen sich die Bedienung unterscheidet
+function useMobil(): boolean {
+  const [mobil, setMobil] = useState(() => typeof window !== 'undefined' && window.matchMedia(MOBIL_MQ).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(MOBIL_MQ), on = () => setMobil(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return mobil
+}
+// ziel (seit 28.10.2026, Mobile-Ansicht): statt auf der Karte zuoberst im Panel (Portal), damit sie die Karte nicht verdeckt
+function Kartenleiste({ titel, breit, onSchliessen, quelle, ziel, children }: {
+  titel: string; breit?: boolean; onSchliessen: () => void; quelle: string; ziel?: HTMLElement | null; children: React.ReactNode
 }) {
-  return (
-    <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 600,
+  const box = (
+    <div style={ziel ? { position: 'relative', marginBottom: 12, background: '#fff', borderRadius: 10, border: '1px solid var(--accent)',
+                         padding: '10px 12px', fontSize: 13, color: 'var(--text)', lineHeight: 1.45 }
+                     : { position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 600,
                   width: `min(${breit ? 500 : 470}px, calc(100% - 110px))`, maxHeight: 'calc(100% - 30px)', overflowY: 'auto',
                   background: '#fff', borderRadius: 10, boxShadow: '0 4px 14px rgba(0,0,0,0.25)', padding: '10px 12px',
                   fontSize: 12.5, color: 'var(--text)', lineHeight: 1.45 }}>
@@ -398,9 +425,10 @@ function Kartenleiste({ titel, breit, onSchliessen, quelle, children }: {
                 style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 15, color: 'var(--text-muted)', padding: '0 4px', minHeight: 0 }}>✕</button>
       </div>
       {children}
-      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>Luftbild © swisstopo · {quelle}</div>
+      <div style={{ marginTop: 6, fontSize: 'var(--fs-11)', color: 'var(--text-muted)' }}>Luftbild © swisstopo · {quelle}</div>
     </div>
   )
+  return ziel ? createPortal(box, ziel) : box
 }
 
 // «1 Segment», «2 Segmente» (Befund 22.10.2026: «1 Segmente» im Knopf und in der Meldung)
@@ -416,7 +444,7 @@ function Info({ text }: { text: string }) {
               style={{ border: 'none', background: 'none', padding: '0 4px', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, lineHeight: 1, minHeight: 0, verticalAlign: 'middle' }}>
         ⓘ
       </button>
-      {auf && <span style={{ display: 'block', fontSize: 11.5, fontWeight: 400, color: 'var(--text-muted-strong)', marginTop: 2 }}>{text}</span>}
+      {auf && <span style={{ display: 'block', fontSize: 'var(--fs-115)', fontWeight: 400, color: 'var(--text-muted-strong)', marginTop: 2 }}>{text}</span>}
     </>
   )
 }
@@ -827,7 +855,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
                     display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
         {/* Erfüllungsgrad gross, die Schulnote klein darunter (seit 22.10.2026; vorher je nach Schalter das eine oder das andere) */}
         <div style={{ textAlign: 'center', minWidth: 120 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+          <div style={{ fontSize: 'var(--fs-11)', fontWeight: 700, letterSpacing: '0.08em',
                         textTransform: 'uppercase', opacity: 0.85 }}>
             Erfüllungsgrad
           </div>
@@ -1064,7 +1092,7 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
         : 'Die Trottoirs entsprechen genau der Vorgabe des Fussverkehrsnetzes; wie ohne Randsteinanpassung.', trZeile)}
       {/* Erklärung als Fussnote (seit 22.10.2026 nach dem Ergebnis, vorher davor). Die Rangfolge steht seit 27.10.2026 nur hier, als
           Liste mit der Stufe der Vorschläge (Nutzerbefund: «Rang 2, Kernfahrbahn» in der Vorschlagszeile verwirrte) */}
-      <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>
+      <div style={{ fontSize: 'var(--fs-115)', color: 'var(--text-muted)', marginTop: 6 }}>
         Vorgeschlagen wird die erste Massnahme in der Rangfolge, die die Note auf mindestens {ZIEL_TEXT} bringt (vollständig erfüllt);
         reicht keine, die bestmögliche Verbesserung. «Übernehmen» setzt sie als Startpunkt, danach ist alles frei änderbar.
         <details style={{ marginTop: 4 }}>
@@ -1114,6 +1142,8 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   const a = section.aufteilung
   // Ziehen einer Zeile (Drag and Drop): gezogenes Teil und Zeile, über der es gerade schwebt
   const [zieh, setZieh] = useState<number | null>(null)
+  const mobil = useMobil()
+  const [mehr, setMehr] = useState<Set<number>>(new Set())   // aufgeklappte Zweitzeilen (Mobile)
   const [ueber, setUeber] = useState<number | null>(null)
   // Hinweis unter der Skizze, z. B. «Kernfahrbahn ersetzt die zweite Fahrspur»; mit «rueck» lässt sich der Stand
   // davor wiederherstellen (Rückgängig nach dem Entfernen eines Elements, seit 22.10.2026)
@@ -1423,7 +1453,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                                                         kennwerte={kw(a.tempo ?? section.speed)} />}
             </>)
           })()}
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+          <div style={{ fontSize: 'var(--fs-11)', color: 'var(--text-muted)', marginTop: 4 }}>
             Von links nach rechts in Fahrtrichtung der Seite A gesehen (links der Rand der Seite B).{' '}
             {section.querschnittHeute || section.gesamtbreite != null ? (
               <>{section.querschnittHeute ? `«Heute» ist von Hand am Luftbild aufgenommen (${section.querschnittHeute.teile.length} Elemente). ` : ''}
@@ -1536,7 +1566,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
           const marks = markierungenFuer(t.art)
           const richtungen = richtungenFuer(t.art, einbahn)
           return (
-            <div key={i}
+            <div key={i} className={`vrc-el${mehr.has(i) ? ' offen' : ''}`}
                  onDragOver={e => { if (zieh == null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (ueber !== i) setUeber(i) }}
                  onDrop={e => { e.preventDefault(); if (zieh != null) verschiebe(zieh, i); ziehEnde() }}
                  style={{ padding: '6px 0',
@@ -1545,7 +1575,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                             : i ? '1px solid var(--border-subtle)' : '2px solid transparent',
                           borderBottom: ueber === i && zieh != null && zieh < i ? '2px solid var(--accent)' : '2px solid transparent' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span draggable title="Ziehen zum Verschieben" aria-hidden
+                <span draggable title="Ziehen zum Verschieben" aria-hidden className="vrc-el-griff"
                       onDragStart={e => {
                         setZieh(i); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i))
                         const zeile = e.currentTarget.parentElement?.parentElement
@@ -1559,11 +1589,11 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                   <TeilOptionen />
                 </select>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                  <button type="button" onClick={() => schritt(i, t, -0.1)} style={{ ...kleinKnopfStyle, padding: '5px 8px' }}
+                  <button type="button" className="vrc-el-pm" onClick={() => schritt(i, t, -0.1)} style={{ ...kleinKnopfStyle, padding: '5px 8px' }}
                           aria-label={`Element ${i + 1} 10 cm schmaler`} title="10 cm schmaler">−</button>
                   <NumberField kompakt label={`Breite Element ${i + 1}`} unit="m" value={t.breite} step={0.05}
                                onChange={v => aendere(i, { ...t, breite: v, angenommen: undefined })} />
-                  <button type="button" onClick={() => schritt(i, t, 0.1)} style={{ ...kleinKnopfStyle, padding: '5px 8px' }}
+                  <button type="button" className="vrc-el-pm" onClick={() => schritt(i, t, 0.1)} style={{ ...kleinKnopfStyle, padding: '5px 8px' }}
                           aria-label={`Element ${i + 1} 10 cm breiter`} title="10 cm breiter">+</button>
                   {onTeileMessen && (
                     <button type="button" onClick={() => onTeileMessen({ ziel: heuteListe ? 'heute' : 'plan', nr: i })}
@@ -1571,11 +1601,18 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                             aria-label={`Breite Element ${i + 1} am Luftbild messen`} title="Breite dieses Elements am Luftbild messen">📏</button>
                   )}
                 </span>
-                <button type="button" onClick={() => entfernen(i, t)} style={{ ...kleinKnopfStyle, marginLeft: 'auto' }}
+                {/* Mobile (index.css .vrc-el-mehr): die Zweitzeile auf- und zuklappen (seit 28.10.2026) */}
+                <button type="button" className="vrc-el-mehr" aria-expanded={mehr.has(i)}
+                        onClick={() => setMehr(m => { const n = new Set(m); if (n.has(i)) n.delete(i); else n.add(i); return n })}
+                        aria-label={`Einzelheiten Element ${i + 1}`} title="Bild, Pfeil, Richtung, Verschieben, Einfügen"
+                        style={{ ...kleinKnopfStyle, marginLeft: 'auto', alignItems: 'center', justifyContent: 'center' }}>
+                  {mehr.has(i) ? '▴' : '⋯'}
+                </button>
+                <button type="button" onClick={() => entfernen(i, t)} style={{ ...kleinKnopfStyle, marginLeft: mobil ? 0 : 'auto' }}
                         aria-label={`Element ${i + 1} entfernen`} title="Element entfernen (Rückgängig im Hinweis)">✕</button>
               </div>
               {/* Einzelheiten: Bild (was darauf steht), Pfeil, Anordnung der Parkierung, Richtung, Verschieben, Einfügen */}
-              <div style={{ display: 'flex', gap: '4px 8px', alignItems: 'center', flexWrap: 'wrap', paddingLeft: 26, marginTop: 4 }}>
+              <div className="vrc-el-zweit" style={{ display: 'flex', gap: '4px 8px', alignItems: 'center', flexWrap: 'wrap', paddingLeft: 26, marginTop: 4 }}>
                 {(() => {
                   const rest = restFuer(i)
                   return rest != null && (
@@ -1756,7 +1793,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         </div>
         {/* Erläuterung: ein Satz sichtbar, der Rest in einer Klappe (Nutzerentscheid 16.10.2026, aus der fgsCheck-Sitzung
             weitergeleitet); im Bericht steht alles offen unter «Annahmen und Grenzen» und «Quellen». */}
-        <div style={{ marginTop: 8, fontSize: 11.5, color: 'var(--text-muted)' }}>
+        <div style={{ marginTop: 8, fontSize: 'var(--fs-115)', color: 'var(--text-muted)' }}>
           {city === 'bern'
             ? 'Geprüft werden die Breiten nach den Masterplänen Velo- und Fussverkehr der Stadt Bern, dem Lichtraum nach SN 640 201 und einzelnen eigenen Festlegungen; die Note rechnet wie oben.'
             : `Geprüft werden die Breiten nach den ${STANDARD_QUELLE[city]} und dem Lichtraum nach SN 640 201; was dort fehlt, nach dem Berner Masterplan (gekennzeichnet). Die Note rechnet wie oben.`}
@@ -1859,7 +1896,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
   }
   const planNote = section.aufteilung ? bewerteAufteilung(section, section.aufteilung, city, CITIES[city].breiten).note : null
   const NoteChip = ({ note }: { note: number | null }) => note == null
-    ? <span style={{ fontSize: 11, fontWeight: 700, color: '#9a3412', background: '#ffedd5', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>Eingabe nötig</span>
+    ? <span style={{ fontSize: 'var(--fs-11)', fontWeight: 700, color: '#9a3412', background: '#ffedd5', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>Eingabe nötig</span>
     : <span style={{ fontSize: 12, fontWeight: 800, borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap',
                      background: noteColor(note).bg, color: noteColor(note).fg }}>
         <Beurteilung note={note} />
@@ -1911,7 +1948,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
         {/* Note bzw. Status immer in der Kopfzeile (seit 22.10.2026, vorher nur eingeklappt); dazu die Note der Planung */}
         <NoteChip note={ergebnis.note} />
         {section.aufteilung && planNote != null && (
-          <span title="Note mit der Planung" style={{ fontSize: 11.5, color: 'var(--text-muted)', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+          <span title="Note mit der Planung" style={{ fontSize: 'var(--fs-115)', color: 'var(--text-muted)', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
             Planung <NoteChip note={planNote} />
           </span>
         )}
@@ -1919,7 +1956,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{section.label}</span>
         )}
         {isWorst && (
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#b91c1c',
+          <span style={{ fontSize: 'var(--fs-11)', fontWeight: 700, color: '#b91c1c',
                          background: '#fee2e2', borderRadius: 999, padding: '2px 8px' }}>
             massgebend für die Strecke
           </span>
@@ -2169,7 +2206,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
                              borderRadius: 8, padding: '5px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
               {lbKnopf}
             </button>
-            <div style={{ marginTop: 6, fontSize: 11.5, opacity: 0.8 }}>
+            <div style={{ marginTop: 6, fontSize: 'var(--fs-115)', opacity: 0.8 }}>
               {LUFTBILD_ERKENNUNG_BILD[city] ?? 'SWISSIMAGE © swisstopo'} · Erkennung: Modell remote_velo, ETH Zürich
             </div>
           </div>
@@ -2277,7 +2314,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
                           fontSize: 13, fontWeight: 700, color: 'var(--text-strong)' }}>
               Ergebnis {se.seite === 'A' ? titelA : titelB}
               {ergebnis.massgebend === se.seite && (
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#b91c1c',
+                <span style={{ fontSize: 'var(--fs-11)', fontWeight: 700, color: '#b91c1c',
                                background: '#fee2e2', borderRadius: 999, padding: '2px 8px' }}>
                   massgebend für den Abschnitt
                 </span>
@@ -2435,7 +2472,7 @@ function QuellenTeil({ city }: { city: CityId }) {
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span>{q.herausgeber}{q.ausgabe ? ` · ${q.ausgabe}` : ''} · {q.ebene}</span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, borderRadius: 999, padding: '1px 7px',
+                <span style={{ fontSize: 'var(--fs-105)', fontWeight: 700, borderRadius: 999, padding: '1px 7px',
                                background: q.staedte ? '#dbeafe' : 'var(--border-subtle)', color: q.staedte ? '#1e40af' : 'var(--text-muted-strong)' }}>
                   {q.staedte ? q.staedte.map(x => STADT_NAME[x]).join(', ') : 'alle Städte'}
                 </span>
@@ -2640,7 +2677,7 @@ function Landing({ onStart }: { onStart: () => void }) {
       {/* Datenspeicherung (nur auf der Einstiegsseite) — kompakt */}
       <div style={{ marginTop: 22, padding: '10px 14px', borderRadius: 10,
                     background: '#f8fafc', border: '1px solid var(--border-subtle)',
-                    fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.45, textAlign: 'left' }}>
+                    fontSize: 'var(--fs-115)', color: 'var(--text-muted)', lineHeight: 1.45, textAlign: 'left' }}>
         <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Datenspeicherung</div>
         <div>Alle Berechnungen laufen vollständig im Browser. Eingaben und Ergebnisse bleiben im Browser. Um
           Daten zu laden, schickt der Browser nur den Kartenausschnitt bzw. die Lage des Abschnitts und den
@@ -2826,14 +2863,27 @@ export default function App() {
     window.addEventListener('resize', on)
     return () => window.removeEventListener('resize', on)
   }, [])
-  const panelMin = Math.min(Math.max(400, 0.34 * fensterB), 560)
-  const panelMax = Math.max(panelMin, Math.min(2 * panelMin, 0.7 * fensterB))
+  // ab 700 px (Desktop-Ansicht seit 28.10.2026) schmaler als 400 px, damit die Karte daneben Platz hat (768 px: 345 + 423)
+  const panelMin = Math.min(Math.max(Math.min(400, 0.45 * fensterB), 0.34 * fensterB), 560)
+  // der Karte bleiben mindestens 360 px (Tablet 768 px mit Planung: vorher Panel 538, Karte 230 px); ab 1200 px greift 70 %
+  const panelMax = Math.max(panelMin, Math.min(2 * panelMin, 0.7 * fensterB, fensterB - 360))
   const panelW = Math.round(Math.min(panelMax, Math.max(panelMin,
     planModus ? panelBreite.plan ?? Math.min(panelMax, 1.6 * panelMin) : panelBreite.normal ?? panelMin)))
+  // Höhe der Karte in der Mobile-Ansicht (seit 28.10.2026): Knopf ⇕ auf der Karte, Stufen in Prozent der Fensterhöhe;
+  // der Browser merkt sich die Stufe (nur Bequemlichkeit)
+  const KARTE_STUFEN = [30, 45, 70]
+  const [karteStufe, setKarteStufe] = useState(() => {
+    try { const v = Number(localStorage.getItem('vrc.karteStufe')); return KARTE_STUFEN.includes(v) ? v : 45 } catch { return 45 }
+  })
+  const karteStufeWeiter = () => setKarteStufe(v => {
+    const neu = KARTE_STUFEN[(KARTE_STUFEN.indexOf(v) + 1) % KARTE_STUFEN.length]
+    try { localStorage.setItem('vrc.karteStufe', String(neu)) } catch { /* ohne Speicher: nur für diese Sitzung */ }
+    return neu
+  })
   useEffect(() => {
     const raf = requestAnimationFrame(() => mapRef.current?.invalidateSize())
     return () => cancelAnimationFrame(raf)
-  }, [panelW])
+  }, [panelW, karteStufe])
   const panelSetzen = (w: number | undefined, merken: boolean) => {
     setPanelBreite(prev => {
       const neu = { ...prev, [planModus ? 'plan' : 'normal']: w == null ? undefined : Math.round(Math.min(panelMax, Math.max(panelMin, w))) }
@@ -3506,6 +3556,13 @@ export default function App() {
   const [qsa, setQsa] = useState<QsAufnahme | null>(null)
   const qsaRef = useRef<QsAufnahme | null>(null)
   qsaRef.current = qsa
+  // Mobile-Ansicht (seit 28.10.2026, index.css): Werkzeugleisten im Panel (leisteZiel), beim Start nach oben zu ihr
+  const mobil = useMobil()
+  const [leisteZiel, setLeisteZiel] = useState<HTMLDivElement | null>(null)
+  const werkzeugOffen = messAktiv || qsa != null
+  useEffect(() => {
+    if (mobil && werkzeugOffen) leisteZiel?.closest('.vrc-panel')?.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [mobil, werkzeugOffen, leisteZiel])
   const qsStarten = async (secId: number) => {
     const map = mapRef.current, s = sections.find(x => x.id === secId)
     if (!map || !s) return
@@ -3889,7 +3946,7 @@ export default function App() {
     <AvContext.Provider value={cityCfg.avKanton ? avQuelle(cityCfg.avKanton) : ''}>
     <div className={view === 'rechner' ? 'vrc-app-rechner' : undefined}
          style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)',
-                  ...(view === 'rechner' ? { '--vrc-panel-w': `${panelW}px` } as React.CSSProperties : {}) }}>
+                  ...(view === 'rechner' ? { '--vrc-panel-w': `${panelW}px`, '--vrc-karte-h': `${karteStufe}dvh` } as React.CSSProperties : {}) }}>
       {/* Keine Kopfleiste (Standard der Check-Apps seit 16.10.2026): Logo, Name und Marke stehen im Panel bzw. auf der Startseite */}
 
       {view === 'home' && <Landing onStart={() => go('rechner')} />}
@@ -3908,7 +3965,9 @@ export default function App() {
              if (e.key === 'ArrowLeft') { e.preventDefault(); panelSetzen(panelW + 40, true) }
              if (e.key === 'ArrowRight') { e.preventDefault(); panelSetzen(panelW - 40, true) }
            }} />
-      <div className="vrc-panel" style={{ padding: '20px 16px 64px' }}>
+      <div className="vrc-panel">
+        {/* Werkzeugleiste auf Mobile (Kartenleiste über ein Portal) */}
+        <div ref={setLeisteZiel} className="vrc-leiste-ziel" />
         <h1 className="vrc-h1">
           <button className="logo-knopf" onClick={() => go('home')} title="Zur Startseite" aria-label="Zur Startseite">
             <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="" width={36} height={36} />
@@ -3977,29 +4036,31 @@ export default function App() {
           s. unten) — so muss die Sticky-Leiste native Dropdowns/Popover nicht mehr überbieten. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 100, marginBottom: 18, background: sc.bg, color: sc.fg,
                     borderRadius: 10, boxShadow: '0 2px 10px rgba(0,0,0,0.15)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 16px' }}>
-          <button
+        {/* Zeile und Knopf über index.css (.vrc-strecke-zeile/-knopf): auf Mobile einzeilig mit kurzen Texten (seit 28.10.2026) */}
+        <div className="vrc-strecke-zeile">
+          <button className="vrc-strecke-knopf"
             onClick={() => {
               const ziel = streckeNote != null ? worstIdx : ergebnisse.findIndex(e => e.note == null)
               if (ziel >= 0) zumAbschnitt(ziel)
             }}
             title={streckeNote != null ? 'Zum massgebenden Abschnitt springen'
-                                       : 'Zum ersten unvollständigen Abschnitt springen'}
-            style={{ textAlign: 'left', border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', padding: 0,
-                     font: 'inherit', display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+                                       : 'Zum ersten unvollständigen Abschnitt springen'}>
+            <span style={{ fontSize: 'var(--fs-11)', fontWeight: 700, letterSpacing: '0.08em',
                            textTransform: 'uppercase', opacity: 0.85 }}>Strecke</span>
             <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1 }}>
               {streckeNote == null ? '–' : <Beurteilung note={streckeNote} />}
             </span>
-            <span style={{ fontSize: 13, opacity: 0.95 }}>
-              {streckeNote != null
+            <span style={{ fontSize: 13, opacity: 0.95, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span className="nur-desktop">{streckeNote != null
                 ? `· massgebend: Abschnitt ${worstIdx + 1}`
-                : `· unvollständig (${offen} von ${ergebnisse.length} offen)`}
+                : `· unvollständig (${offen} von ${ergebnisse.length} offen)`}</span>
+              <span className="nur-mobil">{streckeNote != null ? `· Abschnitt ${worstIdx + 1}` : `· ${offen} von ${ergebnisse.length} offen`}</span>
             </span>
           </button>
           {streckePlanNote != null && (
-            <span style={{ fontSize: 13 }}>→ mit der Planung: <strong><Beurteilung note={streckePlanNote} /></strong></span>
+            <span className="vrc-strecke-plan" style={{ fontSize: 13 }} title="Strecke mit der Planung">
+              → <span className="nur-desktop">mit der Planung: </span><strong><Beurteilung note={streckePlanNote} /></strong>
+            </span>
           )}
           <span style={{ flex: 1 }} />
           {sections.length > 1 && (
@@ -4071,13 +4132,20 @@ export default function App() {
                      attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} obsStand={cityCfg.obsStand}
                      teilModus={teilModus} orthofoto={messAktiv || planAv != null || qsa != null} bern2026={city === 'bern'} messung={messAnzeige ?? qsAnzeige} av={planAvWgs} formen={formen}
                      onMeldung={(t, art) => setMsg(t, art)} onMarkerClick={markerKlick} />
+            {/* Kartenhöhe (nur Mobile, index.css .vrc-karte-hoehe): 30 → 45 → 70 % der Fensterhöhe */}
+            <button type="button" className="vrc-karte-hoehe" onClick={karteStufeWeiter}
+                    aria-label={`Kartenhöhe ${karteStufe} % – ${karteStufe === 70 ? 'kleiner' : 'grösser'}`}
+                    title={`Karte ${karteStufe === 70 ? 'kleiner' : 'grösser'} (jetzt ${karteStufe} % der Höhe)`}>
+              {karteStufe === 70 ? '▴' : '▾'}
+            </button>
             {/* Kartenkopf: Stadt und Strassensuche (während einer Messung steht dort deren Werkzeugleiste) */}
             {!messung && !qsa && (
               <div className="vrc-kartenkopf">
                 <select value={city} onChange={e => wechsleStadt(e.target.value as CityId)} aria-label="Stadt"
                         disabled={osmBusy}   // Stadtwechsel während einer laufenden Ladung sperren (Race-Schutz)
                         title={`Grundlage: ${cityCfg.standardDoc.titel}`}>
-                  {(Object.keys(CITIES) as CityId[]).map(k => <option key={k} value={k}>{CITIES[k].label}</option>)}
+                  {/* Mobile: Kürzel, damit die Suche Platz hat (seit 28.10.2026) */}
+                  {(Object.keys(CITIES) as CityId[]).map(k => <option key={k} value={k}>{mobil ? STADT_KURZ[k] : CITIES[k].label}</option>)}
                 </select>
                 <Strassensuche text={street} setText={setStreet} stadt={cityCfg.label} busy={osmBusy}
                                onLaden={name => void ladeStrasse(name)} />
@@ -4085,7 +4153,7 @@ export default function App() {
             )}
             {/* Breitenmessung: Werkzeugleiste auf der Karte (klickbar, liegt über dem Kartenrand). */}
             {messung && (
-              <Kartenleiste titel={`📏 ${messung.plan ? 'Element für Element messen' : 'Breite messen'} · ${messung.titel}`}
+              <Kartenleiste ziel={mobil ? leisteZiel : null} titel={`📏 ${messung.plan ? 'Element für Element messen' : 'Breite messen'} · ${messung.titel}`}
                             onSchliessen={() => setMessung(null)} quelle={avQuelle(cityCfg.avKanton ?? '')}>
                 <div role="group" aria-label="Messart"
                      style={{ display: 'inline-flex', flexWrap: 'wrap', border: '1px solid var(--border)', borderRadius: 8,
@@ -4202,7 +4270,7 @@ export default function App() {
                       })()}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         <button type="button" onClick={() => setMessung(null)} style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: 'var(--accent)' }}>Fertig</button>
-                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Nach jedem Übernehmen lässt sich weiter messen; «Fertig» schliesst das Werkzeug.</span>
+                        <span style={{ fontSize: 'var(--fs-11)', color: 'var(--text-muted)' }}>Nach jedem Übernehmen lässt sich weiter messen; «Fertig» schliesst das Werkzeug.</span>
                       </div>
                     </div>
                   )
@@ -4220,7 +4288,7 @@ export default function App() {
             )}
             {/* Querschnitt am Luftbild aufnehmen: Werkzeugleiste auf der Karte */}
             {qsa && (
-              <Kartenleiste titel={`📐 Querschnitt am Luftbild · ${qsa.titel}`} breit onSchliessen={() => setQsa(null)}
+              <Kartenleiste ziel={mobil ? leisteZiel : null} titel={`📐 Querschnitt am Luftbild · ${qsa.titel}`} breit onSchliessen={() => setQsa(null)}
                             quelle={avQuelle(cityCfg.avKanton ?? '')}>
                 <div>
                   Weit hineinzoomen und quer über die Strasse von Rand B nach Rand A klicken (Seite B links, in Fahrtrichtung der Seite A gesehen):
@@ -4307,7 +4375,7 @@ export default function App() {
                    onWheel={() => setHintDismissed(true)}
                    style={{ position: 'absolute', inset: 0, zIndex: 500, cursor: 'pointer',
                             display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
-                <div style={{ marginTop: 12, maxWidth: 360, width: 'calc(100% - 24px)',
+                <div style={{ marginTop: 62, maxWidth: 360, width: 'calc(100% - 112px)',   // unter dem Kartenkopf, zwischen den Knöpfen (vorher verdeckt)
                               pointerEvents: 'none',
                               background: 'rgba(15,23,42,0.88)', color: '#fff', borderRadius: 10,
                               padding: '12px 16px', boxShadow: '0 4px 14px rgba(0,0,0,0.25)',

@@ -101,7 +101,8 @@ export function standortFehlerText(code: number): string {
 // Nummern-Marker eines Abschnitts auf der Karte (num = Abschnitts-Nummer).
 // Ab dieser Fensterbreite zweispaltig (Karte | Panel); muss mit der Media-Query in index.css
 // übereinstimmen. «screen»: Drucken bleibt immer einspaltig.
-export const BREIT_MQ = 'screen and (min-width: 1100px)'
+export const BREIT_MQ = 'screen and (min-width: 700px)'   // Desktop-Ansicht (seit 28.10.2026, vorher 1100 px)
+export const MOBIL_MQ = 'screen and (max-width: 699px)'   // Mobile-Ansicht (index.css)
 
 // Farben der AV-Flächen und Parkfelder: farben.ts (ohne Leaflet, auch im Bericht verwendet)
 export { AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, ZWEIRAD_FARBE } from './farben'
@@ -252,22 +253,10 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       minZoom: 17, maxZoom: 21, attribution: '© swisstopo (Strassennamen)',
     })
     basisRef.current = basemaps
-    // Schmales Layout: Zoomen nur mit Ctrl/Cmd + Mausrad. Die Karte liegt mitten in einer scrollenden
-    // Seite — ein «nacktes» Rad-Ereignis soll die Seite scrollen, nicht die Karte zoomen (Scroll-Falle).
-    // Breitbild (BREIT_MQ, Karte links in voller Höhe, daneben scrollt nur das Panel): keine Scroll-Falle,
-    // das Rad zoomt direkt wie in fgsCheck. Pinch-Zoom (Touch) und die +/−-Buttons bleiben unverändert.
-    const breit = window.matchMedia(BREIT_MQ)
-    const radSetzen = () => { if (breit.matches) map.scrollWheelZoom.enable(); else map.scrollWheelZoom.disable() }
-    radSetzen()
-    breit.addEventListener('change', radSetzen)
-    const wheelEl = elRef.current
-    const onWheel = (e: WheelEvent) => {
-      if (breit.matches || (!e.ctrlKey && !e.metaKey)) return   // Breitbild: Leaflet zoomt selbst
-      e.preventDefault()   // Browser-Seitenzoom unterdrücken, stattdessen Karte zoomen
-      const p = map.mouseEventToContainerPoint(e as unknown as MouseEvent)
-      map.setZoomAround(p, map.getZoom() + (e.deltaY < 0 ? 1 : -1))
-    }
-    wheelEl.addEventListener('wheel', onWheel, { passive: false })
+    // Quellenangabe: auf Mobile einzeilig gekürzt (index.css), Tippen klappt sie auf (seit 28.10.2026)
+    map.attributionControl.getContainer()?.addEventListener('click', ev => (ev.currentTarget as HTMLElement).classList.toggle('offen'))
+    // Das Mausrad zoomt die Karte direkt wie in fgsCheck: In beiden Ansichten liegt die Karte fest, nur das Panel scrollt
+    // (seit 28.10.2026; vorher lag sie schmal mitten in der scrollenden Seite, dort nur Ctrl/Cmd + Rad gegen die Scroll-Falle).
     layerRef.current = L.layerGroup().addTo(map)
     // Breitenmessung in eigener Ebene über den Segmentlinien (Overlay 400 < messen 450 < Marker 600),
     // klick-durchlässig: die Klicks gehören der Messung selbst.
@@ -323,8 +312,6 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     mapRef.current = map
     readyCb.current?.(map)
     return () => {
-      wheelEl.removeEventListener('wheel', onWheel)
-      breit.removeEventListener('change', radSetzen)
       map.remove()
       mapRef.current = null; layerRef.current = null; messRef.current = null; avRef.current = null
       lineRef.current.clear(); lastFit.current = 0
@@ -560,7 +547,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         {LUFTBILDER.includes(basis) && (
           <label className="namen" title="Strassennamen aus dem amtlichen Strassenverzeichnis über dem Luftbild (swisstopo, ab Zoomstufe 17)">
             <input type="checkbox" checked={namen} onChange={e => { setNamen(e.target.checked); basisWechseln(basis, e.target.checked) }} />
-            Strassennamen
+            <span className="lang">Strassennamen</span><span className="kurz">Namen</span>
           </label>
         )}
       </div>

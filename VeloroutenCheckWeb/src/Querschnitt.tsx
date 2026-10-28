@@ -174,11 +174,14 @@ export function kennwerteText(k: { tempo?: number; dtv?: number; dtvAngenommen?:
 
 export function QuerschnittSkizze(p: SkizzeProps) {
   const [ref, px] = useBreitePx<HTMLDivElement>()
+  // Mobile (index.css .vrc-skizze-innen, seit 28.10.2026): mindestens 70 px je Element, bei vielen Elementen seitlich scrollbar
   return (
-    <div ref={ref} style={{ marginTop: 6 }}>
-      {/* Titel nur noch ausserhalb, wenn die Zeichnung keine Kennwerte trägt (sonst steht er in ihrer ersten Zeile) */}
-      {!p.kennwerte && <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-strong)' }}>{p.titel}</div>}
-      {px > 0 && <SkizzeSvg {...p} px={px} basis={import.meta.env.BASE_URL} />}
+    <div className="vrc-skizze" style={{ marginTop: 6 }}>
+      <div ref={ref} className="vrc-skizze-innen" style={{ '--vrc-skizze-min': `${p.teile.length * 70}px` } as React.CSSProperties}>
+        {/* Titel nur noch ausserhalb, wenn die Zeichnung keine Kennwerte trägt (sonst steht er in ihrer ersten Zeile) */}
+        {!p.kennwerte && <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-strong)' }}>{p.titel}</div>}
+        {px > 0 && <SkizzeSvg {...p} px={px} basis={import.meta.env.BASE_URL} />}
+      </div>
     </div>
   )
 }

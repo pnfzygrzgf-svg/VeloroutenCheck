@@ -24,6 +24,11 @@
   --border: #cbd5e1;
   --border-subtle: #e2e8f0;
 
+  /* Kleine Schriften (seit 28.10.2026): auf Mobile mindestens 12 px (Schritt 4 der Smartphone-Optimierung) */
+  --fs-105: 10.5px;
+  --fs-11: 11px;
+  --fs-115: 11.5px;
+
   /* Radien (zur künftigen Nutzung) */
   --r-sm: 8px;
   --r-md: 10px;
@@ -71,14 +76,14 @@ details.hilfe p { margin: 8px 0 2px; }
   .leaflet-touch .leaflet-bar a { width: 36px; height: 36px; line-height: 36px; }
 }
 
-/* ── Rechner-Layout ───────────────────────────────────────────────────────────
-   Schmal (Standard): einspaltig, max. 820 px, Karte mitten im Ladebereich — wie bisher.
-   Breit (ab 1100 px): Karte links in voller Fensterhöhe, rechts das Panel mit eigenem Scrollen.
-   Beide Layouts nutzen dieselbe Elementstruktur (nur CSS unterscheidet sich) — die Leaflet-Karte
-   bleibt beim Umschalten an derselben Stelle im React-Baum und wird nicht neu initialisiert.
-   1100 px: darunter bliebe neben dem Panel (≥ 400 px) zu wenig Kartenbreite (< 700 px).
-   Klassisch min-width (keine Range-Syntax, siehe vite.config.ts); «screen», damit der Druck
-   immer einspaltig bleibt. Gleiche Query wie BREIT_MQ in App.tsx (invalidateSize). */
+/* ── Rechner-Layout: zwei Ansichten (seit 28.10.2026, Nutzerentscheid; vorher drei mit Grenze 1100 px) ──────────
+   Mobile (unter 700 px): Karte fest oben (--vrc-karte-h, mit dem Knopf ⇕ 30/45/70 % der Höhe), darunter das Panel mit
+   eigenem Scrollen. Karte und Elementliste sind gleichzeitig zu sehen; ein Finger auf der Karte pannt nur die Karte.
+   Desktop (ab 700 px): Karte links in voller Fensterhöhe, rechts das Panel mit eigenem Scrollen.
+   Grenze 700 px wie fgsCheck und SichtweitenCheck. Beide Ansichten nutzen dieselbe Elementstruktur (nur CSS unterscheidet
+   sich) — die Leaflet-Karte bleibt beim Umschalten an derselben Stelle im React-Baum und wird nicht neu initialisiert.
+   Ohne Media-Query (Druck): einspaltig, Karte im Fluss. Klassisch min-/max-width (keine Range-Syntax, siehe
+   vite.config.ts); «screen», damit der Druck einspaltig bleibt. Gleiche Grenze wie BREIT_MQ (VeloMap.tsx, invalidateSize). */
 .vrc-panel { max-width: 820px; margin: 0 auto; }
 .vrc-karte { position: relative; z-index: 0; }   /* eigener Stacking-Context für Leaflet */
 .vrc-velomap-wrap { position: relative; }
@@ -87,8 +92,73 @@ details.hilfe p { margin: 8px 0 2px; }
 
 .vrc-trenner { display: none; }   /* nur im Breitbild sichtbar (unten) */
 
-@media screen and (min-width: 1100px) {
-  .vrc-app-rechner { --vrc-panel-w: clamp(400px, 34vw, 560px);
+/* Mobile: Karte oben fest, Panel darunter scrollt. Das Panel ist bewusst NICHT positioniert (wie im Breitbild): Bezug der
+   absolut gesetzten Karte bleibt .vrc-rechner, sonst scrollte die Karte mit. */
+@media screen and (max-width: 699px) {
+  .vrc-app-rechner { --vrc-karte-h: 45dvh; display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+  .vrc-rechner { position: relative; flex: 1; min-height: 0; }
+  .vrc-karte { position: absolute; top: 0; left: 0; right: 0; height: var(--vrc-karte-h); }
+  .vrc-karte .vrc-velomap-wrap, .vrc-karte .vrc-velomap { height: 100%; border: none; border-radius: 0; }
+  .vrc-panel { max-width: none; height: calc(100% - var(--vrc-karte-h)); margin: var(--vrc-karte-h) 0 0;
+    overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--border); }
+}
+/* Nur in einer Ansicht sichtbar (seit 28.10.2026): kurze Texte auf Mobile, lange auf dem Desktop */
+.nur-mobil { display: none; }
+@media screen and (max-width: 699px) {
+  .nur-mobil { display: inline; }
+  .nur-desktop { display: none; }
+  :root { --fs-105: 12px; --fs-11: 12px; --fs-115: 12px; }
+}
+
+/* Panel-Innenabstand; unten und seitlich mit dem sicheren Bereich (iPhone-Balken, Notch quer; viewport-fit=cover) */
+.vrc-panel { padding: 20px max(16px, env(safe-area-inset-right)) calc(64px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+
+/* Mobile (Schritt 2): Leaflet-Quellenangabe einzeilig (Tippen klappt sie auf), Hintergrund-Knöpfe darüber; Steuerung nicht
+   unter der Notch (quer) */
+@media screen and (max-width: 699px) {
+  .vrc-karte .leaflet-control-attribution { max-width: calc(100vw - 10px); white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; font-size: 10px; cursor: pointer; }
+  .vrc-karte .leaflet-control-attribution.offen { white-space: normal; }
+  .vrc-hintergrund { bottom: 22px; }
+  .vrc-karte .leaflet-left { margin-left: env(safe-area-inset-left); }
+}
+
+/* Werkzeugleiste (Messen, Querschnitt) auf Mobile im Panel statt auf der Karte (App.tsx Kartenleiste, Portal) */
+.vrc-leiste-ziel:empty { display: none; }
+
+/* Sticky-Leiste der Strecke (Schritt 3): auf Mobile einzeilig */
+.vrc-strecke-zeile { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px; }
+.vrc-strecke-knopf { text-align: left; border: none; background: none; color: inherit; cursor: pointer; padding: 0; font: inherit;
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+@media screen and (max-width: 699px) {
+  .vrc-strecke-zeile { flex-wrap: nowrap; gap: 8px; padding: 4px 12px; white-space: nowrap; overflow: hidden; }
+  .vrc-strecke-knopf { flex-wrap: nowrap; gap: 8px; align-items: center; flex-shrink: 0; }
+  .vrc-strecke-plan { min-width: 0; overflow: hidden; text-overflow: ellipsis; }   /* kürzt sich zuerst */
+}
+
+/* Elementliste (Schritt 3): auf Mobile nur die Hauptzeile, die Zweitzeile hinter «⋯»; −/+ auf Touch weg (Feld tippen),
+   der Griff zum Ziehen auch (Pfeile in der Zweitzeile) */
+.vrc-el-mehr { display: none; }
+@media screen and (max-width: 699px) {
+  .vrc-el-mehr { display: inline-flex; }
+  .vrc-el:not(.offen) .vrc-el-zweit { display: none !important; }   /* die Zeile setzt display inline */
+}
+@media (pointer: coarse) { .vrc-el-pm, .vrc-el-griff { display: none; } }
+
+/* Querschnittskizze (Schritt 4): auf Mobile bei vielen Elementen seitlich scrollbar statt winzig */
+.vrc-skizze { overflow-x: auto; }
+@media screen and (max-width: 699px) { .vrc-skizze-innen { min-width: var(--vrc-skizze-min, 0); } }
+
+/* Knopf für die Kartenhöhe (nur Mobile): oben rechts auf der Karte */
+.vrc-karte-hoehe { display: none; }
+@media screen and (max-width: 699px) {
+  .vrc-karte-hoehe { display: flex; align-items: center; justify-content: center; position: absolute; top: 10px; right: 10px;
+    z-index: 650; width: 44px; height: 44px; min-height: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px;
+    background: #ffffff; color: var(--text-strong); font-size: 18px; box-shadow: 0 1px 4px rgba(0,0,0,.25); cursor: pointer; }
+}
+
+@media screen and (min-width: 700px) {
+  .vrc-app-rechner { --vrc-panel-w: clamp(340px, 34vw, 560px);
     display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
   /* Bezugsrahmen der Karte: die ganze Fläche (keine Kopfleiste mehr). */
   .vrc-rechner { position: relative; flex: 1; min-height: 0; }
@@ -235,6 +305,15 @@ details.hilfe p { margin: 8px 0 2px; }
   color: var(--text-muted-strong); font-weight: 600; cursor: pointer; white-space: nowrap; }
 .vrc-hintergrund label.namen input { margin: 0; min-height: 0; accent-color: var(--accent); }
 @media (pointer: coarse) { .vrc-hintergrund button { padding: 9px 11px; } }
+/* Nie breiter als die Karte (Befund 28.10.2026 bei 375 px: 382 px auf 313 px Karte, die Seite scrollte seitlich): umbrechen,
+   «Strassennamen» auf Mobile kurz «Namen» */
+.vrc-velomap-wrap { overflow-x: hidden; }
+.vrc-hintergrund { max-width: calc(100% - 20px); flex-wrap: wrap; }
+.vrc-hintergrund .kurz { display: none; }
+@media screen and (max-width: 699px) {
+  .vrc-hintergrund .lang { display: none; }
+  .vrc-hintergrund .kurz { display: inline; }
+}
 
 /* ── Bedienelemente nur auf Touch-Geräten (Pfeile zum Verschieben, wo Drag and Drop fehlt) ── */
 .nur-touch { display: none; }
@@ -266,7 +345,7 @@ details.hilfe p { margin: 8px 0 2px; }
 .vrc-reiter button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 
 /* ── Meldung als Toast unten im Panel (seit 22.10.2026): auch sichtbar, wenn man tief in der Planung arbeitet ── */
-.vrc-toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 1500; width: min(560px, calc(100% - 24px));
+.vrc-toast { position: fixed; bottom: calc(14px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 1500; width: min(560px, calc(100% - 24px));
   border-radius: 10px; padding: 9px 12px; font-size: 13px; line-height: 1.4; box-shadow: 0 4px 16px rgba(0,0,0,.22);
   display: flex; gap: 10px; align-items: flex-start; }
 .vrc-toast.ok { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
@@ -275,6 +354,6 @@ details.hilfe p { margin: 8px 0 2px; }
 .vrc-toast > .text { flex: 1; }
 .vrc-toast button { border: none; background: none; color: inherit; font: inherit; font-weight: 700; cursor: pointer; padding: 0 2px; min-height: 0; }
 .vrc-toast button.rueck { text-decoration: underline; }
-@media screen and (min-width: 1100px) {
+@media screen and (min-width: 700px) {
   .vrc-toast { left: auto; transform: none; right: 14px; width: calc(var(--vrc-panel-w) - 28px); }
 }
