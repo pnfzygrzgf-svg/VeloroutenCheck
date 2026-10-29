@@ -132,6 +132,17 @@ const NAH_ZOOM = 19                                                 // ab hier g
 const BERN26 = 'Orthofoto Stadt Bern 2026'
 const LUFTBILDER = [ORTHO, BERN26]                                  // Hintergründe mit Strassennamen-Kästchen
 
+/** Schlüssel der zuletzt gesehenen Kartenansicht im Browser (nur Bequemlichkeit, darf fehlen) */
+const ANSICHT_SCHLUESSEL = 'vrc.karteAnsicht'
+/** gemerkte Ansicht, nur wenn sie zur selben Stadt (Stadtmitte) gehört und in der Schweiz liegt */
+function ansichtLesen(stadt: [number, number] | L.LatLngExpression): { c: [number, number]; z: number } | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(ANSICHT_SCHLUESSEL) ?? 'null') as { stadt: unknown; c: [number, number]; z: number } | null
+    if (!v || JSON.stringify(v.stadt) !== JSON.stringify(stadt)) return null
+    return v.c[0] > 45.7 && v.c[0] < 47.9 && v.c[1] > 5.9 && v.c[1] < 10.6 && v.z >= 8 && v.z <= 22 ? { c: v.c, z: v.z } : null
+  } catch { return null }
+}
+
 export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
                           attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
                           teilModus = false, orthofoto = false, bern2026 = false, messung = null, av = null, obsStand, formen, onMeldung, onMarkerClick }: {
@@ -202,6 +213,8 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     }
   }
   const lastFit = useRef(0)            // zuletzt umgesetzter fitKey
+  const zentrumRef = useRef(center)    // Stadtmitte der aktuellen Stadt (Schlüssel der gemerkten Ansicht)
+  const ansichtGemerkt = useRef(false) // Karte startete an der gemerkten Ansicht (Stadtwechsel-Effekt beim ersten Lauf überspringen)
   const suppress = useRef(false)        // Klick auf Linie soll keinen Karten-Klick auslösen
   const clickCb = useRef(onMapClick)    // immer den aktuellen Callback aufrufen
   clickCb.current = onMapClick
@@ -215,7 +228,14 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   // Rechner → Startseite), sonst bleibt je Wechsel eine verwaiste Leaflet-Instanz zurück (Leck).
   useEffect(() => {
     if (!elRef.current || mapRef.current) return
-    const map = L.map(elRef.current).setView(center, 13)  // Anfangs-Mitte je Stadt
+    // Anfangs-Mitte je Stadt; mit gemerkter Ansicht derselben Stadt (29.10.2026, wie fgsCheck) nach einem Neuladen dort weiter
+    const gemerkt = ansichtLesen(center)
+    const map = L.map(elRef.current).setView(gemerkt?.c ?? center, gemerkt?.z ?? 13)
+    ansichtGemerkt.current = !!gemerkt
+    map.on('moveend', () => {
+      const c = map.getCenter()
+      try { localStorage.setItem(ANSICHT_SCHLUESSEL, JSON.stringify({ stadt: zentrumRef.current, c: [c.lat, c.lng], z: map.getZoom() })) } catch { /* ohne Speicher */ }
+    })
     // Drei Hintergründe zur Wahl: CyclOSM (Velo-Infrastruktur betont), Orthofoto (Führungsform
     // am Luftbild prüfbar — OSM-Tags sagen nicht immer, was gebaut ist), Landeskarte grau (ruhiger
     // Kontrast für die Linienfarben; seit 22.10.2026 statt «Hell (Carto)», dessen Kacheln ohne
@@ -323,6 +343,9 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   // geladen sind — beim Laden passt fitBounds ohnehin neu ein).
   useEffect(() => {
     const map = mapRef.current
+    zentrumRef.current = center
+    // erster Lauf nach dem Laden mit gemerkter Ansicht: nicht auf die Stadtmitte springen
+    if (ansichtGemerkt.current) { ansichtGemerkt.current = false; return }
     if (map && cands.length === 0) map.setView(center, 13)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [center])
