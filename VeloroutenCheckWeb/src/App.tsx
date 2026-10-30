@@ -26,6 +26,7 @@ import {
 import { bewerteAbschnitt, aufzaehlen, type AbschnittErgebnis } from './bewertung'
 import { QuerschnittSkizze, breiteCm, kennwerteText } from './Querschnitt'
 import { quellenFuer, type QuellenGruppe } from './quellen'
+import { ROUTENNETZ, type RoutennetzWms } from './routennetz'
 import Bericht from './Bericht'
 import { ladeFussnetz, ladeFussnetzBasel, FUSSNETZ_BASEL, FUSSNETZ_GEOPORTAL } from './fussnetz'
 import {
@@ -68,6 +69,7 @@ interface CityCfg {
   // gibt es keine Quelle (Basel: Parkfelder ohne Geometrie).
   parkierung?: ParkStadt
   velostreifenFile?: string                       // lokaler Markierungs-Snapshot (nicht öffentlich), falls vorhanden
+  routennetz?: RoutennetzWms                       // Velonetz als zuschaltbare Kartenebene (seit 30.10.2026; alle vier Städte)
   luftbildFile?: string                           // Radstreifen aus dem Luftbild (öffentlicher Snapshot, nur Hinweis; Bern, Zürich, Basel)
   // Breite am Luftbild messen: Kanton der amtlichen Vermessung (geodienste.ch) für die Quellenangabe.
   // Fehlt er, gibt es die Messung nicht. Luzern gibt die AV nur mit Freigabe ab; dort dienen seit
@@ -88,6 +90,7 @@ const CITIES: Record<CityId, CityCfg> = {
     parkierung: 'bern',
     velostreifenFile: 'velostreifen_bern.json',   // lokaler Snapshot; im öffentlichen Build nicht vorhanden
     luftbildFile: 'luftbild_bern.json',           // öffentlich (tools/luftbild_bern.py)
+    routennetz: ROUTENNETZ.bern,   // Kartenebene «Routennetz» (routennetz.ts, seit 30.10.2026)
     avKanton: 'Bern',                             // Breitenmessung (seit 15.10.2026)
     aufteilung: true,                             // Aufteilung planen (seit 16.10.2026, Etappe 1)
     standardDoc: {
@@ -103,6 +106,7 @@ const CITIES: Record<CityId, CityCfg> = {
     parkierung: 'zurich',
     breiten: BREITEN_ZUERICH, breitenQuelle: 'Velostandards Zürich',   // Rest → Bern-Fallback
     avKanton: 'Zürich',                           // Breitenmessung (seit 16.10.2026)
+    routennetz: ROUTENNETZ.zurich,   // Kartenebene «Routennetz» (routennetz.ts, seit 30.10.2026)
     aufteilung: true,                             // Aufteilung planen (seit 17.10.2026, Etappe 4)
     luftbildFile: 'luftbild_zurich.json',         // öffentlich (tools/luftbild_stadt.py), seit 16.10.2026
     standardDoc: {
@@ -120,6 +124,7 @@ const CITIES: Record<CityId, CityCfg> = {
     enrichCands: basel.enrichCands, loadOev: basel.loadOev,   // kein OBS-Snapshot
     breiten: BREITEN_BASEL, breitenQuelle: 'Standards Basel-Stadt',
     avKanton: 'Basel-Stadt',                      // Breitenmessung (seit 16.10.2026)
+    routennetz: ROUTENNETZ.basel,   // Kartenebene «Routennetz» (routennetz.ts, seit 30.10.2026)
     aufteilung: true,                             // Aufteilung planen (seit 17.10.2026, Etappe 4)
     luftbildFile: 'luftbild_basel.json',          // öffentlich (tools/luftbild_stadt.py), seit 16.10.2026
     standardDoc: {
@@ -138,6 +143,7 @@ const CITIES: Record<CityId, CityCfg> = {
     parkierung: 'luzern',
     breiten: BREITEN_LUZERN, breitenQuelle: 'Standards Stadt Luzern',
     avKanton: 'Luzern',                           // Strassenflächen der Stadt statt AV (seit 17.10.2026)
+    routennetz: ROUTENNETZ.luzern,   // Kartenebene «Routennetz» (routennetz.ts, seit 30.10.2026)
     aufteilung: true,                             // Aufteilung planen (seit 17.10.2026, Etappe 4)
     standardDoc: {
       titel: 'Standards Veloverkehr Stadt Luzern',
@@ -4130,7 +4136,7 @@ export default function App() {
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} stops={stops}
                      attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} obsStand={cityCfg.obsStand}
-                     teilModus={teilModus} orthofoto={messAktiv || planAv != null || qsa != null} bern2026={city === 'bern'} messung={messAnzeige ?? qsAnzeige} av={planAvWgs} formen={formen}
+                     teilModus={teilModus} orthofoto={messAktiv || planAv != null || qsa != null} bern2026={city === 'bern'} routennetz={cityCfg.routennetz ?? null} messung={messAnzeige ?? qsAnzeige} av={planAvWgs} formen={formen}
                      onMeldung={(t, art) => setMsg(t, art)} onMarkerClick={markerKlick} />
             {/* Kartenhöhe (nur Mobile, index.css .vrc-karte-hoehe): 30 → 45 → 70 % der Fensterhöhe */}
             <button type="button" className="vrc-karte-hoehe" onClick={karteStufeWeiter}

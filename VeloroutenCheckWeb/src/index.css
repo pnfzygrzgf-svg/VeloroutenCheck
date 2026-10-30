@@ -177,6 +177,13 @@ details.hilfe p { margin: 8px 0 2px; }
   .vrc-trenner:hover, .vrc-trenner:focus-visible, .vrc-trenner.zieht { background: var(--accent); outline: none; }
 }
 
+/* Mauszeiger über der Karte (seit 30.10.2026, Nutzerbefund «verwirrend, dass immer eine Hand angezeigt wird»): Pfeil statt der
+   Leaflet-Hand, die Hand nur beim Ziehen; «?» über einer Netzlinie mit Erklärung (VeloMap, Routennetz). Linien der Segmente und
+   Marker behalten den Zeiger zum Anklicken; Teilen und Messen setzen unten das Fadenkreuz. */
+.vrc-velomap.leaflet-grab { cursor: default; }
+.leaflet-dragging .vrc-velomap.leaflet-grab { cursor: grabbing; }
+.vrc-velomap.vrc-netz-info { cursor: help; }
+
 /* «Segment teilen» (App.tsx): Fadenkreuz über den anklickbaren Linien, solange der Modus aktiv
    ist. Zwei Klassen schlagen Leaflets `.leaflet-interactive { cursor: pointer }`. */
 .vrc-teilmodus .leaflet-interactive { cursor: crosshair; }
@@ -357,3 +364,6 @@ details.hilfe p { margin: 8px 0 2px; }
 @media screen and (min-width: 700px) {
   .vrc-toast { left: auto; transform: none; right: 14px; width: calc(var(--vrc-panel-w) - 28px); }
 }
+
+/* Erklärung beim Überfahren einer Netzlinie (Routennetz, seit 30.10.2026): umbrechend statt einer langen Zeile */
+.leaflet-tooltip.vrc-netz-tip { white-space: normal; width: max-content; max-width: 280px; font-size: 12px; line-height: 1.35; }

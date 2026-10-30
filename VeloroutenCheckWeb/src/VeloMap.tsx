@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
+import { netzTexte, type RoutennetzWms } from './routennetz'
 import 'leaflet/dist/leaflet.css'
 import type { ObsStats } from './obs'
 import type { Spuren } from './osm'
@@ -128,7 +129,8 @@ export interface MessAnzeige {
   quer?: { punkte: LLo[]; marken: { p: LLo; text: string }[] }
 }
 const ORTHO = 'Orthofoto (swisstopo)'
-const NAH_ZOOM = 19                                                 // ab hier gewählte Linien dünn (Markierungen sichtbar)
+const NAH_ZOOM = 19
+const NETZ_FANG_PX = 4, NETZ_PAUSE_MS = 250                          // Erklärung der Netzlinien: Fangfenster, Pause vor der Abfrage                                                 // ab hier gewählte Linien dünn (Markierungen sichtbar)
 const BERN26 = 'Orthofoto Stadt Bern 2026'
 const LUFTBILDER = [ORTHO, BERN26]                                  // Hintergründe mit Strassennamen-Kästchen
 
@@ -145,7 +147,7 @@ function ansichtLesen(stadt: [number, number] | L.LatLngExpression): { c: [numbe
 
 export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
                           attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
-                          teilModus = false, orthofoto = false, bern2026 = false, messung = null, av = null, obsStand, formen, onMeldung, onMarkerClick }: {
+                          teilModus = false, orthofoto = false, bern2026 = false, routennetz = null, messung = null, av = null, obsStand, formen, onMeldung, onMarkerClick }: {
   onMarkerClick?: (num: number) => void   // Abschnitts-Marker angeklickt (öffnet den Abschnitt im Panel, seit 22.10.2026)
   cands: Cand[]
   onLineClick: (id: number, lat: number, lon: number) => void   // Linie angeklickt (an-/abwählen oder teilen)
@@ -161,6 +163,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   teilModus?: boolean                     // «Segment teilen» aktiv → Fadenkreuz über den Linien
   orthofoto?: boolean                     // true → Hintergrund aufs Orthofoto schalten (Breitenmessung); bleibt danach
   bern2026?: boolean                      // Stadt Bern gewählt → Knopf «Bern 2026» (Orthofoto der Stadt, seit 27.10.2026)
+  routennetz?: RoutennetzWms | null       // Veloroutennetz der Stadt als zuschaltbare Ebene (seit 30.10.2026; Bern)
   messung?: MessAnzeige | null            // Breitenmessung: Kanten, Punkte, Messlinie
   av?: AvAnzeige | null                   // AV-Flächen eines Abschnitts (Aufteilung planen)
   // Führungsform je Cand-ID aus dem übernommenen Abschnitt (seit 17.10.2026): Farbe nach Seite A, eine
@@ -178,6 +181,9 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   const [basis, setBasis] = useState(ORTHO)                         // … für die Knöpfe auf der Karte
   const namenRef = useRef<L.TileLayer | null>(null)                 // Strassennamen (nur über dem Orthofoto)
   const [namen, setNamen] = useState(false)                       // Strassennamen aus, bis sie gewählt sind (Nutzerentscheid 22.10.2026)
+  // Routennetz zuschalten (seit 30.10.2026): über jedem Hintergrund, unter den Segmentlinien; der Browser merkt sich die Wahl
+  const [netzAn, setNetzAn] = useState(() => { try { return localStorage.getItem('vrc.routennetz') === '1' } catch { return false } })
+  const netzRef = useRef<L.TileLayer | null>(null)
   // Hintergrund wechseln (Knöpfe unten links auf der Karte, seit 22.10.2026 statt der Leaflet-Ebenenwahl):
   // die Strassennamen gehen mit dem Orthofoto an und aus, solange sie nicht abgewählt sind.
   const basisWechseln = (name: string, mitNamen = namen) => {
@@ -286,6 +292,11 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     messPane.style.pointerEvents = 'none'
     messRef.current = L.layerGroup().addTo(map)
     // AV-Flächen unter den Segmentlinien (av 350 < Overlay 400), klick-durchlässig.
+    // Routennetz (WMS) über dem Hintergrund, unter AV-Flächen und Linien (netz 340 < av 350 < Overlay 400), klick-durchlässig
+    map.createPane('netz')
+    const netzPane = map.getPane('netz')!
+    netzPane.style.zIndex = '340'
+    netzPane.style.pointerEvents = 'none'
     map.createPane('av')
     const avPane = map.getPane('av')!
     avPane.style.zIndex = '350'
@@ -469,6 +480,56 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     if (orthofoto && !LUFTBILDER.includes(aktiveBasis.current)) basisWechseln(ORTHO)   // ein Luftbild bleibt stehen
   }, [orthofoto])   // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Routennetz ein- und ausblenden; bei Stadtwechsel (anderes oder kein Netz) die alte Ebene entfernen
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    netzRef.current?.remove(); netzRef.current = null
+    if (!routennetz || !netzAn) return
+    netzRef.current = L.tileLayer.wms(routennetz.url, {
+      layers: routennetz.layers, styles: '', format: 'image/png', transparent: true, version: '1.3.0', pane: 'netz',
+      opacity: 0.8, maxZoom: 21, attribution: routennetz.attribution,
+    }).addTo(map)
+  }, [routennetz, netzAn])
+
+  // Erklärung beim Überfahren einer Netzlinie (seit 30.10.2026, Nutzerwunsch): nach einer kurzen Pause GetFeatureInfo an der Stelle
+  // (Fenster ±NETZ_FANG_PX um den Zeiger, Mitte abgefragt), Text aus routennetz.beschreiben als Tooltip. Nur mit Maus (Touch kennt
+  // kein Überfahren) und nicht während einer Messung; die jeweils letzte Abfrage gilt.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !routennetz || !netzAn) return
+    let timer = 0, nr = 0
+    const tip = L.tooltip({ direction: 'top', offset: [0, -8], className: 'vrc-netz-tip', opacity: 0.95 })
+    const weg = () => { window.clearTimeout(timer); nr++; tip.remove(); map.getContainer().classList.remove('vrc-netz-info') }
+    const abfragen = async (ll: L.LatLng, num: number) => {
+      const pt = map.latLngToContainerPoint(ll), f = NETZ_FANG_PX
+      const a = L.CRS.EPSG3857.project(map.containerPointToLatLng([pt.x - f, pt.y + f]))
+      const b = L.CRS.EPSG3857.project(map.containerPointToLatLng([pt.x + f, pt.y - f]))
+      const q = new URLSearchParams({ SERVICE: 'WMS', REQUEST: 'GetFeatureInfo', VERSION: '1.3.0', LAYERS: routennetz.layers,
+        QUERY_LAYERS: routennetz.layers, STYLES: '', CRS: 'EPSG:3857', BBOX: [a.x, a.y, b.x, b.y].map(v => v.toFixed(2)).join(','),
+        WIDTH: String(2 * f + 1), HEIGHT: String(2 * f + 1), I: String(f), J: String(f), INFO_FORMAT: routennetz.infoFormat, FEATURE_COUNT: '5',
+        ...routennetz.infoExtra })
+      try {
+        const res = await fetch(`${routennetz.url}?${q}`)
+        const text = res.ok ? await res.text() : ''
+        if (num !== nr) return
+        const feats = (text.trim() ? (JSON.parse(text) as { features?: { properties?: Record<string, unknown> }[] }).features : []) ?? []
+        const texte = netzTexte(feats.map(x => routennetz.beschreiben(x.properties ?? {})).filter((t): t is string => !!t))
+        if (!texte.length) { tip.remove(); map.getContainer().classList.remove('vrc-netz-info'); return }
+        tip.setLatLng(ll).setContent(texte.map(escapeHtml).join('<br>')).addTo(map)
+        map.getContainer().classList.add('vrc-netz-info')        // Mauszeiger «?» über einer erklärten Linie
+      } catch { if (num === nr) { tip.remove(); map.getContainer().classList.remove('vrc-netz-info') } }
+    }
+    const bewegt = (e: L.LeafletMouseEvent) => {
+      weg()
+      if (messAktivRef.current) return
+      const num = nr
+      timer = window.setTimeout(() => void abfragen(e.latlng, num), NETZ_PAUSE_MS)
+    }
+    map.on('mousemove', bewegt); map.on('mouseout movestart', weg)
+    return () => { weg(); map.off('mousemove', bewegt); map.off('mouseout movestart', weg) }
+  }, [routennetz, netzAn])
+
   // Stadt gewechselt: das Berner Orthofoto deckt nur Bern ab → zurück auf SWISSIMAGE
   useEffect(() => {
     if (!bern2026 && aktiveBasis.current === BERN26) basisWechseln(ORTHO)
@@ -567,6 +628,16 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         ))}
         {/* Ergänzung zum Luftbild, kein eigener Hintergrund: Kästchen «+ Strassennamen», nur bei den Luftbildern (seit
             22.10.2026 standardmässig aus) */}
+        {/* Routennetz der Stadt (seit 30.10.2026), über jedem Hintergrund */}
+        {routennetz && (
+          <label className="namen" title={`${routennetz.titel} einblenden (${routennetz.attribution})`}>
+            <input type="checkbox" checked={netzAn} onChange={e => {
+              setNetzAn(e.target.checked)
+              try { localStorage.setItem('vrc.routennetz', e.target.checked ? '1' : '0') } catch { /* nur für diese Sitzung */ }
+            }} />
+            <span className="lang">Routennetz</span><span className="kurz">Netz</span>
+          </label>
+        )}
         {LUFTBILDER.includes(basis) && (
           <label className="namen" title="Strassennamen aus dem amtlichen Strassenverzeichnis über dem Luftbild (swisstopo, ab Zoomstufe 17)">
             <input type="checkbox" checked={namen} onChange={e => { setNamen(e.target.checked); basisWechseln(basis, e.target.checked) }} />

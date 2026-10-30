@@ -91,18 +91,18 @@ export const QUELLEN: readonly Quelle[] = [
     verwendung: 'Strassennetz, Name, Tempo, Breite, Führungsform, Fahrspuren und Pfeile, Einbahn, parallele Radwege, Wartehallen (Overpass API, live).' },
   { id: 'geo_bern', name: 'Geoportal Stadt Bern', herausgeber: 'Stadt Bern, Geoinformation', ebene: 'Geodaten', gruppe: 'daten', staedte: ['bern'],
     url: 'https://map.bern.ch/',
-    verwendung: 'Verkehrsmenge (DTV), Tempo, Veloroutennetz des Masterplans, Velostrassen, Haltestellen und ÖV-Linien, Parkfelder (Auto für die Parkierung, Velo und Motorrad für den Platzbedarf in der Planung), Richtplan Fussverkehr, Orthofoto 2026 (Kartenhintergrund «Bern 2026» und Markierungserkennung live, Luftbild-Hinweis als Snapshot). ' +
+    verwendung: 'Verkehrsmenge (DTV), Tempo, Veloroutennetz des Masterplans, Velostrassen, Haltestellen und ÖV-Linien, Veloroutennetz auch als zuschaltbare Kartenebene «Routennetz», Parkfelder (Auto für die Parkierung, Velo und Motorrad für den Platzbedarf in der Planung), Richtplan Fussverkehr, Orthofoto 2026 (Kartenhintergrund «Bern 2026» und Markierungserkennung live, Luftbild-Hinweis als Snapshot). ' +
       'Der DTV ist aus Tages- und Nachtwerten geschätzt (DTV ≈ 16·Nt + 8·Nn), nur eine Grössenordnung, und nur für Strassen über 2 000 Fahrzeuge je Tag ' +
       'sowie die Altstadt geführt; ohne Eintrag gilt «≤ 2 000 angenommen».' },
   { id: 'ogd_zh', name: 'Open Data Stadt Zürich', herausgeber: 'Stadt Zürich', ebene: 'Geodaten', gruppe: 'daten', staedte: ['zurich'],
     url: 'https://data.stadt-zuerich.ch/',
-    verwendung: 'Velonetzplanung (Routentyp), Tempo, öffentliche Parkplätze (live).' },
+    verwendung: 'Velonetzplanung (Routentyp, auch als Kartenebene «Routennetz»), Tempo, öffentliche Parkplätze (live).' },
   { id: 'ogd_bs', name: 'Open Data Kanton Basel-Stadt', herausgeber: 'Kanton Basel-Stadt', ebene: 'Geodaten', gruppe: 'daten', staedte: ['basel'],
     url: 'https://data.bs.ch/',
-    verwendung: 'Teilrichtplan Velo und Velostadtplan (Routentyp, Velostrassen), Strassentyp und Tempo, Verkehrszählung (DTV), Teilrichtplan Fuss- und Wanderwege (live bzw. Snapshot).' },
+    verwendung: 'Teilrichtplan Velo und Velostadtplan (Routentyp, Velostrassen; Routennetz Alltag als Kartenebene «Routennetz»), Strassentyp und Tempo, Verkehrszählung (DTV), Teilrichtplan Fuss- und Wanderwege (live bzw. Snapshot).' },
   { id: 'ogd_lu', name: 'Open Data Stadt Luzern', herausgeber: 'Stadt Luzern', ebene: 'Geodaten', gruppe: 'daten', staedte: ['luzern'],
     url: 'https://map.stadtluzern.ch/',
-    verwendung: 'Velonetz (Routentyp), öffentliche Parkplätze, Strassenflächen als Ersatz für die amtliche Vermessung (live).' },
+    verwendung: 'Velonetz (Routentyp, auch als Kartenebene «Routennetz»), öffentliche Parkplätze, Strassenflächen als Ersatz für die amtliche Vermessung (live).' },
   { id: 'av', name: 'Amtliche Vermessung', titel: 'Bodenbedeckung, Kantone Bern, Zürich und Basel-Stadt', herausgeber: 'geodienste.ch (Kantone)',
     ebene: 'Geodaten', gruppe: 'daten', staedte: ['bern', 'zurich', 'basel'], url: 'https://www.geodienste.ch/',
     verwendung: 'Bordsteinkanten für die Breitenmessung, Fahrbahn- und Trottoirbreiten, Mittelinseln und Haltestelleninseln, Flächen auf der Karte in der Planung (live).' },
