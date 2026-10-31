@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
-import { readdirSync, rmSync } from 'node:fs'
+import { readdirSync, readFileSync, rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 // Nicht öffentliche Snapshots aus dem Build-Ergebnis entfernen. `velostreifen_bern.json` (aus den
@@ -23,8 +23,14 @@ function nichtOeffentlichEntfernen(): Plugin {
   }
 }
 
+// Version aus package.json für die Anzeige in Fusszeile und Bericht (__APP_VERSION__)
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as { version: string }
+
 export default defineConfig(() => ({
   plugins: [react(), nichtOeffentlichEntfernen()],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   // Eigene Domain (veloroutencheck.ch) → die Site liegt an der Wurzel, nicht unter /<repo>/.
   // import.meta.env.BASE_URL spiegelt das (z. B. fetch der gebündelten public/-Snapshots).
   base: '/',

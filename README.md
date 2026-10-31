@@ -884,6 +884,13 @@ Repo-Einstellungen unter **Settings → Pages → Source = „GitHub Actions"** 
 
 ---
 
+## Versionen
+
+- 1.0.0 (31.10.2026): erste nummerierte Version, Stand nach den Etappen bis Oktober 2026; die Nummer steht in der
+  Fusszeile und im Bericht (`__APP_VERSION__` aus `package.json`).
+
+---
+
 ## Lizenz
 
 Code und eigene Inhalte dieses Projekts: **[CC BY-NC 4.0](LICENSE)** (Namensnennung,
