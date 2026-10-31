@@ -349,7 +349,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
             <footer className="bericht-fuss">
               <p><b>Die App ersetzt keine Planung und keine Beurteilung vor Ort.</b> Daten aus offenen Quellen können veraltet oder
                 unvollständig sein.</p>
-              <p>VeloroutenCheck v{__APP_VERSION__} · {APP_URL} · Code und eigene Inhalte unter CC BY-NC 4.0 · Illustrationen der Skizze unter CC BY-SA 4.0 · eingebundene
+              <p>VeloroutenCheck v{__APP_VERSION__} · {APP_URL} · Code unter MIT, eigene Inhalte unter CC BY 4.0 · Illustrationen der Skizze unter CC BY-SA 4.0 · eingebundene
                 Daten unter ihren eigenen Lizenzen (siehe Quellen).</p>
             </footer>
         </td></tr></tbody>

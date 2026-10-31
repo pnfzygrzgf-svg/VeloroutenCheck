@@ -2701,8 +2701,9 @@ function Landing({ onStart }: { onStart: () => void }) {
         </ul>
       </div>
       <footer className="start-fuss">
-        VeloroutenCheck v{__APP_VERSION__} · Code &amp; eigene Inhalte unter{' '}
-        <a href="https://creativecommons.org/licenses/by-nc/4.0/deed.de" target="_blank" rel="noopener noreferrer">CC BY-NC 4.0</a>
+        VeloroutenCheck v{__APP_VERSION__} · Code unter{' '}
+        <a href="https://opensource.org/license/mit" target="_blank" rel="noopener noreferrer">MIT</a>, eigene Inhalte unter{' '}
+        <a href="https://creativecommons.org/licenses/by/4.0/deed.de" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>
         {' '}(eingebundene Daten behalten ihre eigenen Lizenzen) ·{' '}
         <a href="https://github.com/pnfzygrzgf-svg/VeloroutenCheck" target="_blank" rel="noopener noreferrer">Quellcode auf GitHub</a>
       </footer>
@@ -4607,10 +4608,14 @@ export default function App() {
       {/* Fusszeile: Lizenz + Quellcode */}
       <footer style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid var(--border-subtle)',
                        fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-        VeloroutenCheck v{__APP_VERSION__} · Code &amp; eigene Inhalte unter{' '}
-        <a href="https://creativecommons.org/licenses/by-nc/4.0/deed.de"
+        VeloroutenCheck v{__APP_VERSION__} · Code unter{' '}
+        <a href="https://opensource.org/license/mit"
            target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-          CC BY-NC 4.0
+          MIT
+        </a>, eigene Inhalte unter{' '}
+        <a href="https://creativecommons.org/licenses/by/4.0/deed.de"
+           target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+          CC BY 4.0
         </a>{' '}
         (eingebundene Daten behalten ihre eigenen Lizenzen) ·{' '}
         <a href="https://github.com/pnfzygrzgf-svg/VeloroutenCheck"

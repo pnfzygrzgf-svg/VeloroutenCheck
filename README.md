@@ -893,12 +893,13 @@ Repo-Einstellungen unter **Settings → Pages → Source = „GitHub Actions"** 
 
 ## Lizenz
 
-Code und eigene Inhalte dieses Projekts: **[CC BY-NC 4.0](LICENSE)** (Namensnennung,
-nicht-kommerziell). Ausgenommen ist der [Ergebnisbericht der Berner Bildumfrage 2026](docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/):
-Text, PDF und Bilder stehen unter **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.de)**
-(Namensnennung, auch kommerziell). Die eingebundenen **Dritt-Daten** behalten ihre eigenen Lizenzen und
+Code: **[MIT](LICENSE)** (Copyright (c) 2026 pnfzygrzgf-svg). Eigene Inhalte (Texte, Dokumentation, Berichte, eigene Grafiken,
+auch der [Ergebnisbericht der Berner Bildumfrage 2026](docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/)):
+**[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.de)**. Name und Logo sind ausgenommen; Überblick und Ausnahmen in
+[LICENSE-INHALTE.md](LICENSE-INHALTE.md). Bis zur Version 1.0.0 (31.10.2026) galt CC BY-NC 4.0. Die Illustrationen der Skizze
+(Streetmix) stehen unter CC BY-SA 4.0. Die eingebundenen **Dritt-Daten** behalten ihre eigenen Lizenzen und
 Quellenangaben — siehe [Datenlizenzen und Quellenangaben](#datenlizenzen-und-quellenangaben)
 (u. a. Geodaten Stadt Bern, OpenStreetMap/ODbL, opentransportdata.swiss, OpenBikeSensor, swisstopo).
 Das gilt auch für die gebündelten **Daten-Snapshots** `VeloroutenCheckWeb/public/*.json`, die aus solchen
-Quellen stammen oder abgeleitet sind (eigene Ausnahme in der [LICENSE](LICENSE)); so verlangen die aus
+Quellen stammen oder abgeleitet sind (Ausnahme in [LICENSE-INHALTE.md](LICENSE-INHALTE.md)); so verlangen die aus
 SWISSIMAGE abgeleiteten Luftbild-Snapshots `luftbild_bern.json`, `luftbild_zurich.json` und `luftbild_basel.json` die Angabe «© swisstopo».
