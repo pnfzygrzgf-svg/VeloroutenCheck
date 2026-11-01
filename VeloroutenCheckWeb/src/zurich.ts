@@ -1,8 +1,7 @@
 // ── Amtliche/öffentliche Daten Stadt Zürich (Adapter, analog bern.ts) ─────────
 //
 // Spiegelt die bern.ts-Schnittstellen (enrichCands / loadOev), damit App.tsx je nach
-// gewählter Stadt denselben Ablauf fährt. Bewusst auf einen ersten, kleinen Schritt
-// beschränkt — was Zürich (noch) NICHT liefert, bleibt manuelle Eingabe:
+// gewählter Stadt denselben Ablauf fährt. Was Zürich NICHT liefert, bleibt manuelle Eingabe:
 //
 //   - Routentyp: live aus der städtischen «Velonetzplanung» (WFS, view_velonetz).
 //     Attribut `kategorie` ∈ {Vorzugsroute, Hauptnetz, Basisnetz}. Übersetzung in die
@@ -12,10 +11,10 @@
 //       Basisnetz    → kein Routentyp   (Feld bleibt manuell, wie in Bern ohne Klassierung)
 //     Kein Strassenname im Datensatz → Zuordnung geometrisch (geo.ts), wie bei Bern.
 //   - Tempo / Ist-Führungsform / Breite: kommen stadtneutral aus OSM (App.tsx), nicht hier.
-//   - DTV: für Zürich KEINE offene flächendeckende Quelle (nur ~100 DAV-Zählstellen als
-//     Punktmessungen) → bleibt vorerst manuell (Zählstellen-Einbau = späterer Baustein).
-//   - ÖV (Tram in der Fahrbahn, Haltestelle im Abschnitt): aus OSM (siehe cityShared.ts).
-//     Der Bus-Takt (Frequenzband) erfordert einen OSM→GTFS-Join → vorerst manuell.
+//   - DTV: keine flächendeckende Quelle; live die nächste Zählstelle des Kantons
+//     (Verkehrsmessstellen, maps.zh.ch, siehe fetchDtvStations), Punktmessung.
+//   - ÖV (Tram in der Fahrbahn, Haltestelle im Abschnitt): aus OSM (siehe cityShared.ts);
+//     Bus-Takt aus dem gebündelten GTFS-Snapshot (oev_takt_zurich.json).
 //
 // Lizenz Velonetzplanung / OGD Stadt Zürich: Open Government Data, Quellenangabe Pflicht
 // («Stadt Zürich»). Der WFS ist CORS-offen und liefert GeoJSON direkt in WGS84 (kein
@@ -26,7 +25,7 @@ import type { Routentyp } from './fuehrungsform'
 import { densify } from './geo'
 import { holeJson } from './netz'
 import {
-  bboxOf, bestOverlapValue, istLinie, loadOevFromOsm, nearestDtv, versuch, SAMPLE_M,
+  bboxOf, bestOverlapValue, istLinie, loadOevFromOsm, nearestDtv, dtvEbene, routennetzEbene, versuch, SAMPLE_M,
   type Anreicherung, type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
 
@@ -90,7 +89,9 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
     versuch('Velonetzplanung (Routentyp)', fetchVelonetz(bboxOf(cands)), [], fehler),
     versuch('Verkehrsmessstellen (DTV)', fetchDtvStations(), [], fehler),
   ])
-  return { fehler, cands: cands.map(c => {
+  const routennetz = routennetzEbene(features, 'zh:r', 'Velonetzplanung Stadt Zürich', f => kategorieToRoutentyp(f.properties.kategorie),
+    f => (f.properties.kategorie != null ? String(f.properties.kategorie) : null))
+  return { fehler, ebenen: { dtv: dtvEbene(cands, stations, 'Kanton Zürich, Verkehrsmessstellen'), routennetz }, cands: cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
     // Votum pro WERT: die kantonalen Velonetz-Features sind kurz segmentiert — pro Feature
     // erreichte keines die 50 % und der Routentyp fiel aus (07.08.2026).

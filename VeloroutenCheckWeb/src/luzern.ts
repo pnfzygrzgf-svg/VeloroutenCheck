@@ -1,6 +1,6 @@
 // ── Öffentliche Geodaten Stadt Luzern (Adapter, analog bern.ts/zurich.ts/basel.ts) ──
 //
-// Spiegelt die Schnittstellen (enrichCands / loadOev). Erster Schritt, bewusst klein:
+// Spiegelt die Schnittstellen (enrichCands / loadOev):
 //
 //   - Routentyp: live aus dem städtischen «Velonetz» (ArcGIS REST, Layer 7, Feld
 //     VELO_ROUTENTYP). Das OGD-Feld bildet die kantonale 3-stufige Netzhierarchie ab
@@ -13,8 +13,9 @@
 //       keine Velonetz-Route / unbekannt / leer → kein Routentyp (manuell)
 //     Kein verlässlicher Strassen-Join → Zuordnung geometrisch (geo.ts).
 //   - Tempo / Ist-Führungsform / Breite: aus OSM (App.tsx).
-//   - DTV / Bus-Takt: vorerst manuell. ÖV (Haltestelle) aus OSM — Luzern hat KEIN Tram,
-//     nur Bus/Trolleybus → praktisch nur «Haltestelle vorhanden».
+//   - DTV: live die nächste Zählstelle (OGD/verkehrszaehldaten, siehe fetchDtvStations).
+//   - ÖV (Haltestelle) aus OSM, Bus-Takt aus dem GTFS-Snapshot (oev_takt_luzern.json) —
+//     Luzern hat KEIN Tram, nur Bus/Trolleybus.
 //
 // Lizenz: Open Government Data Stadt Luzern, Quellenangabe Pflicht. Der ArcGIS-REST-Dienst
 // ist CORS-offen und liefert auf Anfrage GeoJSON in WGS84 (Live-Abruf, kein Proxy nötig).
@@ -24,7 +25,7 @@ import type { Routentyp } from './fuehrungsform'
 import { densify } from './geo'
 import { arcgisGeojson } from './netz'
 import {
-  bboxOf, bestOverlapValue, istLinie, loadOevFromOsm, nearestDtv, versuch, SAMPLE_M,
+  bboxOf, bestOverlapValue, istLinie, loadOevFromOsm, nearestDtv, dtvEbene, routennetzEbene, versuch, SAMPLE_M,
   type Anreicherung, type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
 
@@ -76,7 +77,9 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
     versuch('Velonetz (Routentyp)', fetchVelonetz(bboxOf(cands)), [], fehler),
     versuch('Verkehrszähldaten (DTV)', fetchDtvStations(), [], fehler),
   ])
-  return { fehler, cands: cands.map(c => {
+  const routennetz = routennetzEbene(features, 'lu:r', 'Velonetz Stadt Luzern', f => routentypFrom(f.properties.VELO_ROUTENTYP),
+    f => (f.properties.VELO_ROUTENTYP != null ? String(f.properties.VELO_ROUTENTYP) : null))
+  return { fehler, ebenen: { dtv: dtvEbene(cands, stations, 'Stadt Luzern, Verkehrszähldaten'), routennetz }, cands: cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
     // Votum pro WERT statt pro Feature (fein segmentierter Layer, siehe bestOverlapValue).
     const routentyp = features.length

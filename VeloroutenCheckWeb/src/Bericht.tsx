@@ -19,7 +19,7 @@ import { dtvAssumed, type Quelle, type Section, type Seite } from './strecke'
 import type { Routentyp, Stadt } from './fuehrungsform'
 import { numDE } from './csv'
 import {
-  bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, pruefeKernfahrbahn, pruefeTeil, pruefungText, haltUmfeld, startAufteilung, umfeldVon,
+  bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, pruefeKernfahrbahn, pruefeTeil, pruefungText, haltUmfeld, startAufteilung, umfeldVon, linksDerMitte,
   BILD_LABEL, FUSSNETZ, FUSS_QUELLE, STANDARD_QUELLE, MARKIERUNG_LABEL, RICHTWERT_QUELLE, LICHTRAUM_QUELLE, teilName, type Aufteilung,
 } from './aufteilung'
 import { SkizzeSvg, breiteCm, kennwerteText } from './Querschnitt'
@@ -280,7 +280,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                         <td>{teilName(t)}{zusatz && <div className="klein">{zusatz}</div>}</td>
                         <td style={{ whiteSpace: 'nowrap' }}>{Number.isFinite(t.breite) ? `${numDE(t.breite, 2)} m` : '–'}
                           {t.angenommen && <div className="klein">angenommen*</div>}</td>
-                        <td className="klein">{pruefungText(t, pruefeTeil(t, rt, breiten, { ...umfeld, halt: haltUmfeld(a.teile, i, section, a) }))}</td>
+                        <td className="klein">{pruefungText(t, pruefeTeil(t, rt, breiten, { ...umfeld, halt: haltUmfeld(a.teile, i, section, a), seite: linksDerMitte(a.teile)[i] ? 'B' : 'A' }))}</td>
                       </tr>
                     )
                   })}

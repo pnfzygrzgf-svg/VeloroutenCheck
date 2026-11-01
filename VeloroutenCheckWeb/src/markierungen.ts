@@ -198,7 +198,10 @@ export const ohneRinne = (mk: Markierung[], von: number, bis: number): Markierun
 // In Bern liest die Erkennung beide Luftbilder (seit 27.10.2026): Probe Kirchenfeldstrasse 44425592 — im Märzflug 2026 liegt
 // der Radstreifen A an allen drei Stellen im Schatten, in SWISSIMAGE 2024 an einer nicht. Alle Querschnitte beider Bilder
 // gehen in die Auswahl (markierungPasst nimmt die mit der erwarteten Zahl Stücke).
-export async function markierungenAbschnitt(achsen: P[][], flaechen: AvFlaeche[], quelle: LuftbildQuelle = 'swissimage'): Promise<{ breiten: number[]; querschnitte: number; stuecke: number[]; alle: number[][]; luftbild: LuftbildQuelle | 'beide' } | null> {
+// striche (seit 01.11.2026, Kartenebene «Erkannte Markierungen»): je gelesenen Querschnitt kurze Querstriche an den erkannten
+// Linien (art 'linie') und an den Bordkanten ('bord'), LV95; nur für die Karte, nicht im Abschnitt gespeichert
+export interface MarkierungStrich { a: P; b: P; art: 'linie' | 'bord' }
+export async function markierungenAbschnitt(achsen: P[][], flaechen: AvFlaeche[], quelle: LuftbildQuelle = 'swissimage'): Promise<{ breiten: number[]; querschnitte: number; stuecke: number[]; alle: number[][]; luftbild: LuftbildQuelle | 'beide'; striche?: MarkierungStrich[] } | null> {
   const linie = achsen.flat()
   const st = [0]
   for (let i = 1; i < linie.length; i++) st.push(st[i - 1] + Math.hypot(linie[i][0] - linie[i - 1][0], linie[i][1] - linie[i - 1][1]))
@@ -209,6 +212,7 @@ export async function markierungenAbschnitt(achsen: P[][], flaechen: AvFlaeche[]
     return [linie[i - 1][0] + f * (linie[i][0] - linie[i - 1][0]), linie[i - 1][1] + f * (linie[i][1] - linie[i - 1][1])]
   }
   const ergebnisse: number[][] = []
+  const striche: MarkierungStrich[] = []
   const gelesen = new Set<LuftbildQuelle>()
   const quellen: LuftbildQuelle[] = quelle === 'bern2026' ? ['bern2026', 'swissimage'] : ['swissimage']
   for (const pos of POSITIONEN) {
@@ -227,6 +231,11 @@ export async function markierungenAbschnitt(achsen: P[][], flaechen: AvFlaeche[]
       const mk = ohneRinne(markierungenFinden(profilLesen(bild, ql.c, ql.r, von + BORD_FREI_M, bis - BORD_FREI_M)), von, bis)
       const ts = [von, ...mk.map(m => m.t), bis]
       ergebnisse.push(ts.slice(1).map((t, i) => Math.round((t - ts[i]) * 100) / 100))
+      const strich = (t: number, art: MarkierungStrich['art']): MarkierungStrich => {
+        const m: P = [ql.c[0] + ql.r[0] * t, ql.c[1] + ql.r[1] * t], h2 = LAENGS_M / 2
+        return { a: [m[0] - u[0] * h2, m[1] - u[1] * h2], b: [m[0] + u[0] * h2, m[1] + u[1] * h2], art }
+      }
+      striche.push(strich(von, 'bord'), strich(bis, 'bord'), ...mk.map(x => strich(x.t, 'linie')))
     }
   }
   if (!ergebnisse.length) return null
@@ -237,5 +246,5 @@ export async function markierungenAbschnitt(achsen: P[][], flaechen: AvFlaeche[]
   const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
   return { breiten: Array.from({ length: n }, (_, k) => Math.round(median(gleich.map(e => e[k])) * 100) / 100), querschnitte: gleich.length,
     stuecke: ergebnisse.map(e => e.length), alle: ergebnisse,
-    luftbild: gelesen.size > 1 ? 'beide' : gelesen.has('bern2026') ? 'bern2026' : 'swissimage' }
+    luftbild: gelesen.size > 1 ? 'beide' : gelesen.has('bern2026') ? 'bern2026' : 'swissimage', striche }
 }

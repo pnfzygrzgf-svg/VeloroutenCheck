@@ -61,7 +61,10 @@ export async function ladeFussnetz(achsen: P[][]): Promise<{ netz: FussNetz; ant
 // (Standards FVV, Tab. 1). Quellenangabe «Geodaten Kanton Basel-Stadt».
 export const FUSSNETZ_BASEL = 'Geodaten Kanton Basel-Stadt, Teilrichtplan Fuss- und Wanderwege'
 async function baselLinien(behoerde: 'KantonBS' | 'Basel', env: string): Promise<P[]> {
-  const pts: P[] = []
+  return (await baselLinienRoh(behoerde, env)).flatMap(verdichten)
+}
+async function baselLinienRoh(behoerde: 'KantonBS' | 'Basel', env: string): Promise<P[][]> {
+  const out: P[][] = []
   for (const anschluss of ['ohneAnschluss', 'mitAnschluss']) {
     const u = 'https://wfs.geo.bs.ch/?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature' +
       `&TYPENAMES=ms:TF_Fusswegnetz_${behoerde}_Bestand_${anschluss}&OUTPUTFORMAT=geojson` +
@@ -70,10 +73,10 @@ async function baselLinien(behoerde: 'KantonBS' | 'Basel', env: string): Promise
     for (const f of j.features ?? []) {
       const g = f.geometry
       const linien = (g?.type === 'MultiLineString' ? g.coordinates : g?.type === 'LineString' ? [g.coordinates] : []) as number[][][]
-      for (const l of linien) pts.push(...verdichten(l.filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1])).map(p => [p[0], p[1]] as P)))
+      for (const l of linien) { const z = l.filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1])).map(p => [p[0], p[1]] as P); if (z.length >= 2) out.push(z) }
     }
   }
-  return pts
+  return out
 }
 export async function ladeFussnetzBasel(achsen: P[][]): Promise<{ netz: FussNetz; anteil: number }> {
   const pts = achsen.flat(), r = 20
@@ -83,4 +86,19 @@ export async function ladeFussnetzBasel(achsen: P[][]): Promise<{ netz: FussNetz
   if (kanton >= BASIS_ANTEIL) return { netz: 'bs_kanton', anteil: kanton }
   const kommunal = anteilNahe(achsen, await baselLinien('Basel', env))
   return kommunal >= BASIS_ANTEIL ? { netz: 'bs_stadt', anteil: kommunal } : { netz: 'bs_uebrige', anteil: Math.max(kanton, kommunal) }
+}
+
+// Kartenebene «Fussverkehrsnetz» (ebenen.ts, seit 01.11.2026): die Linien im Rechteck [E min, N min, E max, N max] (LV95)
+export async function fussnetzLinien(stadt: 'bern' | 'basel', box: [number, number, number, number]): Promise<{ klasse: 'basis' | 'stadt'; linie: P[] }[]> {
+  const env = box.map(v => v.toFixed(1)).join(',')
+  if (stadt === 'basel') {
+    const [k, s] = await Promise.all([baselLinienRoh('KantonBS', env), baselLinienRoh('Basel', env)])
+    return [...k.map(linie => ({ klasse: 'basis' as const, linie })), ...s.map(linie => ({ klasse: 'stadt' as const, linie }))]
+  }
+  const q = new URLSearchParams({ geometry: env, geometryType: 'esriGeometryEnvelope', inSR: '2056', outSR: '2056',
+    spatialRel: 'esriSpatialRelIntersects', outFields: 'Layer', returnGeometry: 'true', f: 'json' })
+  const j = await holeJson<{ features?: { geometry?: { paths?: number[][][] } }[] }>(`${FUSSNETZ_DIENST}?${q}`, 30000)
+  return (j.features ?? []).flatMap(f => (f.geometry?.paths ?? []).map(path =>
+    ({ klasse: 'basis' as const, linie: path.filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1])).map(p => [p[0], p[1]] as P) })))
+    .filter(x => x.linie.length >= 2)
 }

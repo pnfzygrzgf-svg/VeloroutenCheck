@@ -38,6 +38,7 @@ import { gegenVon, seiteA, seiteB, seitenGleich, type Quelle, type Section, type
 import { numDE } from './csv'
 import { PARK_SCHWELLE } from './parkierung'
 import { HS_UMFAHRUNG_MAX_M, PARK_TIEFE_ANNAHME, PARK_WINKEL_TIEFE, type ParkWinkel } from './breitenmessung'
+import { umweltspurSteigungText, type Steigung } from './steigung'
 
 export type TeilArt = 'Trottoir' | 'Haltestelle' | 'Gruen' | 'Parkierung' | 'Veloabstellplatz' | 'Parklet' | 'Sicherheitsstreifen' | 'Velostreifen'
   | 'Pfosten' | 'Radweg' | 'Trennstreifen' | 'Fahrspur' | 'Gemeinsam' | 'Kernfahrbahn' | 'Velostrasse' | 'Tram' | 'Mittelinsel'
@@ -349,6 +350,8 @@ export interface Umfeld {
   kmh?: number; einbahn?: boolean; radweg?: boolean; fussnetz?: FussNetz
   stadt?: Stadt; dtv?: number; routentyp?: Routentyp | ''; velo?: boolean   // velo: Velostreifen oder Radweg in der Planung
   oevTakt?: number   // Bus-Takt [Min] der Umweltspur (kleinster der Seiten), für den Hinweis am Teil
+  steigung?: Steigung   // Steigung des Abschnitts (swissALTI3D, positiv = Seite A bergauf), für den Hinweis an der Umweltspur
+  seite?: 'A' | 'B'     // Seite des geprüften Teils (links der Mitte = B), für die Bergauf-Richtung
   // Haltestelle neben dem Teil (haltUmfeld, seit 20.10.2026): Typ der Seite und ob das Teil hinter (vom Rand her) bzw. vor ihr liegt
   halt?: { typ: Haltestellentyp; hinter: boolean }
 }
@@ -380,7 +383,7 @@ export function haltUmfeld(teile: Teil[], i: number, s: Section, a?: Aufteilung)
 export const umfeldVon = (s: Section, teile: Teil[], fussnetz?: FussNetz, stadt: Stadt = 'bern'): Umfeld =>
   ({ kmh: s.speed, einbahn: s.richtung === 'eine', radweg: teile.some(t => t.art === 'Radweg'), fussnetz, stadt,
      dtv: s.dtv, routentyp: s.routentyp, velo: teile.some(t => t.art === 'Velostreifen' || t.art === 'Radweg'),
-     ...(takt(s) != null ? { oevTakt: takt(s) } : {}) })
+     ...(takt(s) != null ? { oevTakt: takt(s) } : {}), ...(s.steigung ? { steigung: s.steigung } : {}) })
 const takt = (s: Section): number | undefined => {
   const ts = [seiteA(s).oevTakt, seiteB(s).oevTakt].filter(Number.isFinite)
   return ts.length ? Math.min(...ts) : undefined
@@ -411,13 +414,13 @@ export function pruefeTeil(t: Teil, routentyp: Routentyp, breiten?: Partial<Reco
     return { soll, status: soll != null && t.breite < soll - 1e-9 ? 'zu schmal' : 'ok', quelle: breitenQuelle }
   }
   // Umweltspur (Q 4): Vorgabe wie in der Bewertung (Bern/Luzern 4,50 / 3,75; Zürich 4,80 / 4,50; Basel 4,50 / 3,00);
-  // dazu die Hinweise des Masterplans: Bus-Takt unter 7,5 Min nicht vorgesehen, Steigung über 2 % nicht prüfbar
+  // dazu die Hinweise des Masterplans: Bus-Takt unter 7,5 Min nicht vorgesehen, Steigung über 2 % (swissALTI3D, seit 01.11.2026)
   if (t.art === 'Umweltspur') {
     const soll = sollBreite('Umweltspur', routentyp, breiten?.Umweltspur)
     const takt = umfeld.oevTakt
     const hinweis = (takt != null && takt < 7.5 ? `Bus-Takt ${numDE(takt, 1)} Min: unter 7,5 Min ist die Umweltspur nicht vorgesehen (Masterplan Q 4; Takt im Abschnitt bei der Seite, Feld «öV-Takt», anpassbar). `
       : takt == null ? 'Bus-Takt unbekannt (im Abschnitt bei der Seite, Feld «öV-Takt», eintragen; unter 7,5 Min nicht vorgesehen). ' : '')
-      + 'Bei Steigung über 2 % Umweltspur ab 4,50 m oder separater Velobereich (Steigung nicht geprüft).'
+      + umweltspurSteigungText(umfeld.steigung, umfeld.seite)
     if (!Number.isFinite(t.breite)) return { soll, status: 'leer', quelle: breitenQuelle, hinweis }
     return { soll, status: soll != null && t.breite < soll - 1e-9 ? 'zu schmal' : 'ok', quelle: breitenQuelle, hinweis }
   }

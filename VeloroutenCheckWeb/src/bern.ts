@@ -28,12 +28,13 @@
 
 import type { Cand, Stop } from './VeloMap'
 import type { Routentyp } from './fuehrungsform'
-import { densify, overlapScore, anteilAbgedeckt, distPointToLineM } from './geo'
+import { densify, overlapScore, anteilAbgedeckt, distPointToLineM, type LL } from './geo'
 import { arcgisGeojson, holeJson } from './netz'
 import {
-  bboxOf, bestOverlapFeature, bestOverlapValue, featureLatLon, istLinie, versuch, TRAM_OVERLAP_M,
+  bboxOf, bestOverlapFeature, bestOverlapValue, featureLatLon, featureTeile, objektId, istLinie, routennetzEbene, versuch,
   type Anreicherung, type Bbox, type GeoJsonFeature,
 } from './cityShared'
+import { tempoObjekt, dtvLinie, type EbenenDaten, type EbenenObjekt } from './ebenen'
 
 const BASE = 'https://map.bern.ch/arcgis/rest/services/Geoportal'
 
@@ -55,6 +56,16 @@ function fetchBernGeojson(service: string, bbox: Bbox, outFields: string): Promi
 //   5 Veloroute abseits Hauptverkehrsstrassen · 6 Veloroute abseits … mit Fokus Freizeit.
 // Ohne Code (nicht klassierte Netzgeometrie) oder mit unbekanntem Code → null: Die Linie stimmt
 // dann nicht mit (majorityValue) — lieber kein Routentyp als ein geratener.
+// Strassenhierarchie (Service «Strassenhierarchie», Layer 0, seit 01.11.2026): Werte des Dienstes in der Kurzform des lokalen
+// Rechners (soll_ist_analyse.py HIERARCHIE_FARBEN, Spalte `hierarchie`); unbekannte Werte bleiben, wie sie sind
+const HIERARCHIE_KURZ: Record<string, string> = {
+  'Quartierstr. ergänzend (Anlief. / Priv.)': 'Quartierstrasse ergänzend', 'nicht befahrbar (Fuss- / Aare- / Waldw.)': 'nicht befahrbar',
+}
+export function hierarchieKurz(v: unknown): string | null {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return s && s !== 'Null' ? HIERARCHIE_KURZ[s] ?? s : null
+}
+
 export function routentypAusCode(code: unknown): Routentyp | null {
   const n = zahlOderNull(code)
   if (n === 1 || n === 2 || n === 3) return 'Velohauptroute'
@@ -109,13 +120,15 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
   const fehler: string[] = []
   if (cands.length === 0) return { cands, fehler }
   const bbox = bboxOf(cands)
-  const [tempo, dtvRoh, routenRoh, velostrassen] = await Promise.all([
+  const [tempo, dtvRoh, routenRoh, velostrassen, hierRoh] = await Promise.all([
     versuch('Signalisierte Höchstgeschwindigkeit', fetchBernGeojson('Signalisierte_Hoechstgeschwindigkeit', bbox, 'V_sig'), [], fehler),
     // null = Layer nicht erreichbar (≠ leeres, aber gültiges Ergebnis) — Grundlage der Annahme.
     versuch<GeoJsonFeature[] | null>('Verkehrsdaten (DTV)', fetchBernGeojson('Flaechendeckende_Verkehrsdaten', bbox, 'Nt,Nn'), null, fehler),
     versuch('Veloroutennetz', fetchBernGeojson('Veloroutennetz_Masterplan', bbox, 'Veloroutentyp'), [], fehler),
     versuch('Velostrassen', loadVelostrassen(), [], fehler),
+    versuch('Strassenhierarchie', fetchBernGeojson('Strassenhierarchie', bbox, 'Strassenhierarchie'), [], fehler),
   ])
+  const hierarchieLinien = hierRoh.filter(istLinie)
   const dtvLayerOk = dtvRoh !== null
   const dtv = (dtvRoh ?? []).filter(istLinie)
   const dtvLinien = dtv.map(featureLatLon)
@@ -130,13 +143,27 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
   // Nach Wert gezählt gewinnt der Wert, der die Mehrheit des Abschnitts abdeckt.
   // Features ohne Wert (nicht klassierte Netzgeometrie, leeres V_sig) stimmen nicht mit und
   // verdecken auch keine klassierte Linie (majorityValue schliesst sie vorab aus).
-  return { fehler, cands: cands.map(c => {
+  // Kartenebenen (ebenen.ts): die gelesenen Linien mit ihrem Wert (nur Daten, die Zuordnung bleibt unten)
+  const ebenen: EbenenDaten = {
+    routennetz: routennetzEbene(routen, 'be:r', 'Veloroutennetz Masterplan', f => routentypAusCode(f.properties.Veloroutentyp),
+      f => (f.properties.Veloroutentyp != null ? `Code ${String(f.properties.Veloroutentyp)}` : null)),
+    tempo: tempoLinien.flatMap(f => { const t = featureTeile(f), v = zahlOderNull(f.properties.V_sig)
+      return t.length && v != null ? [tempoObjekt(objektId('be:t', t), t, v, 'Geoportal, Signalisierte Höchstgeschwindigkeit')] : [] }),
+    dtv: dtv.flatMap(f => { const t = featureTeile(f), nt = zahlOderNull(f.properties.Nt), nn = zahlOderNull(f.properties.Nn)
+      return t.length && nt != null && nn != null ? [dtvLinie(objektId('be:d', t), t, dtvFromNtNn(nt, nn), 'Geoportal, Flächendeckende Verkehrsdaten')] : [] }),
+    hierarchie: hierarchieLinien.flatMap(f => { const t = featureTeile(f), h = hierarchieKurz(f.properties.Strassenhierarchie)
+      return t.length && h ? [{ id: objektId('be:h', t), linien: t, klasse: h, text: `${String(f.properties.Strassenhierarchie)} (Geoportal, Strassenhierarchie)` }] : [] }),
+    velostrasse: velostrassen.flatMap(f => { const t = featureTeile(f)
+      return t.length ? [{ id: objektId('be:v', t), linien: t, klasse: 'velostrasse', text: `Velostrasse${f.properties.Name ? ` ${f.properties.Name}` : ''} (Geoportal)` }] : [] }),
+  }
+  return { fehler, ebenen, cands: cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
     const speed = bestOverlapValue(dense, tempoLinien, f => zahlOderNull(f.properties.V_sig), OVERLAP_M, MIN_FRACTION)
     const dtvVal = bestOverlapValue(dense, dtv, f => {
       const nt = zahlOderNull(f.properties.Nt), nn = zahlOderNull(f.properties.Nn)
       return nt != null && nn != null ? dtvFromNtNn(nt, nn) : null
     }, OVERLAP_M, MIN_FRACTION)
+    const hierarchie = bestOverlapValue(dense, hierarchieLinien, f => hierarchieKurz(f.properties.Strassenhierarchie), OVERLAP_M, MIN_FRACTION)
     const routentyp = bestOverlapValue(dense, routen,
       f => routentypAusCode(f.properties.Veloroutentyp), OVERLAP_M, MIN_FRACTION)
     // Velostrasse setzt die Ist-Führungsform → strenger (VELO_FRACTION), damit eine bloss
@@ -147,7 +174,7 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
       (dtvVal != null || anteilAbgedeckt(dense, dtvLinien, OVERLAP_M) <= DTV_LEER_MAX)
     // `!= null` statt falsy (07.08.2026): DTV 0 (Nt=Nn=0) und Tempo 0 sind gültige amtliche
     // Werte — als „fehlt" behandelt log der Chip („angenommen" statt „amtlich").
-    if (speed == null && dtvVal == null && !routentyp && !velostrasse && !dtvGeprueft) return c
+    if (speed == null && dtvVal == null && !routentyp && !velostrasse && !dtvGeprueft && !hierarchie) return c
     return {
       ...c,
       bern: {
@@ -157,6 +184,7 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
         ...(routentyp === 'Velohauptroute' || routentyp === 'Veloroute' ? { routentyp } : {}),
         ...(velostrasse ? { velostrasse: true } : {}),
         ...(dtvGeprueft ? { dtvGeprueft: true } : {}),
+        ...(hierarchie ? { hierarchie } : {}),
       },
     }
   }) }
@@ -190,26 +218,68 @@ function loadTakt(): Promise<Record<string, number>> {
 }
 
 // Liefert je Kandidat die ÖV-Info (per Geometrie) und alle Haltestellen-Punkte (für Karten-Marker).
-export async function loadOev(cands: Cand[]): Promise<{ byId: Map<number, OevInfo>; stops: Stop[]; fehler: string[] }> {
+// Tram in der Fahrbahn wie im lokalen Rechner (anreichern/situativ_flag.py, Merkmal «tram»: coverage, maxd 15 m, frac 0,5,
+// parallel): Abschnitte, die ungefähr parallel zum Segment liegen (bis TRAM_WINKEL), decken mindestens TRAM_ANTEIL der
+// Segmentpunkte bis TRAM_ABSCHNITT_M ab. Die Parallelität (wie soll_ist_analyse.parallel) wirft quer einmündende Gleise raus.
+export const TRAM_ABSCHNITT_M = 15, TRAM_ANTEIL = 0.5, TRAM_WINKEL = 30
+const richtungM = (a: LL, b: LL): [number, number] => {
+  const k = Math.cos(a.lat * Math.PI / 180)
+  return [(b.lon - a.lon) * k * 111320, (b.lat - a.lat) * 111320]
+}
+function parallelZu(linie: LL[], dense: LL[]): boolean {
+  if (linie.length < 2 || dense.length < 2) return false
+  const [vx, vy] = richtungM(linie[0], linie[linie.length - 1]), n = Math.hypot(vx, vy)
+  if (n < 1e-6) return true                                    // zu kurz für eine Richtung → nicht ablehnen
+  const mitte = linie[linie.length >> 1]
+  let best = 0, bd = Infinity
+  for (let i = 0; i < dense.length - 1; i++) { const d = distPointToLineM(mitte, [dense[i], dense[i + 1]]); if (d < bd) { bd = d; best = i } }
+  const [sx, sy] = richtungM(dense[best], dense[best + 1]), m = Math.hypot(sx, sy)
+  return m < 1e-6 || Math.abs((vx * sx + vy * sy) / (n * m)) >= Math.cos(TRAM_WINKEL * Math.PI / 180)
+}
+export function tramInFahrbahn(dense: LL[], abschnitte: LL[][]): boolean {
+  const teile = abschnitte.flatMap(l => { const t: LL[][] = [[]]; for (const p of l) { if (Number.isNaN(p.lat)) t.push([]); else t[t.length - 1].push(p) }; return t })
+    .filter(l => l.length >= 2 && parallelZu(l, dense))
+  if (!teile.length || !dense.length) return false
+  const treffer = dense.filter(p => teile.some(l => distPointToLineM(p, l) <= TRAM_ABSCHNITT_M)).length
+  return treffer / dense.length >= TRAM_ANTEIL
+}
+
+export async function loadOev(cands: Cand[]): Promise<{ byId: Map<number, OevInfo>; stops: Stop[]; fehler: string[]; ebenen?: EbenenDaten }> {
   const fehler: string[] = []
   if (cands.length === 0) return { byId: new Map(), stops: [], fehler }
   const bbox = bboxOf(cands)
-  const [haltGeo, linienRoh, takt] = await Promise.all([
-    versuch('ÖV-Haltestellen', fetchBernGeojson('Haltestellen', bbox, 'Punktname,Id_opendata'), [], fehler),
-    versuch('ÖV-Linien', fetchBernGeojson('OeV_Linien', bbox, 'Verkehrsmittel_typ'), [], fehler),
+  const [haltGeo, linienRoh, tramRoh, takt] = await Promise.all([
+    versuch('ÖV-Haltestellen', fetchBernGeojson('Haltestellen', bbox, 'Punktname,Id_opendata,Nummer_nach'), [], fehler),
+    versuch('ÖV-Linien', fetchBernGeojson('OeV_Linien', bbox, 'Verkehrsmittel_typ,Nummer_linie,Linienname'), [], fehler),
+    versuch('Verkehrsdaten Tram', fetchBernGeojson('Verkehrsdaten_Tram', bbox, 'Nt,Nn,Strassenname'), [], fehler),
     loadTakt(),
   ])
   const linienGeo = linienRoh.filter(istLinie)
-  // Haltestellen-Punkte ([lon,lat]) für die Karte (mit BPUIC für den Fahrplan-Join).
+  // Verkehrsmittel je Liniennummer (OeV_Linien, Feld Verkehrsmittel_typ), für den Typ der Haltestelle (seit 01.11.2026)
+  const modusJeLinie = new Map<string, 'tram' | 'bus'>()
+  for (const f of linienGeo) {
+    const nr = f.properties.Nummer_linie, typ = f.properties.Verkehrsmittel_typ
+    if (nr != null && (typ === 'Tram' || typ === 'Bus' || typ === 'Trolleybus')) modusJeLinie.set(String(nr), typ === 'Tram' ? 'tram' : 'bus')
+  }
+  // Tram in der Fahrbahn aus «Verkehrsdaten Tram» (Strassenabschnitte mit Tramverkehr), wie der lokale Rechner (seit 01.11.2026,
+  // Nutzerentscheid; vorher der Linienverlauf aus OeV_Linien bis TRAM_OVERLAP_M)
+  const tramAbschnitte = tramRoh.filter(istLinie)
+  const tramGeo = tramAbschnitte.map(featureLatLon)
+  // Haltestellen-Punkte ([lon,lat]) für die Karte (mit BPUIC für den Fahrplan-Join). Das Feld Nummer_nach listet die Linien
+  // («<li>9 Wabern</li>…»); ihr Verkehrsmittel gibt den Typ, ohne bekannte Linie die Lage an einem Tramgleis (bis 30 m).
   const stops: Stop[] = haltGeo
     .filter(f => f.geometry?.type === 'Point')
     .map(f => {
       const [lon, lat] = f.geometry!.coordinates as number[]
       const bpuic = f.properties.Id_opendata != null ? String(f.properties.Id_opendata) : undefined
-      return { lat, lon, name: String(f.properties.Punktname ?? 'Haltestelle'), bpuic }
+      const perH = bpuic ? takt[bpuic] : undefined
+      const linien = [...new Set([...String(f.properties.Nummer_nach ?? '').matchAll(/<li>\s*([^\s<]+)/g)].map(m => m[1]))]
+      const modi = new Set(linien.map(l => modusJeLinie.get(l)).filter((m): m is 'tram' | 'bus' => !!m))
+      if (!modi.size) { if (tramGeo.some(l => distPointToLineM({ lat, lon }, l) <= STOP_DIST_M)) modi.add('tram'); else if (linien.length) modi.add('bus') }
+      return { lat, lon, name: String(f.properties.Punktname ?? 'Haltestelle'), bpuic, ...(perH != null && perH > 0 ? { perH } : {}),
+        ...(modi.size ? { modi: [...modi].sort((a, b) => (a === 'tram' ? -1 : b === 'tram' ? 1 : 0)) } : {}), ...(linien.length ? { linien } : {}) }
     })
-  // Linien nach Modus (Tram bzw. Bus/Trolleybus — beide auf der Fahrbahn velorelevant).
-  const tramLines = linienGeo.filter(f => f.properties.Verkehrsmittel_typ === 'Tram').map(featureLatLon)
+  // Buslinien (Bus/Trolleybus) für den Takt auf der Strecke; Tram siehe tramGeo oben
   const busLines = linienGeo
     .filter(f => f.properties.Verkehrsmittel_typ === 'Bus' || f.properties.Verkehrsmittel_typ === 'Trolleybus')
     .map(featureLatLon)
@@ -227,7 +297,7 @@ export async function loadOev(cands: Cand[]): Promise<{ byId: Map<number, OevInf
       const d = distPointToLineM(st, dense)
       if (d <= nearD) { nearD = d; nearStop = st }
     }
-    const oevTram = tramLines.some(l => overlapScore(dense, l, TRAM_OVERLAP_M) >= MIN_FRACTION)
+    const oevTram = tramInFahrbahn(dense, tramGeo)
     const segLinien = busLines.filter(l => overlapScore(dense, l, OVERLAP_M) >= MIN_FRACTION)
     const oevBus = segLinien.length > 0
     if (nearStop || oevTram || oevBus) {
@@ -248,5 +318,19 @@ export async function loadOev(cands: Cand[]): Promise<{ byId: Map<number, OevInf
         ...(strecke ? { streckePerH: strecke.perH, streckeHalt: strecke.name } : {}) })
     }
   }
-  return { byId, stops, fehler }
+  // Kartenebene «ÖV-Linien» (ebenen.ts): die gelesenen Linien mit ihrem Verkehrsmittel
+  // (Tram: die Abschnitte aus «Verkehrsdaten Tram», die die App für «Tram in der Fahrbahn» liest; Bus: die Buslinien)
+  const zahl = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? String(Math.round(v * 10) / 10).replace('.', ',') : '?')
+  const oev: EbenenObjekt[] = [
+    ...tramAbschnitte.flatMap(f => { const t = featureTeile(f)
+      return t.length ? [{ id: objektId('be:tram', t), linien: t, klasse: 'tram',
+        text: `Tram${f.properties.Strassenname ? ` ${String(f.properties.Strassenname)}` : ''}: tagsüber Ø ${zahl(f.properties.Nt)}, nachts Ø ${zahl(f.properties.Nn)} Fahrten je Stunde (Geoportal, Verkehrsdaten Tram)` }] : [] }),
+    ...linienGeo.flatMap(f => {
+      const t = featureTeile(f), typ = f.properties.Verkehrsmittel_typ
+      if (!t.length || (typ !== 'Bus' && typ !== 'Trolleybus')) return []
+      return [{ id: objektId(`be:o${f.properties.Nummer_linie ?? ''}`, t), linien: t, klasse: 'bus',
+        text: `${String(f.properties.Linienname ?? typ)} (Geoportal, ÖV-Linien)` }]
+    }),
+  ]
+  return { byId, stops, fehler, ebenen: { oev } }
 }

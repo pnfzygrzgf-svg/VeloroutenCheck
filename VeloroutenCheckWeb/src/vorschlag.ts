@@ -21,7 +21,8 @@
 // Abweichungen zum lokalen Rechner (online fehlen die Daten bzw. der Abschnitt ist zurückgestellt):
 //   - Rang 5 (Haltestelle umbauen) prüft online zusätzlich den Platz der Veloumfahrung (hsPlatz).
 //   - Keine Parkplatzzahl: unter gleichem Rang zählt «nichts < eine Seite < beide» (lokal ohne Zählung ebenso).
-//   - Velostrasse ohne die Bedingung «Quartierstrasse» (die Strassenhierarchie fehlt online).
+//   - Velostrasse mit der Bedingung «Quartierstrasse» nur in Bern (Strassenhierarchie des Geoportals, seit 01.11.2026); die
+//     übrigen Städte haben keine Hierarchie online, dort ohne diese Bedingung.
 //   - Keine Hinweise zu Steigung, Schwerverkehr und Sicht (Daten fehlen online).
 //   - Die Note rechnet die Online-Bewertung (bewertung.ts), nicht die lokale Notenkette.
 // Parkierung je Seite statt «beidseitig/Seite»; Parkierung auf Trottoirniveau braucht keine Fahrbahnbreite.
@@ -144,6 +145,7 @@ export interface Eingaben {
   fussNeben?: Partial<Record<S, number>>                         // eigener Fussweg neben dem Radweg (Wege trennen)
   platzOffen?: boolean                                           // Weg verbreitert: Platz daneben nicht geprüft
   stadt: Stadt; breiten?: Breiten; strassentyp?: Strassentyp; m: Masse   // Stadt, ihre Breiten und Masse (seit 20.10.2026)
+  hierarchie?: string                                            // Strassenhierarchie (nur Bern), Bedingung der Velostrasse
 }
 type Kand = { rang: number; text: string; k: Eingaben; weg: 0 | 1 | 2 }   // weg: 0 nichts, 1 eine Reihe, 2 alle
 
@@ -236,8 +238,12 @@ function inDieFahrbahn(e: Eingaben): Eingaben | null {
   for (const s of seitenVon(e)) if (formVon(e, s) === FUSSWEG) k = formSetzen(k, s, MISCH, null)
   return k
 }
-function velostrasse(e: Eingaben): Eingaben | null {
+// Q 9 «Nebenstrasse»: in Bern nur auf einer Quartierstrasse der amtlichen Strassenhierarchie (wie massnahmen.velostrasse im
+// lokalen Rechner; Nutzerentscheid 01.11.2026). Fehlt die Angabe (andere Städte, Dienst nicht erreichbar), keine Bedingung.
+export const VELOSTRASSE_HIERARCHIE = 'Quartierstrasse'
+export function velostrasse(e: Eingaben): Eingaben | null {
   if (e.ist !== MISCH || (e.geg && e.geg !== MISCH)) return null
+  if (e.hierarchie && e.hierarchie !== VELOSTRASSE_HIERARCHIE) return null
   const sv = sollVon(e)
   if (e.kmh !== 30 || e.fahrbahn == null || (sv !== 'Mischverkehr' && sv !== 'Velostrasse') || e.tram || e.halt || e.uTakt || e.insel) return null
   const netto = r2(e.fahrbahn - parkFbBreite(e))
@@ -546,7 +552,7 @@ export function eingabenVon(s: Section, stadt: Stadt = 'bern', breiten?: Breiten
     uTakt: [a, b].some(f => Number.isFinite(f.oevTakt)),
     angenommen, annahme,
     ohneFahrbahn: !!s.ohneFahrbahn,
-    stadt, ...(breiten ? { breiten } : {}), ...(s.strassentyp ? { strassentyp: s.strassentyp } : {}), m,
+    stadt, ...(breiten ? { breiten } : {}), ...(s.strassentyp ? { strassentyp: s.strassentyp } : {}), ...(s.hierarchie ? { hierarchie: s.hierarchie } : {}), m,
   }
 }
 

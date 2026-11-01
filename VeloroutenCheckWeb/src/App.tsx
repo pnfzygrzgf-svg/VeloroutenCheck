@@ -11,6 +11,9 @@ import {
 } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, BREIT_MQ, MOBIL_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, ZWEIRAD_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
 import { zuLv95, zuWgs, type P } from './lv95'
+import { ladeSteigung, achseInRichtungA } from './steigung'
+import { AV_DECKKRAFT } from './farben'
+import { ebenenMischen, haltestellenObjekte, imUmkreis, obsObjekte, osmTempoObjekte, steigungObjekte, NACHLADEN, type EbeneId, type EbenenDaten, type EbenenObjekt } from './ebenen'
 import { ladeAvFuer, avQuelle } from './av'
 import Strassensuche from './Strassensuche'
 import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, RANG_TEXT, type TrottoirAnpassung, type Vorschlag, ZIEL_TEXT, vorschlagMitRandstein } from './vorschlag'
@@ -28,7 +31,7 @@ import { QuerschnittSkizze, breiteCm, kennwerteText } from './Querschnitt'
 import { quellenFuer, type QuellenGruppe } from './quellen'
 import { ROUTENNETZ, type RoutennetzWms } from './routennetz'
 import Bericht from './Bericht'
-import { ladeFussnetz, ladeFussnetzBasel, FUSSNETZ_BASEL, FUSSNETZ_GEOPORTAL } from './fussnetz'
+import { ladeFussnetz, ladeFussnetzBasel, fussnetzLinien, FUSSNETZ_BASEL, FUSSNETZ_GEOPORTAL } from './fussnetz'
 import {
   bilanz, bilanzText, markierungPasst, inselImQuerschnitt, VELOSTREIFEN_UEBLICH, bewerteAufteilung, haltUmfeld, hatHaltestelle, haltestelleninselUebernehmen, haltestelleEinfuegen, HS_VORLAGEN, fussnetzOptionen, FUSS_QUELLE, STANDARD_QUELLE, mitSeitenraum, bildVon, linksDerMitte, markierungenFuer, pruefungText, richtungenFuer, richtungVon, FUSSNETZ, mitTrottoirs, pruefeKernfahrbahn, pruefeTeil, standardBreite, startAufteilung, umfeldVon, istFahrbahnTeil,
   BILDER, BILD_LABEL, MARKIERUNG_LABEL, PFEILE, markierungAus, parkTiefeVorbelegt, pfeileVon, TEIL_GRUPPEN, TEIL_LABEL, auf5cm,
@@ -38,7 +41,7 @@ import { himmelsrichtung, peilung } from './geo'
 import { mitParallelen } from './parallelwege'
 import { ladeWartehallen, loadBboxCandidates, loadNearestCandidate, loadStreetCandidates, teileInListe, MIN_TEIL_M } from './osm'
 import { buildCsv, numDE, parseZahl } from './csv'
-import type { Anreicherung } from './cityShared'
+import { bboxOf, type Anreicherung } from './cityShared'
 import * as bern from './bern'
 import * as zurich from './zurich'
 import * as basel from './basel'
@@ -47,13 +50,13 @@ import * as luzern from './luzern'
 import { type OevInfo } from './bern'
 import { enrichObs, type ObsStats } from './obs'
 import { enrichVelostreifen, type VeloInfo } from './velostreifen'
-import { enrichLuftbild, LUFTBILD_SCHWELLE, LUFTBILD_ERKENNUNG_BILD, type LuftbildInfo } from './luftbild'
+import { enrichLuftbild, luftbildEbene, LUFTBILD_SCHWELLE, LUFTBILD_ERKENNUNG_BILD, type LuftbildInfo } from './luftbild'
 import { enrichParkierung, ladeParkflaechen, PARK_MAX_M, PARK_QUELLE, type Box as ParkBox, type ParkFlaeche, type ParkInfo, type ParkStadt } from './parkierung'
 
 // ── Städte-Registry: pro Stadt die Datenquellen + Beschriftungen bündeln ───────
 // Alle Adapter (bern/zurich/basel/luzern/stgallen.ts) tragen dieselben Schnittstellen.
 type CityId = Stadt   // 'bern' | 'zurich' | 'basel' | 'luzern' (St. Gallen vorerst nicht weiterverfolgt)
-type LoadOevResult = { byId: Map<number, OevInfo & { oevQuelle?: 'amtlich' | 'osm' }>; stops: Stop[]; fehler: string[] }
+type LoadOevResult = { byId: Map<number, OevInfo & { oevQuelle?: 'amtlich' | 'osm' }>; stops: Stop[]; fehler: string[]; ebenen?: EbenenDaten }
 interface CityCfg {
   label: string                                   // Anzeigename (Meldungen, UI)
   osmArea: string                                 // OSM-Gebietsname für die Strassen-Abfrage
@@ -1567,7 +1570,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
             (Drag and Drop), Nummer, Art, Breite (−/+/📏) und ✕; darunter gedämpft die Einzelheiten (Bild, Pfeil, Parkierung,
             Richtung, Verschieben auf Touch-Geräten, Einfügen dahinter); dann die Prüfung */}
         {L.map((t, i) => {
-          const p = pruefeTeil(t, rt, breiten, { ...umfeld, halt: haltUmfeld(L, i, section, heuteListe ? ausgang : a) })
+          const p = pruefeTeil(t, rt, breiten, { ...umfeld, halt: haltUmfeld(L, i, section, heuteListe ? ausgang : a), seite: linksDerMitte(L)[i] ? 'B' : 'A' })
           const bilder = BILDER[t.art]
           const marks = markierungenFuer(t.art)
           const richtungen = richtungenFuer(t.art, einbahn)
@@ -2804,6 +2807,7 @@ export default function App() {
   const [cands, setCands] = useState<Cand[]>([])
   const [fitKey, setFitKey] = useState(0)   // +1 → Karte passt sich den Segmenten an (nur «Strasse laden»)
   const [stops, setStops] = useState<Stop[]>([])                  // ÖV-Haltestellen für Karten-Marker
+  const [ebenen, setEbenen] = useState<EbenenDaten>({})            // gelesene Objekte der Vorbelegung (Kartenebenen, seit 01.11.2026)
   // Stadtwechsel: geladene Segmente/Haltestellen UND Abschnitte verwerfen — die Abschnitte tragen
   // Quellen/Annahmen der alten Stadt (z. B. Bern-DTV-Annahme, Geoportal-Chips) und wären in der
   // neuen Stadt still falsch etikettiert.
@@ -2811,7 +2815,7 @@ export default function App() {
     if (c === city) return
     ladeGen.current++   // hängige Lade-Ketten (falls doch eine läuft) als veraltet markieren
     const hatte = sections.some(s => s.ist !== '' || Number.isFinite(s.dtv) || s.candIds?.length)
-    setCity(c); setCands([]); setStops([]); setStreet(''); setSections([defaultSection()]); setTeilModus(false)
+    setCity(c); setCands([]); setStops([]); setEbenen({}); setStreet(''); setSections([defaultSection()]); setTeilModus(false)
     setMessung(null)
     setOsmBusy(false)      // eine evtl. hängige Ladung ist verworfen — nicht als „Lädt …" stehen lassen
     undoRef.current = null; setUndoLabel(null)   // Undo über den Stadtwechsel hinweg wäre falsch etikettiert
@@ -2936,6 +2940,16 @@ export default function App() {
   // der Zähler ist der Gurt für alles, was daran vorbeikommt (z. B. langsame Anreicherung).
   const ladeGen = useRef(0)
   const selCount = cands.filter(c => c.selected).length
+  // Ist die Auswahl schon die Strecke? (Nutzerbefund 01.11.2026: nach «… in Strecke übernehmen» blieb der Text gleich.) Gleich =
+  // dieselben Segmente wie in den Abschnitten; dann ist der Knopf erledigt, sonst übernimmt er die geänderte Auswahl neu
+  const inStrecke = new Set(sections.flatMap(s => s.candIds ?? []))
+  const auswahlUebernommen = selCount > 0 && inStrecke.size > 0 && cands.every(c => c.selected === inStrecke.has(c.id))
+  const uebernehmenText = auswahlUebernommen ? `✓ ${segmente(selCount)} in der Strecke`
+    : inStrecke.size > 0 && selCount > 0 ? `Geänderte Auswahl übernehmen (${segmente(selCount)})`
+    : selCount ? `${segmente(selCount)} in Strecke übernehmen` : 'In Strecke übernehmen'
+  const uebernehmenTitel = auswahlUebernommen ? 'Die gewählten Segmente sind übernommen. Segmente an- oder abwählen, um die Strecke zu ändern.'
+    : inStrecke.size > 0 && selCount > 0 ? 'Baut die Abschnitte aus der geänderten Auswahl neu auf (Eingaben in den Abschnitten gehen verloren; «Rückgängig» stellt sie wieder her).'
+    : undefined
 
   // Aktueller Kandidaten-Stand für die async-Ketten (der State im Closure ist dort veraltet).
   const candsRef = useRef<Cand[]>([])
@@ -2955,12 +2969,12 @@ export default function App() {
     const fehler: string[] = []
     const neuIds = new Set(c.map(x => x.id))
     const alle = [...bestehende.filter(x => !neuIds.has(x.id)), ...c]
-    const [ec, obs, oev, velo, luftbild, park] = await Promise.all([
-      cityCfg.enrichCands(c).catch(() => { fehler.push(cityCfg.attribution); return { cands: c, fehler: [] as string[] } }),
+    const [ec, obs, oev, velo, luftbild, park, lbEbene] = await Promise.all([
+      cityCfg.enrichCands(c).catch((): Anreicherung => { fehler.push(cityCfg.attribution); return { cands: c, fehler: [] } }),
       cityCfg.obsFile
         ? enrichObs(alle, cityCfg.obsFile).catch(() => new Map<number, ObsStats>())
         : Promise.resolve(new Map<number, ObsStats>()),
-      cityCfg.loadOev(c).catch(() => { fehler.push('ÖV'); return { byId: new Map<number, OevInfo>(), stops: [] as Stop[], fehler: [] as string[] } }),
+      cityCfg.loadOev(c).catch((): LoadOevResult => { fehler.push('ÖV'); return { byId: new Map<number, OevInfo>(), stops: [], fehler: [] } }),
       cityCfg.velostreifenFile
         ? enrichVelostreifen(c, cityCfg.velostreifenFile).catch(() => new Map<number, VeloInfo>())
         : Promise.resolve(new Map<number, VeloInfo>()),
@@ -2970,7 +2984,10 @@ export default function App() {
       cityCfg.parkierung
         ? enrichParkierung(c, cityCfg.parkierung).catch(() => { fehler.push('Parkfelder'); return new Map<number, ParkInfo>() })
         : Promise.resolve(new Map<number, ParkInfo>()),
+      cityCfg.luftbildFile ? luftbildEbene(c, cityCfg.luftbildFile).catch(() => [] as EbenenObjekt[]) : Promise.resolve([] as EbenenObjekt[]),
     ])
+    // Gelesene Objekte für die Kartenebenen (ebenen.ts), über alle Ladungen gesammelt
+    setEbenen(prev => ebenenMischen(ebenenMischen(prev, { ...ec.ebenen, luftbild: lbEbene }), oev.ebenen))
     fehler.push(...ec.fehler, ...oev.fehler)
     const bernById = new Map(ec.cands.map(x => [x.id, x.bern]))
     const cands = c.map(cand => {
@@ -3020,7 +3037,7 @@ export default function App() {
     try {
       const c = await loadStreetCandidates(name, cityCfg.osmArea)
       if (gen !== ladeGen.current) return          // inzwischen Stadtwechsel/neue Ladung → verwerfen
-      setCands(c); setStops([])          // Segmente SOFORT zeigen (anklickbar) — Anreicherung folgt im Hintergrund
+      setCands(c); setStops([]); setEbenen({})   // Segmente SOFORT zeigen (anklickbar) — Anreicherung folgt im Hintergrund
       setTeilModus(false)                // die Liste ist neu — ein angefangenes Teilen gilt nicht mehr
       setMessung(null)
       setFitKey(k => k + 1)              // auf die geladene Strasse einpassen
@@ -3192,6 +3209,10 @@ export default function App() {
       }
     }
     avCacheRef.current.set(schluessel, flaechen)
+    // Kartenebene «Amtliche Vermessung» (ebenen.ts): die gemessenen Flächen der gezeigten Arten sammeln
+    setEbenen(prev => ebenenMischen(prev, { av: flaechen.filter(f => f.art in AV_FARBEN && f.ringe[0]?.length).map(f => ({
+      id: `av:${f.art}:${f.ringe[0][0][0].toFixed(1)},${f.ringe[0][0][1].toFixed(1)}`, klasse: f.art, deckkraft: AV_DECKKRAFT[f.art] ?? 0.25,
+      ringe: f.ringe.map(r => r.map(p => zuWgs(p[0], p[1]))), text: `AV: ${f.art.replace('_', ', ')}` })) }))
     return { achsen, flaechen }
   }
   // ziel 'plan': in die verfügbare Fahrbahnbreite der Aufteilung statt ins Feld der Grunddaten.
@@ -3330,6 +3351,11 @@ export default function App() {
     const netzLaden = !cityCfg.aufteilung || !avAchsen(s).length ? Promise.resolve(null)
       : city === 'bern' ? ladeFussnetz(avAchsen(s)).catch(() => null)
       : city === 'basel' ? ladeFussnetzBasel(avAchsen(s)).catch(() => null) : Promise.resolve(null)
+    // Steigung aus swissALTI3D (seit 01.11.2026, Hinweis an der Umweltspur): einmal je Abschnitt, im Hintergrund
+    if (!s.steigung && avAchsen(s).length) {
+      ladeSteigung(achseInRichtungA(avAchsen(s, true), s.peilungA)).then(st =>
+        setSections(prev => prev.map(x => (x.id === secId && x.candIds?.join(',') === s.candIds?.join(',') ? { ...x, steigung: st } : x))))
+    }
     try {
       const { flaechen } = await avFuerAbschnitt(s)
       const park = await parkLaden
@@ -3414,7 +3440,12 @@ export default function App() {
           setSections(prev => prev.map(x => {
             if (x.id !== secId) return x
             const vorher = startAufteilung(x, city, cityCfg.breiten)
-            const neu: Section = { ...x, markierung: m ?? { breiten: [], querschnitte: 0, stuecke: [] } }
+            // Querstriche der gelesenen Querschnitte für die Kartenebene «Erkannte Markierungen» (nicht im Abschnitt gespeichert)
+            const { striche, ...mOhne } = m ?? { striche: undefined }
+            if (striche?.length) setEbenen(prev => ebenenMischen(prev, { markierung: striche.map((st, k) => ({
+              id: `mk:${secId}:${k}`, linien: [[zuWgs(st.a[0], st.a[1]), zuWgs(st.b[0], st.b[1])]], klasse: st.art,
+              text: st.art === 'linie' ? 'Im Luftbild erkannte Linie' : 'Bordkante (AV), Rand der Messung' })) }))
+            const neu: Section = { ...x, markierung: m ? mOhne as NonNullable<Section['markierung']> : { breiten: [], querschnitte: 0, stuecke: [] } }
             if (x.aufteilung && JSON.stringify(x.aufteilung.teile) === JSON.stringify(vorher.teile)) {
               const st = startAufteilung(neu, city, cityCfg.breiten)
               neu.aufteilung = { ...x.aufteilung, teile: st.teile }
@@ -3928,6 +3959,92 @@ export default function App() {
   // Führungsform der übernommenen Abschnitte für die Linienfarbe (eine Änderung von Hand färbt die Karte mit)
   // Schlüssel als Text: die Karte zeichnet nur neu, wenn sich eine Form ändert, nicht bei jeder Eingabe
   const formenSchluessel = sections.map(s => `${(s.candIds ?? []).join(',')}:${seiteA(s).ist}|${s.richtung === 'beide' ? seiteB(s).ist : ''}`).join(';')
+  // Nachzuladende Kartenebenen (ebenen.NACHLADEN, Batch 2): erst für die ÜBERNOMMENEN Abschnitte und je Abschnitt nur um
+  // seine Segmente (Nutzervorschlag 01.11.2026: weniger laden als für alles, was «Strasse laden» geholt hat); jeder Abschnitt
+  // einmal je Ebene (Schlüssel aus den Segment-Kennungen), neue Abschnitte kommen dazu
+  const nachgeladenRef = useRef(new Set<string>())
+  const [laufend, setLaufend] = useState<Partial<Record<EbeneId, number>>>({})
+  const zaehlen = (id: EbeneId, d: 1 | -1) => setLaufend(p => ({ ...p, [id]: Math.max(0, (p[id] ?? 0) + d) }))
+  useEffect(() => { nachgeladenRef.current.clear() }, [city])
+  useEffect(() => {
+    // Seit 01.11.2026 ohne Einschalten (Nutzerwunsch «es sollte geladen werden, was vorhanden ist»): nach dem Übernehmen alle
+    const an = [...NACHLADEN]
+    const ring = (r: P[]) => r.map(p => zuWgs(p[0], p[1]))
+    const fehlerName: Record<string, string> = { parkfelder: 'Parkfelder', fussnetz: 'Fussverkehrsnetz', wartehallen: 'Wartehallen' }
+    const steigungOffen: Section[] = []
+    for (const s of sections) {
+      const achsen = s.candIds?.length ? avAchsen(s) : []
+      if (!achsen.length) continue
+      const ab = s.candIds!.join(',')
+      let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity
+      for (const l of achsen) for (const [e, n] of l) { a = Math.min(a, e); b = Math.min(b, n); c = Math.max(c, e); d = Math.max(d, n) }
+      const box = [a - 30, b - 30, c + 30, d + 30].map(v => Math.round(v)) as [number, number, number, number]
+      const einmal = (id: EbeneId, laden: () => Promise<EbenenObjekt[]>) => {
+        const k = `${id}|${ab}`
+        if (!an.includes(id) || nachgeladenRef.current.has(k)) return
+        nachgeladenRef.current.add(k)
+        zaehlen(id, 1)
+        laden().then(o => setEbenen(prev => ebenenMischen(prev, { [id]: o })))
+          .catch(() => { nachgeladenRef.current.delete(k); setMsg(`Geladene Quellen: ${fehlerName[id]} nicht erreichbar.`, 'info') })
+          .finally(() => zaehlen(id, -1))
+      }
+      if (cityCfg.parkierung) einmal('parkfelder', async () => (await ladeParkflaechen(cityCfg.parkierung!, box as ParkBox)).filter(f => f.ringe[0]?.length).map(f => ({
+        id: `pk:${f.ringe[0][0][0].toFixed(1)},${f.ringe[0][0][1].toFixed(1)}`, ringe: f.ringe.map(ring), deckkraft: 0.4,
+        klasse: f.verbot ? 'verbot' : f.zweirad ? 'zweirad' : 'auto',
+        text: f.verbot ? 'Parkverbotsfeld (zählt als Parkierung)' : f.zweirad ? `${f.zweirad === 'velo' ? 'Velo' : 'Motorrad'}feld` : `Parkfeld${f.anzahl ? ` (${f.anzahl} Plätze)` : ''}` })))
+      if (city === 'bern' || city === 'basel') einmal('fussnetz', async () => (await fussnetzLinien(city, box)).map(x => ({
+        id: `fn:${x.klasse}:${x.linie[0][0].toFixed(1)},${x.linie[0][1].toFixed(1)}`, linien: [ring(x.linie)], klasse: x.klasse,
+        text: city === 'bern' ? 'Basisnetz Fussweg (Richtplan Fussverkehr)' : x.klasse === 'basis' ? 'Kantonales Fusswegnetz (Teilrichtplan)' : 'Kommunales Fusswegnetz (Teilrichtplan)' })))
+      if (an.includes('steigung') && !s.steigung && !nachgeladenRef.current.has(`steigung|${ab}`)) { nachgeladenRef.current.add(`steigung|${ab}`); steigungOffen.push(s) }
+    }
+    // Wartehallen und Perrons: EINE Overpass-Abfrage für alle übernommenen Abschnitte (Overpass sperrt viele Abfragen kurz hintereinander)
+    const mitAchse = sections.filter(s => s.candIds?.length && avAchsen(s).length)
+    const alle = mitAchse.map(s => s.candIds!.join(',')).join('|')
+    if (alle && !nachgeladenRef.current.has(`wartehallen|${alle}`)) {
+      nachgeladenRef.current.add(`wartehallen|${alle}`)
+      zaehlen('wartehallen', 1)
+      ladeWartehallen(mitAchse.flatMap(s => avAchsen(s).flat().map(p => zuWgs(p[0], p[1])))).then(pk => setEbenen(prev => ebenenMischen(prev, { wartehallen: pk.map(p => ({
+        id: `wh:${p.lat.toFixed(6)},${p.lon.toFixed(6)}`, punkt: { lat: p.lat, lon: p.lon }, klasse: p.wartehalle ? 'halle' : 'perron',
+        text: p.wartehalle ? 'Wartehalle (OpenStreetMap)' : 'Perron ohne Wartehalle (OpenStreetMap)' })) })))
+        .catch(() => { nachgeladenRef.current.delete(`wartehallen|${alle}`); setMsg('Geladene Quellen: Wartehallen nicht erreichbar.', 'info') })
+        .finally(() => zaehlen('wartehallen', -1))
+    }
+    // Amtliche Vermessung je Abschnitt (avFuerAbschnitt: dieselben Kacheln und derselbe Zwischenspeicher wie Messen und Planung,
+    // sammelt die Flächen für die Kartenebene), nacheinander; zu lange Abschnitte (über 6 Kacheln) bleiben aus
+    if (cityCfg.avKanton) {
+      const avOffen = mitAchse.filter(s => !avCacheRef.current.has(s.candIds!.join(',')) && !nachgeladenRef.current.has(`av|${s.candIds!.join(',')}`))
+      if (avOffen.length) {
+        for (const s of avOffen) nachgeladenRef.current.add(`av|${s.candIds!.join(',')}`)
+        zaehlen('av', 1)
+        void (async () => {
+          for (const s of avOffen) { try { await avFuerAbschnitt(s) } catch { /* zu lang oder nicht erreichbar: Ebene ohne diesen Abschnitt */ } }
+          zaehlen('av', -1)
+        })()
+      }
+    }
+    // Steigung je Abschnitt (wie in der Planung), nacheinander, damit swisstopo nicht mit vielen Abfragen auf einmal belastet wird
+    if (steigungOffen.length) void (async () => {
+      zaehlen('steigung', 1)
+      for (const s of steigungOffen) {
+        const st = await ladeSteigung(achseInRichtungA(avAchsen(s, true), s.peilungA))
+        setSections(prev => prev.map(x => (x.id === s.id && x.candIds?.join(',') === s.candIds?.join(',') ? { ...x, steigung: st } : x)))
+      }
+      zaehlen('steigung', -1)
+    })()
+  }, [sections, city])   // eslint-disable-line react-hooks/exhaustive-deps
+  // Kartenebenen (ebenen.ts): gelesene Objekte nahe den geladenen Segmenten, dazu die Ebenen aus den Segmenten selbst
+  const ebenenAnzeige = useMemo((): EbenenDaten => {
+    const box = cands.length ? bboxOf(cands) : null
+    const out: EbenenDaten = {}
+    for (const [k, liste] of Object.entries(ebenen) as [EbeneId, EbenenObjekt[]][]) out[k] = imUmkreis(liste, box)
+    out.tempo = [...(out.tempo ?? []), ...osmTempoObjekte(cands)]
+    out.obs = obsObjekte(cands)
+    out.haltestellen = haltestellenObjekte(stops)
+    const candById = new Map(cands.map(c => [c.id, c]))
+    out.steigung = steigungObjekte(sections.map((s, i) => ({ id: s.id, nr: i + 1, steigung: s.steigung,
+      linien: (s.candIds ?? []).map(id => candById.get(id)?.geom ?? []).filter(g => g.length >= 2) })))
+    return out
+  }, [ebenen, cands, stops, sections])
   const formen = useMemo(() => {
     const m = new Map<number, { a: string; b?: string }>()
     for (const s of sections) {
@@ -4153,7 +4270,8 @@ export default function App() {
           <div className="vrc-karte">
             <VeloMap cands={cands} onLineClick={linieGeklickt} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
-                     markers={markers} highlightIds={highlightIds} stops={stops}
+                     markers={markers} highlightIds={highlightIds} ebenen={ebenenAnzeige} stadt={city}
+                     nachladen={{ moeglich: sections.some(s => s.candIds?.length), laufend }}
                      attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} obsStand={cityCfg.obsStand}
                      teilModus={teilModus} orthofoto={messAktiv || planAv != null || qsa != null} bern2026={city === 'bern'} routennetz={cityCfg.routennetz ?? null} messung={messAnzeige ?? qsAnzeige} av={planAvWgs} formen={formen}
                      onMeldung={(t, art) => setMsg(t, art)} onMarkerClick={markerKlick} />
@@ -4425,12 +4543,14 @@ export default function App() {
                              borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: osmBusy ? 'default' : 'pointer' }}>
               Segmente im Kartenausschnitt laden
             </button>
-            <button onClick={uebernehmen} disabled={selCount === 0 || osmBusy}
-                    title={osmBusy ? 'Die Anreicherung läuft noch — danach übernehmen.' : undefined}
-                    style={{ border: 'none', background: selCount && !osmBusy ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
+            <button onClick={uebernehmen} disabled={selCount === 0 || osmBusy || auswahlUebernommen}
+                    title={osmBusy ? 'Die Anreicherung läuft noch — danach übernehmen.' : uebernehmenTitel}
+                    style={{ border: auswahlUebernommen ? '1px solid var(--accent)' : 'none',
+                             background: auswahlUebernommen ? '#fff' : selCount && !osmBusy ? 'var(--accent)' : 'var(--text-faint)',
+                             color: auswahlUebernommen ? 'var(--accent)' : '#fff',
                              borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600,
-                             cursor: selCount && !osmBusy ? 'pointer' : 'default' }}>
-              {segmente(selCount)} in Strecke übernehmen
+                             cursor: selCount && !osmBusy && !auswahlUebernommen ? 'pointer' : 'default' }}>
+              {uebernehmenText}
             </button>
             {cands.length > 0 && (
               <button onClick={() => {
@@ -4549,7 +4669,7 @@ export default function App() {
                 <button type="button" onClick={uebernehmen} disabled={selCount === 0 || osmBusy}
                         style={{ border: 'none', background: selCount && !osmBusy ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
                                  borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: selCount && !osmBusy ? 'pointer' : 'default' }}>
-                  {selCount ? `${segmente(selCount)} in Strecke übernehmen` : 'In Strecke übernehmen'}
+                  {uebernehmenText}
                 </button>
                 {cands.length > 0 && (
                   <button type="button" disabled={osmBusy || messAktiv} aria-pressed={teilModus}

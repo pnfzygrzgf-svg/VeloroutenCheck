@@ -19,6 +19,7 @@
 import type { Cand } from './VeloMap'
 import { densify, naechsteLinieJeSeite, bboxOfLL, bboxOverlap, type LL } from './geo'
 import { holeJson } from './netz'
+import type { EbenenObjekt } from './ebenen'
 
 // Anteil der Länge [0…1], an dem rechts bzw. links der WAY-Richtung ein Fund liegt.
 export interface LuftbildInfo { rechts: number; links: number }
@@ -73,4 +74,14 @@ export async function enrichLuftbild(cands: Cand[], file = 'luftbild_bern.json')
   const linien = await ladeLuftbild(file)
   if (cands.length === 0) return new Map()
   return luftbildJeKandidat(cands, linien)
+}
+
+// Kartenebene «Luftbild-Erkennung» (ebenen.ts, seit 01.11.2026): die Fundlinien im Ausschnitt der Segmente (aus dem Cache)
+export async function luftbildEbene(cands: Cand[], file: string): Promise<EbenenObjekt[]> {
+  if (!cands.length) return []
+  const linien = await ladeLuftbild(file)
+  const b = bboxOfLL(cands.flatMap(c => c.geom)), padDeg = 50 / 74000
+  return linien.filter(l => bboxOverlap(b, bboxOfLL(l), padDeg)).map(l => ({
+    id: `lb:${l[0].lat.toFixed(6)},${l[0].lon.toFixed(6)}`, linien: [l], klasse: 'luftbild',
+    text: 'Radstreifen im Luftbild erkannt (remote_velo, ETH Zürich; nur Hinweis)' }))
 }

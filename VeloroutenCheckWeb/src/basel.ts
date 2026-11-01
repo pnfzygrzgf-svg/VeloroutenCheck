@@ -1,25 +1,27 @@
 // ── Öffentliche Geodaten Kanton Basel-Stadt (Adapter, analog bern.ts/zurich.ts) ──
 //
-// Spiegelt die Schnittstellen (enrichCands / loadOev). Erster Schritt, bewusst klein:
+// Spiegelt die Schnittstellen (enrichCands / loadOev):
 //
 //   - Routentyp: live aus dem «Teilrichtplan Velo» (WFS geo.bs.ch). Das Bestandsnetz
 //     (Layer TV_Pendlerrouten_Bestand = vollständiges Netz, 4002 Segmente) klassiert jedes
 //     Segment über die Flags `tv_pendlerroute` / `tv_basisroute`.
 //     Übersetzung gemäss Velokonzept Basel (Quelle: Kanton Basel-Stadt):
-//       Velovorzugsrouten → Velohauptroute  — ABER nicht als offene Geodaten verfügbar
-//                                              (weder WFS/WMS noch data.bs.ch) → bleibt manuell.
+//       Velovorzugsrouten → Velohauptroute  — ABER nur im Entwurf des Teilrichtplans Velo 2026
+//                                              (WMS, Kartenebene «Routennetz»), nicht im WFS → bleibt manuell.
 //       Basis-/Pendlerrouten → Veloroute    — beide ohne Hierarchie untereinander → gleich.
 //       übriges Strassennetz → kein Routentyp (manuell).
 //     Kein Strassenname im Datensatz → Zuordnung geometrisch (geo.ts).
 //   - Velostrasse: aus dem «Velostadtplan: Eignung» (data.bs.ch, Datensatz 100426,
 //     klassifikation = Velostrasse) → setzt die Ist-Führungsform = Velostrasse (amtlich),
 //     genau wie Berns Velostrassen-Layer.
-//   - Tempo / übrige Ist-Führungsform / Breite: aus OSM (App.tsx).
-//   - DTV / Bus-Takt: vorerst manuell (kein offener flächendeckender DTV; Takt = OSM→GTFS-Join).
+//   - Strassentyp und Tempo: aus «Strassen und Wege» (data.bs.ch, Datensatz 100250, unten);
+//     übrige Ist-Führungsform / Breite und Tempo ohne Eintrag: aus OSM (App.tsx).
+//   - DTV: nächste Zählstelle aus dem Snapshot public/dtv_basel.json (kein flächendeckender DTV);
+//     Bus-Takt aus dem GTFS-Snapshot (oev_takt_basel.json).
 //   - ÖV (Tram in der Fahrbahn, Haltestelle): aus OSM (cityShared.ts) — Basel hat Tram.
 //   - Velovorzugsrouten (= Velohauptroute) und die übrigen Klassen der «Eignung» des
 //     Velostadtplans („gut befahrbares Velonetz", „sonstige für Velos geeignete Strassen") sind
-//     bewusst NICHT übernommen: Vorzugsrouten fehlen als offene Geodaten; die Eignung ist eine
+//     bewusst NICHT übernommen: Vorzugsrouten gibt es nur im Entwurf 2026; die Eignung ist eine
 //     Komfortbewertung, kein Routentyp (würde die Note verfälschen). Aus dem Datensatz wird
 //     allein die Klasse «Velostrasse» gelesen — sie ist eine Führungsform, keine Bewertung.
 //
@@ -31,9 +33,10 @@ import type { Routentyp, Strassentyp } from './fuehrungsform'
 import { densify } from './geo'
 import { holeJson } from './netz'
 import {
-  bboxOf, bestOverlapValue, istLinie, loadOevFromOsm, nearestDtv, versuch, OVERLAP_M, SAMPLE_M,
+  bboxOf, bestOverlapValue, istLinie, loadOevFromOsm, nearestDtv, dtvEbene, routennetzEbene, featureTeile, objektId, versuch, OVERLAP_M, SAMPLE_M,
   type Anreicherung, type Bbox, type GeoJsonFeature, type DtvStation,
 } from './cityShared'
+import { tempoObjekt, type EbenenDaten, type EbenenObjekt } from './ebenen'
 
 // DTV je Zählstelle aus dem gebündelten Snapshot (public/dtv_basel.json, via tools/dtv_basel.py) —
 // Basel liefert nur Stundenwerte, daher offline zum Werktags-Mittel aggregiert (nicht live wie ZH/LU).
@@ -138,7 +141,20 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
     versuch('Zählstellen (DTV)', fetchDtvStations(), [], fehler),
   ])
   if (features.length === 0 && velostrassen.length === 0 && strassen.length === 0 && stations.length === 0) return { cands, fehler }
-  return { fehler, cands: cands.map(c => {
+  // Kartenebenen (ebenen.ts): gelesene Linien mit Tempo und Strassentyp, Velostrassen, Zählstellen
+  const tempoEb: EbenenObjekt[] = [], typEb: EbenenObjekt[] = []
+  for (const f of strassen) {
+    const teile = featureTeile(f)
+    if (!teile.length) continue
+    const v = geschwindigkeit(f.properties), typ = kategorieToStrassentyp(f.properties)
+    if (v != null) tempoEb.push(tempoObjekt(objektId('bs:t', teile), teile, v, 'data.bs.ch 100250'))
+    if (typ) typEb.push({ id: objektId('bs:s', teile), linien: teile, klasse: typ, text: `${typ === 'verkehrsorientiert' ? 'Verkehrsorientierte' : 'Siedlungsorientierte'} Strasse (data.bs.ch 100250)` })
+  }
+  const routennetz = routennetzEbene(features, 'bs:r', 'Teilrichtplan Velo 2019 (geltend)', f => flagsToRoutentyp(f.properties),
+    f => (f.properties.tv_pendlerroute === 'ja' ? 'Pendlerroute' : f.properties.tv_basisroute === 'ja' ? 'Basisroute' : 'übriges Netz'))
+  const ebenen: EbenenDaten = { routennetz, tempo: tempoEb, strassentyp: typEb, dtv: dtvEbene(cands, stations, 'Zählstellen Basel-Stadt, Snapshot'),
+    velostrasse: velostrassen.flatMap(f => { const t = featureTeile(f); return t.length ? [{ id: objektId('bs:v', t), linien: t, klasse: 'velostrasse', text: 'Velostrasse (data.bs.ch 100426)' }] : [] }) }
+  return { fehler, ebenen, cands: cands.map(c => {
     const dense = densify(c.geom, SAMPLE_M)
     // Votum pro WERT statt pro Feature: Teilrichtplan (4 002 Segmente) und «Strassen und Wege»
     // (7 546) sind fein segmentiert — pro Feature erreichte keines die 50 %, und ohne Strassentyp

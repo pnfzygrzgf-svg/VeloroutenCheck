@@ -13,6 +13,7 @@ import {
 } from './geo'
 import { holeJson } from './netz'
 import { overpassFetch } from './overpass'
+import { dtvStationen, type EbenenDaten, type EbenenObjekt } from './ebenen'
 
 // ── Geo-Matching gegen ein GeoJSON-Liniennetz ─────────────────────────────────
 export interface GeoJsonFeature {
@@ -44,16 +45,45 @@ export const BBOX_PAD_M = 50    // Puffer der Bbox-Abfragen — muss grösser se
 // falsche mit dem Chip «amtlich».
 // Stationen mit DTV ≤ 0 sind defekte Zähler (z. B. Basel «660 Flughafenstrasse»), kein Messwert.
 export interface DtvStation { lat: number; lon: number; dtv: number }
-export function nearestDtv(candDense: LL[], stations: DtvStation[]): number | undefined {
-  let best: number | undefined, bd = DTV_STOP_M
+export function nearestDtvStation(candDense: LL[], stations: DtvStation[]): DtvStation | undefined {
+  let best: DtvStation | undefined, bd = DTV_STOP_M
   for (const s of stations) {
     if (!(s.dtv > 0)) continue
     const { distM, endeM } = fussAufLinie(s, candDense)
     if (distM > bd) continue
     if (endeM <= DTV_STOP_M && distM > DTV_ACHS_M) continue
-    bd = distM; best = s.dtv
+    bd = distM; best = s
   }
   return best
+}
+export const nearestDtv = (candDense: LL[], stations: DtvStation[]): number | undefined => nearestDtvStation(candDense, stations)?.dtv
+
+// Kartenebene «DTV» (ebenen.ts): Zählstellen im Ausschnitt und je Segment die Linie zur übernommenen Station
+export function dtvEbene(cands: Cand[], stations: DtvStation[], quelle: string): EbenenObjekt[] {
+  if (!stations.length || !cands.length) return []
+  const b = bboxOf(cands)
+  const zu: { station: LL; ziel: LL; candId: number }[] = []
+  for (const c of cands) {
+    const dense = densify(c.geom, SAMPLE_M)
+    const st = nearestDtvStation(dense, stations)
+    if (!st) continue
+    let ziel = dense[0], bd = Infinity
+    for (const p of dense) { const d = (p.lat - st.lat) ** 2 + ((p.lon - st.lon) * 0.68) ** 2; if (d < bd) { bd = d; ziel = p } }
+    zu.push({ station: st, ziel, candId: c.id })
+  }
+  return dtvStationen(stations.filter(s => s.lat >= b.s && s.lat <= b.n && s.lon >= b.w && s.lon <= b.e), quelle, zu)
+}
+
+// Stabile Kennung eines gelesenen Objekts (Quelle, Anfangspunkt, Länge), damit erneutes Laden nichts verdoppelt
+export const objektId = (praefix: string, linien: LL[][]): string => {
+  const p = linien[0]?.[0], l = linien[linien.length - 1], q = l?.[l.length - 1] ?? p
+  return p && q ? `${praefix}:${p.lat.toFixed(6)},${p.lon.toFixed(6)}-${q.lat.toFixed(6)},${q.lon.toFixed(6)}` : `${praefix}:?`
+}
+// Feature → Linienstücke (LÜCKE-Marken trennen die Teile)
+export function featureTeile(f: GeoJsonFeature): LL[][] {
+  const teile: LL[][] = [[]]
+  for (const p of featureLatLon(f)) { if (Number.isNaN(p.lat)) teile.push([]); else teile[teile.length - 1].push(p) }
+  return teile.filter(t => t.length >= 2)
 }
 
 // GeoJSON-Geometrie → Punktfolge. Mehrteilige Linien (MultiLineString) behalten ihre Lücken
@@ -132,7 +162,7 @@ export function bestOverlapValue<T>(
 export async function versuch<T>(name: string, p: Promise<T>, leer: T, fehler: string[]): Promise<T> {
   try { return await p } catch { fehler.push(name); return leer }
 }
-export interface Anreicherung { cands: Cand[]; fehler: string[] }
+export interface Anreicherung { cands: Cand[]; fehler: string[]; ebenen?: EbenenDaten }
 
 export interface Bbox { s: number; w: number; n: number; e: number }
 export function bboxOf(cands: Cand[], padM = BBOX_PAD_M): Bbox {
@@ -203,7 +233,7 @@ export function istStrassenHalt(t: Record<string, string>): boolean {
 }
 
 // taktFile (optional): gebündelter Bus-Takt-Snapshot der Stadt → setzt oevBus/busPerH je Haltestelle.
-export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<{ byId: Map<number, OevInfoOsm>; stops: Stop[]; fehler: string[] }> {
+export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<{ byId: Map<number, OevInfoOsm>; stops: Stop[]; fehler: string[]; ebenen?: EbenenDaten }> {
   const fehler: string[] = []
   if (cands.length === 0) return { byId: new Map(), stops: [], fehler }
   const takt = taktFile ? await loadTakt(taktFile) : []
@@ -223,17 +253,24 @@ export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<
     .filter(e => e.type === 'way' && e.tags?.railway === 'tram' && e.geometry && e.geometry.length >= 2)
     .map(e => e.geometry as LL[])
 
-  // Haltestellen-Punkte (dedupliziert über Position) für die Karten-Marker.
-  const seen = new Set<string>()
+  // Haltestellen-Punkte (dedupliziert über Position) für die Karten-Marker; Tram bzw. Bus aus den Tags (seit 01.11.2026),
+  // an derselben Stelle zusammengeführt
+  const seen = new Map<string, Stop>()
   const stops: Stop[] = []
   for (const e of els) {
     if (e.type !== 'node' || e.lat == null || e.lon == null) continue
     const t = e.tags || {}
     if (!istStrassenHalt(t)) continue
+    const modi: ('tram' | 'bus')[] = [
+      ...(t.railway === 'tram_stop' || t.tram === 'yes' ? ['tram' as const] : []),
+      ...(t.highway === 'bus_stop' || t.bus === 'yes' || t.trolleybus === 'yes' ? ['bus' as const] : []),
+    ]
     const key = `${e.lat.toFixed(5)}|${e.lon.toFixed(5)}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    stops.push({ lat: e.lat, lon: e.lon, name: t.name || 'Haltestelle' })
+    const da = seen.get(key)
+    if (da) { da.modi = [...new Set([...(da.modi ?? []), ...modi])].sort((a, b) => (a === 'tram' ? -1 : b === 'tram' ? 1 : 0)); continue }
+    const perH = nearestTaktBus(e as LL, takt)
+    const st: Stop = { lat: e.lat, lon: e.lon, name: t.name || 'Haltestelle', ...(perH != null && perH > 0 ? { perH } : {}), ...(modi.length ? { modi } : {}) }
+    seen.set(key, st); stops.push(st)
   }
 
   const byId = new Map<number, OevInfoOsm>()
@@ -259,5 +296,20 @@ export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<
       })
     }
   }
-  return { byId, stops, fehler }
+  // Kartenebene «ÖV-Linien» (ebenen.ts): die Tramgleise aus OSM (railway=tram)
+  const oev: EbenenObjekt[] = tramLines.map(l => ({ id: objektId('osm:tram', [l]), linien: [l], klasse: 'tram', text: 'Tramgleis (OpenStreetMap railway=tram)' }))
+  return { byId, stops, fehler, ebenen: { oev } }
+}
+
+// Kartenebene «Routennetz» (ebenen.ts, seit 01.11.2026, Nutzerentscheid): die für den Routentyp gelesenen Netzlinien mit dem
+// übersetzten Routentyp; Linien ohne Routentyp (z. B. Zürcher Basisnetz) dünn grau, damit man sieht, dass sie gelesen sind
+export function routennetzEbene(features: GeoJsonFeature[], praefix: string, quelle: string,
+  routentypVon: (f: GeoJsonFeature) => string | null | undefined, original: (f: GeoJsonFeature) => string | null): EbenenObjekt[] {
+  return features.flatMap(f => {
+    const t = featureTeile(f)
+    if (!t.length) return []
+    const rt = routentypVon(f) ?? null, o = original(f)
+    return [{ id: objektId(praefix, t), linien: t, klasse: rt ?? 'ohne',
+      text: `${rt ?? 'kein Routentyp'}${o && o !== rt ? ` (${o})` : ''} · ${quelle}` }]
+  })
 }

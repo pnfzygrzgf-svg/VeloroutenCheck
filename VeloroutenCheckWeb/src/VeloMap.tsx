@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import { netzTexte, type RoutennetzWms } from './routennetz'
+import { ebenenFarbe, ebenenFuer, ebenenQuelle, ebenenSichtbar, ebenenSymbol, legendeFuer, NACHLADEN, spurenText, type EbeneId, type EbenenDaten, type NachladeStand } from './ebenen'
+import type { Stadt } from './fuehrungsform'
+import { UEBERBLICK } from './ueberblick'
 import 'leaflet/dist/leaflet.css'
 import type { ObsStats } from './obs'
 import type { Spuren } from './osm'
@@ -43,10 +46,11 @@ export interface Cand {
     routentyp?: 'Velohauptroute' | 'Veloroute'   // Veloroutennetz Masterplan
     strassentyp?: 'verkehrsorientiert' | 'siedlungsorientiert'  // nur Basel (Strassen-/Wege-Datensatz)
     velostrasse?: boolean                 // Treffer im Velostrassen-Layer
+    hierarchie?: string                   // Strassenhierarchie der Stadt Bern (Kurzform wie im lokalen Rechner), seit 01.11.2026
     // Treffer im lokalen Markierungs-Snapshot (Velostreifen, siehe velostreifen.ts); rechts/links
     // = Seite der Striche, bezogen auf die Way-Richtung
     radstreifen?: { breite?: number; rechts?: { breite?: number }; links?: { breite?: number } }
-    // Radstreifen aus dem Luftbild (luftbild.ts, nur Bern): Anteil der Länge mit Fund je Seite,
+    // Radstreifen aus dem Luftbild (luftbild.ts, Bern, Zürich, Basel): Anteil der Länge mit Fund je Seite,
     // bezogen auf die Way-Richtung. Nur Hinweis, setzt keine Form.
     luftbild?: { rechts: number; links: number }
     // Amtliche Parkfelder (parkierung.ts, Bern/Zürich/Luzern): Anteil der Länge je Seite,
@@ -64,7 +68,8 @@ export interface Cand {
 }
 
 // ÖV-Haltestelle (Punkt) für die Karten-Marker.
-export interface Stop { lat: number; lon: number; name: string; bpuic?: string }
+// perH: Bus-Fahrten/h (GTFS, Ebene «ÖV-Haltestellen»); modi: Tram und/oder Bus an der Haltestelle; linien: Liniennummern (Bern)
+export interface Stop { lat: number; lon: number; name: string; bpuic?: string; perH?: number; modi?: ('tram' | 'bus')[]; linien?: string[] }
 
 // Farbe je Führungsform (Linien auf der Karte). Seit 17.10.2026 kein Grau mehr: Mischverkehr war grau
 // wie die abgewählten Segmente und auf dem Luftbild kaum zu sehen (Nutzerbefund). Abgewählt ist jetzt
@@ -145,7 +150,9 @@ function ansichtLesen(stadt: [number, number] | L.LatLngExpression): { c: [numbe
   } catch { return null }
 }
 
-export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, stops,
+const BESCHRIFT_ZOOM = 17   // Kartenebenen: Werte als Beschriftung ab dieser Zoomstufe
+
+export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, ebenen = {}, stadt = 'bern', onEbenenAn, nachladen = { moeglich: false, laufend: {} },
                           attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
                           teilModus = false, orthofoto = false, bern2026 = false, routennetz = null, messung = null, av = null, obsStand, formen, onMeldung, onMarkerClick }: {
   onMarkerClick?: (num: number) => void   // Abschnitts-Marker angeklickt (öffnet den Abschnitt im Panel, seit 22.10.2026)
@@ -155,7 +162,10 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   onReady?: (map: L.Map) => void
   markers?: SectionMarker[]               // nummerierte Abschnitts-Marker
   highlightIds?: Set<number>              // Cand-IDs des gehoverten Abschnitts → hervorheben
-  stops?: Stop[]                          // ÖV-Haltestellen im geladenen Bereich (Marker)
+  ebenen?: EbenenDaten                    // gelesene Objekte der Vorbelegung je Ebene (ebenen.ts), einzeln einblendbar
+  stadt?: Stadt                           // für die Liste der Ebenen und ihre Quellen
+  onEbenenAn?: (ids: Set<EbeneId>) => void   // gewählte Ebenen (App lädt die nachzuladenden, ebenen.NACHLADEN)
+  nachladen?: NachladeStand                // ob nachladbare Ebenen Daten bekommen können und welche gerade laden
   attribution?: string                    // Quellenangabe der amtlichen Anreicherung (stadtabhängig)
   obsStand?: string                       // Stand des OpenBikeSensor-Exports (Tooltip)
   center?: [number, number]               // Anfangs-Kartenmitte (stadtabhängig)
@@ -184,6 +194,62 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   // Routennetz zuschalten (seit 30.10.2026): über jedem Hintergrund, unter den Segmentlinien; der Browser merkt sich die Wahl
   const [netzAn, setNetzAn] = useState(() => { try { return localStorage.getItem('vrc.routennetz') === '1' } catch { return false } })
   const netzRef = useRef<L.TileLayer | null>(null)
+  // Kartenbilder zum Überblick (ueberblick.ts: Höhenlinien, Relief), je einzeln, gemerkt
+  const [ueberAn, setUeberAn] = useState<Set<string>>(() => {
+    try { const v = JSON.parse(localStorage.getItem('vrc.ueberblick') ?? 'null'); if (Array.isArray(v)) return new Set(v as string[]) } catch { /* ohne Speicher */ }
+    return new Set<string>()
+  })
+  const ueberSchalten = (id: string, an: boolean) => setUeberAn(prev => {
+    const n = new Set(prev); if (an) n.add(id); else n.delete(id)
+    try { localStorage.setItem('vrc.ueberblick', JSON.stringify([...n])) } catch { /* nur für diese Sitzung */ }
+    return n
+  })
+  // Kartenebenen der Vorbelegung (seit 01.11.2026): gewählte Ebenen (der Browser merkt sich die Wahl), Menü, Zoom für die Beschriftung
+  const [ebenenAn, setEbenenAn] = useState<Set<EbeneId>>(() => {
+    try { const v = JSON.parse(localStorage.getItem('vrc.ebenen') ?? 'null'); if (Array.isArray(v)) return new Set(v as EbeneId[]) } catch { /* ohne Speicher */ }
+    return new Set<EbeneId>(['haltestellen'])
+  })
+  const ebeneSchalten = (id: EbeneId, an: boolean) => setEbenenAn(prev => {
+    const n = new Set(prev); if (an) n.add(id); else n.delete(id)
+    try { localStorage.setItem('vrc.ebenen', JSON.stringify([...n])) } catch { /* nur für diese Sitzung */ }
+    return n
+  })
+  const [ebenenOffen, setEbenenOffen] = useState(false)
+  const ebenenAnCb = useRef(onEbenenAn)
+  ebenenAnCb.current = onEbenenAn
+  useEffect(() => { ebenenAnCb.current?.(ebenenAn) }, [ebenenAn])
+  // Fenster «Geladene Quellen» an der Kopfzeile verschiebbar (Nutzerwunsch 01.11.2026 «damit es nicht im Weg steht»); die Lage
+  // links oben in px relativ zur Karte, gemerkt; ohne Lage unten links über der Hintergrund-Leiste
+  const [ebenenPos, setEbenenPos] = useState<{ x: number; y: number } | null>(() => {
+    try { const v = JSON.parse(localStorage.getItem('vrc.ebenenPos') ?? 'null'); return v && Number.isFinite(v.x) && Number.isFinite(v.y) ? v : null } catch { return null }
+  })
+  const ebenenFensterRef = useRef<HTMLDivElement>(null)
+  // Beim Öffnen: liegt die gemerkte Lage ausserhalb der Karte (kleineres Fenster, Mobile), zurück an den Ursprung
+  useEffect(() => {
+    const fenster = ebenenFensterRef.current, rahmen = fenster?.parentElement
+    if (!ebenenOffen || !ebenenPos || !fenster || !rahmen) return
+    if (ebenenPos.x + 60 > rahmen.clientWidth || ebenenPos.y + 60 > rahmen.clientHeight) setEbenenPos(null)
+  }, [ebenenOffen])   // eslint-disable-line react-hooks/exhaustive-deps
+  const ziehen = (e: React.PointerEvent<HTMLDivElement>) => {
+    const fenster = ebenenFensterRef.current, rahmen = fenster?.parentElement
+    if (!fenster || !rahmen || (e.target as HTMLElement).closest('button')) return
+    e.preventDefault()
+    const r = rahmen.getBoundingClientRect(), f = fenster.getBoundingClientRect()
+    const dx = e.clientX - f.left, dy = e.clientY - f.top
+    const lage = (ev: PointerEvent) => ({
+      x: Math.round(Math.min(Math.max(0, ev.clientX - r.left - dx), Math.max(0, r.width - f.width))),
+      y: Math.round(Math.min(Math.max(0, ev.clientY - r.top - dy), Math.max(0, r.height - 40))),
+    })
+    let zuletzt: { x: number; y: number } | null = null
+    const bewegen = (ev: PointerEvent) => { zuletzt = lage(ev); setEbenenPos(zuletzt) }
+    const los = () => {
+      window.removeEventListener('pointermove', bewegen); window.removeEventListener('pointerup', los); window.removeEventListener('pointercancel', los)
+      if (zuletzt) try { localStorage.setItem('vrc.ebenenPos', JSON.stringify(zuletzt)) } catch { /* nur für diese Sitzung */ }
+    }
+    window.addEventListener('pointermove', bewegen); window.addEventListener('pointerup', los); window.addEventListener('pointercancel', los)
+  }
+  const [zoom, setZoom] = useState(13)
+  const ebenenRef = useRef<L.LayerGroup | null>(null)
   // Hintergrund wechseln (Knöpfe unten links auf der Karte, seit 22.10.2026 statt der Leaflet-Ebenenwahl):
   // die Strassennamen gehen mit dem Orthofoto an und aus, solange sie nicht abgewählt sind.
   const basisWechseln = (name: string, mitNamen = namen) => {
@@ -297,11 +363,17 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     const netzPane = map.getPane('netz')!
     netzPane.style.zIndex = '340'
     netzPane.style.pointerEvents = 'none'
+    // Kartenebenen der Vorbelegung: Linien und Flächen über dem Routennetz, unter AV und Segmentlinien, klick-durchlässig
+    map.createPane('ebenen')
+    const ebPane = map.getPane('ebenen')!
+    ebPane.style.zIndex = '345'
+    ebPane.style.pointerEvents = 'none'
     map.createPane('av')
     const avPane = map.getPane('av')!
     avPane.style.zIndex = '350'
     avPane.style.pointerEvents = 'none'
     avRef.current = L.layerGroup().addTo(map)
+    ebenenRef.current = L.layerGroup().addTo(map)
     // «Zum eigenen Standort» unter den Zoom-Knöpfen (eigene Ebene, nicht anklickbar)
     const standortEbene = L.layerGroup().addTo(map)
     const standort = () => {
@@ -339,12 +411,13 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       if (suppress.current) { suppress.current = false; return }
       clickCb.current?.(e.latlng.lat, e.latlng.lng)
     })
-    map.on('zoomend', () => stilSetzen())
+    map.on('zoomend', () => { stilSetzen(); setZoom(map.getZoom()) })
+    setZoom(map.getZoom())
     mapRef.current = map
     readyCb.current?.(map)
     return () => {
       map.remove()
-      mapRef.current = null; layerRef.current = null; messRef.current = null; avRef.current = null
+      mapRef.current = null; layerRef.current = null; messRef.current = null; avRef.current = null; ebenenRef.current = null
       lineRef.current.clear(); lastFit.current = 0
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -388,6 +461,11 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       })
       const bernParts = c.bern && [
         c.bern.speed != null ? `Tempo ${c.bern.speed}` : null,
+        c.bern.strassentyp ? `${c.bern.strassentyp}e Strasse` : null,
+        c.bern.velostrasse ? 'Velostrasse' : null,
+        c.bern.hierarchie ?? null,
+        c.bern.oevTram ? 'Tram in der Fahrbahn' : null,
+        c.bern.oevHaltName ? `Haltestelle ${c.bern.oevHaltName}` : null,
         c.bern.dtv != null ? `DTV ≈ ${c.bern.dtv}` : null,
         c.bern.routentyp ?? null,
       ].filter(Boolean)
@@ -402,6 +480,8 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         (c.teil ? ` · Teil ${c.teil.nr}/${c.teil.anzahl}` : '') +
         ` · ${escapeHtml(istB ? `Seite A ${istA} / Seite B ${istB}` : istA)}${c.selected ? '' : ' (abgewählt)'}` +
         (bernParts && bernParts.length ? `<br>${escapeHtml(attribution)}: ${escapeHtml(bernParts.join(' · '))}` : '') +
+        (c.speed != null && c.bern?.speed == null ? `<br>OpenStreetMap: Tempo ${c.speed}` : '') +
+        (spurenText(c.spuren) ? `<br>${escapeHtml(spurenText(c.spuren)!)}` : '') +
         obsPart,
         { sticky: true })
       hit.addTo(lg)         // unten (Trefffläche)
@@ -445,18 +525,6 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       // Klick auf die Nummer öffnet den Abschnitt im Panel (seit 22.10.2026)
       if (onMarkerClick) mk.bindTooltip(`Abschnitt ${m.num} öffnen`, { direction: 'top' }).on('click', () => onMarkerClick(m.num))
     }
-    // ÖV-Haltestellen als kleine Marker (Punkt + Name im Tooltip; klick-transparent).
-    for (const st of stops ?? []) {
-      L.marker([st.lat, st.lon], {
-        interactive: true,
-        icon: L.divIcon({
-          className: '',
-          iconSize: [11, 11], iconAnchor: [6, 6],
-          html: '<div style="width:11px;height:11px;border-radius:999px;background:#7c3aed;' +
-            'border:2px solid #fff;box-shadow:0 0 0 1px #7c3aed"></div>',
-        }),
-      }).bindTooltip(`ÖV-Haltestelle: ${escapeHtml(st.name)}`, { direction: 'top' }).addTo(lg)
-    }
     stilSetzen()
     // Einpassen nur auf Anforderung (fitKey, gesetzt von «Strasse laden»). Bis zum 29.09.2026 passte
     // jede Änderung der Segment-Menge neu ein — auch jeder Klick-Zusatz: die Karte sprang, und das
@@ -466,7 +534,44 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       map.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 })
       lastFit.current = fitKey
     }
-  }, [cands, onLineClick, markers, stops, attribution, fitKey, obsStand, formen, onMarkerClick])
+  }, [cands, onLineClick, markers, attribution, fitKey, obsStand, formen, onMarkerClick])
+
+  // Kartenebenen zeichnen (ebenen.ts): Linien und Flächen nicht anklickbar unter den Segmenten, Punkte mit Tooltip;
+  // ab BESCHRIFT_ZOOM der Wert als Beschriftung (Linie: Mitte des längsten Stücks)
+  useEffect(() => {
+    const eg = ebenenRef.current
+    if (!eg) return
+    eg.clearLayers()
+    const defs = ebenenFuer(stadt)
+    const beschriften = zoom >= BESCHRIFT_ZOOM
+    const marke = (p: LLo, text: string, farbe: string) => L.marker([p.lat, p.lon], { interactive: false, keyboard: false,
+      icon: L.divIcon({ className: 'vrc-ebene-wert', iconSize: [0, 0],
+        html: `<span style="border-color:${farbe}">${escapeHtml(text)}</span>` }) }).addTo(eg)
+    for (const def of defs) {
+      if (!ebenenAn.has(def.id)) continue
+      for (const o of ebenen[def.id] ?? []) {
+        const farbe = ebenenFarbe(def, o.klasse)
+        if (o.ringe) L.polygon(o.ringe.map(r => r.map(p => [p.lat, p.lon] as [number, number])), { pane: 'ebenen', color: farbe, weight: 1.5,
+          fillColor: farbe, fillOpacity: o.deckkraft ?? 0.3, interactive: false }).addTo(eg)
+        if (o.linien) {
+          const ll = o.linien.map(l => l.map(p => [p.lat, p.lon] as [number, number]))
+          // dunkler Rand: Quellen-Linien heben sich von den Segmentlinien (weisser Rand) ab (Form statt Farbe allein)
+          L.polyline(ll, { pane: 'ebenen', color: '#111827', weight: 7, opacity: 0.75, interactive: false }).addTo(eg)
+          L.polyline(ll, { pane: 'ebenen', color: farbe, weight: 4, opacity: 0.95, interactive: false, ...(o.gestrichelt ? { dashArray: '6 6' } : {}) }).addTo(eg)
+          if (beschriften && o.wert) {
+            const l = o.linien.reduce((a, b) => (b.length > a.length ? b : a))
+            marke(l[l.length >> 1], o.wert, farbe)
+          }
+        }
+        if (o.punkt) {
+          L.marker([o.punkt.lat, o.punkt.lon], { keyboard: false,
+            icon: L.divIcon({ className: 'vrc-q-punkt', iconSize: [18, 18], html: `<span style="background:${farbe}">${escapeHtml(ebenenSymbol(def, o))}</span>` }) })
+            .bindTooltip(escapeHtml(o.text), { direction: 'top' }).addTo(eg)
+          if (beschriften && o.wert) marke(o.punkt, o.wert, farbe)
+        }
+      }
+    }
+  }, [ebenen, ebenenAn, zoom, stadt])
 
   // Teil-Modus: Fadenkreuz über den Linien (CSS-Klasse am Karten-Container, index.css).
   useEffect(() => {
@@ -479,6 +584,17 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   useEffect(() => {
     if (orthofoto && !LUFTBILDER.includes(aktiveBasis.current)) basisWechseln(ORTHO)   // ein Luftbild bleibt stehen
   }, [orthofoto])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Kartenbilder zum Überblick (Höhenlinien, Relief) im Pane 'netz', unter Ebenen und Segmenten
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const lagen = (UEBERBLICK[stadt] ?? []).filter(u => ueberAn.has(u.id)).map(u => (u.art === 'wms'
+      ? L.tileLayer.wms(u.url, { layers: u.layers ?? '', styles: '', format: 'image/png', transparent: true, version: '1.3.0', pane: 'netz',
+          opacity: u.deckkraft, maxZoom: 21, attribution: u.attribution })
+      : L.tileLayer(u.url, { pane: 'netz', opacity: u.deckkraft, maxZoom: 21, maxNativeZoom: 19, attribution: u.attribution })).addTo(map))
+    return () => { for (const l of lagen) l.remove() }
+  }, [ueberAn, stadt])
 
   // Routennetz ein- und ausblenden; bei Stadtwechsel (anderes oder kein Netz) die alte Ebene entfernen
   useEffect(() => {
@@ -628,16 +744,12 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         ))}
         {/* Ergänzung zum Luftbild, kein eigener Hintergrund: Kästchen «+ Strassennamen», nur bei den Luftbildern (seit
             22.10.2026 standardmässig aus) */}
-        {/* Routennetz der Stadt (seit 30.10.2026), über jedem Hintergrund */}
-        {routennetz && (
-          <label className="namen" title={`${routennetz.titel} einblenden (${routennetz.attribution})`}>
-            <input type="checkbox" checked={netzAn} onChange={e => {
-              setNetzAn(e.target.checked)
-              try { localStorage.setItem('vrc.routennetz', e.target.checked ? '1' : '0') } catch { /* nur für diese Sitzung */ }
-            }} />
-            <span className="lang">Routennetz</span><span className="kurz">Netz</span>
-          </label>
-        )}
+        {/* «Geladene Quellen» (seit 01.11.2026): Routennetz und die Quellen der Vorbelegung, je einzeln einblendbar */}
+        <button type="button" aria-expanded={ebenenOffen} onClick={() => setEbenenOffen(o => !o)}
+                className={ebenenOffen || netzAn || ebenenAn.size ? 'aktiv-rand' : undefined}
+                title="Geladene Quellen auf der Karte zeigen: Routennetz und die Quellen, aus denen die Felder vorbelegt sind">
+          <span className="lang">Geladene Quellen</span><span className="kurz">Quellen</span>{(() => { const k = (netzAn && routennetz ? 1 : 0) + (UEBERBLICK[stadt] ?? []).filter(u => ueberAn.has(u.id)).length + ebenenSichtbar(ebenenFuer(stadt), ebenen, nachladen).zeigen.filter(e => ebenenAn.has(e.id)).length; return k ? ` (${k})` : '' })()} ▴
+        </button>
         {LUFTBILDER.includes(basis) && (
           <label className="namen" title="Strassennamen aus dem amtlichen Strassenverzeichnis über dem Luftbild (swisstopo, ab Zoomstufe 17)">
             <input type="checkbox" checked={namen} onChange={e => { setNamen(e.target.checked); basisWechseln(basis, e.target.checked) }} />
@@ -645,6 +757,55 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
           </label>
         )}
       </div>
+      {ebenenOffen && (
+        <div className="vrc-ebenen" role="group" aria-label="Geladene Quellen" ref={ebenenFensterRef}
+             style={ebenenPos ? { left: ebenenPos.x, top: ebenenPos.y, bottom: 'auto', maxHeight: `calc(100% - ${ebenenPos.y + 10}px)` } : undefined}>
+          <div className="vrc-ebenen-kopf" onPointerDown={ziehen} title="An dieser Zeile ziehen, um das Fenster zu verschieben (Doppelklick: zurück an den Ursprung)"
+               onDoubleClick={() => { setEbenenPos(null); try { localStorage.removeItem('vrc.ebenenPos') } catch { /* egal */ } }}>
+            <span><span className="griff" aria-hidden="true">⠿</span> Geladene Quellen</span>
+            <button type="button" onClick={() => setEbenenOffen(false)} aria-label="Schliessen">×</button>
+          </div>
+          {ebenenSichtbar(ebenenFuer(stadt), ebenen, nachladen).zeigen.map(e => {
+            const n = (ebenen[e.id] ?? []).length
+            const zahl = n ? `${n} im Ausschnitt${(nachladen.laufend[e.id] ?? 0) > 0 ? ', lädt weiter …' : ''}` : (nachladen.laufend[e.id] ?? 0) > 0 ? 'lädt …' : ''
+            return (
+              <label key={e.id} className="vrc-ebene" title={ebenenQuelle(e, stadt)}>
+                <input type="checkbox" checked={ebenenAn.has(e.id)} onChange={x => ebeneSchalten(e.id, x.target.checked)} />
+                <span>
+                  <b>{e.titel}</b> <small className="zahl">{zahl}</small>
+                  <small>{ebenenQuelle(e, stadt)}{e.hinweis ? ` (${e.hinweis})` : ''}</small>
+                  {ebenenAn.has(e.id) && (
+                    <span className="vrc-legende">
+                      {legendeFuer(e, stadt).map(([k, farbe, text, symbol]) => <span key={k}>{symbol ? <i className="sym" style={{ background: farbe }}>{symbol}</i> : <i style={{ background: farbe }} />}{text}</span>)}
+                    </span>
+                  )}
+                </span>
+              </label>
+            )
+          })}
+          {routennetz && (
+            <label className="vrc-ebene" title={`${routennetz.titel} (${routennetz.attribution})`}>
+              <input type="checkbox" checked={netzAn} onChange={e => {
+                setNetzAn(e.target.checked)
+                try { localStorage.setItem('vrc.routennetz', e.target.checked ? '1' : '0') } catch { /* nur für diese Sitzung */ }
+              }} />
+              <span><b>Routennetz ganze Stadt (Plan der Stadt)</b><small>{routennetz.attribution}; Kartenbild des Dienstes, unabhängig von den geladenen Segmenten; Linie überfahren für Einzelheiten</small></span>
+            </label>
+          )}
+          {(UEBERBLICK[stadt] ?? []).map(u => (
+            <label key={u.id} className="vrc-ebene" title={`${u.titel} (${u.attribution})`}>
+              <input type="checkbox" checked={ueberAn.has(u.id)} onChange={e => ueberSchalten(u.id, e.target.checked)} />
+              <span><b>{u.titel}</b><small>{u.attribution}; {u.erklaerung}</small></span>
+            </label>
+          ))}
+          {(() => {
+            const ohne = ebenenSichtbar(ebenenFuer(stadt), ebenen, nachladen).ohne
+            return ohne.length ? <p className="vrc-ebenen-fuss">Ohne Daten im Ausschnitt: {ohne.map(e => e.titel.replace(/ \(.*\)$/, '')).join(', ')}
+              {!nachladen.moeglich && ohne.some(e => NACHLADEN.includes(e.id)) ? ' (Parkfelder, Fussnetz, Wartehallen, Steigung und amtliche Vermessung lädt die App nach dem Übernehmen der Segmente)' : ''}.</p> : null
+          })()}
+          <p className="vrc-ebenen-fuss">Gezeigt wird, was beim Laden gelesen wurde; ab Zoomstufe {BESCHRIFT_ZOOM} mit dem Wert. Die Segmentlinie nennt im Tooltip, was übernommen ist.</p>
+        </div>
+      )}
     </div>
   )
 }

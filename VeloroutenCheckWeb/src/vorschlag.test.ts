@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, fahrbahnMitRandstein, vorschlagMitRandstein, ZIEL } from './vorschlag'
+import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, fahrbahnMitRandstein, vorschlagMitRandstein, velostrasse, eingabenVon, ZIEL } from './vorschlag'
 import { bewerteAufteilung, bilanz, istFahrbahnTeil, pruefeTeil, startAufteilung, teilName, type Aufteilung } from './aufteilung'
 import { defaultSection, gegenVon, type Section } from './strecke'
 import { erfuellungsgrad } from './fuehrungsform'
@@ -333,3 +333,16 @@ describe('Randsteinanpassung so weit wie möglich (Kirchenfeldstrasse 307351482,
   })
 })
 const r = (x: number) => Math.round(x * 100) / 100
+
+describe('Velostrasse nur auf Quartierstrassen (Strassenhierarchie Bern, seit 01.11.2026)', () => {
+  // Fall wie in Basel (Soll Velostrasse/Mischverkehr, Tempo 30, Fahrbahn netto im Band); geprüft an der Variante selbst
+  const b = abschnitt({ dtv: 1500, speed: 30, ist: 'Mischverkehr', fahrbahnbreite: 5.5, routentyp: 'Velohauptroute', parkenRechts: 'nein',
+    gegen: { ...gegenVon(defaultSection()), ist: 'Mischverkehr', parkenRechts: 'nein' } })
+  const mit = (h?: string) => velostrasse(eingabenVon(h ? { ...b, hierarchie: h } : b)) != null
+  it('ohne Hierarchie und auf der Quartierstrasse möglich, auf Basisnetz und Quartierverbindungsstrasse nicht', () => {
+    expect([mit(), mit('Quartierstrasse'), mit('Basisnetz'), mit('Quartierverbindungsstrasse')]).toEqual([true, true, false, false])
+  })
+  it('die Hierarchie kommt aus dem Abschnitt in die Eingaben', () => {
+    expect(eingabenVon({ ...b, hierarchie: 'Basisnetz' }).hierarchie).toBe('Basisnetz')
+  })
+})

@@ -15,6 +15,7 @@ import { mergeObs, type ObsStats } from './obs'
 import { peilung, type LL } from './geo'
 import { PARK_SCHWELLE } from './parkierung'
 import type { Mittelinsel, ParkTiefe, Zweiradfeld } from './breitenmessung'
+import type { Steigung } from './steigung'
 
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
 // Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
@@ -70,6 +71,7 @@ export interface Section extends Seite {
   speed: number                // NaN = leer
   routentyp: Routentyp | ''    // '' = noch nicht gewählt
   strassentyp: Strassentyp | ''  // '' = noch nicht gewählt (nur Basel relevant)
+  hierarchie?: string          // Strassenhierarchie der Stadt Bern (Geoportal, seit 01.11.2026): Bedingung «Quartierstrasse» der Velostrasse (Q 9)
   oevAngebot: OevAngebot
   tram: boolean                // Tram (Schienen) in der Fahrbahn — entkoppelt von der Haltestelle
   // Fahrbahnbreite von Bordstein zu Bordstein [m], NaN = leer. Reine Information, nicht in der
@@ -127,6 +129,8 @@ export interface Section extends Seite {
   // Mittelstreifen (lange Insel, breitenmessung.ts mittelstreifen, seit 21.10.2026): trennt die Fahrbahn von einem zweiten
   // Fahrbahnteil (Gegenfahrbahn, ÖV-Trassee); nur Hinweis, die Fahrbahn reicht bis zum Streifen
   mittelstreifen?: { seite: 'a' | 'b'; breite: number; laenge: number; dahinter: number } | null
+  // Steigung aus swissALTI3D (steigung.ts, seit 01.11.2026; geladen beim Öffnen der Planung): pct positiv = Seite A bergauf
+  steigung?: Steigung
 }
 let nextId = 1
 // Neuer Abschnitt: datenartige Felder leer (DTV/Tempo/Führungsform/Breite/Routentyp),
@@ -183,6 +187,7 @@ export function bewerteteSeiten(s: Section): { seite: 'A' | 'B'; felder: Seite }
 // So lässt sich bei «nur eine Seite» die Gegenrichtung bewerten.
 export function tauscheSeiten(s: Section): Section {
   const neu: Section = { ...s, quelle: { ...s.quelle } }
+  if (s.steigung?.pct != null) neu.steigung = { ...s.steigung, pct: -s.steigung.pct || 0 }
   if (s.gegen) {
     const b = s.gegen
     Object.assign(neu, waehle(b))
@@ -328,6 +333,8 @@ export function candToSection(c: Cand, gleich = true): Section {
   if (c.bern?.routentyp) { s.routentyp = c.bern.routentyp; s.quelle.routentyp = 'amtlich' }
   // Strassentyp: nur amtlich (Basel, Dataset 100250)
   if (c.bern?.strassentyp) { s.strassentyp = c.bern.strassentyp; s.quelle.strassentyp = 'amtlich' }
+  // Strassenhierarchie: nur amtlich (Bern, Geoportal Strassenhierarchie)
+  if (c.bern?.hierarchie) s.hierarchie = c.bern.hierarchie
   // ÖV (Geoportal + Fahrplan): Haltestelle/Modus übernehmen; Tram → ÖV-Angebot „tram",
   // Bus → Frequenzband aus dem Takt (GTFS). Haltestellentyp bleibt manuell.
   if (c.bern && (c.bern.oevHalt || c.bern.oevTram || c.bern.oevBus)) {
@@ -509,6 +516,10 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
     if (rep.sec.strassentyp === '') {
       const s = spender.find(x => x.sec.strassentyp !== '')
       if (s) { rep.sec.strassentyp = s.sec.strassentyp; rep.sec.quelle.strassentyp = s.sec.quelle.strassentyp }
+    }
+    if (!rep.sec.hierarchie) {
+      const s = spender.find(x => x.sec.hierarchie)
+      if (s) rep.sec.hierarchie = s.sec.hierarchie
     }
     // Bus-Takt der Umweltspur (Fahrplan): vom längsten Segment, das ihn kennt
     if (rep.sec.ist === 'Umweltspur' && !Number.isFinite(rep.sec.oevTakt)) {
