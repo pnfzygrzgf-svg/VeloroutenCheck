@@ -1,0 +1,831 @@
+// ── Breite am Luftbild messen: ab Bordsteinkante (Bern, Zürich, Basel; Luzern: Strassenflächen der Stadt) ─
+//
+// Nutzerentscheid 15.10.2026: Gemessen wird ab der Bordsteinkante bis zur Stelle der Markierung,
+// die der Nutzer auf dem Luftbild anklickt; der Messwert ist die Breite an dieser Stelle. Die
+// Bordsteinkante ist die Kante der AV-Fläche «Strasse_Weg» — dieselbe Grundlage wie die Breiten
+// aus dem Berner Markierungsplan (velostreifen_dxf.py: rechtwinkliger Abstand der gelben Linie
+// zur Strassenkante der AV). Gerechnet wird in LV95 (Meter).
+//
+// Geprüft am 16.10.2026 in Bern (für Zürich und Basel fehlt ein Markierungsplan zum Vergleich;
+// die AV hat dort dieselbe Struktur), an 2 634 Strichen in 12 Ausschnitten der Stadt: Der
+// Abstand Strich → Bordsteinkante (hier, AV von geodienste.ch) wich von der Breite im Plan im
+// Median um 2,5 cm ab, bei 82 % um höchstens 10 cm. Die übrigen Abweichungen kommen vom
+// Datenstand der AV und von inneren Kanten, die der Plan mitzählt, diese Rechnung aber bewusst
+// nicht (sie sind kein Bord). Am Luftbild kommt die Klickgenauigkeit dazu (10 cm pro Pixel).
+
+import type { AvFlaeche } from './av'
+import type { P } from './lv95'
+import { parkAnteile, verdichten } from './parkierung'
+
+export interface Kante { a: P; b: P }
+
+const PRUEF_M = 0.3      // Prüfpunkt beidseits der Kante: liegt die Aussenseite wieder auf Strasse?
+export const FANG_M = 8  // weiter weg vom Klick liegt keine Bordsteinkante, die gemeint sein kann
+
+// Gerade-Ungerade-Regel über alle Ringe (äusserer Ring + Löcher).
+function imPolygon(pt: P, ringe: P[][]): boolean {
+  let innen = false
+  for (const r of ringe) {
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const [xi, yi] = r[i], [xj, yj] = r[j]
+      if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) innen = !innen
+    }
+  }
+  return innen
+}
+
+type Box = [number, number, number, number]   // minE, minN, maxE, maxN
+function box(ringe: P[][]): Box {
+  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity
+  for (const r of ringe) for (const [e, n] of r) { a = Math.min(a, e); b = Math.min(b, n); c = Math.max(c, e); d = Math.max(d, n) }
+  return [a, b, c, d]
+}
+const inBox = (p: P, x: Box) => p[0] >= x[0] && p[0] <= x[2] && p[1] >= x[1] && p[1] <= x[3]
+
+// Bordsteinkanten = Kanten der Strassenflächen, hinter denen KEINE Strasse liegt. Die AV teilt
+// eine Strasse in mehrere Flächen; deren gemeinsame Kanten sind keine Bordsteine und fallen weg
+// (Prüfpunkt 0,3 m auf der Aussenseite liegt in einer anderen Strassenfläche). Löcher einer
+// Strassenfläche (Verkehrsinseln) zählen mit.
+// Geprüft wird je Stück von höchstens STUECK_M (16.10.2026): Eine lange Kante, die nur auf einem
+// Teil an eine andere Strassenfläche grenzt (Einmündung), fiel sonst ganz weg, wenn ihre Mitte
+// zufällig in der Einmündung lag. Aufeinanderfolgende Bord-Stücke werden wieder zusammengefügt.
+const STUECK_M = 2
+export function bordkanten(flaechen: AvFlaeche[]): Kante[] {
+  const strassen = flaechen.filter(f => f.art === 'Strasse_Weg' && f.ringe.length && f.ringe[0].length >= 3)
+    .map(f => ({ f, box: box(f.ringe) }))
+  const aus: Kante[] = []
+  for (const s of strassen) {
+    for (const r of s.f.ringe) {
+      for (let i = 0; i < r.length; i++) {
+        const a = r[i], b = r[(i + 1) % r.length]
+        const de = b[0] - a[0], dn = b[1] - a[1], l = Math.hypot(de, dn)
+        if (l < 0.05) continue
+        const nx = -dn / l, ny = de / l
+        const teile = Math.max(1, Math.ceil(l / STUECK_M))
+        let start: P | null = null
+        for (let k = 0; k < teile; k++) {
+          const t0 = k / teile, t1 = (k + 1) / teile
+          const p0: P = [a[0] + de * t0, a[1] + dn * t0], q1: P = [a[0] + de * t1, a[1] + dn * t1]
+          const m: P = [(p0[0] + q1[0]) / 2, (p0[1] + q1[1]) / 2]
+          const p1: P = [m[0] + PRUEF_M * nx, m[1] + PRUEF_M * ny], p2: P = [m[0] - PRUEF_M * nx, m[1] - PRUEF_M * ny]
+          const aussen = imPolygon(p1, s.f.ringe) ? p2 : p1
+          const innen = strassen.some(o => o !== s && inBox(aussen, o.box) && imPolygon(aussen, o.f.ringe))
+          if (!innen) { if (!start) start = p0 }
+          else if (start) { aus.push({ a: start, b: p0 }); start = null }
+          if (k === teile - 1 && start) aus.push({ a: start, b: q1 })
+        }
+      }
+    }
+  }
+  return aus
+}
+
+// Nächster Punkt einer Strecke zu p.
+function fusspunkt(p: P, k: Kante): { d: number; fuss: P } {
+  const de = k.b[0] - k.a[0], dn = k.b[1] - k.a[1], l2 = de * de + dn * dn
+  const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - k.a[0]) * de + (p[1] - k.a[1]) * dn) / l2))
+  const fuss: P = [k.a[0] + t * de, k.a[1] + t * dn]
+  return { d: Math.hypot(p[0] - fuss[0], p[1] - fuss[1]), fuss }
+}
+
+// Punkt an eine Bordsteinkante fangen (seit 27.10.2026, Nutzerwunsch: beim Messen mit zwei Punkten «magnetisch» an der AV-Linie,
+// damit sich eine Spur von der Markierung bis zur Kante messen lässt und nicht nur ab der Kante). Ohne ersten Punkt die nächste
+// Stelle der Kante; mit erstem Punkt (von) der Fusspunkt des Lots von ihm auf die Kante, wenn er im Fangradius liegt, sodass die
+// Messung rechtwinklig zur Kante ist. null, wenn keine Kante näher als radiusM ist.
+export function fangeAnKante(p: P, kanten: Kante[], radiusM: number, von?: P): P | null {
+  let best: P | null = null, bestD = radiusM
+  for (const k of kanten) {
+    const de = k.b[0] - k.a[0], dn = k.b[1] - k.a[1], ll = de * de + dn * dn
+    if (ll < 1e-9) continue
+    const auf = (q: P): { u: number; f: P } => {
+      const u = ((q[0] - k.a[0]) * de + (q[1] - k.a[1]) * dn) / ll
+      return { u, f: [k.a[0] + u * de, k.a[1] + u * dn] }
+    }
+    const naechst = auf(p), uk = Math.max(0, Math.min(1, naechst.u))
+    let q: P = [k.a[0] + uk * de, k.a[1] + uk * dn]
+    if (von) { const lot = auf(von); if (lot.u >= 0 && lot.u <= 1 && abstand(lot.f, p) <= radiusM) q = lot.f }
+    const d = abstand(q, p)
+    if (d <= bestD) { bestD = d; best = q }
+  }
+  return best
+}
+
+// Messung ab Bordsteinkante: kürzester Abstand vom Klick (auf der Markierung) zur nächsten
+// Bordsteinkante, höchstens maxM. Rückgabe: Breite [m] und Fusspunkt auf der Kante.
+export function messeAbKante(klick: P, kanten: Kante[], maxM = FANG_M): { breite: number; fuss: P } | null {
+  let best: { d: number; fuss: P } | null = null
+  for (const k of kanten) {
+    const f = fusspunkt(klick, k)
+    if (f.d <= maxM && (!best || f.d < best.d)) best = f
+  }
+  return best && { breite: best.d, fuss: best.fuss }
+}
+
+// Messung der ganzen Fläche (seit 20.10.2026, Velostrasse und Wege): Klick in die Fläche; von der
+// nächsten Kante rechtwinklig durch den Klick bis zur gegenüberliegenden Kante (höchstens maxM weit).
+// Vorher ergab ein Klick auf die gegenüberliegende Kante 0 m, weil sie selbst die nächste war.
+export function messeFlaeche(klick: P, kanten: Kante[], maxM = 25): { breite: number; von: P; bis: P } | null {
+  let best: { d: number; fuss: P } | null = null
+  for (const k of kanten) {
+    const f = fusspunkt(klick, k)
+    if (f.d <= FANG_M && (!best || f.d < best.d)) best = f
+  }
+  if (!best || best.d < 0.01) return null
+  const d: P = [(klick[0] - best.fuss[0]) / best.d, (klick[1] - best.fuss[1]) / best.d]
+  const t = strahl(klick, d, kanten, maxM)
+  if (!Number.isFinite(t)) return null
+  return { breite: best.d + t, von: best.fuss, bis: [klick[0] + d[0] * t, klick[1] + d[1] * t] }
+}
+
+// Messung mit zwei Punkten (Bordsteinkante und Markierung von Hand), etwa wenn die AV-Kante nicht
+// zum Bord passt.
+export const abstand = (a: P, b: P): number => Math.hypot(a[0] - b[0], a[1] - b[1])
+
+// Auf Zentimeter runden (Feldwert).
+export const aufZentimeter = (m: number): number => Math.round(m * 100) / 100
+
+// ── Fahrbahnbreite aus der AV (seit 16.10.2026) ───────────────────────────────
+// Breite der Strassenfläche von Bordstein zu Bordstein, quer zur Achse des Abschnitts gemessen:
+// Querschnitte alle QUER_SCHRITT_M entlang der OSM-Geometrie, je ein Strahl nach links und rechts
+// bis zur ersten Bordsteinkante (bordkanten), Breite = Summe beider Abstände; Ergebnis = Median.
+// Ausgelassen werden Querschnitte nahe den Segment-Enden (dort liegen meist Kreuzungen): je
+// ENDE_FREI_M, bei kurzen Segmenten nur je ein Achtel der Länge (wie der lokale Berner Rechner),
+// Punkte ausserhalb der Strassenfläche und Querschnitte ohne Kante innert QUER_MAX_M je Seite.
+// Gemessen wird die ganze Fläche «Strasse_Weg»: Parkierung, Busbuchten und Tramgleise zählen
+// mit; eine Verkehrsinsel (Loch der Fläche) begrenzt den Strahl.
+export const QUER_SCHRITT_M = 5
+const ENDE_FREI_M = 12
+const QUER_MAX_M = 20
+const BREITE_MIN_M = 3, BREITE_MAX_M = 30
+
+// Abstand vom Punkt p entlang der Richtung d (Einheitsvektor) bis zur ersten Kante, oder Infinity.
+function strahl(p: P, d: P, kanten: Kante[], maxM: number): number {
+  let best = Infinity
+  for (const k of kanten) {
+    const ex = k.b[0] - k.a[0], ey = k.b[1] - k.a[1]
+    const nenner = d[0] * ey - d[1] * ex
+    if (Math.abs(nenner) < 1e-12) continue
+    const ax = k.a[0] - p[0], ay = k.a[1] - p[1]
+    const t = (ax * ey - ay * ex) / nenner        // Abstand entlang d
+    const u = (ax * d[1] - ay * d[0]) / nenner    // Lage auf der Kante (0…1)
+    if (t > 0 && t <= maxM && u >= 0 && u <= 1 && t < best) best = t
+  }
+  return best
+}
+
+export interface Fahrbahnbreite { median: number; min: number; max: number; n: number }
+
+function median(werte: number[]): number {
+  const s = [...werte].sort((x, y) => x - y), m = Math.floor(s.length / 2)
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+// Querschnitte alle QUER_SCHRITT_M auf der Strassenfläche, ohne die Segment-Enden: Punkt auf der
+// Achse und die Richtungen nach links und rechts (Einheitsvektoren, links/rechts in Linienrichtung).
+interface Querschnitt { p: P; links: P; rechts: P; s: number }   // s: Abstand entlang der Achse [m]
+function querschnitte(achsen: P[][], flaechen: AvFlaeche[]): Querschnitt[] {
+  const strassen = flaechen.filter(f => f.art === 'Strasse_Weg').map(f => ({ f, box: box(f.ringe) }))
+  const aufStrasse = (p: P) => strassen.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
+  const aus: Querschnitt[] = []
+  for (const linie of achsen) {
+    let gesamt = 0
+    for (let i = 1; i < linie.length; i++) gesamt += Math.hypot(linie[i][0] - linie[i - 1][0], linie[i][1] - linie[i - 1][1])
+    const frei = Math.min(ENDE_FREI_M, gesamt / 8)
+    let bisher = 0
+    for (let i = 1; i < linie.length; i++) {
+      const a = linie[i - 1], b = linie[i]
+      const l = Math.hypot(b[0] - a[0], b[1] - a[1])
+      if (l < 0.01) continue
+      const d: P = [(b[0] - a[0]) / l, (b[1] - a[1]) / l], links: P = [-d[1], d[0]], rechts: P = [d[1], -d[0]]
+      // Querschnitte auf dem Raster der ganzen Linie (alle QUER_SCHRITT_M ab Linienanfang)
+      for (let s = Math.ceil(bisher / QUER_SCHRITT_M) * QUER_SCHRITT_M; s <= bisher + l; s += QUER_SCHRITT_M) {
+        if (s < frei || s > gesamt - frei) continue
+        const t = s - bisher
+        const p: P = [a[0] + d[0] * t, a[1] + d[1] * t]
+        if (aufStrasse(p)) aus.push({ p, links, rechts, s })
+      }
+      bisher += l
+    }
+  }
+  return aus
+}
+
+// Seit 20.10.2026 (Nutzerentscheid: die Mittelinsel gehört zur Fahrbahn): Liegt hinter der ersten Kante eine
+// AV-Verkehrsinsel und dahinter wieder Strasse, läuft der Strahl über die Insel bis zum Bord der Gegenseite.
+// (SCHRITT_UEBER_M ist unten bei den Trottoirbreiten festgelegt.)
+const INSEL_MAX_M = 12
+type Test = (p: P) => boolean
+function flaechenTest(flaechen: AvFlaeche[], art: string): Test {
+  const fs = flaechen.filter(f => f.art === art).map(f => ({ f, box: box(f.ringe) }))
+  return p => fs.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
+}
+// Kurze Inseln (seit 21.10.2026, Nutzerbefund Bubenbergplatz): nur sie gehören zur Fahrbahn und werden von den
+// Strahlen überquert (Schutz- und Mittelinseln an Querungen, Laubeggstrasse 7 m). Längere sind ein Mittelstreifen
+// zwischen zwei Fahrbahnteilen (Bubenbergplatz 161 m: MIV-Fahrbahn | Mittelstreifen | Tram-/Bustrassee); die Fahrbahn
+// reicht dann nur bis zum Streifen. Haltestelleninseln (36–54 m) werden eigens erkannt (haltestelleninsel).
+export const MITTELINSEL_MAX_LAENGE_M = 30
+const inselLaenge = (f: AvFlaeche): number => { const b = box(f.ringe); return Math.max(b[2] - b[0], b[3] - b[1]) }
+function kurzeInselTest(flaechen: AvFlaeche[]): Test {
+  const fs = flaechen.filter(f => f.art === 'Verkehrsinsel' && inselLaenge(f) <= MITTELINSEL_MAX_LAENGE_M).map(f => ({ f, box: box(f.ringe) }))
+  return p => fs.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
+}
+// Abstand von p entlang d bis zum Ende der Insel, ab der Kante bei ab (Schritte 5 cm)
+function inselEnde(p: P, d: P, ab: number, aufInsel: Test): number {
+  let s = ab
+  while (s - ab < INSEL_MAX_M && aufInsel([p[0] + d[0] * (s + 0.05), p[1] + d[1] * (s + 0.05)])) s += 0.05
+  return s + 0.05
+}
+// Bis zum Bord: über höchstens eine Mittelinsel hinweg
+function bisBord(p: P, d: P, kanten: Kante[], aufStrasse: Test, aufInsel: Test): number {
+  const t1 = strahl(p, d, kanten, QUER_MAX_M)
+  if (!Number.isFinite(t1)) return t1
+  const hinter = (s: number): P => [p[0] + d[0] * s, p[1] + d[1] * s]
+  if (!aufInsel(hinter(t1 + SCHRITT_UEBER_M))) return t1
+  const ende = inselEnde(p, d, t1, aufInsel)
+  if (!aufStrasse(hinter(ende + SCHRITT_UEBER_M))) return t1
+  const t2 = strahl(hinter(ende), d, kanten, QUER_MAX_M)
+  return Number.isFinite(t2) ? ende + t2 : t1
+}
+
+// achsen: Geometrien der Segmente des Abschnitts in LV95 (je eine Polylinie).
+export function fahrbahnbreite(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen)): Fahrbahnbreite | null {
+  const werte: number[] = []
+  const aufStrasse = flaechenTest(flaechen, 'Strasse_Weg'), aufInsel = kurzeInselTest(flaechen)
+  for (const { p, links, rechts } of querschnitte(achsen, flaechen)) {
+    const w = bisBord(p, links, kanten, aufStrasse, aufInsel) + bisBord(p, rechts, kanten, aufStrasse, aufInsel)
+    if (Number.isFinite(w) && w >= BREITE_MIN_M && w <= BREITE_MAX_M) werte.push(w)
+  }
+  if (werte.length < 3) return null
+  return { median: median(werte), min: Math.min(...werte), max: Math.max(...werte), n: werte.length }
+}
+
+// ── Trottoirbreiten aus der AV (seit 16.10.2026, Aufteilung planen Etappe 2) ──────
+// Dieselben Querschnitte wie die Fahrbahnbreite. Je Seite läuft der Strahl bis zur Bordsteinkante
+// und von dort weiter über die AV-Fläche «Trottoir» bis zu deren Ende; aneinanderstossende
+// Trottoirflächen zählen als eine. Liegt hinter dem Bord kein Trottoir (Vorplatz, Parkfläche,
+// Gebäude), zählt der Querschnitt als «ohne Trottoir». Eine Seite hat ein Trottoir, wenn es auf
+// mindestens TROTTOIR_ANTEIL ihrer Querschnitte (mit Bordsteinkante) gefunden wird, und mindestens
+// drei Werte; dann gilt der Median. Breiter als TROTTOIR_MAX_M (Platz) zählt nicht.
+// Grünstreifen zwischen Fahrbahn und Fussweg (seit 20.10.2026, Nutzerbefund Spöndlistrasse Zürich: hinter dem Bord
+// 0,30 m Trottoir, dann eine Grünfläche als Loch in der Trottoirfläche, dahinter der Fussweg): Endet das Trottoir an
+// einer Grünfläche (GRUEN_ARTEN) von höchstens GRUEN_MAX_M und folgt dahinter wieder Trottoir, geht die Messung weiter.
+// Das Trottoir ist dann der Fussweg hinter dem Grün; schmale Trottoirstreifen davor (unter TROTTOIR_MIN_M) zählen zum
+// Grünstreifen. Ein Grünstreifen gilt, wenn er auf mindestens TROTTOIR_ANTEIL der Querschnitte mit Trottoir liegt
+// (sonst sind es einzelne Baumscheiben); dann gelten die Mediane dieser Querschnitte.
+const TROTTOIR_MAX_M = 8, TROTTOIR_MIN_M = 0.5, TROTTOIR_ANTEIL = 0.5
+const SCHRITT_UEBER_M = 0.05   // Prüfpunkt knapp hinter einer Kante
+const GRUEN_MAX_M = 4
+const GRUEN_ARTEN = ['Gartenanlage', 'uebrige_humusierte', 'Acker_Wiese_Weide']
+// Schmaler befestigter Streifen (Bankett, «uebrige_befestigte») direkt hinter dem Bord, dahinter das Trottoir
+// (Schwarzenburgstrasse 1568298241, Nutzerbefund 21.10.2026): zählt zum Trottoir
+const BANKETT_MAX_M = 1.5
+
+export interface Trottoirbreiten { links: number | null; rechts: number | null; gruen?: { links: number | null; rechts: number | null } }
+
+// Alle Abstände entlang d, an denen der Strahl ab p eine Kante der Ringe schneidet (aufsteigend).
+function schnitte(p: P, d: P, ringe: P[][][], maxM: number): number[] {
+  const ts: number[] = []
+  for (const rs of ringe) for (const r of rs) for (let i = 0; i < r.length; i++) {
+    const a = r[i], b = r[(i + 1) % r.length]
+    const ex = b[0] - a[0], ey = b[1] - a[1], nenner = d[0] * ey - d[1] * ex
+    if (Math.abs(nenner) < 1e-12) continue
+    const ax = a[0] - p[0], ay = a[1] - p[1]
+    const t = (ax * ey - ay * ex) / nenner, u = (ax * d[1] - ay * d[0]) / nenner
+    if (t > 0 && t <= maxM && u >= 0 && u <= 1) ts.push(t)
+  }
+  return ts.sort((x, y) => x - y)
+}
+
+// zuschlag: je Seite so viel breiter als TROTTOIR_MAX_M darf das Trottoir sein (Parkierung auf dem Trottoir: Neubrückstrasse,
+// 21.10.2026, 8,7 und 8,9 m Trottoir samt Parkfeldern galten als «Platz»)
+export function trottoirbreiten(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen),
+  zuschlag: { links?: number; rechts?: number } = {}): Trottoirbreiten {
+  const aufStrasse = flaechenTest(flaechen, 'Strasse_Weg'), aufInsel = kurzeInselTest(flaechen)
+  const trottoirs = flaechen.filter(f => f.art === 'Trottoir').map(f => ({ f, box: box(f.ringe) }))
+  const gruene = flaechen.filter(f => GRUEN_ARTEN.includes(f.art)).map(f => ({ f, box: box(f.ringe) }))
+  const bankette = flaechen.filter(f => f.art === 'uebrige_befestigte').map(f => ({ f, box: box(f.ringe) }))
+  const aufTrottoir = (p: P) => trottoirs.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
+  const aufGruen = (p: P) => gruene.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
+  const aufBankett = (p: P) => bankette.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
+  const seite = { links: { n: 0, werte: [] as number[], mitGruen: [] as [number, number][] },
+    rechts: { n: 0, werte: [] as number[], mitGruen: [] as [number, number][] } }
+  for (const q of querschnitte(achsen, flaechen)) {
+    for (const k of ['links', 'rechts'] as const) {
+      const d = q[k]
+      const MAX = TROTTOIR_MAX_M + (zuschlag[k] ?? 0)
+      // über eine Mittel- oder Schutzinsel hinweg bis zum Bord (wie die Fahrbahnbreite; seit 21.10.2026)
+      const t = bisBord(q.p, d, kanten, aufStrasse, aufInsel)
+      if (!Number.isFinite(t)) continue
+      const bord: P = [q.p[0] + d[0] * t, q.p[1] + d[1] * t]
+      const bei = (s: number): P => [bord[0] + d[0] * s, bord[1] + d[1] * s]
+      seite[k].n++
+      // Bankett (schmaler befestigter Streifen) direkt hinter dem Bord, dahinter das Trottoir: zählt zum Trottoir
+      let vorn = 0
+      if (!aufTrottoir(bei(SCHRITT_UEBER_M)) && aufBankett(bei(SCHRITT_UEBER_M))) {
+        const nahB = bankette.filter(s => inBox(bei(0), [s.box[0] - BANKETT_MAX_M, s.box[1] - BANKETT_MAX_M, s.box[2] + BANKETT_MAX_M, s.box[3] + BANKETT_MAX_M])).map(s => s.f.ringe)
+        const bEnde = schnitte(bord, d, nahB, BANKETT_MAX_M).find(s => s > SCHRITT_UEBER_M && !aufBankett(bei(s + SCHRITT_UEBER_M)))
+        if (bEnde != null && aufTrottoir(bei(bEnde + SCHRITT_UEBER_M))) {
+          const nahT = trottoirs.filter(s => inBox(bei(bEnde), [s.box[0] - MAX, s.box[1] - MAX, s.box[2] + MAX, s.box[3] + MAX])).map(s => s.f.ringe)
+          const fEnde = schnitte(bord, d, nahT, bEnde + MAX).find(s => s > bEnde + SCHRITT_UEBER_M && !aufTrottoir(bei(s + SCHRITT_UEBER_M)))
+          if (fEnde != null && fEnde - bEnde >= TROTTOIR_MIN_M && fEnde <= MAX) { seite[k].werte.push(fEnde); continue }
+          vorn = bEnde
+        }
+      }
+      // Grünstreifen direkt hinter dem Bord, dahinter das Trottoir (Schwarzenburgstrasse, Nutzerbefund 21.10.2026)
+      if (!aufTrottoir(bei(SCHRITT_UEBER_M)) && vorn === 0) {
+        if (!aufGruen(bei(SCHRITT_UEBER_M))) continue
+        const nahG = gruene.filter(s => inBox(bei(0), [s.box[0] - GRUEN_MAX_M, s.box[1] - GRUEN_MAX_M, s.box[2] + GRUEN_MAX_M, s.box[3] + GRUEN_MAX_M])).map(s => s.f.ringe)
+        const gEnde = schnitte(bord, d, nahG, GRUEN_MAX_M).find(s => s > SCHRITT_UEBER_M && !aufGruen(bei(s + SCHRITT_UEBER_M)))
+        if (gEnde == null || !aufTrottoir(bei(gEnde + SCHRITT_UEBER_M))) continue
+        const nahT = trottoirs.filter(s => inBox(bei(gEnde), [s.box[0] - MAX, s.box[1] - MAX, s.box[2] + MAX, s.box[3] + MAX])).map(s => s.f.ringe)
+        const fEnde = schnitte(bord, d, nahT, gEnde + MAX).find(s => s > gEnde + SCHRITT_UEBER_M && !aufTrottoir(bei(s + SCHRITT_UEBER_M)))
+        if (fEnde != null && fEnde - gEnde >= TROTTOIR_MIN_M && fEnde - gEnde <= MAX) seite[k].mitGruen.push([fEnde - gEnde, gEnde])
+        continue
+      }
+      // Nur Trottoirflächen in Reichweite schneiden; Ende = erste Kante, hinter der kein Trottoir liegt
+      const reichweite = MAX + GRUEN_MAX_M
+      const nah = [...trottoirs, ...gruene].filter(s => inBox(bei(0), [s.box[0] - reichweite, s.box[1] - reichweite,
+        s.box[2] + reichweite, s.box[3] + reichweite])).map(s => s.f.ringe)
+      const sx = schnitte(bord, d, nah, reichweite)
+      const ende = sx.find(s => s > SCHRITT_UEBER_M && !aufTrottoir(bei(s + SCHRITT_UEBER_M)))
+      // Grünstreifen hinter dem Trottoir(-streifen), dahinter wieder Trottoir: weiter bis zum Ende des Fusswegs
+      if (ende != null && aufGruen(bei(ende + SCHRITT_UEBER_M))) {
+        const gEnde = sx.find(s => s > ende + SCHRITT_UEBER_M && !aufGruen(bei(s + SCHRITT_UEBER_M)))
+        if (gEnde != null && gEnde - ende <= GRUEN_MAX_M && aufTrottoir(bei(gEnde + SCHRITT_UEBER_M))) {
+          const fEnde = sx.find(s => s > gEnde + SCHRITT_UEBER_M && !aufTrottoir(bei(s + SCHRITT_UEBER_M)))
+          if (fEnde != null && fEnde - gEnde >= TROTTOIR_MIN_M && fEnde - gEnde <= MAX) {
+            // Trottoir davor mit eigener Breite: zählt zum Trottoir; ein schmaler Streifen zum Grün
+            const vorn = ende >= TROTTOIR_MIN_M ? ende : 0
+            seite[k].mitGruen.push([fEnde - gEnde + vorn, gEnde - vorn])
+            continue
+          }
+        }
+      }
+      if (ende != null && ende >= TROTTOIR_MIN_M && ende <= MAX) seite[k].werte.push(ende)
+    }
+  }
+  const gilt = (s: { n: number }, anzahl: number) => anzahl >= 3 && anzahl >= TROTTOIR_ANTEIL * s.n
+  const wert = (s: typeof seite.links): { tr: number | null; gr: number | null } => {
+    const alle = s.werte.length + s.mitGruen.length
+    if (s.mitGruen.length && gilt(s, alle) && s.mitGruen.length >= TROTTOIR_ANTEIL * alle)
+      return { tr: median(s.mitGruen.map(x => x[0])), gr: median(s.mitGruen.map(x => x[1])) }
+    // einzelne Baumscheiben: dort zählt nur das Trottoir bis zum Grün, wenn es breit genug ist
+    const werte = [...s.werte, ...s.mitGruen.map(x => x[0])]
+    return { tr: gilt(s, werte.length) ? median(werte) : null, gr: null }
+  }
+  const l = wert(seite.links), r = wert(seite.rechts)
+  return { links: l.tr, rechts: r.tr, ...(l.gr != null || r.gr != null ? { gruen: { links: l.gr, rechts: r.gr } } : {}) }
+}
+
+// ── Parkierung auf Trottoirniveau (seit 17.10.2026, Nutzerbefund Kanzleistrasse Zürich) ──────────
+// Manche Längsparkierung liegt hinter dem Randstein auf der Fläche, die die AV als «Trottoir» führt.
+// trottoirbreiten misst sie dann mit; die Ausgangslage der Planung setzte sie zusätzlich auf die
+// Fahrbahn (doppelt gezählt). Je Seite: Liegen die Parkfelder bis PARK_SEITE_M neben der Achse nach
+// Fläche mindestens zur Hälfte (Schwerpunkt) auf einer Trottoirfläche, steht die Parkierung dieser
+// Seite auf Trottoirniveau. Felder neben den Achsenenden (Querstrassen) zählen nicht. Die Seite folgt
+// der Achse: links bzw. rechts in Linienrichtung, wie bei den Querschnitten.
+const PARK_SEITE_M = 9            // wie PARK_MAX_M (parkierung.ts, Vorbelegung «Parkierung rechts»)
+const PARK_TROTTOIR_ANTEIL = 0.5
+
+export function parkierungAufTrottoir(achsen: P[][], flaechen: AvFlaeche[], park: { ringe: P[][] }[]): { links: boolean; rechts: boolean } {
+  const trottoirs = flaechen.filter(f => f.art === 'Trottoir').map(f => ({ f, box: box(f.ringe) }))
+  const aufTrottoir = (p: P) => trottoirs.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
+  const summe = { links: { tr: 0, alle: 0 }, rechts: { tr: 0, alle: 0 } }
+  for (const f of park) {
+    const r = f.ringe[0]
+    if (!r || r.length < 3) continue
+    let flaeche = 0, ce = 0, cn = 0
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) flaeche += r[j][0] * r[i][1] - r[i][0] * r[j][1]
+    for (const [e, n] of r) { ce += e; cn += n }
+    const c: P = [ce / r.length, cn / r.length], gewicht = Math.abs(flaeche) / 2
+    let best = Infinity, seite: 'links' | 'rechts' = 'links', innen = false
+    for (const l of achsen) for (let i = 1; i < l.length; i++) {
+      const a = l[i - 1], b = l[i], de = b[0] - a[0], dn = b[1] - a[1], ll = de * de + dn * dn
+      if (ll < 1e-6) continue
+      const u = ((c[0] - a[0]) * de + (c[1] - a[1]) * dn) / ll, uk = Math.max(0, Math.min(1, u))
+      const d = Math.hypot(c[0] - a[0] - uk * de, c[1] - a[1] - uk * dn)
+      if (d < best) {
+        best = d; seite = de * (c[1] - a[1]) - dn * (c[0] - a[0]) > 0 ? 'links' : 'rechts'
+        innen = (u > 0 || i > 1) && (u < 1 || i < l.length - 1)
+      }
+    }
+    if (best > PARK_SEITE_M || !innen || !gewicht) continue
+    summe[seite].alle += gewicht
+    if (aufTrottoir(c)) summe[seite].tr += gewicht
+  }
+  const ja = (x: { tr: number; alle: number }) => x.alle > 0 && x.tr >= PARK_TROTTOIR_ANTEIL * x.alle
+  return { links: ja(summe.links), rechts: ja(summe.rechts) }
+}
+
+// ── Tiefe der Parkierung je Seite (seit 20.10.2026, Nutzerbefund Egghölzlistrasse: Schrägparkierung als 1,90 m) ──
+// Die Berner und Luzerner Parkfelder sind Flächen (in Bern ganze Reihen): ihre Ausdehnung quer zur Achse ist die
+// Tiefe (Längsreihen rund 1,9–2,1 m, Schräg- und Querreihen rund 4,2–5,3 m; Probe Egghölzlistrasse). Je Seite
+// zählt die Anordnung mit der grösseren Länge entlang der Achse, die Tiefe ist ihr längengewichteter Median.
+// Ab TIEF_AB_M ist die Reihe schräg oder senkrecht («quer»). Unterschieden wird mit der Länge je Feld entlang der
+// Achse, wo die Daten die Anzahl Felder der Reihe nennen (Bern ANZAHL_PARKFELDER; Probe Kirchenfeld 20.10.2026: längs
+// 5,0–6,5 m je Feld, senkrecht 2,4–2,8 m, schräg rund 3,5 m): ab SCHRAEG_AB_M schräg, darunter senkrecht. Ohne Anzahl
+// bleibt «schräg oder senkrecht» (tief). Schräg ab WINKEL45_AB_M je Feld 45°, darunter 60°. Masse der Normalien Stadt Bern 2.10.22 «Parkfelder» (Rev. März 2019, verweist
+// auf VSS 40 291): Feld entlang der Strasse senkrecht 2,50 m, schräg 60° 2,90 m, schräg 45° 3,55 m; Tiefe längs 1,90 m,
+// senkrecht 5,00 m, schräg 60° 5,25 m, schräg 45° 4,90 m. Die Schwelle liegt zwischen gemessen senkrecht (bis 2,8 m)
+// und schräg 60° (2,90 m).
+// Zürich: nur Symbole (Linien, Punkte) mit der Anordnung aus den Daten, ohne Tiefe → Tiefe nach den Berner Normalien
+// angenommen (schräg mit 60°, weil der Winkel in den Daten fehlt).
+export type ParkTiefeArt = 'laengs' | 'schraeg' | 'quer' | 'tief'
+// winkel: Schrägparkierung 45° oder 60° nach der Länge je Feld (seit 20.10.2026); fehlt = Winkel offen (Zürich)
+export type ParkWinkel = 45 | 60
+export interface ParkTiefe { tiefe: number; art: ParkTiefeArt; winkel?: ParkWinkel; angenommen?: boolean }
+const TIEF_AB_M = 2.6
+const SCHRAEG_AB_M = 2.85
+const WINKEL45_AB_M = 3.2     // zwischen schräg 60° (2,90 m) und 45° (3,55 m je Feld)
+export const PARK_TIEFE_ANNAHME: Record<'laengs' | 'schraeg' | 'quer', number> = { laengs: 1.9, schraeg: 5.25, quer: 5.0 }
+// Gekrümmte Reihen (seit 27.10.2026, Nutzerbefund Aargauerstalden 585349949: 54 Längsfelder als EINE Fläche entlang der Kurve,
+// rund 270 m lang, quer zum nächsten geraden Achsstück 21,60 m «tief» → Schrägparkierung 45°): Ist die Ausdehnung quer zur
+// Achse grösser als PARK_TIEF_MAX_M (tiefer ist keine Parkierung, senkrecht 5,00, schräg 60° 5,25 m), gilt die Breite des
+// Bandes aus Fläche A und Umfang U (Rechteck: Breite = (U − √(U² − 16·A)) / 4, Länge = A / Breite): dort 1,80 m auf 277 m,
+// 5,1 m je Feld → längs. Ist auch sie nicht glaubhaft, zählt die Fläche nicht.
+const PARK_TIEF_MAX_M = 7
+export function bandBreite(r: P[]): { breite: number; laenge: number } | null {
+  let a = 0, u = 0
+  for (let i = 0; i < r.length; i++) {
+    const p = r[i], q = r[(i + 1) % r.length]
+    a += p[0] * q[1] - q[0] * p[1]; u += Math.hypot(q[0] - p[0], q[1] - p[1])
+  }
+  a = Math.abs(a) / 2
+  const disk = u * u - 16 * a
+  if (!(a > 0) || disk < 0) return null
+  const breite = (u - Math.sqrt(disk)) / 4
+  return breite > 0 ? { breite, laenge: a / breite } : null
+}
+// Tiefe der Schrägparkierung je Winkel (Normalien Stadt Bern 2.10.22)
+export const PARK_WINKEL_TIEFE: Record<ParkWinkel, number> = { 45: 4.9, 60: 5.25 }
+
+export function parkierungTiefe(achsen: P[][], park: { ringe: P[][]; art?: 'laengs' | 'schraeg' | 'quer'; symbol?: boolean; anzahl?: number }[]):
+  { links?: ParkTiefe; rechts?: ParkTiefe } {
+  const je: Record<'links' | 'rechts', { tiefe: number; laenge: number; art?: 'laengs' | 'schraeg' | 'quer'; symbol?: boolean; anzahl?: number }[]> = { links: [], rechts: [] }
+  for (const f of park) {
+    const r = f.ringe[0]
+    if (!r || r.length < 3) continue
+    const c: P = [r.reduce((s, p) => s + p[0], 0) / r.length, r.reduce((s, p) => s + p[1], 0) / r.length]
+    let best = Infinity, seg: [P, P] | null = null, innen = false, seite: 'links' | 'rechts' = 'links'
+    for (const l of achsen) for (let i = 1; i < l.length; i++) {
+      const a = l[i - 1], b = l[i], de = b[0] - a[0], dn = b[1] - a[1], ll = de * de + dn * dn
+      if (ll < 1e-6) continue
+      const u = ((c[0] - a[0]) * de + (c[1] - a[1]) * dn) / ll, uk = Math.max(0, Math.min(1, u))
+      const d = Math.hypot(c[0] - a[0] - uk * de, c[1] - a[1] - uk * dn)
+      if (d < best) {
+        best = d; seg = [a, b]; seite = de * (c[1] - a[1]) - dn * (c[0] - a[0]) > 0 ? 'links' : 'rechts'
+        innen = (u > 0 || i > 1) && (u < 1 || i < l.length - 1)
+      }
+    }
+    if (!seg || best > PARK_SEITE_M || !innen) continue
+    const de = seg[1][0] - seg[0][0], dn = seg[1][1] - seg[0][1], l = Math.hypot(de, dn)
+    const n: P = [-dn / l, de / l], d: P = [de / l, dn / l]
+    const quer = r.map(p => p[0] * n[0] + p[1] * n[1]), laengs = r.map(p => p[0] * d[0] + p[1] * d[1])
+    let tiefe = Math.max(...quer) - Math.min(...quer), laenge = Math.max(...laengs) - Math.min(...laengs)
+    if (tiefe > PARK_TIEF_MAX_M && !f.symbol) {   // gekrümmte Reihe: Breite des Bandes
+      const b = bandBreite(r)
+      if (!b || b.breite > PARK_TIEF_MAX_M) continue
+      tiefe = b.breite; laenge = b.laenge
+    }
+    je[seite].push({ tiefe, laenge, art: f.art, symbol: f.symbol, anzahl: f.anzahl })
+  }
+  const auswerten = (xs: typeof je.links): ParkTiefe | undefined => {
+    if (!xs.length) return undefined
+    // Symbole (Zürich): die Anordnung mit den meisten Feldern, Tiefe angenommen
+    if (xs.every(x => x.symbol)) {
+      const n = { laengs: 0, schraeg: 0, quer: 0 }
+      for (const x of xs) n[x.art ?? 'laengs'] += x.laenge
+      const art = (Object.keys(n) as ('laengs' | 'schraeg' | 'quer')[]).sort((a, b) => n[b] - n[a])[0]
+      return { tiefe: PARK_TIEFE_ANNAHME[art], art, angenommen: true }
+    }
+    const flaechen = xs.filter(x => !x.symbol)
+    const tief = flaechen.filter(x => x.tiefe >= TIEF_AB_M), flach = flaechen.filter(x => x.tiefe < TIEF_AB_M)
+    const summe = (ys: typeof xs) => ys.reduce((m, y) => m + y.laenge, 0)
+    const gruppe = summe(tief) > summe(flach) ? tief : flach
+    const sortiert = [...gruppe].sort((a, b) => a.tiefe - b.tiefe), halb = summe(gruppe) / 2
+    let acc = 0, wert = sortiert[sortiert.length - 1].tiefe
+    for (const y of sortiert) { acc += y.laenge; if (acc >= halb) { wert = y.tiefe; break } }
+    if (gruppe !== tief) return { tiefe: Math.round(wert * 20) / 20, art: 'laengs' }
+    // schräg oder senkrecht nach der Länge je Feld (nur Reihen mit Anzahl), nach Länge gewichtet
+    const mit = tief.filter(y => y.anzahl), jeFeld = (y: typeof xs[number]) => y.laenge / y.anzahl!
+    const schraeg = mit.filter(y => jeFeld(y) >= SCHRAEG_AB_M)
+    const art: ParkTiefeArt = !mit.length ? 'tief' : summe(schraeg) > summe(mit) / 2 ? 'schraeg' : 'quer'
+    if (art !== 'schraeg') return { tiefe: Math.round(wert * 20) / 20, art }
+    // Winkel der Schrägreihen nach der Länge je Feld, nach Länge gewichtet
+    const winkel: ParkWinkel = summe(schraeg.filter(y => jeFeld(y) >= WINKEL45_AB_M)) > summe(schraeg) / 2 ? 45 : 60
+    return { tiefe: Math.round(wert * 20) / 20, art, winkel }
+  }
+  return { links: auswerten(je.links), rechts: auswerten(je.rechts) }
+}
+
+// ── Versetzte Parkierung (seit 20.10.2026, Nutzerbefund): abwechselnd Seite A und Seite B ──────────────────
+// Liegen die Parkfelder beider Seiten an verschiedenen Stellen entlang der Achse, steht in einem Querschnitt nur
+// eine Seite; die Fahrbahn braucht dann nur die tiefere Parkierung. Abgedeckt wird je Seite in Schritten von 1 m
+// entlang der Achse (Stationen der Achsen hintereinander). Versetzt, wenn beide Seiten mindestens VERSETZT_MIN_M
+// Parkierung haben und sie sich auf höchstens VERSETZT_UEBERLAPP der kürzeren gegenüberliegen. Zurück kommt die
+// Seite, die im Querschnitt nicht zählt: die weniger tiefe, bei gleicher Tiefe die kürzere.
+const VERSETZT_MIN_M = 10
+const VERSETZT_UEBERLAPP = 0.25
+export function parkierungVersetzt(achsen: P[][], park: { ringe: P[][] }[], tiefe: { links?: ParkTiefe; rechts?: ParkTiefe } = {}):
+  'links' | 'rechts' | null {
+  const belegt = { links: new Set<number>(), rechts: new Set<number>() }
+  for (const f of park) {
+    const r = f.ringe[0]
+    if (!r || r.length < 3) continue
+    const c: P = [r.reduce((s, p) => s + p[0], 0) / r.length, r.reduce((s, p) => s + p[1], 0) / r.length]
+    let best = Infinity, seg: [P, P] | null = null, s0 = 0, seite: 'links' | 'rechts' = 'links', station = 0
+    for (const l of achsen) {
+      for (let i = 1; i < l.length; i++) {
+        const a = l[i - 1], b = l[i], de = b[0] - a[0], dn = b[1] - a[1], ll = de * de + dn * dn
+        if (ll < 1e-6) continue
+        const u = Math.max(0, Math.min(1, ((c[0] - a[0]) * de + (c[1] - a[1]) * dn) / ll))
+        const d = Math.hypot(c[0] - a[0] - u * de, c[1] - a[1] - u * dn)
+        if (d < best) { best = d; seg = [a, b]; s0 = station; seite = de * (c[1] - a[1]) - dn * (c[0] - a[0]) > 0 ? 'links' : 'rechts' }
+        station += Math.sqrt(ll)
+      }
+    }
+    if (!seg || best > PARK_SEITE_M) continue
+    const de = seg[1][0] - seg[0][0], dn = seg[1][1] - seg[0][1], l = Math.hypot(de, dn)
+    const st = r.map(p => s0 + ((p[0] - seg![0][0]) * de + (p[1] - seg![0][1]) * dn) / l)
+    for (let m = Math.ceil(Math.min(...st)); m < Math.max(...st); m++) belegt[seite].add(m)
+  }
+  const nl = belegt.links.size, nr = belegt.rechts.size
+  if (nl < VERSETZT_MIN_M || nr < VERSETZT_MIN_M) return null
+  let beide = 0
+  for (const m of belegt.links) if (belegt.rechts.has(m)) beide++
+  if (beide > VERSETZT_UEBERLAPP * Math.min(nl, nr)) return null
+  const tl = tiefe.links?.tiefe ?? PARK_TIEFE_ANNAHME.laengs, tr = tiefe.rechts?.tiefe ?? PARK_TIEFE_ANNAHME.laengs
+  return Math.abs(tl - tr) > 0.05 ? (tl < tr ? 'links' : 'rechts') : nl <= nr ? 'links' : 'rechts'
+}
+
+// ── Velo- und Motorradfelder je Seite (Bern, seit 23.10.2026, Nutzerwunsch Bernastrasse) ─────────────────────────
+// Für den Platzbedarf in der Planung: Anteil der Länge je Seite wie bei der Parkierung (parkAnteile, ab ZWEIRAD_SCHWELLE;
+// Zweiradfelder sind kurz), Tiefe quer zur Achse (parkierungTiefe, Annahme 2,00 m), und ob sie auf der Trottoirfläche
+// liegen (parkierungAufTrottoir). Zählen nicht als Parkierung (kein Dooring).
+export interface Zweiradfeld { tiefe: number; art: 'velo' | 'motorrad' | 'beide'; trottoir?: boolean; anteil: number }
+export const ZWEIRAD_SCHWELLE = 0.1, ZWEIRAD_TIEFE_ANNAHME = 2.0
+export function zweiradJeSeite(achsen: P[][], flaechen: AvFlaeche[], park: { ringe: P[][]; zweirad?: 'velo' | 'motorrad' }[]):
+  { links?: Zweiradfeld; rechts?: Zweiradfeld } {
+  const zr = park.filter(f => f.zweirad)
+  if (!zr.length) return {}
+  const achse = achsen.flat()
+  const punkte = (art?: 'velo' | 'motorrad') => zr.filter(f => !art || f.zweirad === art).flatMap(f => verdichten(f.ringe[0] ?? []))
+  const alle = parkAnteile(achse, punkte()), velo = parkAnteile(achse, punkte('velo')), moto = parkAnteile(achse, punkte('motorrad'))
+  const tiefe = parkierungTiefe(achsen, zr), aufTr = parkierungAufTrottoir(achsen, flaechen, zr)
+  const out: { links?: Zweiradfeld; rechts?: Zweiradfeld } = {}
+  for (const seite of ['links', 'rechts'] as const) {
+    if (alle[seite] < ZWEIRAD_SCHWELLE) continue
+    const t = tiefe[seite]?.tiefe
+    out[seite] = { tiefe: Math.round((t ?? ZWEIRAD_TIEFE_ANNAHME) * 20) / 20, anteil: Math.round(alle[seite] * 100) / 100,
+      art: velo[seite] > 0 && moto[seite] > 0 ? 'beide' : moto[seite] > 0 ? 'motorrad' : 'velo', ...(aufTr[seite] ? { trottoir: true } : {}) }
+  }
+  return out
+}
+
+// ── Mittelinsel aus der AV (seit 20.10.2026, Nutzerbefund Laubeggstrasse) ──────────────────────────────
+// Jede AV-Verkehrsinsel bis 10 m neben der Achse (nicht neben den Achsenenden), die quer zur Achse auf beiden
+// Seiten an Strasse grenzt, ist eine Mittelinsel — auch eine kurze Schutzinsel am Fussgängerstreifen (Nutzerentscheid:
+// diese sind relevant). Gemessen durch ihren Schwerpunkt quer zur Achse: Breite der Insel, Länge entlang der Achse
+// und die Fahrbahn von Bord zu Bord samt Insel. Mehrere Inseln: die längste, mit der Anzahl.
+export interface Mittelinsel { breite: number; laenge: number; fahrbahn: number; anzahl: number }
+export function mittelinsel(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen)): Mittelinsel | null {
+  const aufStrasse = flaechenTest(flaechen, 'Strasse_Weg'), aufInsel = flaechenTest(flaechen, 'Verkehrsinsel')
+  const funde: Mittelinsel[] = []
+  for (const f of flaechen.filter(x => x.art === 'Verkehrsinsel' && inselLaenge(x) <= MITTELINSEL_MAX_LAENGE_M)) {
+    const r = f.ringe[0]
+    if (!r || r.length < 3) continue
+    let c: P = [r.reduce((s, p) => s + p[0], 0) / r.length, r.reduce((s, p) => s + p[1], 0) / r.length]
+    let best = Infinity, d: P = [1, 0], innen = false
+    for (const l of achsen) for (let i = 1; i < l.length; i++) {
+      const a = l[i - 1], b = l[i], de = b[0] - a[0], dn = b[1] - a[1], ll = de * de + dn * dn
+      if (ll < 1e-6) continue
+      const u = ((c[0] - a[0]) * de + (c[1] - a[1]) * dn) / ll, uk = Math.max(0, Math.min(1, u))
+      const dist = Math.hypot(c[0] - a[0] - uk * de, c[1] - a[1] - uk * dn)
+      if (dist < best) { best = dist; const len = Math.sqrt(ll); d = [de / len, dn / len]; innen = (u > 0 || i > 1) && (u < 1 || i < l.length - 1) }
+    }
+    if (best > 10 || !innen) continue
+    if (!aufInsel(c)) {                                        // Schwerpunkt ausserhalb (L-förmige Insel): nahe einer Ecke
+      const ecke = r.find(p => aufInsel([p[0] * 0.9 + c[0] * 0.1, p[1] * 0.9 + c[1] * 0.1]))
+      if (!ecke) continue
+      c = [ecke[0] * 0.9 + c[0] * 0.1, ecke[1] * 0.9 + c[1] * 0.1]
+    }
+    const n: P = [-d[1], d[0]], m: P = [d[1], -d[0]]
+    // Ränder der Insel genau an ihren Kanten (seit 21.10.2026; vorher in 5-cm-Schritten, die Breite war bis 10 cm zu gross)
+    const eL = schnitte(c, n, [f.ringe], INSEL_MAX_M)[0] ?? inselEnde(c, n, 0, aufInsel)
+    const eR = schnitte(c, m, [f.ringe], INSEL_MAX_M)[0] ?? inselEnde(c, m, 0, aufInsel)
+    const pL: P = [c[0] + n[0] * eL, c[1] + n[1] * eL], pR: P = [c[0] + m[0] * eR, c[1] + m[1] * eR]
+    if (!aufStrasse([pL[0] + n[0] * SCHRITT_UEBER_M, pL[1] + n[1] * SCHRITT_UEBER_M])
+      || !aufStrasse([pR[0] + m[0] * SCHRITT_UEBER_M, pR[1] + m[1] * SCHRITT_UEBER_M])) continue
+    // ab knapp hinter dem Inselrand (der Rand selbst ist eine Bordkante)
+    const ab = (p: P, d: P) => strahl([p[0] + d[0] * SCHRITT_UEBER_M, p[1] + d[1] * SCHRITT_UEBER_M], d, kanten, QUER_MAX_M) + SCHRITT_UEBER_M
+    const tL = ab(pL, n), tR = ab(pR, m)
+    if (!Number.isFinite(tL) || !Number.isFinite(tR)) continue
+    const laengs = r.map(p => p[0] * d[0] + p[1] * d[1])
+    funde.push({ breite: Math.round((eL + eR) * 20) / 20, laenge: Math.round(Math.max(...laengs) - Math.min(...laengs)),
+      fahrbahn: Math.round((eL + eR + tL + tR) * 10) / 10, anzahl: 0 })
+  }
+  if (!funde.length) return null
+  const l = funde.reduce((a, b) => (b.laenge > a.laenge ? b : a))
+  return { ...l, anzahl: funde.length }
+}
+
+// ── Haltestelleninsel (seit 21.10.2026, Nutzerentscheid; Befund Monbijoustrasse) ─────────────────────────────────────
+// An einer Haltestelle ist eine Insel neben der Fahrbahn oft der Wartebereich: dahinter liegt nur ein schmaler Streifen
+// Strasse bis zum Bord (Veloumfahrung, HS 1) oder eine Fahrspur (Inselhaltestelle, HS 5), dann das Trottoir. Gesucht wird
+// die längste AV-Verkehrsinsel bis 10 m neben der Achse, mindestens HS_INSEL_MIN_LAENGE_M lang, mit Strasse auf beiden
+// Seiten; der Streifen auf der achsfernen Seite ist höchstens HS_STREIFEN_MAX_M breit. Gemessen durch den Schwerpunkt quer
+// zur Achse: Insel, Streifen (aussen), Fahrbahn von der Insel bis zum Bord gegenüber (innen) und das Trottoir hinter dem
+// Streifen. Unter HS_UMFAHRUNG_MAX_M ist der Streifen eine Veloumfahrung, sonst eine Fahrspur.
+export const HS_INSEL_MIN_LAENGE_M = 15, HS_STREIFEN_MAX_M = 4.5, HS_UMFAHRUNG_MAX_M = 3.0
+// Perron als breites «Trottoir» zwischen zwei Strassenflächen (seit 23.10.2026, Nutzerbefund Helvetiaplatz): die AV führt das
+// Perron einer Haltestelle dort nicht als Verkehrsinsel, sondern als Trottoir von 6 bis 16 m Breite, dahinter eine zweite
+// Strasse (Tramtrassee bzw. andere Fahrbahn). Es gilt als Perron, wenn OSM darauf eine Wartehalle oder ein Perron kennt
+// (perronPunkte, Pflicht: breite Trottoirs zwischen zwei Strassen gibt es auch an Plätzen ohne Haltestelle), es mindestens
+// HS_INSEL_MIN_LAENGE_M lang und höchstens HS_PERRON_MAX_M breit ist. Die Strasse dahinter gehört nicht zum Abschnitt.
+export const HS_PERRON_MAX_M = 12
+const HS_SCHRITT_M = 4
+export interface HsiBasis { seite: 'links' | 'rechts'; insel: number; aussen: number; innen: number; trottoir: number | null; laenge: number }
+// wartehalle: wo die Wartehalle steht (wartehalleLage, aus OSM): auf der Insel, hinter dem Streifen, keine (Perron ohne)
+export type WartehalleLage = 'insel' | 'hinten' | 'keine'
+export interface Haltestelleninsel { seite: 'links' | 'rechts'; insel: number; aussen: number; innen: number; trottoir: number | null; laenge: number
+  wartehalle?: WartehalleLage
+  perron?: boolean }      // Perron als Trottoirfläche zwischen zwei Strassen: aussen ist die Strasse dahinter (nicht Teil des Abschnitts)
+export function haltestelleninsel(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen)): Haltestelleninsel | null {
+  const aufStrasse = flaechenTest(flaechen, 'Strasse_Weg'), aufInsel = flaechenTest(flaechen, 'Verkehrsinsel'), aufKurzeInsel = kurzeInselTest(flaechen)
+  const aufTrottoir = flaechenTest(flaechen, 'Trottoir')
+  let best: Haltestelleninsel | null = null
+  for (const f of flaechen.filter(x => x.art === 'Verkehrsinsel')) {
+    const r = f.ringe[0]
+    if (!r || r.length < 3) continue
+    const c: P = [r.reduce((s, p) => s + p[0], 0) / r.length, r.reduce((s, p) => s + p[1], 0) / r.length]
+    if (!aufInsel(c)) continue
+    let dist = Infinity, d: P = [1, 0], fuss: P = c, innen = false
+    for (const l of achsen) for (let i = 1; i < l.length; i++) {
+      const a = l[i - 1], b = l[i], de = b[0] - a[0], dn = b[1] - a[1], ll = de * de + dn * dn
+      if (ll < 1e-6) continue
+      const u = ((c[0] - a[0]) * de + (c[1] - a[1]) * dn) / ll, uk = Math.max(0, Math.min(1, u))
+      const q: P = [a[0] + uk * de, a[1] + uk * dn], dd = Math.hypot(c[0] - q[0], c[1] - q[1])
+      if (dd < dist) { dist = dd; fuss = q; const len = Math.sqrt(ll); d = [de / len, dn / len]; innen = (u > 0 || i > 1) && (u < 1 || i < l.length - 1) }
+    }
+    if (dist > 10 || !innen) continue
+    const laengs = r.map(p => p[0] * d[0] + p[1] * d[1])
+    const laenge = Math.max(...laengs) - Math.min(...laengs)
+    if (laenge < HS_INSEL_MIN_LAENGE_M) continue
+    const links: P = [-d[1], d[0]]
+    const seite: 'links' | 'rechts' = (c[0] - fuss[0]) * links[0] + (c[1] - fuss[1]) * links[1] > 0 ? 'links' : 'rechts'
+    const aus: P = seite === 'links' ? links : [-links[0], -links[1]], ein: P = [-aus[0], -aus[1]]
+    // Mehrere Querschnitte über die Länge der Insel (alle HS_SCHRITT_M, Mediane): ein einzelner durch den Schwerpunkt
+    // traf an der Schwarzenburgstrasse die Schutzinsel des Fussgängerstreifens (Nutzerbefund 21.10.2026)
+    const sc = c[0] * d[0] + c[1] * d[1], s0 = Math.min(...laengs) + 1, s1 = Math.max(...laengs) - 1
+    const ringeTr = flaechen.filter(x => x.art === 'Trottoir').map(x => x.ringe)
+    const mI: number[] = [], mA: number[] = [], mIn: number[] = [], mTr: (number | null)[] = []
+    for (let sq = s0; sq <= s1 + 1e-9; sq += HS_SCHRITT_M) {
+      const q: P = [c[0] + d[0] * (sq - sc), c[1] + d[1] * (sq - sc)]
+      if (!aufInsel(q)) continue
+      // Ränder der Insel genau an ihren Kanten
+      const eA = schnitte(q, aus, [f.ringe], INSEL_MAX_M)[0], eI = schnitte(q, ein, [f.ringe], INSEL_MAX_M)[0]
+      if (eA == null || eI == null) continue
+      const pA: P = [q[0] + aus[0] * eA, q[1] + aus[1] * eA], pI: P = [q[0] + ein[0] * eI, q[1] + ein[1] * eI]
+      const hinter = (p: P, dd: P): P => [p[0] + dd[0] * SCHRITT_UEBER_M, p[1] + dd[1] * SCHRITT_UEBER_M]
+      if (!aufStrasse(hinter(pA, aus)) || !aufStrasse(hinter(pI, ein))) continue
+      // ab knapp hinter dem Inselrand (der Rand selbst ist eine Bordkante); nach innen über eine Schutzinsel hinweg
+      const tA = strahl(hinter(pA, aus), aus, kanten, QUER_MAX_M) + SCHRITT_UEBER_M
+      const tI = bisBord(hinter(pI, ein), ein, kanten, aufStrasse, aufKurzeInsel) + SCHRITT_UEBER_M
+      if (!Number.isFinite(tA) || !Number.isFinite(tI) || tA > HS_STREIFEN_MAX_M) continue
+      // Trottoir hinter dem Streifen: zusammenhängend ab dem Bord, höchstens TROTTOIR_MAX_M
+      const bord: P = [pA[0] + aus[0] * tA, pA[1] + aus[1] * tA]
+      let tr = 0
+      if (aufTrottoir(hinter(bord, aus)))
+        tr = schnitte(bord, aus, ringeTr, TROTTOIR_MAX_M).find(t => t > SCHRITT_UEBER_M
+          && !aufTrottoir([bord[0] + aus[0] * (t + SCHRITT_UEBER_M), bord[1] + aus[1] * (t + SCHRITT_UEBER_M)])) ?? 0
+      mI.push(eA + eI); mA.push(tA); mIn.push(tI); mTr.push(tr >= TROTTOIR_MIN_M ? tr : null)
+    }
+    if (!mI.length) continue
+    const trs = mTr.filter((x): x is number => x != null)
+    const kand: Haltestelleninsel = { seite, insel: Math.round(median(mI) * 20) / 20, aussen: Math.round(median(mA) * 20) / 20,
+      innen: Math.round(median(mIn) * 10) / 10, trottoir: trs.length && trs.length * 2 >= mTr.length ? Math.round(median(trs) * 20) / 20 : null,
+      laenge: Math.round(laenge) }
+    if (!best || kand.laenge > best.laenge) best = kand
+  }
+  return best
+}
+
+// Lage der Wartehalle an einer Haltestelleninsel (seit 21.10.2026, Nutzerbefund Monbijoustrasse): Punkte aus OSM (Wartehalle
+// bzw. Perron mit/ohne Wartehalle) auf der Seite der Insel. Eine Wartehalle auf der Insel (bis 0,5 m daneben) → 'insel';
+// sonst eine auf der Seite ausserhalb der Strasse → 'hinten'; nur ein Perron ohne Wartehalle auf der Insel → 'keine'.
+export function wartehalleLage(achsen: P[][], flaechen: AvFlaeche[], seite: 'links' | 'rechts', punkte: { p: P; wartehalle: boolean }[]): WartehalleLage | undefined {
+  const aufInsel = flaechenTest(flaechen, 'Verkehrsinsel'), aufStrasse = flaechenTest(flaechen, 'Strasse_Weg')
+  const nahInsel = (p: P) => [[0, 0], [0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5]].some(([dx, dy]) => aufInsel([p[0] + dx, p[1] + dy]))
+  const seiteVon = (p: P): 'links' | 'rechts' | null => {
+    let best = Infinity, s: 'links' | 'rechts' | null = null
+    for (const l of achsen) for (let i = 1; i < l.length; i++) {
+      const a = l[i - 1], b = l[i], de = b[0] - a[0], dn = b[1] - a[1], ll = de * de + dn * dn
+      if (ll < 1e-6) continue
+      const u = Math.max(0, Math.min(1, ((p[0] - a[0]) * de + (p[1] - a[1]) * dn) / ll))
+      const d = Math.hypot(p[0] - a[0] - u * de, p[1] - a[1] - u * dn)
+      if (d < best) { best = d; s = de * (p[1] - a[1]) - dn * (p[0] - a[0]) > 0 ? 'links' : 'rechts' }
+    }
+    return best <= 20 ? s : null
+  }
+  const hier = punkte.filter(x => seiteVon(x.p) === seite)
+  if (hier.some(x => x.wartehalle && nahInsel(x.p))) return 'insel'
+  if (hier.some(x => x.wartehalle && !nahInsel(x.p) && !aufStrasse(x.p))) return 'hinten'
+  if (hier.some(x => !x.wartehalle && nahInsel(x.p))) return 'keine'
+  return undefined
+}
+
+// ── Perron als Trottoirfläche zwischen zwei Strassen (seit 23.10.2026, Nutzerbefund Helvetiaplatz) ─────────────────
+// Gesucht wird nicht eine Fläche, sondern ein Muster in den Querschnitten (querschnitte, alle QUER_SCHRITT_M): auf einer
+// Seite hinter dem Bord Trottoir von höchstens HS_PERRON_MAX_M, unmittelbar dahinter wieder Strasse (Tramtrassee bzw.
+// zweite Fahrbahn). Die Flächen selbst taugen nicht als Kandidaten: am Helvetiaplatz ist das Perron Teil einer 285 m
+// langen Trottoirfläche über den ganzen Platz. Pflicht ist ein Punkt aus OSM (Wartehalle oder Perron) im Perron eines
+// dieser Querschnitte (bis 0,5 m daneben, längs bis QUER_SCHRITT_M vom Querschnitt): breite Trottoirs zwischen zwei
+// Strassen gibt es auch an Plätzen ohne Haltestelle. Mindestens drei Querschnitte über HS_INSEL_MIN_LAENGE_M; bei beiden
+// Seiten die längere. aussen = die Strasse dahinter (gehört nicht zum Abschnitt), innen = Fahrbahn bis zum Bord gegenüber.
+export function haltestellenperron(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen), punkte: P[]): Haltestelleninsel | null {
+  if (!punkte.length) return null
+  const aufStrasse = flaechenTest(flaechen, 'Strasse_Weg'), aufKurzeInsel = kurzeInselTest(flaechen), aufTrottoir = flaechenTest(flaechen, 'Trottoir')
+  const ringeTr = flaechen.filter(x => x.art === 'Trottoir').map(x => x.ringe)
+  const hinter = (p: P, d: P, s: number): P => [p[0] + d[0] * s, p[1] + d[1] * s]
+  let best: Haltestelleninsel | null = null
+  for (const seite of ['links', 'rechts'] as const) {
+    const treffer: { along: number; w: number; aussen: number; innen: number; mitPunkt: boolean }[] = []
+    for (const q of querschnitte(achsen, flaechen)) {
+      const d = q[seite], gegen = q[seite === 'links' ? 'rechts' : 'links'], achse: P = [-d[1], d[0]]
+      const tB = bisBord(q.p, d, kanten, aufStrasse, aufKurzeInsel), tG = bisBord(q.p, gegen, kanten, aufStrasse, aufKurzeInsel)
+      if (!Number.isFinite(tB) || !Number.isFinite(tG)) continue
+      const bord = hinter(q.p, d, tB)
+      if (!aufTrottoir(hinter(bord, d, SCHRITT_UEBER_M))) continue
+      const w = schnitte(bord, d, ringeTr, HS_PERRON_MAX_M + 1).find(t => t > SCHRITT_UEBER_M && !aufTrottoir(hinter(bord, d, t + SCHRITT_UEBER_M)))
+      if (w == null || w > HS_PERRON_MAX_M || w < TROTTOIR_MIN_M) continue
+      if (!aufStrasse(hinter(bord, d, w + SCHRITT_UEBER_M))) continue
+      const a2 = strahl(hinter(bord, d, w + SCHRITT_UEBER_M), d, kanten, QUER_MAX_M)
+      // Punkt aus OSM im Perron dieses Querschnitts: quer zwischen Bord und Perronrand, längs (lokal) bis QUER_SCHRITT_M daneben
+      const mitPunkt = punkte.some(pt => {
+        const quer = (pt[0] - q.p[0]) * d[0] + (pt[1] - q.p[1]) * d[1], along = (pt[0] - q.p[0]) * achse[0] + (pt[1] - q.p[1]) * achse[1]
+        return quer >= tB - 0.5 && quer <= tB + w + 0.5 && Math.abs(along) <= QUER_SCHRITT_M
+      })
+      treffer.push({ along: q.s, w, aussen: Number.isFinite(a2) ? a2 + SCHRITT_UEBER_M : QUER_MAX_M, innen: tB + tG, mitPunkt })
+    }
+    if (treffer.length < 3 || !treffer.some(t => t.mitPunkt)) continue
+    // Länge: Spanne der Querschnitte entlang der Achse plus ein Raster (jeder Querschnitt steht für QUER_SCHRITT_M)
+    const alongs = treffer.map(t => t.along), laenge = Math.round(Math.max(...alongs) - Math.min(...alongs) + QUER_SCHRITT_M)
+    if (laenge < HS_INSEL_MIN_LAENGE_M) continue
+    const kand: Haltestelleninsel = { seite, insel: Math.round(median(treffer.map(t => t.w)) * 20) / 20, aussen: Math.round(median(treffer.map(t => t.aussen)) * 20) / 20,
+      innen: Math.round(median(treffer.map(t => t.innen)) * 10) / 10, trottoir: null, laenge, perron: true, wartehalle: 'insel' }
+    if (!best || kand.laenge > best.laenge) best = kand
+  }
+  return best
+}
+
+// ── Mittelstreifen (seit 21.10.2026, Nutzerbefund Bubenbergplatz) ────────────────────────────────────────────
+// Eine Verkehrsinsel länger als MITTELINSEL_MAX_LAENGE_M bis 10 m neben der Achse, mit Strasse auf beiden Seiten: sie
+// trennt die Fahrbahn des Abschnitts von einem zweiten Fahrbahnteil (Gegenfahrbahn oder ÖV-Trassee). Gemessen durch
+// den Schwerpunkt: Breite des Streifens, Länge und die Strasse dahinter bis zum Bord. Nur Hinweis.
+export interface Mittelstreifen { seite: 'links' | 'rechts'; breite: number; laenge: number; dahinter: number }
+export function mittelstreifen(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[] = bordkanten(flaechen)): Mittelstreifen | null {
+  const aufStrasse = flaechenTest(flaechen, 'Strasse_Weg'), aufInsel = flaechenTest(flaechen, 'Verkehrsinsel')
+  let best: Mittelstreifen | null = null
+  for (const f of flaechen.filter(x => x.art === 'Verkehrsinsel' && inselLaenge(x) > MITTELINSEL_MAX_LAENGE_M)) {
+    const r = f.ringe[0]
+    if (!r || r.length < 3) continue
+    const c: P = [r.reduce((s, p) => s + p[0], 0) / r.length, r.reduce((s, p) => s + p[1], 0) / r.length]
+    if (!aufInsel(c)) continue
+    let dist = Infinity, d: P = [1, 0], fuss: P = c, innen = false
+    for (const l of achsen) for (let i = 1; i < l.length; i++) {
+      const a = l[i - 1], b = l[i], de = b[0] - a[0], dn = b[1] - a[1], ll = de * de + dn * dn
+      if (ll < 1e-6) continue
+      const u = ((c[0] - a[0]) * de + (c[1] - a[1]) * dn) / ll, uk = Math.max(0, Math.min(1, u))
+      const q: P = [a[0] + uk * de, a[1] + uk * dn], dd = Math.hypot(c[0] - q[0], c[1] - q[1])
+      if (dd < dist) { dist = dd; fuss = q; const len = Math.sqrt(ll); d = [de / len, dn / len]; innen = (u > 0 || i > 1) && (u < 1 || i < l.length - 1) }
+    }
+    if (dist > 10 || !innen) continue
+    const links: P = [-d[1], d[0]]
+    const seite: 'links' | 'rechts' = (c[0] - fuss[0]) * links[0] + (c[1] - fuss[1]) * links[1] > 0 ? 'links' : 'rechts'
+    const aus: P = seite === 'links' ? links : [-links[0], -links[1]], ein: P = [-aus[0], -aus[1]]
+    const eA = schnitte(c, aus, [f.ringe], INSEL_MAX_M)[0], eI = schnitte(c, ein, [f.ringe], INSEL_MAX_M)[0]
+    if (eA == null || eI == null) continue
+    const pA: P = [c[0] + aus[0] * eA, c[1] + aus[1] * eA]
+    if (!aufStrasse([pA[0] + aus[0] * SCHRITT_UEBER_M, pA[1] + aus[1] * SCHRITT_UEBER_M])
+      || !aufStrasse([c[0] + ein[0] * (eI + SCHRITT_UEBER_M), c[1] + ein[1] * (eI + SCHRITT_UEBER_M)])) continue
+    const tA = strahl([pA[0] + aus[0] * SCHRITT_UEBER_M, pA[1] + aus[1] * SCHRITT_UEBER_M], aus, kanten, QUER_MAX_M) + SCHRITT_UEBER_M
+    if (!Number.isFinite(tA)) continue
+    const laengs = r.map(p => p[0] * d[0] + p[1] * d[1])
+    const kand: Mittelstreifen = { seite, breite: Math.round((eA + eI) * 20) / 20, laenge: Math.round(Math.max(...laengs) - Math.min(...laengs)),
+      dahinter: Math.round(tA * 10) / 10 }
+    if (!best || kand.laenge > best.laenge) best = kand
+  }
+  return best
+}
+
+// ── Weg auf der Trottoirfläche (seit 21.10.2026, parallele Wege): liegt ein paralleler Radweg (OSM) auf der AV-Fläche
+// «Trottoir», misst trottoirbreiten ihn mit; die Ausgangslage zieht ihn dann vom Trottoir ab. Anteil der Punkte ≥ 0,5.
+export function wegAufTrottoir(weg: P[], flaechen: AvFlaeche[]): boolean {
+  const aufTrottoir = flaechenTest(flaechen, 'Trottoir')
+  const pts: P[] = []
+  for (let i = 1; i < weg.length; i++) {
+    const a = weg[i - 1], b = weg[i], l = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.floor(l / 5))
+    for (let k = 0; k <= n; k++) pts.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n])
+  }
+  return pts.length > 0 && pts.filter(aufTrottoir).length * 2 >= pts.length
+}

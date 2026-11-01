@@ -1,0 +1,369 @@
+:root {
+  color-scheme: light;
+
+  /* ── Design-Tokens ─────────────────────────────────────────────────────────
+     Zentrale Werte für Farben/Abstände/Radien. Inline-Styles referenzieren sie
+     als var(--name). Fundament für konsistentes Theming (z. B. späterer Dark Mode).
+     Die Hex-Werte entsprechen 1:1 den bisherigen Literalen (keine optische Änderung). */
+
+  /* Flächen / Hintergründe */
+  --bg: #f1f5f9;            /* Seitenhintergrund */
+
+  /* Akzent (Primärfarbe: Buttons, Links, aktive Zustände) */
+  --accent: #0f766e;
+
+  /* Text (von kräftig zu dezent) */
+  --text-strong: #1e293b;
+  --text: #334155;
+  --text-muted-strong: #475569;
+  --text-muted: #64748b;
+  --text-faint: #64748b;   /* auch: deaktivierte Buttons. Vorher #94a3b8 — als Fliesstext auf
+                              --bg nur ~2,4:1 Kontrast (Fussnoten unlesbar); jetzt ≥ 4,5:1. */
+
+  /* Rahmen */
+  --border: #cbd5e1;
+  --border-subtle: #e2e8f0;
+
+  /* Kleine Schriften (seit 28.10.2026): auf Mobile mindestens 12 px (Schritt 4 der Smartphone-Optimierung) */
+  --fs-105: 10.5px;
+  --fs-11: 11px;
+  --fs-115: 11.5px;
+
+  /* Radien (zur künftigen Nutzung) */
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 12px;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }        /* keine automatische Schriftvergrösserung auf iOS */
+body { margin: 0; background: var(--bg); }
+input { font: inherit; }
+
+/* ── Mobile-/Touch-Optimierung (additiv; Desktop bleibt unverändert) ──────────
+   Greift nur über Media-Queries; nutzt keine !important, daher überschreiben die
+   Inline-Styles weiterhin alles, was sie explizit setzen (Inline setzt keine min-height). */
+
+/* Selects nie über den Container hinaus (lange Optionstexte werden abgeschnitten,
+   im aufgeklappten Menü aber voll sichtbar). */
+select { max-width: 100%; }
+
+/* ── Kopfzeile im Panel und auf der Startseite (Standard der Check-Apps: keine farbige Leiste) ── */
+.vrc-h1 { font-size: 20px; margin: 4px 0 8px; color: var(--text-strong); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vrc-h1 img { flex-shrink: 0; display: block; }
+/* Logo als Knopf «Zur Startseite» (tastaturbedienbar) */
+.logo-knopf { flex-shrink: 0; padding: 0; border: 0; background: none; border-radius: 6px; line-height: 0; cursor: pointer; }
+.logo-knopf:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.marke { font-size: 12px; font-weight: 600; color: #ffffff; background: var(--accent); border-radius: 6px; padding: 2px 6px; vertical-align: middle; }
+details.hilfe { margin: 0 0 14px; font-size: 13px; line-height: 1.5; color: var(--text); }
+details.hilfe summary { cursor: pointer; font-weight: 600; color: var(--text-strong); }
+details.hilfe ol, details.hilfe ul { margin: 6px 0; padding-left: 20px; }
+details.hilfe li { margin-bottom: 4px; }
+details.hilfe p { margin: 8px 0 2px; }
+.start-titel { text-align: center; font-size: 28px; font-weight: 800; margin: 0; color: var(--text-strong); }
+.start-untertitel { text-align: center; color: var(--text-muted); margin: 0 0 14px; }
+.start-fuss { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+.start-fuss a { color: var(--accent); }
+
+/* Touch-Geräte: grössere Tippziele (≥ 44 px). Inline setzt keine min-height → greift sauber. */
+@media (pointer: coarse) {
+  button, select, input, summary { min-height: 44px; }
+}
+
+/* Sehr schmale Screens: etwas mehr Lesbarkeit/Luft. */
+@media (max-width: 480px) {
+  body { font-size: 16px; line-height: 1.5; }
+  /* Leaflet-Bedienelemente etwas grösser/fingerfreundlicher */
+  .leaflet-touch .leaflet-bar a { width: 36px; height: 36px; line-height: 36px; }
+}
+
+/* ── Rechner-Layout: zwei Ansichten (seit 28.10.2026, Nutzerentscheid; vorher drei mit Grenze 1100 px) ──────────
+   Mobile (unter 700 px): Karte fest oben (--vrc-karte-h, mit dem Knopf ⇕ 30/45/70 % der Höhe), darunter das Panel mit
+   eigenem Scrollen. Karte und Elementliste sind gleichzeitig zu sehen; ein Finger auf der Karte pannt nur die Karte.
+   Desktop (ab 700 px): Karte links in voller Fensterhöhe, rechts das Panel mit eigenem Scrollen.
+   Grenze 700 px wie fgsCheck und SichtweitenCheck. Beide Ansichten nutzen dieselbe Elementstruktur (nur CSS unterscheidet
+   sich) — die Leaflet-Karte bleibt beim Umschalten an derselben Stelle im React-Baum und wird nicht neu initialisiert.
+   Ohne Media-Query (Druck): einspaltig, Karte im Fluss. Klassisch min-/max-width (keine Range-Syntax, siehe
+   vite.config.ts); «screen», damit der Druck einspaltig bleibt. Gleiche Grenze wie BREIT_MQ (VeloMap.tsx, invalidateSize). */
+.vrc-panel { max-width: 820px; margin: 0 auto; }
+.vrc-karte { position: relative; z-index: 0; }   /* eigener Stacking-Context für Leaflet */
+.vrc-velomap-wrap { position: relative; }
+.vrc-velomap { height: min(380px, 60vh); border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--border-subtle); }
+
+.vrc-trenner { display: none; }   /* nur im Breitbild sichtbar (unten) */
+
+/* Mobile: Karte oben fest, Panel darunter scrollt. Das Panel ist bewusst NICHT positioniert (wie im Breitbild): Bezug der
+   absolut gesetzten Karte bleibt .vrc-rechner, sonst scrollte die Karte mit. */
+@media screen and (max-width: 699px) {
+  .vrc-app-rechner { --vrc-karte-h: 45dvh; display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+  .vrc-rechner { position: relative; flex: 1; min-height: 0; }
+  .vrc-karte { position: absolute; top: 0; left: 0; right: 0; height: var(--vrc-karte-h); }
+  .vrc-karte .vrc-velomap-wrap, .vrc-karte .vrc-velomap { height: 100%; border: none; border-radius: 0; }
+  .vrc-panel { max-width: none; height: calc(100% - var(--vrc-karte-h)); margin: var(--vrc-karte-h) 0 0;
+    overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--border); }
+}
+/* Nur in einer Ansicht sichtbar (seit 28.10.2026): kurze Texte auf Mobile, lange auf dem Desktop */
+.nur-mobil { display: none; }
+@media screen and (max-width: 699px) {
+  .nur-mobil { display: inline; }
+  .nur-desktop { display: none; }
+  :root { --fs-105: 12px; --fs-11: 12px; --fs-115: 12px; }
+}
+
+/* Panel-Innenabstand; unten und seitlich mit dem sicheren Bereich (iPhone-Balken, Notch quer; viewport-fit=cover) */
+.vrc-panel { padding: 20px max(16px, env(safe-area-inset-right)) calc(64px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+
+/* Mobile (Schritt 2): Leaflet-Quellenangabe einzeilig (Tippen klappt sie auf), Hintergrund-Knöpfe darüber; Steuerung nicht
+   unter der Notch (quer) */
+@media screen and (max-width: 699px) {
+  .vrc-karte .leaflet-control-attribution { max-width: calc(100vw - 10px); white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; font-size: 10px; cursor: pointer; }
+  .vrc-karte .leaflet-control-attribution.offen { white-space: normal; }
+  .vrc-hintergrund { bottom: 22px; }
+  .vrc-karte .leaflet-left { margin-left: env(safe-area-inset-left); }
+}
+
+/* Werkzeugleiste (Messen, Querschnitt) auf Mobile im Panel statt auf der Karte (App.tsx Kartenleiste, Portal) */
+.vrc-leiste-ziel:empty { display: none; }
+
+/* Sticky-Leiste der Strecke (Schritt 3): auf Mobile einzeilig */
+.vrc-strecke-zeile { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px; }
+.vrc-strecke-knopf { text-align: left; border: none; background: none; color: inherit; cursor: pointer; padding: 0; font: inherit;
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+@media screen and (max-width: 699px) {
+  .vrc-strecke-zeile { flex-wrap: nowrap; gap: 8px; padding: 4px 12px; white-space: nowrap; overflow: hidden; }
+  .vrc-strecke-knopf { flex-wrap: nowrap; gap: 8px; align-items: center; flex-shrink: 0; }
+  .vrc-strecke-plan { min-width: 0; overflow: hidden; text-overflow: ellipsis; }   /* kürzt sich zuerst */
+}
+
+/* Elementliste (Schritt 3): auf Mobile nur die Hauptzeile, die Zweitzeile hinter «⋯»; −/+ auf Touch weg (Feld tippen),
+   der Griff zum Ziehen auch (Pfeile in der Zweitzeile) */
+.vrc-el-mehr { display: none; }
+@media screen and (max-width: 699px) {
+  .vrc-el-mehr { display: inline-flex; }
+  .vrc-el:not(.offen) .vrc-el-zweit { display: none !important; }   /* die Zeile setzt display inline */
+}
+@media (pointer: coarse) { .vrc-el-pm, .vrc-el-griff { display: none; } }
+
+/* Querschnittskizze (Schritt 4): auf Mobile bei vielen Elementen seitlich scrollbar statt winzig */
+.vrc-skizze { overflow-x: auto; }
+@media screen and (max-width: 699px) { .vrc-skizze-innen { min-width: var(--vrc-skizze-min, 0); } }
+
+/* Knopf für die Kartenhöhe (nur Mobile): oben rechts auf der Karte */
+.vrc-karte-hoehe { display: none; }
+@media screen and (max-width: 699px) {
+  .vrc-karte-hoehe { display: flex; align-items: center; justify-content: center; position: absolute; top: 10px; right: 10px;
+    z-index: 650; width: 44px; height: 44px; min-height: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px;
+    background: #ffffff; color: var(--text-strong); font-size: 18px; box-shadow: 0 1px 4px rgba(0,0,0,.25); cursor: pointer; }
+}
+
+@media screen and (min-width: 700px) {
+  .vrc-app-rechner { --vrc-panel-w: clamp(340px, 34vw, 560px);
+    display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+  /* Bezugsrahmen der Karte: die ganze Fläche (keine Kopfleiste mehr). */
+  .vrc-rechner { position: relative; flex: 1; min-height: 0; }
+  /* Panel rechts, scrollt selbst. Bewusst NICHT positioniert: sonst wäre es der Bezug der
+     absolut gesetzten Karte, und die Karte scrollte mit dem Panel mit. Die Sticky-Leiste
+     haftet am oberen Rand des Panels. */
+  .vrc-panel { width: var(--vrc-panel-w); max-width: none; height: 100%; margin: 0 0 0 auto;
+    overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--border); }
+  .vrc-karte { position: absolute; top: 0; bottom: 0; left: 0; right: var(--vrc-panel-w); }
+  .vrc-karte .vrc-velomap-wrap, .vrc-karte .vrc-velomap { height: 100%; border: none; border-radius: 0; }
+  /* Trenner zwischen Karte und Panel (seit 20.10.2026): 10 px breit über der Panelkante, Linie beim Zeigen */
+  /* Wie fgsCheck (Nutzerwunsch 21.10.2026): sichtbarer Balken, beim Überfahren, mit der Tastatur und beim Ziehen in der
+     Akzentfarbe. Über den Ebenen der Karte (Leaflet bis 1000), sonst nahm die Karte die Maus auf ihrer Hälfte weg. */
+  .vrc-trenner { display: block; position: absolute; top: 0; bottom: 0; right: calc(var(--vrc-panel-w) - 4px); width: 8px;
+    z-index: 1001; cursor: col-resize; touch-action: none; background: var(--border); transition: background-color .12s; }
+  .vrc-trenner:hover, .vrc-trenner:focus-visible, .vrc-trenner.zieht { background: var(--accent); outline: none; }
+}
+
+/* Mauszeiger über der Karte (seit 30.10.2026, Nutzerbefund «verwirrend, dass immer eine Hand angezeigt wird»): Pfeil statt der
+   Leaflet-Hand, die Hand nur beim Ziehen; «?» über einer Netzlinie mit Erklärung (VeloMap, Routennetz). Linien der Segmente und
+   Marker behalten den Zeiger zum Anklicken; Teilen und Messen setzen unten das Fadenkreuz. */
+.vrc-velomap.leaflet-grab { cursor: default; }
+.leaflet-dragging .vrc-velomap.leaflet-grab { cursor: grabbing; }
+.vrc-velomap.vrc-netz-info { cursor: help; }
+
+/* «Segment teilen» (App.tsx): Fadenkreuz über den anklickbaren Linien, solange der Modus aktiv
+   ist. Zwei Klassen schlagen Leaflets `.leaflet-interactive { cursor: pointer }`. */
+.vrc-teilmodus .leaflet-interactive { cursor: crosshair; }
+
+/* Breite am Luftbild messen (App.tsx): Fadenkreuz auf der ganzen Karte, auch über den Linien. */
+.leaflet-container.vrc-messmodus, .vrc-messmodus .leaflet-interactive { cursor: crosshair; }
+
+/* ── Bericht «Aufteilung planen» (Druckansicht, Bericht.tsx) — Muster aus fgsCheck ──
+   Auf dem Bildschirm über der App, gedruckt allein (A4 hoch). */
+.bericht { position: fixed; inset: 0; z-index: 2000; overflow-y: auto; background: #e2e8f0; }
+.bericht-leiste { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 8px 16px; background: #ffffff; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); }
+.bericht-knopf { border: none; background: var(--accent); color: #ffffff; border-radius: 8px; padding: 7px 14px; font-size: 14px;
+  font-weight: 600; cursor: pointer; }
+.bericht-knopf:disabled { background: var(--text-faint); cursor: default; }
+.bericht-knopf.zweit { background: #ffffff; color: var(--accent); border: 1px solid var(--accent); }
+.bericht-seite { max-width: 210mm; margin: 16px auto; padding: 14mm 14mm 10mm; background: #ffffff; color: #000000;
+  box-shadow: 0 1px 6px rgba(0,0,0,.15); font-family: system-ui, -apple-system, sans-serif; font-size: 10.5pt; line-height: 1.35; }
+.bericht-seite h1 { font-size: 17pt; margin: 0 0 2px; color: #000000; display: flex; align-items: center; gap: 10px; }
+.bericht-seite h2 { font-size: 12.5pt; margin: 14px 0 4px; color: #000000; border-bottom: 1px solid #000000; padding-bottom: 1px; }
+.bericht-seite p { margin: 4px 0; }
+.bericht-seite .klein { font-size: 9pt; color: #1f2937; }
+.bericht-seite ul { margin: 2px 0 6px; padding-left: 16px; }
+.bericht-seite li { margin: 1px 0; }
+.bericht-seite table { width: 100%; border-collapse: collapse; }
+.bericht-seite td, .bericht-seite th { border-bottom: 1px solid #9ca3af; padding: 3px 4px; color: #000000; text-align: left; vertical-align: top; }
+.bericht-seite th { font-size: 9pt; border-bottom: 1.5px solid #000000; }
+.bericht-zahlen td:first-child { width: 28%; color: #374151; }
+.bericht-tabelle { font-size: 9.5pt; }
+.bericht-eingabe { width: 100%; font: inherit; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; }
+.nur-drucken { display: none; }
+.bericht-karte { margin: 10px 0; break-inside: avoid; page-break-inside: avoid; }
+.bericht-karte figcaption { margin-top: 4px; }
+.bericht-bild { position: relative; width: 100%; background: #f1f5f9; border: 1px solid #000000; overflow: hidden; }
+.bericht-bild img, .bericht-bild svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.bericht-ohne-bild { position: absolute; left: 8px; top: 6px; color: #475569; }
+.bericht-skizze { break-inside: avoid; page-break-inside: avoid; }
+.bericht-skizze svg { display: block; width: 80%; height: auto; margin: 0 auto; }   /* Skizzen kleiner */
+.bericht-neue-seite { break-before: page; page-break-before: always; }   /* Querschnitt immer ab Seite 2 */
+.bericht-block h2 { break-after: avoid; page-break-after: avoid; }
+.bericht-tabelle tr { break-inside: avoid; page-break-inside: avoid; }
+.bericht-fuss { margin-top: 14px; padding-top: 6px; border-top: 1px solid #000000; font-size: 8.5pt; }
+.bericht-fuss p { margin: 3px 0; }
+.bericht-bild, .bericht-bild *, .bericht-skizze, .bericht-skizze * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+/* Kein Seitenrand: dann setzt der Browser keine eigene Kopf- und Fusszeile. Der Rand kommt aus dem Rahmen
+   (Bericht.tsx, .bericht-rahmen): seitlich als Innenabstand, oben und unten als Kopf und Fuss der Tabelle, die
+   sich auf jeder gedruckten Seite wiederholen. */
+@page { size: A4 portrait; margin: 0; }
+.bericht-rahmen { width: 100%; border-collapse: collapse; }
+.bericht-seite .bericht-rahmen > thead > tr > td, .bericht-seite .bericht-rahmen > tfoot > tr > td,
+.bericht-seite .bericht-rahmen > tbody > tr > td { border: none; padding: 0; }
+@media print {
+  html, body, #root { height: auto; background: #ffffff; }
+  body.bericht-offen #root { display: none !important; }
+  .nicht-drucken { display: none !important; }
+  .nur-drucken { display: inline; }
+  .bericht { position: static; overflow: visible; background: #ffffff; }
+  .bericht-seite { max-width: none; margin: 0; padding: 0 12mm; box-shadow: none; }
+  .bericht-rand-oben { height: 12mm; }
+  .bericht-rand-unten { height: 14mm; }
+}
+.bericht-skizze-titel { font-size: 9pt; font-weight: 700; margin-top: 4px; }
+
+/* Alle Klappen gleich (Nutzerbefund 16.10.2026): eigener Pfeil ▾/▸ vor dem Titel, dahinter «· einklappen» bzw.
+   «· aufklappen» in der Akzentfarbe. Gilt für <details class="vrc-klappe"> und den Knopf des Abschnitts
+   (.vrc-klapp-knopf). Auf farbigem Grund (.auf-farbe) in der Textfarbe. «So funktioniert's» (.hilfe) bleibt beim
+   gemeinsamen Standard der Check-Apps. */
+.vrc-klappe > summary { list-style: none; cursor: pointer; user-select: none; }
+.vrc-klappe > summary::-webkit-details-marker { display: none; }
+.vrc-klappe > summary::before, .vrc-klapp-pfeil { content: '▾'; display: inline-block; width: 1.1em; font-size: 0.95em;
+  text-transform: none; color: var(--text-muted); }
+.vrc-klappe:not([open]) > summary::before { content: '▸'; }
+.vrc-klappe > summary::after, .vrc-klapp-zustand { content: ' · einklappen'; text-transform: none; letter-spacing: 0;
+  font-size: 12px; font-weight: 600; color: var(--accent); }
+.vrc-klappe:not([open]) > summary::after { content: ' · aufklappen'; }
+.vrc-klappe.auf-farbe > summary::before, .vrc-klappe.auf-farbe > summary::after { color: inherit; }
+.vrc-klapp-knopf { border: none; background: none; padding: 0; cursor: pointer; font: inherit; color: inherit;
+  display: inline-flex; align-items: baseline; gap: 4px; }
+.vrc-klapp-knopf .vrc-klapp-pfeil { width: auto; }
+/* Knopf, der wie ein Link aussieht (seit 22.10.2026): Sprung zur Herleitung aus dem Ergebnis, auch auf farbigem Grund */
+.vrc-link-knopf { border: none; background: none; padding: 0; cursor: pointer; font: inherit; color: inherit;
+  text-decoration: underline; text-underline-offset: 2px; }
+
+/* Kopf des Rechners (seit 22.10.2026): Hauptfunktionen Bewerten | Planen und Bericht / PDF */
+.vrc-haupt { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.vrc-haupt-wahl { display: inline-flex; border: 1px solid var(--accent); border-radius: 8px; overflow: hidden; }
+.vrc-haupt-wahl button, .vrc-haupt-bericht { border: none; padding: 7px 14px; font: inherit; font-size: 14px; font-weight: 600;
+  cursor: pointer; background: #ffffff; color: var(--accent); }
+.vrc-haupt-wahl button[aria-pressed="true"] { background: var(--accent); color: #ffffff; }
+.vrc-haupt-wahl button + button { border-left: 1px solid var(--accent); }
+.vrc-haupt-bericht { border: 1px solid var(--accent); border-radius: 8px; }
+.vrc-haupt-bericht[aria-expanded="true"] { background: #f0fdfa; }
+
+/* Kartenkopf: Stadt und Strassensuche über der Karte (seit 17.10.2026, wie fgsCheck .kartenkopf).
+   Zwischen Zoom-Knöpfen (links) und Ebenenwahl (rechts); nur die Bedienelemente fangen Klicks. */
+.vrc-kartenkopf { position: absolute; top: 10px; left: 56px; right: 62px; max-width: 460px; margin: 0 auto; z-index: 650;
+  display: flex; gap: 6px; align-items: flex-start; pointer-events: none; }
+.vrc-kartenkopf > * { pointer-events: auto; }
+.vrc-kartenkopf select { font: inherit; font-size: 16px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 8px;
+  background: #ffffff; color: var(--text-strong); box-shadow: 0 1px 4px rgba(0,0,0,.25); flex: none; }
+.vrc-suche { position: relative; flex: 1; min-width: 0; }
+.vrc-suche input { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 7px 28px 7px 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: #ffffff; color: var(--text-strong);
+  box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.vrc-suche input:focus, .vrc-kartenkopf select:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.vrc-suche-laedt { position: absolute; right: 10px; top: 7px; color: var(--text-muted); }
+.vrc-suche-liste { list-style: none; margin: 4px 0 0; padding: 4px 0; background: #ffffff; border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.25); max-height: 50vh; overflow-y: auto; font-size: 14px; }
+.vrc-suche-liste li { padding: 6px 10px; cursor: pointer; line-height: 1.3; color: var(--text-strong); }
+.vrc-suche-liste li.aktiv { background: #e0f2fe; }
+.vrc-suche-liste li.vrc-suche-leer { cursor: default; color: var(--text-muted); }
+
+/* «Zum eigenen Standort» unter den Zoom-Knöpfen (VeloMap, wie fgsCheck .standort-knopf) */
+.vrc-standort-knopf a { display: flex !important; align-items: center; justify-content: center; color: #1e293b; }
+
+/* ── Hintergrund-Wahl auf der Karte (seit 22.10.2026, statt der Leaflet-Ebenenwahl oben rechts): unten links,
+   Knopfgruppe Luftbild · Karte · CyclOSM, dazu beim Luftbild das Kästchen «Strassennamen» (Ergänzung, standardmässig aus) ── */
+.vrc-hintergrund { position: absolute; left: 10px; bottom: 10px; z-index: 650; display: inline-flex; border-radius: 8px;
+  overflow: hidden; background: #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,.3); font-size: 12px; }
+.vrc-hintergrund button { border: none; background: #ffffff; color: var(--text); padding: 5px 9px; font: inherit; font-size: 12px;
+  font-weight: 600; cursor: pointer; min-height: 0; }
+.vrc-hintergrund button + button { border-left: 1px solid var(--border-subtle); }
+.vrc-hintergrund button.aktiv { background: var(--accent); color: #ffffff; }
+.vrc-hintergrund label.namen { display: inline-flex; align-items: center; gap: 4px; padding: 5px 9px; border-left: 1px solid var(--border-subtle);
+  color: var(--text-muted-strong); font-weight: 600; cursor: pointer; white-space: nowrap; }
+.vrc-hintergrund label.namen input { margin: 0; min-height: 0; accent-color: var(--accent); }
+@media (pointer: coarse) { .vrc-hintergrund button { padding: 9px 11px; } }
+/* Nie breiter als die Karte (Befund 28.10.2026 bei 375 px: 382 px auf 313 px Karte, die Seite scrollte seitlich): umbrechen,
+   «Strassennamen» auf Mobile kurz «Namen» */
+.vrc-velomap-wrap { overflow-x: hidden; }
+.vrc-hintergrund { max-width: calc(100% - 20px); flex-wrap: wrap; }
+.vrc-hintergrund .kurz { display: none; }
+@media screen and (max-width: 699px) {
+  .vrc-hintergrund .lang { display: none; }
+  .vrc-hintergrund .kurz { display: inline; }
+}
+
+/* ── Bedienelemente nur auf Touch-Geräten (Pfeile zum Verschieben, wo Drag and Drop fehlt) ── */
+.nur-touch { display: none; }
+@media (pointer: coarse) { .nur-touch { display: inline-flex; } }
+
+/* ── Aufklappmenü (Planung: «Messen», «Zurücksetzen»; seit 22.10.2026) ── */
+.vrc-menu { position: relative; display: inline-block; }
+.vrc-menu > summary { list-style: none; cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--border); background: #ffffff; color: var(--text); border-radius: 8px; padding: 5px 10px; font-size: 12.5px; font-weight: 600; }
+.vrc-menu > summary::-webkit-details-marker { display: none; }
+.vrc-menu > summary::after { content: '▾'; font-size: 11px; color: var(--text-muted); }
+.vrc-menu.akzent > summary { border-color: var(--accent); color: var(--accent); }
+.vrc-menu.voll > summary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
+.vrc-menu.voll > summary::after { color: #ffffff; }
+.vrc-menu > div { position: absolute; left: 0; top: calc(100% + 4px); z-index: 700; min-width: 240px; background: #ffffff;
+  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.18); padding: 4px; display: grid; }
+.vrc-menu.rechts > div { left: auto; right: 0; }
+.vrc-menu > div > button, .vrc-menu > div > a { border: none; background: none; text-align: left; padding: 8px 10px; font: inherit;
+  font-size: 13px; color: var(--text); border-radius: 6px; cursor: pointer; text-decoration: none; display: block; }
+.vrc-menu > div > button:hover, .vrc-menu > div > a:hover { background: var(--bg); }
+.vrc-menu > div > button:disabled { color: var(--text-faint); cursor: default; }
+.vrc-menu > div > button small, .vrc-menu > div > a small { display: block; font-size: 11.5px; color: var(--text-muted); font-weight: 400; }
+.vrc-menu > div > hr { border: none; border-top: 1px solid var(--border-subtle); margin: 4px 0; }
+
+/* ── Reiter im Abschnitt: Bewerten · Planen (seit 22.10.2026) ── */
+.vrc-reiter { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin: 0 0 12px; }
+.vrc-reiter button { border: none; background: none; padding: 8px 14px; font: inherit; font-size: 13.5px; font-weight: 600;
+  color: var(--text-muted-strong); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.vrc-reiter button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ── Meldung als Toast unten im Panel (seit 22.10.2026): auch sichtbar, wenn man tief in der Planung arbeitet ── */
+.vrc-toast { position: fixed; bottom: calc(14px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 1500; width: min(560px, calc(100% - 24px));
+  border-radius: 10px; padding: 9px 12px; font-size: 13px; line-height: 1.4; box-shadow: 0 4px 16px rgba(0,0,0,.22);
+  display: flex; gap: 10px; align-items: flex-start; }
+.vrc-toast.ok { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+.vrc-toast.info { background: #ffffff; border: 1px solid var(--border); color: var(--text); }
+.vrc-toast.error { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+.vrc-toast > .text { flex: 1; }
+.vrc-toast button { border: none; background: none; color: inherit; font: inherit; font-weight: 700; cursor: pointer; padding: 0 2px; min-height: 0; }
+.vrc-toast button.rueck { text-decoration: underline; }
+@media screen and (min-width: 700px) {
+  .vrc-toast { left: auto; transform: none; right: 14px; width: calc(var(--vrc-panel-w) - 28px); }
+}
+
+/* Erklärung beim Überfahren einer Netzlinie (Routennetz, seit 30.10.2026): umbrechend statt einer langen Zeile */
+.leaflet-tooltip.vrc-netz-tip { white-space: normal; width: max-content; max-width: 280px; font-size: 12px; line-height: 1.35; }

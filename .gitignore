@@ -1,0 +1,36 @@
+# ── Betriebssystem / Editor ──────────────────────────────────────────────────
+.DS_Store
+.claude/
+
+# ── Node / Build (VeloroutenCheckWeb) ────────────────────────────────────────
+node_modules/
+dist/
+*.tsbuildinfo
+*.local
+.env
+.env.*
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+
+# ── Lokale Arbeitsdateien: interne Notizen/Pläne + generierte Zwischenoutputs ──
+# (feel-safe-Verifikation: docs/06_Verifikation_Empirie.md wird versioniert;
+#  der .json-Rohdump und die .html-Ansicht von verify_06.py landen hier und bleiben aussen vor.)
+_lokal/
+
+# ── Grosse / Dritt-Rohdaten: lokal halten, NICHT versionieren ────────────────
+# (Bezugsquellen sind im README dokumentiert; die App nutzt nur die gebündelten
+#  Snapshots unter VeloroutenCheckWeb/public/.)
+Fahrplan/
+Grundlagen/
+Auswertung/
+FixMyCity_Daten/
+Geoinformation Stadt Bern/
+OBS_Daten*.json
+
+# Lokaler, nicht öffentlicher Snapshot (nur Dev; im öffentlichen Build nicht enthalten).
+VeloroutenCheckWeb/public/velostreifen_bern.json
+
+# ── Fremde Repositories (lokal zum Ausprobieren, nicht Teil von VeloroutenCheck) ──
+remote_velo_public-main/

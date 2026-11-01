@@ -1,0 +1,1098 @@
+// ════════════════════════════════════════════════════════════════════════════
+// VeloroutenCheck — Führungsform: Soll-Wahl und Bewertung (Führungsform-Note)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Zwei Bausteine:
+//   1) fuehrungsart(dtv, v)       → empfohlene Führungsform (SOLL) aus der
+//                                    Masterplan-Tabelle (DTV × Geschwindigkeit).
+//   2) fuehrungsformNote(...)     → Schweizer Schulnote (6 beste … 1 schlechteste)
+//                                    aus dem Vergleich IST vs. SOLL, kontext-sensitiv.
+//
+// Quellen:
+//   - Masterplan Veloinfrastruktur Stadt Bern (Okt. 2025), S. 11
+//     (Wahl der Führungsart; siehe docs/02_CH_Querschnitte_und_Fuehrungsdiagramm.md).
+//   - radwege-check.de / FixMyCity (subjektive Sicherheit, "feel-safe %"),
+//     ausgewertet in docs/06_Empirische_Erkenntnisse_Fuehrungsformwahl.md.
+// ════════════════════════════════════════════════════════════════════════════
+
+export type Fuehrungsart =
+  | 'Mischverkehr'
+  | 'Radstreifen'
+  | 'Radstreifen oder Radweg'   // Übergang (Zürich): zwischen Radstreifen und Radweg
+  | 'Radweg'
+  | 'Velostrasse'               // nur Basel (siedlungsorientierte Strasse): einzige zulässige Form
+
+// Stadt (bestimmt die Soll-Tabelle und die Haltestellen-Logik). Default: Bern.
+export type Stadt = 'bern' | 'zurich' | 'basel' | 'luzern'
+// Strassentyp (nur Basel: Soll-Tabelle ist strassentyp-basiert, nicht DTV-basiert).
+export type Strassentyp = 'verkehrsorientiert' | 'siedlungsorientiert'
+
+// ── 1) SOLL: Wahl der Führungsart (stadtabhängige Entscheidungstabelle) ───────
+//
+// Bern (Masterplan, Default/Fallback):
+//   DTV MIV \ km/h     ≤30          31–40        41–50              51–80
+//   < 2'000            Mischverkehr Radstreifen  Radstr./Radweg     Radweg
+//   2'000–5'000        Radstreifen  Radstreifen  Radstr./Radweg     Radweg
+//   5'000–10'000       Radstr./Radweg (Übergang) …                  Radweg
+//   > 10'000           Radweg       Radweg       Radweg             Radweg
+//
+// QUELLE: die schematische Darstellung im Masterplan Veloinfrastruktur Standards, SEITE 11
+// («Anwendungshilfe Querschnitte/Strecken»). Sie zeigt VIER INEINANDER LIEGENDE RECHTECKE, je
+// eines über Tempo und DTV. Man landet im kleinsten, das einen enthält — also entscheidet die
+// STRENGERE der beiden Achsen. Genau das stehen unten die vier gleich gebauten Zeilen:
+//
+//     Mischverkehr             Tempo ≤ 30  ·  DTV < 2'000
+//     Radstreifen              Tempo ≤ 40  ·  DTV ≤ 5'000
+//     Radstreifen oder Radweg  Tempo ≤ 50  ·  DTV ≤ 10'000    ← im Schema L-förmig schraffiert
+//     Radweg                   Tempo > 50  ·  DTV > 10'000
+//
+// ANGEGLICHEN AM 10.08.2026. Bis dahin fehlte hier der WAAGRECHTE SCHENKEL der Schraffur: Diese
+// Funktion entschied im Band 41–50 km/h nach DTV-Band statt nach Schema und lieferte dort unter
+// DTV 2'000 «Radstreifen», zwischen 2'000 und 5'000 «Radweg» — im Schema steht beides als
+// «Radstreifen oder Radweg». Der lokale Rechner (soll_ist_analyse.py, soll_bern) wurde am
+// 06.08.2026 korrigiert; erschöpfend gerastert waren es 18 abweichende Zellen (8 im Band
+// 41–50 km/h, 4 an der Grenze DTV 5'000, 6 an der Grenze DTV 10'000). Beide Rechner tragen
+// jetzt dieselbe Tabelle — ein Rastervergleich über das ganze Gitter meldet 0 Abweichungen.
+//
+// DIE DREI DTV-GRENZEN folgen dem Fliesstext derselben Seite, nicht der Pixelkante der Grafik:
+//   • «verkehrsarme Strassen (DTV < 2'000)» → 2'000 ist SCHON Radstreifen, darum `>= 2000` und
+//     nicht `> 2000`. Die eine Zeile, die aus dem Muster fällt — bewusst, nicht vertippt.
+//   • «stark belastete Strassen (DTV > 10'000 Fz.)» → 10'000 ist NOCH «Radstreifen oder Radweg».
+//   • Zu 5'000 schweigt der Text; dort gilt die Bandgrenze des Schemas (5'000 noch Radstreifen).
+//
+// TEMPO 50 ist der einzige wirksame Randfall, und dort widerspricht sich der Masterplan selbst:
+// «Kernfahrbahnen … bis max. Tempo 50 … geprüft werden» setzt dort Radstreifen voraus, «bei hohen
+// Geschwindigkeiten (≥ 50 km/h) ist eine bauliche Separation nötig» verlangt einen Radweg. Wo der
+// Text sich selbst widerspricht, bricht die Grafik den Gleichstand: die Schraffur reicht bis und
+// mit 50, das Grün beginnt darüber. Deshalb `v > 50`.
+function fuehrungsartBern(dtv: number, v: number): Fuehrungsart {
+  if (v > 50 || dtv >  10000) return 'Radweg'
+  if (v > 40 || dtv >   5000) return 'Radstreifen oder Radweg'
+  if (v > 30 || dtv >=  2000) return 'Radstreifen'
+  return 'Mischverkehr'
+}
+
+// Zürich (Velostandards, Abb. 1 S. 14): je Routentyp eine eigene Matrix.
+// Velovorzugsroute → Velohauptroute, Hauptroute → Veloroute. Mischverkehr ist nur bei ≤ 30 km/h
+// und unterhalb des DWV-Deckels zulässig: Velovorzugsroute < 2'500, Hauptroute < 5'000.
+function fuehrungsartZuerich(dtv: number, v: number, route: Routentyp): Fuehrungsart {
+  if (v > 50) return 'Radweg'
+  if (route === 'Velohauptroute') {        // Velovorzugsroute
+    if (dtv >= 7500) return v <= 30 ? 'Radstreifen oder Radweg' : 'Radweg'
+    if (dtv >= 2500) return 'Radstreifen oder Radweg'             // 2'500–7'500 (≤ 50 km/h)
+    return v <= 30 ? 'Mischverkehr' : 'Radstreifen oder Radweg'   // < 2'500
+  }
+  // Hauptroute / Basisnetz: Mischverkehr (≤ 30) nur bis 5'000; ab 5'000 → Radstreifen oder Radweg.
+  if (dtv >= 5000) return 'Radstreifen oder Radweg'
+  return v <= 30 ? 'Mischverkehr' : 'Radstreifen oder Radweg'     // < 5'000
+}
+
+// Luzern (Anwendungshilfe S. 29): drei Zonen Mischverkehr / Markierung / bauliche Trennung.
+// Auf die Berner Logik vereinfacht (Markierung = Radstreifen), damit es vergleichbar bleibt:
+//   • Mischverkehr nur ≤30 km/h und DTV < 5'000 (bzw. ≤40 km/h und DTV < 2'000).
+//   • bauliche Trennung (Radweg) ab DTV ≥ 15'000, bei 41–50 km/h schon ab DTV ≥ 10'000, sowie > 50 km/h.
+//   • dazwischen Markierung = Radstreifen.
+function fuehrungsartLuzern(dtv: number, v: number): Fuehrungsart {
+  if (v > 50) return 'Radweg'
+  if (dtv >= 15000) return 'Radweg'
+  if (v <= 30) return dtv < 5000 ? 'Mischverkehr' : 'Radstreifen'
+  if (v <= 40) return dtv < 2000 ? 'Mischverkehr' : 'Radstreifen'
+  return dtv < 10000 ? 'Radstreifen' : 'Radweg'   // 41–50 km/h
+}
+
+// Basel: nicht DTV-, sondern strassentyp-basiert (× Routentyp). Vorzugsroute → Velohauptroute,
+// Pendler-/Basisrouten → Veloroute. «Nicht verkehrsorientiert» = siedlungsorientierte Strasse.
+// (Tempo 30 und 50 ergeben in der Basler Tabelle dieselbe Soll-Form → Tempo hier nicht massgebend.)
+function fuehrungsartBasel(route: Routentyp, strassentyp?: Strassentyp): Fuehrungsart {
+  // Siedlungsorientierte (nicht verkehrsorientierte) Tempo-30-Strasse: Basel sieht pro Routentyp
+  // genau EINE Führungsform vor (Standards FVV BS, Tab. 3, S. 15) — alle anderen nicht vorgesehen
+  // (Notenwirkung in fuehrungsformNote). DWV-Deckel bleibt Hinweis (Vorzugsroute 2'500 / Pendler-Basis 5'000):
+  //   • Vorzugsroute (Velohauptroute) → Velostrasse.
+  //   • Pendler-/Basisrouten (Veloroute) → Mischverkehr (keine Velostrasse).
+  if (strassentyp === 'siedlungsorientiert') {
+    return route === 'Velohauptroute' ? 'Velostrasse' : 'Mischverkehr'
+  }
+  // verkehrsorientiert (oder unbekannt → konservativ verkehrsorientiert):
+  return route === 'Velohauptroute' ? 'Radstreifen oder Radweg' : 'Radstreifen'
+}
+
+// Dispatcher: wählt die stadtabhängige Soll-Tabelle. Bern bleibt Default (auch für unbekannte Städte).
+export function fuehrungsart(
+  dtv: number, v: number,
+  stadt: Stadt = 'bern', route: Routentyp = 'Velohauptroute', strassentyp?: Strassentyp,
+): Fuehrungsart {
+  switch (stadt) {
+    case 'zurich': return fuehrungsartZuerich(dtv, v, route)
+    case 'luzern': return fuehrungsartLuzern(dtv, v)
+    case 'basel':  return fuehrungsartBasel(route, strassentyp)
+    default:       return fuehrungsartBern(dtv, v)
+  }
+}
+
+// ── 2) NOTE: IST gegen SOLL bewerten ──────────────────────────────────────────
+//
+// Schweizer Schulnote: 6 = beste, 1 = schlechteste. Rundung auf 0,5-Schritte.
+//
+// Prinzip:
+//   - Erreicht/übertrifft die IST-Führungsform die vom SOLL geforderte Separation
+//     → Note 6 (Über-Erfüllung ist erlaubt).
+//   - Liegt die IST darunter → Abzug. Die HÖHE des Abzugs stammt aus dem empirischen
+//     feel-safe-Verlust (radwege-check), und zwar KONTEXT-SENSITIV nach Tempo:
+//     Tempo wirkt empirisch ~doppelt so stark wie die Verkehrsmenge (06), und der
+//     Tempo-Effekt ist sauber belegt (30/50). Die DTV-Dimension steckt bereits in der
+//     SOLL-Wahl, das Tempo zusätzlich in der Abzugshöhe. → Eine Fehlentscheidung bei
+//     hohem Tempo wird stärker abgewertet als dieselbe bei tiefem Tempo.
+
+export type IstFuehrungsform =
+  | 'Mischverkehr'
+  | 'Radstreifen'
+  | 'Radweg strassenbegleitend / Geschützter Radstreifen'
+  | 'Radweg abgesetzt'
+  | 'Umweltspur'
+  | 'Velostrasse'
+  | 'Kombinierter Fuss-/Radweg'
+  | 'Fussweg Velo gestattet'
+  | 'Zweirichtungsradweg'                              // Q10: baulich getrennt, beide Richtungen
+  // Q7 „Einbahn mit Velogegenverkehr" — dreistufig, je nach Sicherung der Gegenrichtung:
+  | 'Einbahn Velogegenverkehr ohne Markierung'         // wie Mischverkehr (Rang 0)
+  | 'Einbahn Velogegenverkehr mit Markierung'          // wie Radstreifen (Rang 1)
+  | 'Einbahn Velogegenverkehr mit baulicher Trennung'  // = Radweg (Rang 2)
+
+// Die drei Q7-Varianten (für UI-Gruppierung „Einbahn mit Velogegenverkehr" + Default).
+export const GEGENVERKEHR_FORMEN: IstFuehrungsform[] =
+  ['Einbahn Velogegenverkehr ohne Markierung', 'Einbahn Velogegenverkehr mit Markierung',
+   'Einbahn Velogegenverkehr mit baulicher Trennung']
+export const GEGENVERKEHR_DEFAULT: IstFuehrungsform = 'Einbahn Velogegenverkehr mit Markierung'
+
+export type Routentyp = 'Velohauptroute' | 'Veloroute'
+
+// Parkierung rechts (Bordsteinseite, Dooring): 'ja' = Abzug, 'nein'/'egal' = kein Abzug.
+export type ParkenRechts = 'ja' | 'nein' | 'egal'
+
+// Führungsformen, bei denen Parken rechts (Dooring) relevant ist: Velo fährt auf der Fahrbahn
+// neben möglichem Längsparken. Nicht bei baulich abgesetzten Radwegen / Fussweg (anderer Mechanismus).
+export const PARKEN_RELEVANT: IstFuehrungsform[] =
+  ['Mischverkehr', 'Radstreifen', 'Velostrasse', 'Umweltspur', 'Einbahn Velogegenverkehr mit Markierung']
+
+// ── Haltestellen (ÖV) ─────────────────────────────────────────────────────────
+// Umgang mit ÖV-Haltestellen im Abschnitt. Soll-Lösung aus Masterplan-Diagramm
+// (Bedeutung Velonetz × ÖV-Angebot): Separate Velofläche / Übergang / Mischverkehr.
+export type OevAngebot = 'keine' | 'bus_ab15' | 'bus_5_15' | 'bus_unter5' | 'tram'
+export type Haltestellenloesung = 'Separate Velofläche' | 'Übergang' | 'Mischverkehr'
+// Union aller (stadtübergreifend vorkommenden) Haltestellentypen. Welche je Stadt verfügbar sind,
+// definiert HALTESTELLEN[stadt]; gemeinsame Namen (z. B. «Inselhaltestelle») können je Stadt
+// unterschiedliche Breiten tragen.
+export type Haltestellentyp =
+  | 'keine'
+  // Bern (HS1–HS7):
+  | 'Haltestelle mit Veloumfahrung'
+  | 'Kaphaltestelle mit Veloüberfahrt'
+  | 'Haltestelle mit rückwärtigem Radweg'
+  | 'Inselhaltestelle'
+  | 'Kaphaltestelle'
+  | 'Fahrbahnhaltestelle Bus'
+  | 'Busbucht'
+  // Zürich (Z HS1–3):
+  | 'Fahrbahnhaltestelle mit Veloumfahrung'
+  | 'Fahrbahnhaltestelle mit Veloüberfahrt'
+  | 'Fahrbahnhaltestelle mit Veloführung auf Fahrbahn'
+  // Basel (BS HS 1–4):
+  | 'Kap'
+  | 'Velobypass'
+  | 'Velo-Zeitinsel'
+  // Luzern (L HS 3/4):
+  | 'Fahrbahnhaltestelle'
+  | 'Fahrbahnhaltestelle in der Umweltspur'
+
+interface HsTyp {
+  familie: 'Separate' | 'Mischverkehr'
+  breite?: { optimal: number; minimal: number }   // nur Typen mit Breitenkriterium
+}
+
+// Haltestellentypen je Stadt (mit Einsatzfamilie + optionaler Breitenvorgabe).
+// Quelle: Grundlagen/Haltestelle_Typen_Breiten_*.csv (siehe docs/regelwerk.json).
+const HALTESTELLEN: Record<Stadt, Partial<Record<Haltestellentyp, HsTyp>>> = {
+  bern: {
+    'Haltestelle mit Veloumfahrung':       { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.6 } }, // HS1
+    'Kaphaltestelle mit Veloüberfahrt':    { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.5 } }, // HS2
+    'Kaphaltestelle':                      { familie: 'Mischverkehr' },                                       // HS3
+    // HS4: Masterplan S. 71 Standardbreite 1,80, situativ bis 2,50, minimal 1,60 (Nutzerentscheid 20.10.2026: Minimum
+    // 1,60, anzustreben 1,80 bis 2,50; vorher optimal 2,50)
+    'Haltestelle mit rückwärtigem Radweg': { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.6 } }, // HS4
+    'Inselhaltestelle':                    { familie: 'Separate', breite: { optimal: 2.5, minimal: 1.5 } }, // HS5
+    'Fahrbahnhaltestelle Bus':             { familie: 'Mischverkehr' },                                       // HS6
+    'Busbucht':                            { familie: 'Mischverkehr' },                                       // HS7
+  },
+  zurich: {
+    'Fahrbahnhaltestelle mit Veloumfahrung':            { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.5 } }, // Z HS1
+    'Fahrbahnhaltestelle mit Veloüberfahrt':            { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.5 } }, // Z HS2
+    'Fahrbahnhaltestelle mit Veloführung auf Fahrbahn': { familie: 'Mischverkehr' },                                      // Z HS3
+  },
+  basel: {
+    'Kap':              { familie: 'Mischverkehr' },                                       // BS HS 1
+    'Velobypass':       { familie: 'Separate', breite: { optimal: 1.6, minimal: 1.2 } }, // BS HS 2
+    'Velo-Zeitinsel':   { familie: 'Separate', breite: { optimal: 2.05, minimal: 1.65 } }, // BS HS 3
+    'Inselhaltestelle': { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.6 } }, // BS HS 4
+  },
+  luzern: {
+    'Haltestelle mit Veloumfahrung':         { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.5 } }, // L HS 1
+    'Haltestelle mit rückwärtigem Radweg':   { familie: 'Separate', breite: { optimal: 2.5, minimal: 1.6 } }, // L HS 2
+    'Fahrbahnhaltestelle':                   { familie: 'Mischverkehr' },                                       // L HS 3
+    'Fahrbahnhaltestelle in der Umweltspur': { familie: 'Mischverkehr' },                                       // L HS 4
+    'Busbucht':                              { familie: 'Mischverkehr' },                                       // L HS 5
+  },
+}
+
+function hsTyp(stadt: Stadt, typ: Haltestellentyp): HsTyp | undefined {
+  return typ === 'keine' ? undefined : HALTESTELLEN[stadt][typ]
+}
+
+// Breite der Velofläche an einer Haltestelle dieses Typs (Planung, seit 20.10.2026): Velohauptroute optimal, sonst minimal
+export function haltestellenVeloBreite(stadt: Stadt, typ: Haltestellentyp, routentyp: Routentyp): { soll: number; min: number } | undefined {
+  const b = hsTyp(stadt, typ)?.breite
+  return b ? { soll: routentyp === 'Velohauptroute' ? b.optimal : b.minimal, min: b.minimal } : undefined
+}
+
+// Familie eines Haltestellentyps der Stadt (Vorschlag «Haltestelle umbauen»)
+export const haltestellenFamilie = (stadt: Stadt, typ: Haltestellentyp): 'Separate' | 'Mischverkehr' | undefined => hsTyp(stadt, typ)?.familie
+
+// Auswahlliste der Haltestellentypen je Stadt (für die UI).
+export function haltestellenTypen(stadt: Stadt): Haltestellentyp[] {
+  return Object.keys(HALTESTELLEN[stadt]) as Haltestellentyp[]
+}
+
+// Haltestellentypen mit Breitenkriterium je Stadt (für die UI-Sichtbarkeit des Breitenfelds).
+export function haltestellenMitBreite(stadt: Stadt): Haltestellentyp[] {
+  return haltestellenTypen(stadt).filter(t => HALTESTELLEN[stadt][t]?.breite != null)
+}
+
+// Soll-Haltestellenlösung aus Route × ÖV-Angebot — stadtabhängig:
+//  - bern:   Scoring ÖV (Tram 3 / Bus<5 2 / Bus5–15 1 / Bus≥15 0) + Route (Velohauptroute 1).
+//            ≥ 3 → Separate, = 2 → Übergang, ≤ 1 → Mischverkehr.
+//  - luzern: kein Tram-Bonus, gleiche Schwellen (Tram wie Bus<5 behandelt).
+//  - zurich: kriterienbasiert → null (kein automatischer Abzug; nur Typ-Auswahl + Breite).
+//  - basel:  null (Abzug nur über Typ-Familie + Breite, kein Takt×Route-Schema).
+export function haltestellenLoesung(
+  route: Routentyp, oev: OevAngebot, stadt: Stadt = 'bern',
+): Haltestellenloesung | null {
+  if (oev === 'keine') return null
+  if (stadt === 'zurich' || stadt === 'basel') return null
+  const oevLevel: Record<Exclude<OevAngebot, 'keine'>, number> = stadt === 'luzern'
+    ? { tram: 2, bus_unter5: 2, bus_5_15: 1, bus_ab15: 0 }   // Luzern kennt kein Tram → wie Bus<5
+    : { tram: 3, bus_unter5: 2, bus_5_15: 1, bus_ab15: 0 }
+  const sum = oevLevel[oev] + (route === 'Velohauptroute' ? 1 : 0)
+  if (sum >= 3) return 'Separate Velofläche'
+  if (sum === 2) return 'Übergang'
+  return 'Mischverkehr'
+}
+
+// Abzug, wenn die Soll-Lösung «Separate Velofläche» verlangt, der vorhandene Haltestellentyp aber
+// aus der Mischverkehr-Familie stammt (Über-Erfüllung und Übergang gelten als kompatibel). Normativ
+// (keine FixMyCity-Daten zu Haltestellen), tunbar.
+export const HALTESTELLE_ABZUG = 1.0
+
+// Basel, siedlungsorientierte Strasse: Formen, die dort wie «Mischverkehr» behandelt werden
+// (Zulässigkeit auf Pendler-/Basisrouten und DWV-Deckel 5'000).
+const BASEL_WIE_MISCHVERKEHR: IstFuehrungsform[] = ['Mischverkehr', 'Einbahn Velogegenverkehr ohne Markierung']
+
+// Separationsstufe (Ordnung) für den "IST erfüllt SOLL?"-Vergleich.
+// Der Übergang 'Radstreifen oder Radweg' liegt zwischen Radstreifen (1) und Radweg (2).
+const SEPARATION: Record<Fuehrungsart, number> = {
+  'Mischverkehr': 0,
+  'Velostrasse': 0,   // Sonderform des Mischverkehrs (gleiche Separationsstufe)
+  'Radstreifen': 1,
+  'Radstreifen oder Radweg': 1.5,
+  'Radweg': 2,
+}
+
+// feel-safe-Klasse, auf die eine IST-Form für den Defizit-Abzug abgebildet wird.
+// (Nur relevant, wenn die IST den Soll UNTERschreitet — Rang-2-Formen tun das nie.)
+type FeelClass = 'Mischverkehr' | 'Radstreifen' | 'Radweg'
+
+// Metadaten je IST-Führungsform:
+//   q         – Querschnittstyp (Anzeige).
+//   rank      – Separationsrang für den Soll-/Ist-Vergleich (vgl. SEPARATION der Soll-Formen).
+//   feelClass – feel-safe-Klasse für den Defizit-Abzug (nur relevant, wenn IST < Soll).
+//   optimal   – Breiten-Vorgabe für Velohauptrouten [m].
+//   minimal   – Breiten-Vorgabe für Velorouten [m].
+//   maximal   – obere Breitengrenze [m]; nur Velostrasse (Band 4,5–6,5). Andere Formen: keine Obergrenze.
+//   nurT30    – Form nur bei Tempo 30 zulässig (Velostrasse).
+// optimal/minimal fehlen = keine Breitenvorgabe (z. B. Mischverkehr).
+// Quelle: Masterplan Veloinfrastruktur Bern (Regelbreiten Q1–Q9).
+interface IstMeta {
+  q: string
+  rank: number
+  feelClass: FeelClass
+  optimal?: number
+  minimal?: number
+  maximal?: number
+  nurT30?: boolean
+}
+const IST: Record<IstFuehrungsform, IstMeta> = {
+  'Mischverkehr':              { q: 'Q6', rank: 0, feelClass: 'Mischverkehr' },
+  'Radstreifen':               { q: 'Q1', rank: 1, feelClass: 'Radstreifen', optimal: 2.5, minimal: 1.8 },
+  'Radweg strassenbegleitend / Geschützter Radstreifen': { q: 'Q2', rank: 2, feelClass: 'Radweg', optimal: 2.5, minimal: 1.8 },
+  'Radweg abgesetzt':          { q: 'Q3', rank: 2, feelClass: 'Radweg', optimal: 2.5, minimal: 1.5 },
+  // Umweltspur (Q4, Bus+Velo): DTV/Tempo nicht massgebend, sondern Bus-Takt (siehe unten).
+  // Breite Optimal 4,50 (Velohauptroute) / Minimal 3,75 (Veloroute). rank/feelClass ungenutzt.
+  'Umweltspur':                { q: 'Q4', rank: 0, feelClass: 'Mischverkehr', optimal: 4.5, minimal: 3.75 },
+  // Velostrasse (Q9): nur bei Tempo 30 zulässig. Breite = Fahrbahnband 4,5–6,5 m, identisch für
+  // Velohaupt- und Veloroute (daher optimal = minimal = 4,5). Zu schmal UND zu breit gibt Abzug.
+  'Velostrasse':               { q: 'Q9', rank: 0, feelClass: 'Mischverkehr', nurT30: true,
+                                 optimal: 4.5, minimal: 4.5, maximal: 6.5 },
+  // Kombinierter Fuss-/Radweg (Q11): baulich gemeinsam genutzter Geh-/Radweg, vom MIV abgesetzt
+  // → hohe Separation (rank 2), KEIN Note-4-Deckel (anders als Q12). Note ist breitengesteuert.
+  // Bern-Breite ≥ 3,50 (beide Routentypen); stadtspezifisch (Basel frequenzabhängig) via BREITEN_*.
+  'Kombinierter Fuss-/Radweg': { q: 'Q11', rank: 2, feelClass: 'Radweg', optimal: 3.5, minimal: 3.5 },
+  // Fussweg Velo gestattet (Q12): Mischfläche Fuss/Velo, Kompromiss-/Restlösung. DTV/Tempo
+  // nicht massgebend. Breite i. d. R. ≥ 3,50 m (gilt für beide Routentypen → optimal = minimal).
+  // Vom MIV getrennte Fläche → rank 2 / Radweg-Klasse, kein Mischverkehr. Beides bleibt ohne
+  // Rechenwirkung: der Sonderfall greift vor dem Rang-Vergleich, wie Umweltspur/Velostrasse.
+  'Fussweg Velo gestattet':    { q: 'Q12', rank: 2, feelClass: 'Radweg', optimal: 3.5, minimal: 3.5 },
+  // Zweirichtungsradweg (Q10): baulich vom MIV getrennt und in BEIDEN Richtungen befahrbar
+  // → höchste Separation (rank 2), erfüllt damit jedes Soll; die Qualität steuert allein die
+  // Breite. Sie ist grösser als beim Einrichtungs-Radweg, weil zwei Fahrtrichtungen samt
+  // Begegnungsfall hineinmüssen: 4,50 (Velohauptroute) / 3,20 (Veloroute).
+  'Zweirichtungsradweg':       { q: 'Q10', rank: 2, feelClass: 'Radweg', optimal: 4.5, minimal: 3.2 },
+  // Q7 „Einbahn mit Velogegenverkehr" — Sicherung der Gegenrichtung bestimmt die Stufe:
+  //   ohne Markierung → Mischverkehr (Rang 0, keine Breite); mit Markierung → Radstreifen (Rang 1);
+  //   mit baulicher Trennung → Radweg (Rang 2). Regelbreiten (Bern) 2,0/1,8; Stadt-Overrides in BREITEN_*.
+  'Einbahn Velogegenverkehr ohne Markierung':        { q: 'Q7', rank: 0, feelClass: 'Mischverkehr' },
+  'Einbahn Velogegenverkehr mit Markierung':         { q: 'Q7', rank: 1, feelClass: 'Radstreifen', optimal: 2.0, minimal: 1.8 },
+  'Einbahn Velogegenverkehr mit baulicher Trennung': { q: 'Q7', rank: 2, feelClass: 'Radweg',      optimal: 2.0, minimal: 1.8 },
+}
+// Separationsrang einer Ist-Form (0 Mischverkehr … 2 Radweg); für den Massnahmenvorschlag (vorschlag.ts)
+export const istRang = (ist: IstFuehrungsform): number => IST[ist]?.rank ?? 0
+
+// ── Stadtspezifische Breiten-Sollwerte (optionaler Override je Führungsform) ──────
+// Die Führungsform-WAHL (DTV×Tempo) und die feel-safe-Logik bleiben für alle Städte
+// Bern-basiert; nur die massgeblichen Regel-BREITEN können stadtspezifisch sein.
+// Override pro Feld: fehlt ein Wert, gilt der Berner Wert aus IST (Fallback).
+export interface BreitenSoll { optimal?: number; minimal?: number; maximal?: number }
+
+// Stadt Zürich — Standardmass aus den Velostandards Stadt Zürich, Tab. 1 (S. 16):
+//   optimal = Velovorzugsroute (→ Velohauptroute), minimal = Hauptnetz (→ Veloroute).
+// Wo Zürich keine eigene Vorgabe hat (Velostrasse-Band, Fussweg, Mischverkehr) → Berner Werte.
+export const BREITEN_ZUERICH: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
+  'Radstreifen':                                         { optimal: 2.5, minimal: 2.2 },
+  'Radweg strassenbegleitend / Geschützter Radstreifen': { optimal: 2.5, minimal: 2.2 },
+  'Radweg abgesetzt':                                    { optimal: 2.5, minimal: 2.2 },
+  // Zweirichtungsradweg (Q10): 4,80 / 3,50. Fehlte bis zum 29.09.2026 — der Rechner fiel auf
+  // die Berner 4,50 / 3,20 zurück, obwohl Quelltabelle (Grundlagen/Fueherungsform_Breiten_
+  // Staedte.csv) und docs/regelwerk.json die Zürcher Werte führen.
+  'Zweirichtungsradweg':                                 { optimal: 4.8, minimal: 3.5 },
+  'Umweltspur':                                          { optimal: 4.8, minimal: 4.5 },
+  // Gemeinsamer Rad-/Fussweg: in ZH-Planungen vermieden, Ausnahme bei geringer Frequenz;
+  // Mindestbreite 3,50 m (VSS-Leitfaden), beide Routentypen.
+  'Kombinierter Fuss-/Radweg':                           { optimal: 3.5, minimal: 3.5 },
+  // Q7 Einbahn mit Velogegenverkehr: ZH nennt nur ein Mindestmass 1,80 m.
+  'Einbahn Velogegenverkehr mit Markierung':             { optimal: 1.8, minimal: 1.8 },
+  'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 1.8, minimal: 1.8 },
+}
+
+// Stadt Basel — Standards Fuss- und Veloverkehrsinfrastruktur Kanton Basel-Stadt (2024), Tab. 4
+// (S. 20): optimal = Standardmass, minimal = reduziertes Standardmass. Fussweg und das
+// Velostrassen-Maximum 6,50 m → Bern.
+export const BREITEN_BASEL: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
+  'Radstreifen':                                         { optimal: 2.5, minimal: 1.8 },
+  'Radweg strassenbegleitend / Geschützter Radstreifen': { optimal: 2.5, minimal: 2.2 },
+  'Radweg abgesetzt':                                    { optimal: 2.5, minimal: 2.2 },
+  // Zweirichtungsradweg (Q10): 4,00 / 3,40 — fehlte bis zum 29.09.2026 (Bern-Fallback 4,50 / 3,20),
+  // s. BREITEN_ZUERICH.
+  'Zweirichtungsradweg':                                 { optimal: 4.0, minimal: 3.4 },
+  'Umweltspur':                                          { optimal: 4.5, minimal: 3.0 },
+  // Gemeinsamer Rad-/Fussweg, frequenzabhängig (Standards BS): mittlere–hohe Frequenz
+  // (→ Velohauptroute) 6,00 m, geringe Frequenz (→ Veloroute) 4,80 m.
+  'Kombinierter Fuss-/Radweg':                           { optimal: 6.0, minimal: 4.8 },
+  // Velostrasse (einzige zulässige Form auf siedlungsorientierten Strassen): Nettobreite der
+  // Fahrbahn (ohne Parkierung + Sicherheitsabstand zur Parkierung). optimal 4,50 / minimal 4,30.
+  'Velostrasse':                                         { optimal: 4.5, minimal: 4.3 },
+  // Q7 Einbahn mit Velogegenverkehr — Basel „wie Radstreifen" (2,5 / 1,8).
+  'Einbahn Velogegenverkehr mit Markierung':             { optimal: 2.5, minimal: 1.8 },
+  'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 2.5, minimal: 1.8 },
+}
+
+// Stadt Luzern — Standards Veloverkehr Stadt Luzern (Q-Blätter, S. 30–57):
+// optimal = Optimalfall (Velohauptrouten), minimal = Minimalfall (übrige Velorouten).
+export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
+  'Radstreifen':                                         { optimal: 2.5, minimal: 1.8 },  // Q1a
+  'Radweg strassenbegleitend / Geschützter Radstreifen': { optimal: 2.5, minimal: 1.8 },  // Q2a/Q2b
+  'Radweg abgesetzt':                                    { optimal: 2.5, minimal: 1.8 },  // Q3
+  'Umweltspur':                                          { optimal: 4.5, minimal: 3.75 }, // Q4 (Breiten wie Bern)
+  'Velostrasse':                                         { optimal: 4.5, minimal: 4.5 },  // Q9
+  'Kombinierter Fuss-/Radweg':                           { optimal: 3.5, minimal: 3.5 },  // ≥ 3,50 (beide Routentypen)
+  'Fussweg Velo gestattet':                              { optimal: 3.5, minimal: 3.5 },  // S. 57
+  // Q7 Einbahn mit Velogegenverkehr — Luzern: Velohauptroute 2,50 / Veloroute 2,00.
+  'Einbahn Velogegenverkehr mit Markierung':             { optimal: 2.5, minimal: 2.0 },
+  'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 2.5, minimal: 2.0 },
+}
+
+// Notenstufen-Abzug pro fehlendem Meter Breite — je feel-safe-Klasse UND TEMPO verschieden,
+// weil die Befragung den Meter unterschiedlich bewertet (Szenen, die sich NUR in der Breite
+// unterscheiden; Velo-Foto-Bewertungen, tools/verify_06.py §4):
+//   • auf der Fahrbahn (Radstreifen-Klasse), GESTRICHELT geschnitten (P10-U, 12.08.2026 —
+//     graue Szenen mit schmaler gestrichelter Führungslinie, das Berner Markierungsbild):
+//     9,3 Punkte/m bei Tempo 30 ≈ 0,65 Noten/m, 10,5 bei Tempo 50 ≈ 0,74 (÷ Kurs 14,2);
+//     SEIT 22.09.2026 gilt stattdessen die vorläufige Kalibrierung 1,0 (s. BREITE_SATZ) —
+//     hinter der Markierung schützt vor allem die Breite. Die Tempo-Spanne ist in diesem
+//     Schnitt klein (0,09 < baulich 0,14); der A9.8-Befund «Fahrbahn-Spanne > bauliche»
+//     gilt nur noch abgeschwächt.
+//     (Grau-Zwischenfassung vom selben Tag: 0,59/0,75; 2 Fotos je Zelle — bewusster Preis,
+//     lokales Regelwerk 15.7, P10-Kasten.)
+//   • hinter baulicher Trennung (Radweg-Klasse), POLLER-ONLY grau (P14, 13.08.2026 —
+//     nur Sperrpfosten-Szenen, derselbe Pool wie der Radweg-Anker aus P11-A):
+//     3,4 bzw. 5,3 Punkte/m ≈ 0,24 / 0,38 — dort schützt die Trennung, Breite ist Komfort.
+//     (Zwischenfassung grau alle Trennungsarten, P3: 4,4/6,1 ≈ 0,31/0,43, unter Kurs 14,4
+//     0,30/0,42; gepoolte Zwischenfassung bis 11.08.2026: 0,58/0,70 und 0,35/0,38.)
+//   • Mischverkehr-Klasse (Velostrasse-Fahrgassenband, Umweltspur): normativ 0,9 Noten/m,
+//     für beide Tempi gleich — hier ist «Breite» die Fahrbahn/Spur, nicht ein Velostreifen;
+//     die Befragung liefert dafür keinen eigenen Gradienten. Tunbare Parameter.
+//
+// TEMPOABHÄNGIG seit dem 10.08.2026. Bis dahin stand je Klasse ein einzelner Wert (0,6 / 0,35);
+// nachgerechnet waren das die Tempo-30-Werte, ohne dass das irgendwo stand. Die Kette war damit
+// in sich widersprüchlich: ihr ANKER ist tempoabhängig (FEELSAFE), ihr SATZ war es nicht,
+// obwohl beide aus derselben Geraden stammen — der Anker ist ihr Wert bei der Sollbreite, der
+// Satz ihre Steigung. Der lokale Rechner (soll_ist_analyse.py, BREITE_SATZ_FEIN_*) trägt
+// dieselben vier Werte; ein Wächter dort rechnet sie bei jedem Lauf gegen die Roh-Bewertungen.
+export const BREITE_SATZ: Record<FeelClass, { ruhig: number; schnell: number }> = {
+  'Mischverkehr': { ruhig: 0.9,  schnell: 0.9  },
+  // 22.09.2026 (Nutzerentscheid): VORLÄUFIGE KALIBRIERUNG 1,0 für beide Tempi — aus der Berner
+  // Bildumfrage (docs/09, Kapitel 5.5): Berner Schätzwerte 1,33 (1,5→1,8 m) und 1,49 (1,5→2,0 m)
+  // Noten/m liegen über den Berliner Messwerten 0,65/0,74 (gemessen 2,0→3,5 m, hier extrapoliert);
+  // 1,0 = gerundeter Durchschnitt der vier Werte, zugleich im Fenster 0,74–1,05, das mit allen vier
+  // Vertrauensbereichen verträglich ist. Eine Tempo-Differenzierung gibt die Berner Umfrage nicht
+  // her (sie fragt Verkehrsmenge, nicht Tempo) — darum EIN Wert. Berliner Messwerte davor:
+  // { ruhig: 0.65, schnell: 0.74 } (Gestrichelt-Steigungen 9,3/10,5 Pkt/m ÷ Kurs 14,2, P13).
+  'Radstreifen':  { ruhig: 1.0, schnell: 1.0 },
+  'Radweg':       { ruhig: 0.24, schnell: 0.38 },  // Poller-only-Grau-Steigungen 3,4/5,3 Pkt/m ÷ Kurs 14,2 (P14 + P13; Zwischenfassung grau alle Trennungen: 0.31/0.43)
+}
+
+// Abzug, wenn rechts (Bordsteinseite) längs geparkt wird — Dooring-Lage, Velo zwischen
+// Fahrspur und Parken. PAUSCHAL 1,0 Notenstufen, für jede Führungsform und jede Breite.
+//
+// OFFENER PUNKT (seit 09.08.2026). Bis dahin stand hier eine breitenabhängige Formel
+// 0,6 + 0,9 × (3,5 − Streifenbreite). Der Befund dahinter ist gut belegt und bleibt gültig
+// (tools/verify_06.py §5): dieselbe Szene ohne/mit Parkierung verliert bei 3,5 m Streifen
+// ≈ 8,5–9,6 Punkte (0,6 Noten — man weicht der Türzone aus), bei 2,0 m ≈ 28,8–29,7
+// (2,0 Noten — man fährt zwangsläufig darin). Nur trägt die Skala den Bestand nicht:
+//   • Die Befragung kennt GENAU ZWEI Streifenbreiten: 2,0 und 3,5 m.
+//   • Der breiteste real erfasste Radstreifen (Bern) misst 2,50 m; 282 von 340 sind schmaler
+//     als der KLEINSTE Messpunkt. Für sie war die Formel reine Verlängerung — 1,50 m ergäbe
+//     −2,40 Noten, mehr als der höchste je gemessene Wert.
+//   • Ein dritter, vorhandener Messpunkt widerspricht der Verlängerung: im Mischverkehr
+//     (Streifenbreite 0) kostet die Parkierung nur ≈ 0,15 Noten. Der Schaden hat sein
+//     Maximum bei ≈ 2,0 m und fällt zu BEIDEN Seiten ab — ohne Markierung fährt man weiter
+//     links, erst die Markierung weist den Platz in die Türzone.
+// Was es bräuchte: Szenen mit Streifenbreiten unter 2,0 m. Solange die fehlen, ist jede
+// Formel dort Modell und nicht Messung — die Pauschale ist die ehrlichere Zahl.
+export const PARKEN_ABZUG = 1.0
+
+// Tram in der Fahrbahn (Schienen) — DECKEL: die Note ist höchstens 3, NUR bei Mischverkehr.
+// Bei eigener Radverkehrsanlage (Radstreifen) misst die Befragung ~0 Effekt → dort kein Deckel.
+//
+// SEIT 14.08.2026 ein Deckel (vorher ein tempoabhängiger MALUS von 1,2 bei ≤ 30 / 0,7 darüber).
+// Grund: Angleichung an den lokalen Berner Rechner (soll_ist_analyse.py, TRAM_NOTE), der die
+// Schiene seit je als Deckel führt — der Unterschied war der letzte Regel-Unterschied zwischen
+// den beiden Rechnern und ist auf Nutzerentscheid ausgeräumt.
+// Die MESSUNG dahinter bleibt unverändert gültig (Velo-Foto-Bewertungen: Mischverkehr mit vs.
+// ohne Tram, 27,1 → 9,4 % bei T30 bzw. 15,2 → 5,4 % bei T50; ÷ 14,4 ergäbe 1,2 bzw. 0,7) —
+// neu ist allein die REGELFORM: Ein Deckel kappt gute Noten hart (6 → 3), drückt aber eine
+// ohnehin schlechte Note nicht weiter (2,5 bleibt 2,5; der Malus hätte 1,3 daraus gemacht).
+// Herleitung/Reproduktion: tools/verify_06.py (§2) bzw. docs/07_Tram_in_der_Fahrbahn.md. Tunbar.
+export const TRAM_DECKEL = 3
+
+// Kaphaltestelle an einer TRAM-Haltestelle ohne bauliche Trennung → Note IMMER 1.
+// Schiene im schmalen Abstand zur hohen Haltekante; an Tram-Haltestellen ist eine separate
+// Velofläche zwingend, fehlt sie, ist das der schlechteste Fall. Überschreibt alles (auch
+// Deckel und fixe Noten anderer Sonderfälle) — wie lokal (KAP_NOTE, KAP_TRENNUNG_AB).
+// «Ohne bauliche Trennung» = Separationsrang < 2 (Mischverkehr, Radstreifen, Velostrasse,
+// Umweltspur, Einbahn ohne/mit Markierung); auf Radweg & Co. führt die Velofläche an der
+// Haltekante vorbei, dort greift höchstens der Haltestellen-Abzug −1.
+export const KAP_NOTE = 1
+export const KAP_TRENNUNG_AB = 2   // ab diesem Rang (bauliche Trennung) greift die Regel NICHT
+
+// Umweltspur (Bus+Velo): Eignung als Velo-Führung sinkt mit steigender Busfrequenz (kürzerer Takt)
+// und ist nach oben gedeckelt — DTV/Tempo sind nicht massgebend.
+// (Aus den FixMyCity-Daten nicht ableitbar — nur 2 Bus-Szenen; Werte normativ.)
+//
+// Die Decke ist STADTABHÄNGIG: Bern 5 («weitgehend»), übrige Städte 4 («genügend») nach ihren
+// eigenen Standards. Für Zürich/Luzern ist sie zugleich der obere Anker der Takt-Rampe, deshalb
+// darf sie nicht global verstellt werden.
+//
+// Stadt-spezifische Takt-Schwellen (Min): Note 1 bei Takt ≤ taktNote1, Decke ab Takt ≥ taktOk,
+// linear interpoliert dazwischen. Herleitung pro Stadt:
+//   • Bern: Standard nennt einen einzigen Schwellwert (tiefe–mittlere Busfrequenz, Takt ≥ 7,5 Min) →
+//     Stufe (taktNote1 = taktOk = 7,5). Decke 5 — dasselbe wie im lokalen Batch-Rechner.
+//   • Zürich: «< 5 Min keine Anwendung, < 15 Min kritisch» → Rampe 5↔15.
+//   • Luzern: Bewertung 1–5; Takt < 5 → Bew. 1, Takt ≥ 15 → Bew. 3 (= Umweltspur-Decke). Die
+//     Bewertungs-Endpunkte fallen normiert exakt auf Berns Skala (Bew. 1 ↔ Note 1, Bew. 3 ↔ Note 4)
+//     → identische Anker wie Zürich (5↔15).
+//   • Basel: nennt KEINEN Takt-Schwellwert (Eignung nur qualitativ: Busspur-Breite, Anzahl Buslinien,
+//     Taktdichte, Velofrequenz) → keine Takt-Abhängigkeit; Note rein breitengetrieben + Hinweis.
+// Max. Note (Decke) bei zulässigem Takt und genügender Breite — je Stadt.
+export const UMWELTSPUR_DECKE: Record<Stadt, number> = { bern: 5, zurich: 4, luzern: 4, basel: 4 }
+// Bern: dreistufige Tabelle, deckungsgleich mit dem lokalen Batch-Rechner (umweltspur_note()).
+// Unter 7,5 Min bleibt es bei Note 2 — der Standard nennt die Umweltspur dort als Führungsform
+// unzulässig, das steht als Warnung daneben, erzwingt die Note aber nicht mehr.
+// Zürich/Luzern: Rampe zwischen den beiden Ankern, unter taktNote1 fix Note 1.
+type UmweltspurRegel =
+  | { art: 'stufen'; baender: [number, number][]; warnAb: number }   // [Takt-Untergrenze, Note]
+  | { art: 'rampe'; taktNote1: number; taktOk: number }
+export const UMWELTSPUR_TAKT: Record<Stadt, UmweltspurRegel | null> = {
+  bern:   { art: 'stufen', baender: [[0, 2], [7.5, 4], [15, 5]], warnAb: 7.5 },
+  zurich: { art: 'rampe', taktNote1: 5, taktOk: 15 },
+  luzern: { art: 'rampe', taktNote1: 5, taktOk: 15 },   // gleiche Anker wie Zürich
+  basel:  null,                                          // keine Takt-Abhängigkeit
+}
+
+// Takt → Umweltspur-Basisnote (auf 0,5 gerundet, damit die Decke ein sauberer Halbschritt ist und
+// die spätere Endrundung sie nicht überschreitet). Annahme: oevTakt ≥ taktNote1 (darunter Note 1).
+function umweltspurBasis(takt: number, taktNote1: number, taktOk: number, decke: number): number {
+  if (takt >= taktOk) return decke
+  if (takt <= taktNote1 || taktOk === taktNote1) return 1   // Stufe oder unterer Anker
+  const frac = (takt - taktNote1) / (taktOk - taktNote1)
+  return roundToHalf(1 + frac * (decke - 1))   // dieselbe Rundung wie die Endnote (29.09.2026)
+}
+
+// Fussweg Velo gestattet (Q12, Mischfläche Fuss/Velo): Kompromisslösung → höchstens «genügend».
+// Basisnote 4 (davon Breiten-Abzug). Die situativen Voraussetzungen (Schutzbedürfnis, geringe
+// Frequenz, kein Gefälle, konfliktarm, fehlende Alternativen) sind Planerurteil → nur Hinweis im
+// UI, kein Noteneinfluss. Normativ (keine FixMyCity-Daten für Mischflächen).
+export const FUSSWEG_BASIS = 4
+
+// Empirische feel-safe % je Führungsform UND Tempo-Kontext (radwege-check, tram-bereinigt).
+// Gezählt wird jede Bewertung der VELO-FOTO-Szenen (Kamera C) — unabhängig davon, als was
+// sich die antwortende Person versteht (auch potenzielle Velofahrende, Fussgänger,
+// Autofahrende); massgebend ist, was das Foto zeigt. Reproduktion: tools/verify_06.py,
+// Kontrolle gegen die offiziellen Aggregate («schmale RVA mit Parken 41,4 %»).
+//   ruhig  = V ≤ 30 km/h   |   schnell = V > 30 km/h   (Daten für 30 und 50 km/h)
+// Der Radstreifen-Anker ist die REFERENZKONFIGURATION (Sollbreite 2,5 m, ohne Parkierung,
+// interpoliert aus den 2,0/3,5-Zellen) — nicht das Mittel über alle Szenen: Breite und
+// Parkierung werden unten separat abgezogen, ein gepoolter Anker zählte sie doppelt.
+// GRAU- UND MARKIERUNGS-SCHNITT seit dem 12.08.2026 (Übernahmen P1/P4 und P10-U, lokales
+// Regelwerk 15.2/15.7): Der Radstreifen-Anker rechnet nur mit GRAUEN Szenen mit schmaler
+// GESTRICHELTER Führungslinie — dem Berner Markierungsbild (keine Einfärbung im Netz, kaum
+// breite Trennlinien); der Mischverkehr-Anker ist parkbereinigt. Fassungs-Kette Radstreifen:
+// gepoolt 77/73 (bis 11.08.) → grau 71/66 (P1, Zwischenfassung) → gestrichelt 65/58 (P10-U).
+export const FEELSAFE: Record<FeelClass, { ruhig: number; schnell: number }> = {
+  'Mischverkehr': { ruhig: 24, schnell: 13 },  // parkbereinigt (P4): ohne Park-Szenen 23.7 → 24; T50 bleibt 13
+  'Radstreifen':  { ruhig: 65, schnell: 58 },  // Referenz 2,5 m ohne Parken, gestrichelt (P10-U): 60.8+0.5×9.3=65.5 / 52.4+0.5×10.5=57.6
+  'Radweg':       { ruhig: 90, schnell: 84 },  // Berner Radweg-Gruppe, Klassen-Mittel (P11-A, 13.08.2026): G1 Poller-grau 90,2; schnell mit G3 Seitenraum-ohne-Geschäfte 83,9 (vorher 91/91 gepoolt)
+}
+
+// feel-safe-Punkte pro Notenstufe. NEU GEEICHT am 13.08.2026 (lokales Regelwerk A4 + 15.7
+// P13): Spanne = die eigene Maximal-Lücke der Kette (Soll Radweg, Ist Mischverkehr, schnell:
+// 84 − 13 = 71 Punkte) ÷ 5 Stufen = 14,2 — der schlimmste Fall landet damit EXAKT auf Note
+// 1,0 (71 ÷ 14,2 = 5,0); der Notenboden ist nur noch Reserve für Pauschalen-Kumulation.
+// Einmalig geeicht und wieder eingefroren (zieht bei künftigen Anker-Änderungen nicht mit).
+// Die BASIS des lokalen Rechners behält ihre Ersteichung 14,4 — dieser Online-Rechner bildet
+// die verfeinerte Kette ab und trägt darum den fein-Kurs. Alle Form-Abzüge und die
+// gemessenen Breitensätze skalieren über diese Konstante; normative Noten-Werte
+// (PARKEN_ABZUG, Haltestellen, Tram) bleiben in Noten. Tunbarer Parameter.
+export const SCORE_PRO_NOTE = 14.2
+
+const tempoKey = (v: number): 'ruhig' | 'schnell' => (v <= 30 ? 'ruhig' : 'schnell')
+
+// Zielscore = feel-safe %, den die SOLL-Führungsart im aktuellen Tempo-Kontext erreicht.
+// Bei den Übergängen das Mittel der beiden Nachbarformen → die schwächere Form erfüllt nur TEILWEISE.
+function zielScore(soll: Fuehrungsart, v: number): number {
+  const k = tempoKey(v)
+  switch (soll) {
+    case 'Mischverkehr': return FEELSAFE.Mischverkehr[k]
+    case 'Velostrasse':  return FEELSAFE.Mischverkehr[k]   // feel-safe wie Mischverkehr
+    case 'Radstreifen':  return FEELSAFE.Radstreifen[k]
+    case 'Radweg':       return FEELSAFE.Radweg[k]
+    case 'Radstreifen oder Radweg':
+      return (FEELSAFE.Radstreifen[k] + FEELSAFE.Radweg[k]) / 2
+  }
+}
+
+// Auf die nächste 0,5 runden (kaufmännisch / round-half-up: genau dazwischen → aufgerundet,
+// da Math.round bei .5 Richtung +∞ rundet; z. B. 4,25 → 4,5, 4,24 → 4,0).
+// Wird NUR EINMAL auf die Endnote angewandt (nach dem Breiten-Abzug); Zwischenwerte bleiben roh.
+//
+// SEIT 29.09.2026 wird das Doppelte vor dem Runden auf neun Stellen geglättet — gleich wie im
+// lokalen Berner Rechner (round_half). Ohne das kippt ein Wert, der rechnerisch genau auf der
+// Grenze liegt, durch Gleitkomma-Rauschen nach unten: 3,75 als 3,7499999999999996 ergäbe 3,5
+// statt 4,0. Echte Werte unter der Grenze bleiben unten (3,7499 → 3,5).
+export const roundToHalf = (x: number): number =>
+  Math.round(Number((x * 2).toFixed(9))) / 2   // exportiert für Tests
+
+// Formen ohne Breiten-Vorgabe (kein optimal/minimal in IST, z. B. Mischverkehr oder Einbahn
+// Velogegenverkehr ohne Markierung) brauchen keine Breiten-Eingabe — UI-Feld und Note-Guard
+// koppeln sich hieran, damit beide dieselben Formen ausnehmen.
+// Massgebliche Soll-Breite [m] einer Form: Optimal auf der Velohauptroute, Minimal auf der
+// Veloroute; stadtspezifischer Override je Feld, sonst Bern (IST). Dieselbe Regel wie in
+// fuehrungsformNote — herausgelöst für die Prüfung einer geplanten Aufteilung (aufteilung.ts).
+export function maxBreite(ist: IstFuehrungsform, breitenSoll?: BreitenSoll): number | undefined {
+  return breitenSoll?.maximal ?? IST[ist].maximal
+}
+
+export function sollBreite(ist: IstFuehrungsform, routentyp: Routentyp, breitenSoll?: BreitenSoll): number | undefined {
+  const meta = IST[ist]
+  const optimal = breitenSoll?.optimal ?? meta.optimal, minimal = breitenSoll?.minimal ?? meta.minimal
+  return routentyp === 'Velohauptroute' ? optimal : minimal
+}
+
+export function brauchtBreite(ist: IstFuehrungsform): boolean {
+  const m = IST[ist]
+  return m.optimal != null || m.minimal != null
+}
+
+// Formen mit Sonderregel: die Note entsteht ohne DTV und Tempo — die Umweltspur aus dem ÖV-Takt,
+// der Fussweg aus der festen Basis 4. Auch der einzige tempoabhängige Abzug (Tram-Malus) greift
+// nur bei Mischverkehr. Folglich wird für sie auch keine Soll-Führungsform gebraucht oder gezeigt.
+// NICHT hier: Velostrasse (wertet v > 30 aus) und Zweirichtungsradweg (Rang-Vergleich gegen Soll).
+const OHNE_DTV_TEMPO: IstFuehrungsform[] = ['Umweltspur', 'Fussweg Velo gestattet']
+export function brauchtDtvTempo(ist: IstFuehrungsform): boolean {
+  return !OHNE_DTV_TEMPO.includes(ist)
+}
+
+// Vierstufige verbale Erfüllungsskala als alternative Darstellung der Schulnote (1…6).
+// Reine Nachklassierung der Endnote — kein Einfluss auf die Berechnung. Grenzen an der
+// Schulnoten-Logik: 4 = «genügend» (Vorgabe gerade erfüllt) → teilweise; ungenügend (≤ 3) → gar nicht.
+export type Erfuellung = 'Gar nicht erfüllt' | 'Teilweise erfüllt' | 'Weitgehend erfüllt' | 'Vollständig erfüllt'
+export function erfuellungsgrad(note: number): Erfuellung {
+  if (note >= 5.5) return 'Vollständig erfüllt'
+  if (note >= 4.5) return 'Weitgehend erfüllt'
+  if (note >= 3.5) return 'Teilweise erfüllt'
+  return 'Gar nicht erfüllt'
+}
+
+export interface NotenErgebnis {
+  // Haltestellenbereich (nur Bern, seit 20.10.2026): die Note kommt allein aus der Haltestelle (haltestellenbereichNote);
+  // soll/ist/q sind dann ohne Bedeutung
+  haltestellenbereich?: boolean
+  soll: Fuehrungsart
+  ist: IstFuehrungsform
+  q: string             // Querschnittstyp (Q1…Q9)
+  note: number          // Endnote 1.0 … 6.0 in 0,5-Schritten (6 = beste)
+  basisnote: number     // Führungsform-Note VOR Breitenabzug
+  erfuellt: boolean     // IST erreicht/übertrifft die SOLL-Separation
+  defizit: number       // feel-safe-Defizit der Form (0 wenn erfüllt)
+  // Breite:
+  routentyp: Routentyp
+  sollbreite?: number    // massgebliche Untergrenze (Optimal bzw. Minimal); undefined = keine Vorgabe
+  maxbreite?: number     // obere Grenze [m] (nur Velostrasse-Band); sonst undefined
+  breite?: number        // eingegebene Ist-Breite [m]
+  breitenDefizit: number // Abweichung ausserhalb der Vorgabe in Metern (zu schmal + zu breit, ≥ 0)
+  breitenabzug: number   // Notenabzug aus der Breite
+  breiteErfuellt: boolean
+  breitenStatus: 'erfuellt' | 'zu schmal' | 'zu breit' | 'keine'
+  // Parkierung rechts (Dooring) — bei Fahrbahn-Führungsformen, siehe PARKEN_RELEVANT:
+  parkenRechts: ParkenRechts
+  parkenSicherheitsstreifen: boolean  // Sicherheitsstreifen ggü. Parkplätzen (SN 640 060) vorhanden
+  parkenAbzug: number    // Notenabzug aus Parkierung rechts (0 wenn nein/egal/Sicherheitsstreifen/nicht relevant)
+  tramInFahrbahn: boolean // Tram (Schienen) in der Fahrbahn im Abschnitt
+  tramDeckel?: number    // Notendeckel aus Tram in der Fahrbahn (nur Mischverkehr, nicht an Haltestellen mit separater Velofläche): 3, sonst undefined
+  kapTramNote1: boolean  // Kaphaltestelle an Tram ohne bauliche Trennung → Note fix 1 (überschreibt alles)
+  // Haltestelle (ÖV):
+  oevAngebot: OevAngebot
+  haltestellentyp: Haltestellentyp
+  sollHaltestelle?: Haltestellenloesung   // empfohlene Lösung; undefined = keine Haltestelle
+  kompatibleHaltestellen: Haltestellentyp[]  // zur Soll-Lösung passende Typen
+  haltestelleStatus: 'keine' | 'pruefen' | 'kompatibel' | 'inkompatibel'
+  haltestelleAbzug: number  // Notenabzug aus inkompatiblem Haltestellentyp
+  // Breite der Veloführung an der Haltestelle (nur HS1/HS2/HS4/HS5):
+  haltestelleBreite?: number
+  hsBreitenSoll?: number    // massgebliche Vorgabe [m]; undefined = kein Breitenkriterium
+  hsBreitenabzug: number    // Notenabzug aus zu schmaler Haltestellen-Breite
+  hsBreiteStatus: 'erfuellt' | 'zu schmal' | 'keine'
+  // Die Note ist FEST gesetzt (Velostrasse über Tempo 30, Umweltspur unter dem Takt-Anker) —
+  // Breite, Parkierung und Haltestelle wirken dann nicht; die UI zeigt nur den hinweis.
+  noteFix: boolean
+  hinweis?: string       // ERSETZT in der UI die Zeile zur Form-Note (z. B. Velostrasse-Tempo-Regel)
+  warnung?: string       // steht ZUSÄTZLICH zur normalen Erklärung (Note bleibt regulär gerechnet)
+}
+
+// Hauptbewertung: Führungsform-Note (Soll vs. Ist) plus Breiten-, Parkierungs- und Haltestellen-
+// Abzug zur Endnote zusammenführen.
+//   breite        = Ist-Breite der Anlage [m] (optional)
+//   routentyp     = bestimmt die massgebliche Vorgabe: Velohauptroute → Optimal, Veloroute → Minimal
+//   parkenRechts  = Parkierung rechts (Dooring), nur Radstreifen
+//   oevTakt       = Bus-Takt [Min], nur Umweltspur
+//   oevAngebot    = ÖV-Angebot im Abschnitt (für die Haltestellen-Soll-Lösung)
+//   haltestellentyp = vorhandener Haltestellentyp (Kompatibilitätsprüfung)
+export function fuehrungsformNote(
+  dtv: number, v: number, ist: IstFuehrungsform,
+  breite?: number, routentyp: Routentyp = 'Velohauptroute',
+  parkenRechts: ParkenRechts = 'egal', oevTakt?: number,
+  oevAngebot: OevAngebot = 'keine', haltestellentyp: Haltestellentyp = 'keine',
+  haltestelleBreite?: number, tramInFahrbahn = false,
+  breitenSoll?: BreitenSoll,   // stadtspezifischer Breiten-Override (Fallback je Feld: Bern/IST)
+  stadt: Stadt = 'bern',       // bestimmt Soll-Tabelle + Haltestellen-Logik
+  strassentyp?: Strassentyp,   // nur Basel: für die strassentyp-basierte Soll-Wahl
+  parkenSicherheitsstreifen = false,  // Sicherheitsstreifen ggü. Parkplätzen (SN 640 060) → kein Dooring-Abzug
+): NotenErgebnis {
+  const soll = fuehrungsart(dtv, v, stadt, routentyp, strassentyp)
+  const meta = IST[ist]
+
+  // ── Breite: Untergrenze je Routentyp (+ optionale Obergrenze, nur Velostrasse-Band). Abzug
+  // (linear) = Abweichung ausserhalb des Bereichs × BREITE_SATZ der feel-safe-Klasse UND des
+  // Tempos (1,0 auf der Fahrbahn — vorläufige Kalibrierung 22.09.2026, s. BREITE_SATZ —,
+  // 0,24/0,38 hinter baulicher Trennung, 0,9 normativ für Fahrgassen-Bänder).
+  // «Zu schmal» stützt sich auf den feel-safe-Gradienten; «zu breit» (nur Velostrasse) ist
+  // normativ, gleicher Satz.
+  // Breiten-Sollwerte: stadtspezifischer Override je Feld, sonst Berner Wert (IST).
+  const optimal = breitenSoll?.optimal ?? meta.optimal
+  const minimal = breitenSoll?.minimal ?? meta.minimal
+  let sollbreite = routentyp === 'Velohauptroute' ? optimal : minimal
+  // Basel-Velostrasse: bei geringen Verkehrsmengen (DWV < 1'000) ist eine reduzierte Fahrbahn-
+  // breite von 4,00 m zulässig (Standards FVV BS, S. 15).
+  if (stadt === 'basel' && ist === 'Velostrasse' && dtv < 1000 && sollbreite != null) {
+    sollbreite = Math.min(sollbreite, 4.0)
+  }
+  const maxbreite = breitenSoll?.maximal ?? meta.maximal
+  let breitenDefizit = 0
+  let breitenStatus: NotenErgebnis['breitenStatus'] = 'keine'
+  if (breite != null && breite > 0 && (sollbreite != null || maxbreite != null)) {
+    const zuSchmal = sollbreite != null ? Math.max(0, sollbreite - breite) : 0
+    const zuBreit = maxbreite != null ? Math.max(0, breite - maxbreite) : 0
+    breitenDefizit = zuSchmal + zuBreit
+    breitenStatus = breitenDefizit === 0 ? 'erfuellt' : (zuSchmal > 0 ? 'zu schmal' : 'zu breit')
+  }
+  const breitenabzug = breitenDefizit * BREITE_SATZ[meta.feelClass][tempoKey(v)]
+  const breiteErfuellt = breitenStatus === 'erfuellt' || breitenStatus === 'keine'
+
+  // ── Parkierung rechts (Dooring) bei fahrbahnnahen Formen (PARKEN_RELEVANT). Ein Sicherheitsstreifen
+  // gegenüber den Parkplätzen (SN 640 060) entschärft die Dooring-Gefahr → dann kein Abzug.
+  // Sonst pauschal PARKEN_ABZUG — die Breite spielt seit dem 09.08.2026 keine Rolle mehr
+  // (offener Punkt, Begründung bei der Konstante).
+  const parkenAbzug =
+    (PARKEN_RELEVANT.includes(ist) && parkenRechts === 'ja' && !parkenSicherheitsstreifen)
+      ? PARKEN_ABZUG
+      : 0
+
+  // ── Tram in der Fahrbahn (Schienen): DECKEL Note ≤ 3, nur bei Mischverkehr (siehe TRAM_DECKEL).
+  // SEIT 29.09.2026 NICHT an einer Haltestelle mit separater Velofläche (Familie «Separate»:
+  // Veloumfahrung, Veloüberfahrt, rückwärtiger Radweg, Inselhaltestelle u. a.): Das Velo fährt
+  // dort an der Schiene vorbei, die Gleise haben keinen Einfluss auf die Note. Angleichung an
+  // den lokalen Berner Rechner (situativ_abzug) auf Nutzerentscheid. Die Kaphaltestelle und die
+  // übrigen Typen der Familie «Mischverkehr» behalten den Deckel.
+  const hsSeparat = hsTyp(stadt, haltestellentyp)?.familie === 'Separate'
+  const tramDeckel = (tramInFahrbahn && ist === 'Mischverkehr' && !hsSeparat) ? TRAM_DECKEL : undefined
+
+  // ── Kaphaltestelle an einer Tram-Haltestelle ohne bauliche Trennung → Note fix 1 (KAP_NOTE).
+  // Auslöser ist EINES der beiden Tram-Merkmale: die Schienen-Angabe oder das ÖV-Angebot «Tram»
+  // (Nutzerentscheid 14.08.2026) — lokal steht dafür ein einziges Datenfeld `tram=ja`, online
+  // sind es zwei getrennte Eingaben, und eine vom Tram bediente Kaphaltestelle hat die Schiene
+  // per Definition an der Haltekante.
+  const kapTramNote1 = haltestellentyp === 'Kaphaltestelle'
+    && (tramInFahrbahn || oevAngebot === 'tram')
+    && IST[ist].rank < KAP_TRENNUNG_AB
+
+  // ── Haltestelle: Soll-Lösung aus Route × ÖV (stadtabhängig); Abzug nur, wenn Separate Velofläche
+  // gefordert ist, der vorhandene Typ aber aus der Mischverkehr-Familie stammt (Über-Erfüllung = ok).
+  // Zürich/Basel: keine Soll-Lösung (null) → kein automatischer Abzug, nur Typ-Auswahl + Breite.
+  const sollHaltestelle = haltestellenLoesung(routentyp, oevAngebot, stadt) ?? undefined
+  // Zur Soll-Lösung passende Typen der gewählten Stadt — deckungsgleich mit der Abzugslogik unten:
+  // nur «Separate Velofläche» schränkt auf die Separate-Familie ein; bei «Mischverkehr» und
+  // «Übergang» sind beide Familien zulässig (Übergang = beides vertretbar, kein Abzug).
+  const kompatibleHaltestellen = sollHaltestelle
+    ? haltestellenTypen(stadt).filter(t =>
+        sollHaltestelle === 'Separate Velofläche' ? HALTESTELLEN[stadt][t]?.familie === 'Separate' : true)
+    : []
+  let haltestelleAbzug = 0
+  let haltestelleStatus: NotenErgebnis['haltestelleStatus'] = 'keine'
+  if (sollHaltestelle) {
+    const fam = hsTyp(stadt, haltestellentyp)?.familie ?? null
+    if (fam == null) {
+      haltestelleStatus = 'pruefen'  // Ist-Typ nicht angegeben → nur Empfehlung
+    } else if (sollHaltestelle === 'Separate Velofläche' && fam === 'Mischverkehr') {
+      haltestelleAbzug = HALTESTELLE_ABZUG
+      haltestelleStatus = 'inkompatibel'
+    } else {
+      haltestelleStatus = 'kompatibel'  // passender Typ, Über-Erfüllung oder Übergang
+    }
+  }
+
+  // ── Breite der Veloführung an der Haltestelle (nur Typen mit Breitenkriterium, stadtabhängig).
+  const hsSpec = hsTyp(stadt, haltestellentyp)?.breite
+  const hsBreitenSoll = hsSpec
+    ? (routentyp === 'Velohauptroute' ? hsSpec.optimal : hsSpec.minimal)
+    : undefined
+  let hsBreitenabzug = 0
+  let hsBreiteStatus: NotenErgebnis['hsBreiteStatus'] = 'keine'
+  // Nur wenn überhaupt eine Haltestelle da ist (oevAngebot ≠ 'keine'): der Abzug hing bis zum
+  // 07.08.2026 allein am Typ — wer den ÖV auf «keine Haltestelle» zurückstellte, verlor zwar
+  // die Eingabefelder, Typ und Breite blieben aber im Zustand und der Abzug unsichtbar in der Note.
+  if (oevAngebot !== 'keine' && hsBreitenSoll != null && haltestelleBreite != null && haltestelleBreite > 0) {
+    const d = Math.max(0, hsBreitenSoll - haltestelleBreite)
+    // Markierte Velofläche auf Fahrbahnniveau → Radstreifen-Satz, und wie dort tempoabhängig.
+    hsBreitenabzug = d * BREITE_SATZ['Radstreifen'][tempoKey(v)]
+    hsBreiteStatus = d === 0 ? 'erfuellt' : 'zu schmal'
+  }
+
+  // Basel-DWV-Deckel auf siedlungsorientierter Strasse — FORM-abhängig (Tab. 3, S. 15; nur Hinweis,
+  // kein Notenabzug, da Basel oberhalb keine andere Lösung vorgibt):
+  //   • Velostrasse auf Vorzugsroute (Velohauptroute): ≤ 2'500 DWV.
+  //   • Mischverkehr auf Pendler-/Basisrouten (Veloroute): ≤ 5'000 DWV.
+  //   • Velostrasse auf Pendler-/Basisrouten: KEIN DWV-Deckel (Tab. 3 nennt keinen Wert).
+  // «Einbahn Velogegenverkehr ohne Markierung» gilt hier wie Mischverkehr (s. BASEL_WIE_MISCHVERKEHR).
+  let baselDeckel: number | undefined
+  if (stadt === 'basel' && strassentyp === 'siedlungsorientiert') {
+    if (ist === 'Velostrasse' && routentyp === 'Velohauptroute') baselDeckel = 2500
+    else if (BASEL_WIE_MISCHVERKEHR.includes(ist) && routentyp === 'Veloroute') baselDeckel = 5000
+  }
+  const baselDeckelHinweis = (baselDeckel != null && dtv > baselDeckel)
+    ? `DTV ${dtv} über Basler Höchstwert ${baselDeckel} für diese Führungsform — gemäss Basel keine konforme Lösung (Verkehrsreduktion nötig).`
+    : undefined
+
+  // ── Endnote: Basisnote minus alle Abzüge (begrenzt 1…maxNote, gerundet 0,5). forceNote überschreibt
+  // (Sonderfälle mit fixer Note 1). Rundung erfolgt EINMALIG hier auf die Endnote.
+  const finish = (
+    basisnote: number, erfuellt: boolean, defizit: number,
+    opts: { hinweis?: string; warnung?: string; maxNote?: number; forceNote?: number } = {},
+  ): NotenErgebnis => {
+    // Tram-Deckel wirkt wie ein maxNote und verträgt sich mit den Deckeln der Sonderfälle
+    // (Basel 4, Q12 4) — es gilt der jeweils strengere. Die Kap-Regel überschreibt ALLES,
+    // auch forceNote und jeden Deckel (lokal steht sie als erstes `return` in situativ()).
+    const maxNote = Math.min(opts.maxNote ?? 6, tramDeckel ?? 6)
+    const roh = basisnote - breitenabzug - parkenAbzug - haltestelleAbzug - hsBreitenabzug
+    const note = kapTramNote1 ? KAP_NOTE
+      : opts.forceNote != null ? opts.forceNote
+      : roundToHalf(Math.min(maxNote, Math.max(1, roh)))
+    // Der Basler DWV-Hinweis ist eine WARNUNG, kein hinweis: die Note bleibt regulär gerechnet,
+    // also muss auch ihre Erklärung stehen bleiben. Als hinweis verdrängte er sie bis zum
+    // 29.09.2026 — Mischverkehr mit Parkierung zeigte Note 5, der Abzug −1 war nirgends zu sehen.
+    const warnung = [opts.warnung, baselDeckelHinweis].filter(Boolean).join(' · ') || undefined
+    return {
+      soll, ist, q: meta.q, basisnote, erfuellt, defizit, note,
+      routentyp, sollbreite, maxbreite, breite, breitenDefizit, breitenabzug,
+      breiteErfuellt, breitenStatus, parkenRechts, parkenSicherheitsstreifen, parkenAbzug,
+      tramInFahrbahn, tramDeckel, kapTramNote1,
+      oevAngebot, haltestellentyp, sollHaltestelle, kompatibleHaltestellen,
+      haltestelleStatus, haltestelleAbzug,
+      haltestelleBreite, hsBreitenSoll, hsBreitenabzug, hsBreiteStatus,
+      noteFix: !kapTramNote1 && opts.forceNote != null,
+      hinweis: opts.hinweis,
+      warnung,
+    }
+  }
+
+  // Sonderfall Basel (Tab. 3, S. 15): die zulässigen Führungsformen hängen von Strassentyp × Routentyp ab.
+  //   • siedlungsorientierte (nicht verkehrsorientierte) Tempo-30-Strasse:
+  //       Vorzugsroute (Velohauptroute)      → Velostrasse (≤ 2'500 DWV).
+  //       Pendler-/Basisrouten (Veloroute)   → Mischverkehr (≤ 5'000 DWV) ODER Velostrasse (kein DWV-Deckel).
+  //     Die zulässige Form wird unten regulär bewertet (Velostrasse-Zweig bzw. Mischverkehr-Rang → Note 6);
+  //     jede ANDERE Form ist nicht vorgesehen → Basis 4 (Deckel 4). DWV-Deckel bleibt ein Hinweis.
+  //   • verkehrsorientierte Strasse: eine Velostrasse gibt es dort nicht → nicht zulässig (Basis 4).
+  //   • «Einbahn Velogegenverkehr ohne Markierung» ist Mischverkehr in einer Einbahnstrasse
+  //     (gleicher Rang, gleiche feel-safe-Klasse, keine Breitenvorgabe) und wird auf Pendler-/
+  //     Basisrouten wie Mischverkehr zugelassen (Nutzerentscheid 29.09.2026). Vorher galt die in
+  //     Basler Quartierstrassen alltägliche Form als «nicht konform» (Deckel 4). Auf Vorzugsrouten
+  //     bleibt sie es — dort ist allein die Velostrasse vorgesehen.
+  if (stadt === 'basel') {
+    if (strassentyp === 'siedlungsorientiert') {
+      const zulaessig: IstFuehrungsform[] = routentyp === 'Velohauptroute'
+        ? ['Velostrasse']
+        : ['Mischverkehr', 'Velostrasse']
+      const erlaubt = zulaessig.includes(ist) ||
+        (routentyp === 'Veloroute' && BASEL_WIE_MISCHVERKEHR.includes(ist))
+      if (!erlaubt) {
+        return finish(4, false, 0, { maxNote: 4,
+          hinweis: `Basel: hier ist nur ${zulaessig.join(' oder ')} vorgesehen — andere Führungsform nicht konform.` })
+      }
+    } else if (ist === 'Velostrasse') {
+      return finish(4, false, 0, { maxNote: 4,
+        hinweis: 'Basel: eine Velostrasse gibt es auf einer verkehrsorientierten Strasse nicht — nicht zulässig.' })
+    }
+  }
+
+  // Sonderfall Velostrasse (Q9): nur bei Tempo 30 zulässig.
+  if (ist === 'Velostrasse') {
+    if (v > 30) {
+      return finish(1, false, 0,
+        { forceNote: 1, hinweis: 'Velostrassen sind nur bei Tempo 30 zulässig.' })
+    }
+    // Bei Tempo 30: Form akzeptiert (Basis 6); Breite wirkt, sobald eine Vorgabe hinterlegt ist.
+    return finish(6, true, 0)
+  }
+
+  // Sonderfall Umweltspur (Q4): DTV/Tempo irrelevant, massgebend ist der Bus-Takt (stadtspezifisch).
+  if (ist === 'Umweltspur') {
+    // Takt ≤ 0 ist keine sinnvolle Angabe (0 Minuten zwischen Bussen) — wie „nicht erfasst"
+    // behandeln, statt dass 0 in Bern alle ≥-Bänder verfehlt und so die BESTE Note ergäbe.
+    if (oevTakt != null && oevTakt <= 0) oevTakt = undefined
+    const regel = UMWELTSPUR_TAKT[stadt]
+    const decke = UMWELTSPUR_DECKE[stadt]
+    if (regel == null) {
+      // Basel: kein Takt-Schwellwert → keine Takt-Abhängigkeit; Note rein breitengetrieben (Decke 4)
+      // plus Hinweis auf die qualitativen Faktoren (Tab. 4, Standards FVV BS). Erreicht wird dieser
+      // Zweig nur auf verkehrsorientierten/unbestimmten Strassen — auf siedlungsorientierten greift
+      // bewusst schon der Basel-Block oben (Umweltspur ist dort keine vorgesehene Form, Tab. 3).
+      return finish(decke, true, 0, { maxNote: decke,
+        hinweis: 'Basel nennt keinen Takt-Schwellwert: Eignung hängt qualitativ von Busspur-Breite, '
+          + 'Anzahl Buslinien, Taktdichte und Velofrequenz ab.' })
+    }
+    // Ohne Takt-Angabe gilt in beiden Modellen die Decke — ein Eintrag kann die Note nur senken.
+    if (regel.art === 'stufen') {
+      // Bern: grösstes Band, dessen Untergrenze ≤ Takt (Bänder aufsteigend).
+      let basis = decke
+      if (oevTakt != null) for (const [ab, note] of regel.baender) if (oevTakt >= ab) basis = note
+      // Unter der Schwelle nennt der Standard die Umweltspur als Führungsform unzulässig. Das steht
+      // als Warnung NEBEN der Bewertung — die Note kommt weiterhin aus der Tabelle (kein forceNote).
+      const warnung = oevTakt != null && oevTakt < regel.warnAb
+        ? `Umweltspur bei Takt < ${regel.warnAb} Min nicht zulässig (zu hohe Busfrequenz).`
+        : undefined
+      return finish(basis, true, 0, { maxNote: basis, warnung })
+    }
+    // Zürich/Luzern: unter dem unteren Anker fix Note 1, sonst Rampe bis zur Decke.
+    if (oevTakt != null && oevTakt < regel.taktNote1) {
+      return finish(1, false, 0, { forceNote: 1,
+        hinweis: `Umweltspur bei Takt < ${regel.taktNote1} Min nicht zulässig (zu hohe Busfrequenz).` })
+    }
+    const basis = oevTakt != null ? umweltspurBasis(oevTakt, regel.taktNote1, regel.taktOk, decke) : decke
+    return finish(basis, true, 0, { maxNote: basis })
+  }
+
+  // Sonderfall Fussweg Velo gestattet (Q12): DTV/Tempo irrelevant; Basis 4, davon Abzüge.
+  // Voraussetzungen (inkl. Gefälle-Vorsicht) werden im UI als Checkliste gezeigt, ohne Noteneinfluss.
+  if (ist === 'Fussweg Velo gestattet') {
+    return finish(FUSSWEG_BASIS, true, 0, { maxNote: FUSSWEG_BASIS })
+  }
+
+  // Führungsform-Note: IST erreicht/übertrifft die geforderte Separation → Basis 6.
+  if (meta.rank >= SEPARATION[soll]) {
+    return finish(6, true, 0)
+  }
+  // Sonst: Abzug aus dem feel-safe-Defizit (kontext-sensitiv nach Tempo).
+  const defizit = Math.max(0, zielScore(soll, v) - FEELSAFE[meta.feelClass][tempoKey(v)])
+  return finish(6 - defizit / SCORE_PRO_NOTE, false, Math.round(defizit))
+}
+
+// ── 3) VERGLEICH: dieselben Eingaben nach den Standards anderer Städte ─────────
+//
+// Rechnet einen Abschnitt zusätzlich nach den Vorgaben der jeweils ANDEREN Städte
+// durch. Die feel-safe-Logik ist stadtübergreifend; Unterschiede entstehen nur aus
+// der Soll-Tabelle (fuehrungsart) und den stadtspezifischen Breiten-Sollwerten.
+
+const STAEDTE: Stadt[] = ['bern', 'zurich', 'basel', 'luzern']   // nur intern (vergleichsNoten)
+
+// Stadtspezifische Breiten-Sollwerte je Stadt (Bern = keine → Berner Standardwerte aus IST).
+const BREITEN_BY_STADT: Record<Stadt, Partial<Record<IstFuehrungsform, BreitenSoll>> | undefined> = {
+  bern: undefined,
+  zurich: BREITEN_ZUERICH,
+  basel: BREITEN_BASEL,
+  luzern: BREITEN_LUZERN,
+}
+
+// Basel kennt keinen DTV-basierten Soll, sondern unterscheidet verkehrs-/siedlungsorientierte
+// Strassen. Liegt (wie bei Berner Daten) kein Strassentyp vor, wird er aus DTV/Tempo GESCHÄTZT:
+// siedlungsorientierte Strassen sind Tempo-30 mit DWV-Deckel; höheres Tempo/DTV → verkehrsorientiert.
+export function baselStrassentypAusVerkehr(dtv: number, v: number): Strassentyp {
+  return (v > 30 || dtv >= 5000) ? 'verkehrsorientiert' : 'siedlungsorientiert'
+}
+
+export interface VergleichArgs {
+  dtv: number; v: number; ist: IstFuehrungsform
+  breite?: number; routentyp?: Routentyp
+  parkenRechts?: ParkenRechts; parkenSicherheitsstreifen?: boolean; oevTakt?: number
+  oevAngebot?: OevAngebot; haltestellentyp?: Haltestellentyp
+  haltestelleBreite?: number; tram?: boolean
+  strassentyp?: Strassentyp   // amtlicher/manueller Basler Strassentyp; fehlt er, wird geschätzt
+}
+
+export interface VergleichsNote {
+  stadt: Stadt
+  note: number
+  geschaetzt: boolean   // true = Soll-Eingabe (z. B. Basel-Strassentyp) wurde geschätzt
+  soll: Fuehrungsart    // geforderte Führungsform nach den Standards dieser Stadt
+  sollbreite?: number   // massgebliche Soll-Breite [m]; undefined = keine Vorgabe
+  gruende: string[]     // Klartext-Gründe (mit Werten), warum die Note von der Referenz abweicht
+}
+
+// Eine Bewertung nach den Standards einer Stadt berechnen. Basel: der Strassentyp wird nur
+// GESCHÄTZT, wenn keiner übergeben wurde — sonst verwarf der Vergleich den amtlichen Wert
+// (Geoportal-Dataset 100250) und die Referenz war NICHT die angezeigte Hauptnote; die
+// „Gründe"-Zeilen begründeten dann Abweichungen zu einer Note, die niemand sieht (07.08.2026).
+function bewerteFuerStadt(a: VergleichArgs, stadt: Stadt): NotenErgebnis {
+  const strassentyp = stadt === 'basel' ? (a.strassentyp ?? baselStrassentypAusVerkehr(a.dtv, a.v)) : undefined
+  return fuehrungsformNote(
+    a.dtv, a.v, a.ist, a.breite, a.routentyp ?? 'Velohauptroute',
+    a.parkenRechts ?? 'egal', a.oevTakt, a.oevAngebot ?? 'keine',
+    a.haltestellentyp ?? 'keine', a.haltestelleBreite, a.tram ?? false,
+    BREITEN_BY_STADT[stadt]?.[a.ist], stadt, strassentyp, a.parkenSicherheitsstreifen ?? false,
+  )
+}
+
+const breiteTxt = (b?: number) => b != null ? `${b.toFixed(2).replace('.', ',')} m` : 'keine Vorgabe'
+const notenTxt = (n: number) => n.toFixed(1).replace('.', ',')
+
+// Endnoten nach den Standards aller Städte ausser `ausser`, je mit Begründung der Abweichung
+// gegenüber der Referenz-Stadt (`ausser`). Für Basel wird der Strassentyp geschätzt.
+export function vergleichsNoten(a: VergleichArgs, ausser: Stadt): VergleichsNote[] {
+  const ref = bewerteFuerStadt(a, ausser)
+  return STAEDTE.filter(s => s !== ausser).map(stadt => {
+    const r = bewerteFuerStadt(a, stadt)
+    const gruende: string[] = []
+    // Basel: nur wenn der Strassentyp wirklich geschätzt wurde (kein amtlicher/manueller Wert),
+    // als erster Hinweis — auch ohne Notenabweichung.
+    if (stadt === 'basel' && a.strassentyp == null)
+      gruende.push(`Strassentyp geschätzt (${baselStrassentypAusVerkehr(a.dtv, a.v)})`)
+    // Abweichungstreiber nur listen, wenn die Note tatsächlich differiert.
+    if (r.note !== ref.note) {
+      // Das Soll nur nennen, wo es die Note trägt. Umweltspur und Fussweg rechnen ohne DTV/Tempo
+      // und damit ohne Soll — dort stand bis zum 29.09.2026 «Soll: Radstreifen statt …» als
+      // Grund, obwohl der Unterschied aus der Umweltspur-Decke kam (Bern 5, übrige 4).
+      if (brauchtDtvTempo(a.ist) && r.soll !== ref.soll)
+        gruende.push(`Soll: ${r.soll} statt ${ref.soll}`)
+      if (a.ist === 'Umweltspur' && r.basisnote !== ref.basisnote)
+        gruende.push(`Umweltspur-Regel: Basisnote ${notenTxt(r.basisnote)} statt ${notenTxt(ref.basisnote)} (Decke und Takt-Schwellen je Stadt)`)
+      if (r.sollbreite !== ref.sollbreite)
+        gruende.push(`Soll-Breite ${breiteTxt(r.sollbreite)} statt ${breiteTxt(ref.sollbreite)}`)
+      if (r.haltestelleAbzug !== ref.haltestelleAbzug || r.hsBreitenabzug !== ref.hsBreitenabzug)
+        gruende.push('andere Haltestellen-Regel')
+      if (r.hinweis && r.hinweis !== ref.hinweis) gruende.push(r.hinweis)
+    }
+    // geschaetzt nur, wenn wirklich geschätzt wurde (kein amtlicher/manueller Strassentyp).
+    const geschaetzt = stadt === 'basel' && a.strassentyp == null
+    return { stadt, note: r.note, geschaetzt, soll: r.soll, sollbreite: r.sollbreite, gruende }
+  })
+}
+
+// ── Haltestellenbereich (nur Bern, seit 20.10.2026; Nutzerentscheide 20.10.2026) ──────────────────────────────
+// Wird ein Abschnitt durch die Haltestelle geprägt (Schalter «Haltestellenbereich», von der App vorgeschlagen bei
+// erkannter Haltestelle und höchstens HALTESTELLENBEREICH_MAX_M Länge), zählt für die Note allein die Haltestelle:
+// der Ist-Typ von Hand gegen die Soll-Lösung des Masterplans (Anwendungshilfe Haltestellen, S. 63: ÖV-Angebot ×
+// Bedeutung im Velonetz). Führungsform, DTV, Tempo, Parkierung und Tram-Deckel zählen nicht.
+//   erfüllt (Typ der verlangten Familie; im Übergang und im Mischverkehr jeder Typ) → 6, minus Breitenabzug der
+//                                                                                     Velofläche (wie im Abschnitt)
+//   separate Velofläche verlangt, Typ der Familie Mischverkehr                     → HALTESTELLENBEREICH_NICHT_ERFUELLT
+//   Kaphaltestelle an einer Tramhaltestelle (ohne bauliche Trennung)               → KAP_NOTE (1)
+export const HALTESTELLENBEREICH_MAX_M = 60
+export const HALTESTELLENBEREICH_NICHT_ERFUELLT = 2
+export function haltestellenbereichNote(
+  routentyp: Routentyp, oevAngebot: OevAngebot, haltestellentyp: Haltestellentyp, haltestelleBreite: number | undefined,
+  tramInFahrbahn: boolean, v: number,
+): NotenErgebnis {
+  const sollHaltestelle = haltestellenLoesung(routentyp, oevAngebot, 'bern') ?? undefined
+  const fam = hsTyp('bern', haltestellentyp)?.familie
+  const kompatibleHaltestellen = sollHaltestelle
+    ? haltestellenTypen('bern').filter(t => sollHaltestelle !== 'Separate Velofläche' || HALTESTELLEN.bern[t]?.familie === 'Separate') : []
+  const kapTramNote1 = haltestellentyp === 'Kaphaltestelle' && (tramInFahrbahn || oevAngebot === 'tram')
+  const inkompatibel = sollHaltestelle === 'Separate Velofläche' && fam === 'Mischverkehr'
+  const hsSpec = hsTyp('bern', haltestellentyp)?.breite
+  const hsBreitenSoll = hsSpec ? (routentyp === 'Velohauptroute' ? hsSpec.optimal : hsSpec.minimal) : undefined
+  let hsBreitenabzug = 0
+  let hsBreiteStatus: NotenErgebnis['hsBreiteStatus'] = 'keine'
+  if (hsBreitenSoll != null && haltestelleBreite != null && haltestelleBreite > 0) {
+    const d = Math.max(0, hsBreitenSoll - haltestelleBreite)
+    hsBreitenabzug = d * BREITE_SATZ['Radstreifen'][tempoKey(Number.isFinite(v) ? v : 50)]
+    hsBreiteStatus = d === 0 ? 'erfuellt' : 'zu schmal'
+  }
+  const note = kapTramNote1 ? KAP_NOTE : inkompatibel ? HALTESTELLENBEREICH_NICHT_ERFUELLT
+    : roundToHalf(Math.min(6, Math.max(1, 6 - hsBreitenabzug)))
+  return {
+    haltestellenbereich: true,
+    soll: 'Mischverkehr', ist: 'Mischverkehr', q: '', basisnote: inkompatibel ? HALTESTELLENBEREICH_NICHT_ERFUELLT : 6,
+    erfuellt: !inkompatibel && !kapTramNote1, defizit: 0, note,
+    routentyp, breitenDefizit: 0, breitenabzug: 0, breiteErfuellt: true, breitenStatus: 'keine',
+    parkenRechts: 'egal', parkenSicherheitsstreifen: false, parkenAbzug: 0,
+    tramInFahrbahn, kapTramNote1,
+    oevAngebot, haltestellentyp, sollHaltestelle, kompatibleHaltestellen,
+    haltestelleStatus: inkompatibel ? 'inkompatibel' : 'kompatibel', haltestelleAbzug: 0,
+    haltestelleBreite, hsBreitenSoll, hsBreitenabzug, hsBreiteStatus,
+    noteFix: kapTramNote1 || inkompatibel,
+  }
+}

@@ -1,0 +1,799 @@
+#!/usr/bin/env python3
+# ════════════════════════════════════════════════════════════════════════════
+# VeloroutenCheck — Verifikation der Empirie-Ergebnisse aus
+#   06_Empirische_Erkenntnisse_Fuehrungsformwahl.md
+#
+# Rechnet alle Kennzahlen aus 06 NEU und unabhängig nach — direkt aus den
+# Einzelantworten der Befragung — und vergleicht sie mit den im MD notierten
+# Werten. Zusätzlich werden alle Auswertungen je Velofahrenden-Typ
+# (userGroup / bicycleUse / ageGroup / gender) aufgeschlüsselt.
+#
+# DATENBASIS (read-only)
+#   Primär:
+#     SurveyResults_200414.json   – ALLE Einzelantworten + Befragten-Profile.
+#                                   rating 0..3; feel-safe := rating >= 2.
+#     scenes_ms.csv / _cp.csv / _se.csv – decodierte Szenen-Merkmale.
+#                                   Join: ratings[].scene_id == SceneID (direkt, 100 %).
+#
+# PERSPEKTIVE: Gezählt wird jede Bewertung der VELO-FOTO-Szenen (Spalte «Kamera» == 'C'
+#   in den scenes-CSVs — der Blickwinkel des Fotos bestimmt, WELCHE Rolle bewertet wird).
+#   Die BEFRAGTENGRUPPE (profile.perspective: Velo-/potenzielle Velo-/Fuss-/Autofahrende)
+#   wird NICHT gefiltert — es zählt, was das Foto zeigt, nicht wer antwortet. Nur so
+#   reproduzieren sich die offiziellen Aggregate (z. B. «schmale RVA mit Parken 41,4 %»).
+#   Kreuzvalidierung:
+#     radwege_hauptstrassen.csv   – offizielle Aggregate (voteScore). Das aus der
+#                                   JSON je Konfiguration berechnete feel-safe muss
+#                                   im Rundungsrahmen mit voteScore übereinstimmen.
+#
+# METRIK
+#   feel-safe % einer Gruppe = 100 * (Anzahl Bewertungen mit rating>=2) / (Anzahl Bewertungen).
+#   N = Anzahl Einzelbewertungen (nicht Konfigurationen) — daher höhere N als im MD,
+#   das teils auf Konfig-/Aggregat-Ebene gezählt hatte.
+#
+# TRAM
+#   Standard: Tram-Szenen ausgeschlossen (FS-Art == 'Tram'); separat in §2 ausgewiesen.
+#
+# Aufruf:  python3 tools/verify_06.py
+#   schreibt: docs/06_Verifikation_Empirie.md (versionierter Snapshot),
+#             _lokal/06_verifikation.json + _lokal/06_visualisierung.html (ignoriert)
+# ════════════════════════════════════════════════════════════════════════════
+
+import csv, json, os, sys
+from collections import defaultdict
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+DATA = os.path.join(ROOT, 'FixMyCity_Daten')      # radwege-/scenes-CSVs + SurveyResults JSON
+LOKAL = os.path.join(ROOT, '_lokal')              # ignorierte Zwischenoutputs (.json-Rohdump, .html-Ansicht)
+MD_SNAPSHOT = os.path.join(ROOT, 'docs', '06_Verifikation_Empirie.md')  # versionierter Ergebnis-Snapshot
+
+
+def p(name):
+    """Projektpfad (VeloroutenCheck-Root)."""
+    return os.path.join(ROOT, name)
+
+
+def lp(name):
+    """Pfad im ignorierten _lokal/-Ordner (wird bei Bedarf angelegt)."""
+    os.makedirs(LOKAL, exist_ok=True)
+    return os.path.join(LOKAL, name)
+
+
+def d(name):
+    """FixMyCity-Datenpfad (FixMyCity_Daten/): radwege_*.csv , scenes_*.csv."""
+    return os.path.join(DATA, name)
+
+
+# ── Codebücher (Spezifikation + radwege-check.de/auswertung) ──────────────────
+AGEGROUP = {0: 'unter 18', 1: '18–24', 2: '25–29', 3: '30–39',
+            4: '40–49', 5: '50–64', 6: '65–74', 7: 'über 74'}
+BICYCLEUSE = {0: '≤10 min', 1: '≤20 min', 2: '≤30 min', 3: '>30 min', 4: 'weiß nicht'}
+USERGROUP = {'bicycle': 'habituell', 'potentialBicycle': 'potenziell',
+             'car': 'Auto', 'pedestrian': 'Fuss'}
+# Nutzungshäufigkeit Fahrrad = transportRatings.bicycle («Wie häufig nutzen Sie diese Verkehrsmittel?»)
+#   0 Nie · 1 seltener als monatlich · 2 1–3×/Monat · 3 1–3×/Woche · 4 4–5×/Woche · 5 (fast) täglich
+# Kategorien 0–2 sind selten (kleine N) → zu «selten (≤ monatl.)» gebündelt.
+FREQBIKE = {'selten': 'selten (≤ monatl.)', 'w13': '1–3×/Woche',
+            'w45': '4–5×/Woche', 'taeglich': '(fast) täglich'}
+
+
+def freq_bucket(v):
+    if v is None:
+        return None
+    v = int(v)
+    if v <= 2:
+        return 'selten'
+    return {3: 'w13', 4: 'w45', 5: 'taeglich'}.get(v)
+
+
+# ── Szenen-Merkmale aus scenes_*.csv → normalisierte Attribute je SceneID ─────
+#
+# Führungsform-Ableitung (siehe 06 / Datenkodierung):
+#   Mischverkehr     : MS, RVA-Breite == 0
+#   Radstreifen      : RVA-Breite in {2.0, 3.5}, KEINE bauliche Trennung, auf Fahrbahn
+#   geschützt        : bauliche Trennung vorhanden (Tr_li-baulTrennung != '-')
+#   Seitenraum       : CP, Radweg im Seitenraum, ohne bauliche Trennung
+#
+# Kontext (Tempo×Aufkommen): nur MS variiert ihn. CP ist per Experiment-Vorgabe
+# Hauptverkehrsstrasse 50 km/h / wenig Verkehr (bestätigt durch radwege-Decode:
+# alle CP-Konfigurationen = vehicleLaneMaxspeed 50 / low_traffic_volumen).
+def fnum(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def load_scenes():
+    """→ (scenes, andere_kamera): Velo-Foto-Szenen mit Merkmalen + SceneIDs der übrigen Kameras.
+
+    andere_kamera dient nur der Abgrenzung in load_records: eine Bewertung einer A-/P-Foto-Szene
+    ist bewusst nicht ausgewertet, aber KEIN Join-Fehler.
+    """
+    scenes = {}
+    andere_kamera = set()
+
+    # MS — Führung auf der Fahrbahn (Mischverkehr / Radstreifen / geschützt)
+    for r in csv.DictReader(open(d('scenes_ms.csv'), encoding='utf-8', newline='')):
+        if r['Kamera'] != 'C':
+            andere_kamera.add(r['SceneID'])
+            continue          # nur Velo-Foto-Szenen (s. Kopf)
+        w = fnum(r['RVA-Breite'])
+        prot = r['Tr_li-baulTrennung'] not in ('-', '', None)
+        tram = r['FS-Art'] == 'Tram'
+        if w == 0:
+            ff = 'Mischverkehr'
+        elif prot:
+            ff = 'geschützt'
+        else:
+            ff = 'Radstreifen'
+        vol = {'normal': 'wenig', 'viel': 'viel+SV'}.get(r['FS-Aufkommen'])
+        spd = r['FS-Geschwindigkeit'] if r['FS-Geschwindigkeit'] in ('30', '50') else None
+        scenes[r['SceneID']] = dict(
+            exp='MS', fuehrungsform=ff, lage='Fahrbahn',
+            width=w, protected=prot, tram=tram, fsart=r['FS-Art'],
+            speed=spd, volume=vol,
+            marking=r['Tr_li-Markierung'],
+            trennung=r['Tr_li-baulTrennung'],   # Art der baulichen Trennung (P14: Poller-only)
+            parking=(r['Parken'] not in ('-', 'nein', '', None)),
+            surface=r['RVA-Oberfläche'],
+        )
+
+    # CP — Radweg/RVA im Seitenraum (Experiment-Vorgabe: Hauptstr. 50 / wenig).
+    # «Seitenraum» fasst das gesamte CP-Experiment: bauliche Trennung wirkt hier
+    # empirisch kaum (Velo ist ohnehin von der Fahrbahn abgesetzt) → kein eigenes
+    # «geschützt». «geschützt» bleibt damit der fahrbahn-seitige Poller-Streifen (MS).
+    for r in csv.DictReader(open(d('scenes_cp.csv'), encoding='utf-8', newline='')):
+        if r['Kamera'] != 'C':
+            andere_kamera.add(r['SceneID'])
+            continue          # nur Velo-Foto-Szenen (s. Kopf)
+        w = fnum(r['RVA-Breite'])
+        prot = r['Tr_li_baulTrennung'] not in ('-', '', None)
+        scenes[r['SceneID']] = dict(
+            exp='CP', fuehrungsform='Seitenraum', lage='Seitenraum',
+            width=w, protected=prot, tram=False,
+            speed='50', volume='wenig',
+            marking=r['Tr_li-Art'],
+            parking=(r['Links_RVA'] == 'Parken'),
+            surface=None,
+        )
+
+    # SE — Nebenstrassen (Quartier/Velostrasse) — für §1 nicht zentral; mitgeführt.
+    for r in csv.DictReader(open(d('scenes_se.csv'), encoding='utf-8', newline='')):
+        if r['Kamera'] != 'C':
+            andere_kamera.add(r['SceneID'])
+            continue          # nur Velo-Foto-Szenen (s. Kopf)
+        scenes[r['SceneID']] = dict(
+            exp='SE', fuehrungsform='Nebenstrasse', lage='Nebenstrasse',
+            width=None, protected=False, tram=False,
+            speed=None, volume=r.get('Verkehrsaufkommen'),
+            marking=None, parking=(r['Parken'] != 'nein'), surface=None,
+        )
+    return scenes, andere_kamera
+
+
+# ── Einzelantworten mit Szenen-Merkmalen + Befragten-Typ verknüpfen ───────────
+# KEIN Personen-Filter: alle Befragtengruppen zählen (auch potenzielle Velofahrende,
+# Fussgänger, Autofahrende) — die Velo-Rolle steckt im Foto (Kamera-Filter in load_scenes;
+# A/P-Foto-Bewertungen fallen dort als «nicht zuordenbar» heraus).
+#
+# Nebenprodukt `je_szene`: {scene_id: [feel-safe-Anzahl, N]} über genau dieselben Bewertungen
+# wie `recs` — die Kreuzvalidierung braucht die scene_id, die in `recs` nicht mitgeführt wird,
+# und soll denselben Filter (Foto-Kamera, alle Befragten) verwenden wie die Hauptrechnung.
+#
+# `miss` zählt ALLE nicht ausgewerteten Bewertungen (seit dem Kamera-Filter fast nur A-/P-Fotos);
+# `unbekannt` ist der echte Join-Fehler: scene_id, die in keiner scenes-CSV vorkommt.
+def load_records(scenes, andere_kamera):
+    data = json.load(open(d('SurveyResults_200414.json'), encoding='utf-8'))
+    recs = []
+    miss = 0
+    unbekannt = 0
+    je_szene = defaultdict(lambda: [0, 0])
+    for s in data:
+        prof = s.get('profile') or {}
+        typ = dict(
+            userGroup=prof.get('userGroup'),
+            bicycleUse=prof.get('bicycleUse'),
+            ageGroup=prof.get('ageGroup'),
+            gender=prof.get('gender'),
+            freqBike=freq_bucket((prof.get('transportRatings') or {}).get('bicycle')),
+        )
+        for rt in (s.get('ratings') or []):
+            sc = scenes.get(rt['scene_id'])
+            if sc is None:
+                miss += 1
+                if rt['scene_id'] not in andere_kamera:
+                    unbekannt += 1
+                continue
+            rating = rt.get('rating')
+            if rating is None:
+                continue
+            rec = dict(sc)
+            rec['feelsafe'] = 1 if int(rating) >= 2 else 0
+            rec.update(typ)
+            recs.append(rec)
+            a = je_szene[rt['scene_id']]
+            a[0] += rec['feelsafe']
+            a[1] += 1
+    return recs, miss, unbekannt, dict(je_szene)
+
+
+# ── Aggregation ───────────────────────────────────────────────────────────────
+def share(rows):
+    n = len(rows)
+    if n == 0:
+        return (None, 0)
+    return (round(100 * sum(r['feelsafe'] for r in rows) / n, 1), n)
+
+
+# Typ-Dimensionen: Funktion liefert (Label, Reihenfolge) je Datensatz; None = ausschliessen
+def dim_categories(dim):
+    if dim == 'userGroup':
+        return [('bicycle', 'habituell'), ('potentialBicycle', 'potenziell')]
+    if dim == 'bicycleUse':
+        return [(k, BICYCLEUSE[k]) for k in (0, 1, 2, 3)]
+    if dim == 'ageGroup':
+        return [(k, AGEGROUP[k]) for k in range(8)]
+    if dim == 'gender':
+        return [('m', 'm'), ('w', 'w'), ('d', 'd')]
+    if dim == 'freqBike':
+        return [(k, FREQBIKE[k]) for k in ('selten', 'w13', 'w45', 'taeglich')]
+    return []
+
+
+DIMS = ['userGroup', 'bicycleUse', 'freqBike', 'ageGroup', 'gender']
+
+
+def split(rows, dim):
+    """rows → {kategorie_label: (share, n)} für die Typ-Dimension dim, plus 'Gesamt'."""
+    out = {'Gesamt': share(rows)}
+    for key, label in dim_categories(dim):
+        sub = [r for r in rows if r.get(dim) == key]
+        out[label] = share(sub)
+    return out
+
+
+def all_splits(rows):
+    """rows → {'Gesamt':(s,n), 'userGroup':{...}, 'bicycleUse':{...}, ...}"""
+    res = {'Gesamt': share(rows)}
+    for d in DIMS:
+        res[d] = {label: share([r for r in rows if r.get(d) == key])
+                  for key, label in dim_categories(d)}
+    return res
+
+
+# ── Selektoren (Filterdefinitionen, explizit & dokumentiert) ──────────────────
+def sel(recs, **cond):
+    def ok(r):
+        for k, v in cond.items():
+            if callable(v):
+                if not v(r.get(k)):
+                    return False
+            elif r.get(k) != v:
+                return False
+        return True
+    return [r for r in recs if ok(r)]
+
+
+def main():
+    scenes, andere_kamera = load_scenes()
+    recs, miss, unbekannt, je_szene = load_records(scenes, andere_kamera)
+    nontram = [r for r in recs if not r['tram']]
+    print(f'Bewertungen (Velo-Fotos): {len(recs)}  | nicht zuordenbar/andere Kamera: {miss}  | tram-bereinigt: {len(nontram)}')
+
+    out = {'meta': {}, 'sections': {}}
+    out['meta'] = dict(
+        n_ratings=len(recs), n_nontram=len(nontram), n_miss=miss,
+        # n_miss = n_andere_kamera + n_unbekannt; nur n_unbekannt wäre ein Join-Fehler.
+        n_andere_kamera=miss - unbekannt, n_unbekannt=unbekannt,
+        agegroup=AGEGROUP, bicycleuse=BICYCLEUSE, usergroup=USERGROUP, freqbike=FREQBIKE,
+    )
+
+    CTX = [('30', 'wenig'), ('30', 'viel+SV'), ('50', 'wenig'), ('50', 'viel+SV')]
+
+    # ── §1 Kontextmatrix (MS: Tempo×Aufkommen) ──────────────────────────────
+    forms = {
+        'Mischverkehr': dict(fuehrungsform='Mischverkehr'),
+        'Radstreifen ungeschützt': dict(fuehrungsform='Radstreifen'),
+        'Radstreifen breit 3.5m': dict(fuehrungsform='Radstreifen', width=3.5),
+        'geschützt': dict(fuehrungsform='geschützt'),
+    }
+    sec1 = {}
+    for fname, cond in forms.items():
+        cells = {}
+        for spd, vol in CTX:
+            rows = sel(nontram, speed=spd, volume=vol, **cond)
+            cells[f'T{spd}/{vol}'] = all_splits(rows)
+        sec1[fname] = cells
+    # Seitenraum nur 50/wenig (CP-Vorgabe)
+    sec1['Seitenraum'] = {'T50/wenig': all_splits(sel(nontram, fuehrungsform='Seitenraum'))}
+    out['sections']['kontextmatrix'] = sec1
+
+    # ── §2 Anlagentyp-Leiter (gesamt, tram-bereinigt) ───────────────────────
+    ladder = {
+        'Mischverkehr': dict(fuehrungsform='Mischverkehr'),
+        'Radstreifen 2m': dict(fuehrungsform='Radstreifen', width=2.0),
+        'Radstreifen 3.5m': dict(fuehrungsform='Radstreifen', width=3.5),
+        'Seitenraum': dict(fuehrungsform='Seitenraum'),
+        'geschützt 2m': dict(fuehrungsform='geschützt', width=2.0),
+        'geschützt 3.5m': dict(fuehrungsform='geschützt', width=3.5),
+    }
+    out['sections']['anlagentyp_leiter'] = {
+        k: all_splits(sel(nontram, **c)) for k, c in ladder.items()}
+
+    # ── §2 Tempo-Effekt 30→50 je Führungsform (gesamt) ──────────────────────
+    tempo = {}
+    for k, c in {'Mischverkehr': dict(fuehrungsform='Mischverkehr'),
+                 'Radstreifen 2m': dict(fuehrungsform='Radstreifen', width=2.0),
+                 'Radstreifen 3.5m': dict(fuehrungsform='Radstreifen', width=3.5),
+                 'geschützt': dict(fuehrungsform='geschützt')}.items():
+        s30 = share(sel(nontram, speed='30', **c))
+        s50 = share(sel(nontram, speed='50', **c))
+        tempo[k] = {'T30': s30, 'T50': s50,
+                    'delta': (None if s30[0] is None or s50[0] is None
+                              else round(s50[0] - s30[0], 1))}
+    out['sections']['tempo_effekt'] = tempo
+
+    # ── §3 RVA-Breite 2.0 vs 3.5 (Fahrbahn, unterbrochen, ungeschützt) ───────
+    def width_block(extra):
+        base = dict(fuehrungsform='Radstreifen', protected=False,
+                    marking='unterbrochen')
+        b = {}
+        for w in (2.0, 3.5):
+            b[f'{w}m'] = all_splits(sel(nontram, width=w, **base, **extra))
+        return b
+    sec3 = {
+        'ALLE': width_block({}),
+        'T30': width_block(dict(speed='30')),
+        'T50': width_block(dict(speed='50')),
+        'T30/wenig': width_block(dict(speed='30', volume='wenig')),
+        'T30/viel+SV': width_block(dict(speed='30', volume='viel+SV')),
+        'T50/wenig': width_block(dict(speed='50', volume='wenig')),
+        'T50/viel+SV': width_block(dict(speed='50', volume='viel+SV')),
+    }
+    out['sections']['rva_breite'] = sec3
+
+    # ── §4 Breite × Parken (Fahrbahn, ungeschützt) ──────────────────────────
+    def wp(parking, extra=None):
+        base = dict(fuehrungsform='Radstreifen', protected=False)
+        if extra:
+            base.update(extra)
+        return {f'{w}m': all_splits(sel(nontram, width=w, parking=parking, **base))
+                for w in (2.0, 3.5)}
+    sec4 = {
+        'ohne Parken': wp(False),
+        'mit Parken': wp(True),
+        'T30 ohne Parken': wp(False, dict(speed='30')),
+        'T30 mit Parken': wp(True, dict(speed='30')),
+        'T50 ohne Parken': wp(False, dict(speed='50')),
+        'T50 mit Parken': wp(True, dict(speed='50')),
+    }
+    out['sections']['breite_parken'] = sec4
+
+    # ── §2 Tram-Effekt: Schienen in der Fahrbahn, mit vs. ohne Tram ──────────
+    # Hier NICHT tram-bereinigt (recs statt nontram) — der Vergleich IST ja der Effekt.
+    # Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Tramschienen (positiv = schlechter).
+    # Malus (Notenstufen) = Δ / Kurs, analog zu Breite/Parken. SCORE_PRO_NOTE = 14,4 ist der
+    # HISTORISCHE Herleitungs-Kurs (alle dokumentierten Erst-/Zwischenfassungen und der
+    # normativ fixierte Tram-Malus); die GELTENDEN Code-Konstanten sind seit der Neu-Eichung
+    # P13 (13.08.2026) mit dem eigenen Kurs der Kette hergeleitet: 14,2 = (84 − 13) ÷ 5 —
+    # spiegelt SCORE_PRO_NOTE in src/fuehrungsform.ts.
+    SCORE_PRO_NOTE = 14.4
+    SCORE_PRO_NOTE_FEIN = 14.2
+
+    def tram_cell(cond):
+        # Tram-Szenen existieren nur mit Aufkommen «wenig» — die Vergleichszellen darum auch,
+        # sonst mischte die Aufkommens-Differenz in den Tram-Effekt hinein.
+        mit = share(sel(recs, tram=True, volume='wenig', **cond))
+        ohne = share(sel(recs, tram=False, volume='wenig', **cond))
+        delta = (None if mit[0] is None or ohne[0] is None
+                 else round(ohne[0] - mit[0], 1))
+        malus = None if delta is None else round(delta / SCORE_PRO_NOTE, 2)
+        return {'mit': mit, 'ohne': ohne, 'delta': delta, 'malus': malus}
+
+    def tram_form(ff):
+        return {'Gesamt':   tram_cell(dict(fuehrungsform=ff)),
+                'Tempo 30': tram_cell(dict(fuehrungsform=ff, speed='30')),
+                'Tempo 50': tram_cell(dict(fuehrungsform=ff, speed='50'))}
+
+    # 14.08.2026: Die Δ-Spalte bleibt der empirische Befund; die daraus gezogene Regel ist
+    # seither ein DECKEL (TRAM_DECKEL = 3) statt des tempoabhängigen Malus 1,2/0,7 — Angleichung
+    # an den lokalen Berner Rechner (TRAM_NOTE = 3.0). Die «malus»-Spalte je Zelle bleibt als
+    # Grössenordnung stehen und trägt die abgelöste Fassung im Feld `abgeloest`.
+    out['sections']['tram_effekt'] = {
+        'hinweis': 'Δ = feel-safe(ohne) − feel-safe(mit); Δ/%.1f = Δ in Notenstufen' % SCORE_PRO_NOTE,
+        'angewandt': {'Deckel': 3.0, 'gilt_fuer': 'nur Mischverkehr',
+                      'kapNote': 1.0, 'kap_gilt_fuer': 'Kaphaltestelle an Tram ohne bauliche Trennung',
+                      'code': 'TRAM_DECKEL / KAP_NOTE in src/fuehrungsform.ts'},
+        'abgeloest': {'bis': '13.08.2026', 'art': 'tempoabhängiger Malus',
+                      'Tempo<=30': 1.2, 'Tempo>30': 0.7},
+        'Mischverkehr': tram_form('Mischverkehr'),
+        'Radstreifen': tram_form('Radstreifen'),   # Referenz: bei eigener RVA kaum Effekt
+    }
+
+    # ── §5 Kalibrierung der Notenkette (jede Konstante aus fuehrungsform.ts) ──
+    # Alle Zellen: markierte Radstreifen auf der STANDARD-Kfz-Strasse (FS-Art «Kfz» — ohne
+    # die «Einbahn»-Grossstrassen-Variante, die ein eigener Faktor ist), tram-bereinigt,
+    # beide Aufkommen gepoolt — Szenen, die sich sonst NUR im genannten Merkmal
+    # unterscheiden. Daraus: Referenz-Anker, Breitensätze, Parken-Formel.
+    def ms_zelle(ff, breite, parken, tempo):
+        return share(sel(nontram, fuehrungsform=ff, width=breite, parking=parken,
+                         speed=tempo, fsart='Kfz'))
+    kal = {'zellen': {}}
+    for b in (2.0, 3.5):
+        for pk in (False, True):
+            for t in ('30', '50'):
+                kal['zellen'][f'RS {b} m · {"mit" if pk else "ohne"} Parken · T{t}'] = \
+                    ms_zelle('Radstreifen', b, pk, t)
+    # Anker gepoolt (Klassen-Mittel über alles, wie FEELSAFE Mischverkehr/Radweg):
+    kal['anker_gepoolt'] = {
+        'Mischverkehr T30': share(sel(nontram, fuehrungsform='Mischverkehr', speed='30')),
+        'Mischverkehr T50': share(sel(nontram, fuehrungsform='Mischverkehr', speed='50')),
+        'Radstreifen T30':  share(sel(nontram, fuehrungsform='Radstreifen', speed='30')),
+        'Radstreifen T50':  share(sel(nontram, fuehrungsform='Radstreifen', speed='50')),
+        'geschützt T30':    share(sel(nontram, fuehrungsform='geschützt', speed='30')),
+        'geschützt T50':    share(sel(nontram, fuehrungsform='geschützt', speed='50')),
+    }
+    # Referenz-Anker Radstreifen (Sollbreite 2,5 m ohne Parken, interpoliert) + Breitensätze:
+    z = kal['zellen']
+    def w(k): return z[k][0]
+    st30 = round((w('RS 3.5 m · ohne Parken · T30') - w('RS 2.0 m · ohne Parken · T30')) / 1.5, 1)
+    st50 = round((w('RS 3.5 m · ohne Parken · T50') - w('RS 2.0 m · ohne Parken · T50')) / 1.5, 1)
+    # Baulich ebenfalls JE TEMPO — seit dem 10.08.2026 ist auch dieser Satz tempoabhängig.
+    # Ein über beide Tempi gepoolter Wert wäre hier zudem verzerrt: In der 3,5-m-Gruppe
+    # stecken Szenen aus einem Basisszenario ohne Tempo-Codierung, die in der 2,0-m-Gruppe
+    # fehlen (dasselbe Problem wie auf der Fahrbahn).
+    # fsart='Kfz' — NICHT bloss «ohne Tram». Der Poller-Streifen kommt auch an Einbahnen vor
+    # (44 Szenen); die nehmen an der Breitenfrage teil, ändern aber gleichzeitig die
+    # Fahrtrichtungs-Situation. Der Satz im Code ist aus den Kfz-Szenen abgeleitet, also muss
+    # diese Kontrollrechnung denselben Schnitt verwenden — sonst prüft sie eine andere Zahl,
+    # als sie ausweist (gefunden 10.08.2026: «ohne Tram» ergäbe bei Tempo 30 0,38 statt 0,35).
+    gb = {t: (share(sel(nontram, fuehrungsform='geschützt', width=2.0, speed=t, fsart='Kfz')),
+              share(sel(nontram, fuehrungsform='geschützt', width=3.5, speed=t, fsart='Kfz')))
+          for t in ('30', '50')}
+    bst = {t: round((gb[t][1][0] - gb[t][0][0]) / 1.5, 1) for t in ('30', '50')}
+    kal['breitensatz'] = {
+        'Fahrbahn Pkt/m (T30/T50, ohne Parken)': (st30, st50),
+        'Fahrbahn Noten/m (T30/T50)': (round(st30 / SCORE_PRO_NOTE, 2),
+                                       round(st50 / SCORE_PRO_NOTE, 2)),
+        'baulich 2,0 m / 3,5 m (T30)': gb['30'],
+        'baulich 2,0 m / 3,5 m (T50)': gb['50'],
+        'baulich Pkt/m (T30/T50)': (bst['30'], bst['50']),
+        'baulich Noten/m (T30/T50)': (round(bst['30'] / SCORE_PRO_NOTE, 2),
+                                      round(bst['50'] / SCORE_PRO_NOTE, 2)),
+        'hinweis': 'gepoolte Erstherleitung — der Code rechnet auf der Fahrbahn GESTRICHELT '
+                   '(P10-U, 12.08.2026) und baulich POLLER-ONLY grau (P14, 13.08.2026; unten)',
+    }
+    # ── GRAU-SCHNITT (12.08.2026, Übernahme P1–P3 des lokalen Entscheidungskatalogs 15.7):
+    # Die Code-Konstanten stammen seit diesem Datum aus den NUR-GRAUEN Zellen — in Bern ist
+    # keine Veloinfrastruktur eingefärbt, und 56 % der gepoolten Radstreifen-Bewertungen
+    # zeigten grüne Beläge. Dieselben Filter wie oben, plus surface != farbig.
+    GRAU = lambda s: s not in ('Asphalt-Farbig', 'Asphalt-Farbig Schraffur')
+    def grau_rs(breite, tempo):
+        return share(sel(nontram, fuehrungsform='Radstreifen', width=breite, parking=False,
+                         speed=tempo, fsart='Kfz', surface=GRAU))
+    def grau_gb(breite, tempo):
+        return share(sel(nontram, fuehrungsform='geschützt', width=breite,
+                         speed=tempo, fsart='Kfz', surface=GRAU))
+    # ── POLLER-ONLY (P14, 13.08.2026): Der bauliche Satz stammt seither aus den grauen
+    # Sperrpfosten-Zellen OHNE die Blumenkasten-Fotos (8 statt 10 je Zelle) — derselbe
+    # Szenen-Pool wie der Radweg-Anker (P11-A). Anlass: Anker- und Satz-Pool derselben
+    # Klasse waren nicht mehr identisch (lokales Regelwerk 15.7, P14-Kasten).
+    POLLER = ('Sperrpfosten-niedrig', 'Sperrpfosten-hoch')
+    def poller_gb(breite, tempo):
+        return share(sel(nontram, fuehrungsform='geschützt', width=breite,
+                         speed=tempo, fsart='Kfz', surface=GRAU,
+                         trennung=lambda t: t in POLLER))
+    # Noten/m aus der UNGERUNDETEN Steigung — erst runden, dann teilen ergäbe 0,76 statt 0,75.
+    gst_roh = {tt: (grau_rs(3.5, tt)[0] - grau_rs(2.0, tt)[0]) / 1.5 for tt in ('30', '50')}
+    gbst_roh = {tt: (grau_gb(3.5, tt)[0] - grau_gb(2.0, tt)[0]) / 1.5 for tt in ('30', '50')}
+    gst = {tt: round(v, 1) for tt, v in gst_roh.items()}
+    gbst = {tt: round(v, 1) for tt, v in gbst_roh.items()}
+    # ── GESTRICHELT-SCHNITT (P10-U, 12.08.2026): Fahrbahn-Anker und -Satz stammen seither
+    # aus den grauen Zellen mit schmaler GESTRICHELTER Führungslinie (Berner Markierungsbild;
+    # «unterbrochen» kommt in den Daten nur mit 0,25 m vor, der Markierungs-Filter genügt).
+    # 2 Fotos je Zelle — bewusster Preis (lokales Regelwerk 15.7, P10-Kasten).
+    def gestr_rs(breite, tempo):
+        return share(sel(nontram, fuehrungsform='Radstreifen', width=breite, parking=False,
+                         speed=tempo, fsart='Kfz', surface=GRAU, marking='unterbrochen'))
+    xst_roh = {tt: (gestr_rs(3.5, tt)[0] - gestr_rs(2.0, tt)[0]) / 1.5 for tt in ('30', '50')}
+    xst = {tt: round(v, 1) for tt, v in xst_roh.items()}
+    pbst_roh = {tt: (poller_gb(3.5, tt)[0] - poller_gb(2.0, tt)[0]) / 1.5 for tt in ('30', '50')}
+    pbst = {tt: round(v, 1) for tt, v in pbst_roh.items()}
+    kal['breitensatz_grau'] = {
+        'Fahrbahn Pkt/m (T30/T50, grau)': (gst['30'], gst['50']),
+        'Fahrbahn Noten/m (T30/T50)': (round(gst_roh['30'] / SCORE_PRO_NOTE, 2),
+                                       round(gst_roh['50'] / SCORE_PRO_NOTE, 2)),
+        'Fahrbahn Pkt/m (T30/T50, gestrichelt — gilt)': (xst['30'], xst['50']),
+        'Fahrbahn Noten/m (T30/T50, gestrichelt ÷ Kurs 14,2)': (
+            round(xst_roh['30'] / SCORE_PRO_NOTE_FEIN, 2),
+            round(xst_roh['50'] / SCORE_PRO_NOTE_FEIN, 2)),
+        'baulich Pkt/m (T30/T50, grau)': (gbst['30'], gbst['50']),
+        'baulich Noten/m (T30/T50)': (round(gbst_roh['30'] / SCORE_PRO_NOTE, 2),
+                                      round(gbst_roh['50'] / SCORE_PRO_NOTE, 2)),
+        'baulich Noten/m (T30/T50, grau ÷ Kurs 14,2 — Zwischenfassung P3)': (
+            round(gbst_roh['30'] / SCORE_PRO_NOTE_FEIN, 2),
+            round(gbst_roh['50'] / SCORE_PRO_NOTE_FEIN, 2)),
+        'baulich Pkt/m (T30/T50, Poller-only — gilt seit 13.08.2026, P14)': (
+            pbst['30'], pbst['50']),
+        'baulich Noten/m (T30/T50, Poller-only ÷ Kurs 14,2)': (
+            round(pbst_roh['30'] / SCORE_PRO_NOTE_FEIN, 2),
+            round(pbst_roh['50'] / SCORE_PRO_NOTE_FEIN, 2)),
+        'im Code (BREITE_SATZ)': {'fahrbahn': {'ruhig': 1.0, 'schnell': 1.0},   # vorläufige Kalibrierung 22.09.2026 (docs/09, Kap. 5.5)
+                                  'baulich':  {'ruhig': 0.24, 'schnell': 0.38}},
+    }
+    kal['referenz_anker'] = {
+        'T30 gepoolt (Erstherleitung)': round(w('RS 2.0 m · ohne Parken · T30') + 0.5 * st30, 1),
+        'T50 gepoolt (Erstherleitung)': round(w('RS 2.0 m · ohne Parken · T50') + 0.5 * st50, 1),
+        'T30 grau (Zwischenfassung 12.08.2026)': round(grau_rs(2.0, '30')[0] + 0.5 * gst_roh['30'], 1),
+        'T50 grau (Zwischenfassung 12.08.2026)': round(grau_rs(2.0, '50')[0] + 0.5 * gst_roh['50'], 1),
+        'T30 gestrichelt (gilt seit 12.08.2026)': round(gestr_rs(2.0, '30')[0] + 0.5 * xst_roh['30'], 1),
+        'T50 gestrichelt (gilt seit 12.08.2026)': round(gestr_rs(2.0, '50')[0] + 0.5 * xst_roh['50'], 1),
+        'im Code (FEELSAFE.Radstreifen)': {'ruhig': 65, 'schnell': 58},
+    }
+    off = lambda b, t: round(w(f'RS {b} m · ohne Parken · T{t}') - w(f'RS {b} m · mit Parken · T{t}'), 1)
+    kal['parken_offset'] = {
+        'T30 bei 3,5 m / 2,0 m': (off(3.5, '30'), off(2.0, '30')),
+        'T50 bei 3,5 m / 2,0 m': (off(3.5, '50'), off(2.0, '50')),
+        'in Noten (3,5 m / 2,0 m, T30)': (round(off(3.5, '30') / SCORE_PRO_NOTE, 2),
+                                          round(off(2.0, '30') / SCORE_PRO_NOTE, 2)),
+        # Der BEFUND ist breitenabhängig, der Code ist es seit dem 09.08.2026 nicht mehr:
+        # Die Befragung kennt nur 2,0 und 3,5 m, der reale Bestand liegt fast vollständig
+        # darunter, und im Mischverkehr (Breite 0) kostet die Parkierung nur ≈ 0,15 Noten —
+        # der Schaden fällt unterhalb 2,0 m wieder ab. Siehe README «Parkierung rechts».
+        'im Code': 'pauschal 1,0 (PARKEN_ABZUG) — breitenabhängige Formel zurückgenommen, offener Punkt',
+    }
+    out['sections']['kalibrierung'] = kal
+
+    # ── Kreuzvalidierung: JSON-feel-safe je Konfiguration vs radwege voteScore ─
+    xval = crossvalidate(je_szene)
+    out['sections']['kreuzvalidierung'] = xval
+
+    json.dump(out, open(lp('06_verifikation.json'), 'w', encoding='utf-8'),
+              ensure_ascii=False, indent=1)
+    write_md(out)
+    write_html(out)
+    print('geschrieben: docs/06_Verifikation_Empirie.md (Snapshot) , '
+          '_lokal/06_verifikation.json , _lokal/06_visualisierung.html')
+    print_summary(out)
+
+
+def write_html(out):
+    """Daten in das HTML-Template injizieren → eigenständige Seite (offline)."""
+    tpl = open(os.path.join(HERE, 'visualisierung_template.html'), encoding='utf-8').read()
+    payload = json.dumps(out, ensure_ascii=False)
+    html = tpl.replace('__DATA__', payload)
+    open(lp('06_visualisierung.html'), 'w', encoding='utf-8').write(html)
+
+
+def crossvalidate(je_szene):
+    """JSON-feel-safe je SceneID gegen radwege voteScore (Join via sceneId, '01_' weg).
+
+    je_szene stammt aus load_records — also derselbe Filter wie die Hauptrechnung: nur
+    Velo-Foto-Szenen (Kamera C), ALLE Befragtengruppen. Verglichen werden die Szenen, die
+    in radwege_hauptstrassen.csv vorkommen (MS + CP; Nebenstrassen sind dort nicht enthalten).
+    """
+    # radwege voteScore je sceneId
+    rw = {}
+    for row in csv.DictReader(open(d('radwege_hauptstrassen.csv'), encoding='utf-8', newline='')):
+        sid = row['sceneId']
+        vs = fnum(row['voteScore'])
+        if sid and vs is not None:
+            rw[sid] = vs
+    diffs = []
+    matched = 0
+    for sid, (safe, n) in je_szene.items():
+        key = sid[3:] if sid.startswith('01_') else sid  # '01_MS_C_5' -> 'MS_C_5'
+        if key in rw and n > 0:
+            mine = 100 * safe / n
+            diffs.append(abs(mine - rw[key]))
+            matched += 1
+    diffs.sort()
+    if diffs:
+        mean = sum(diffs) / len(diffs)
+        med = diffs[len(diffs) // 2]
+        p95 = diffs[int(len(diffs) * 0.95)]
+        return dict(matched=matched, mean_abs_diff=round(mean, 2),
+                    median_abs_diff=round(med, 2), p95_abs_diff=round(p95, 2),
+                    max_abs_diff=round(diffs[-1], 2))
+    return dict(matched=0)
+
+
+# ── 06-Referenzwerte (aus dem MD, Velo) zum Soll/Ist-Vergleich ───────────────
+REF06 = {
+    'kontextmatrix': {  # form -> {ctx: wert}
+        'Mischverkehr': {'T30/wenig': 27, 'T30/viel+SV': 20, 'T50/wenig': 15, 'T50/viel+SV': 12},
+        'Radstreifen ungeschützt': {'T30/wenig': 70, 'T30/viel+SV': 67, 'T50/wenig': 63, 'T50/viel+SV': 64},
+        'Radstreifen breit 3.5m': {'T30/wenig': 80, 'T30/viel+SV': 78, 'T50/wenig': 72, 'T50/viel+SV': 75},
+        'geschützt': {'T30/wenig': 92, 'T30/viel+SV': 91, 'T50/wenig': 92, 'T50/viel+SV': 91},
+        'Seitenraum': {'T50/wenig': 82},
+    },
+    'anlagentyp_leiter': {'Mischverkehr': 15, 'Radstreifen 2m': 51, 'Radstreifen 3.5m': 77,
+                          'Seitenraum': 81, 'geschützt 2m': 87, 'geschützt 3.5m': 95},
+    'rva_breite': {  # ctx -> {2.0m, 3.5m}
+        'ALLE': {'2.0m': 46.7, '3.5m': 73.4}, 'T30': {'2.0m': 49.8, '3.5m': 75.8},
+        'T50': {'2.0m': 43.7, '3.5m': 70.9}, 'T30/wenig': {'2.0m': 53.3, '3.5m': 78.2},
+        'T30/viel+SV': {'2.0m': 48.1, '3.5m': 74.5}, 'T50/wenig': {'2.0m': 43.0, '3.5m': 73.9},
+        'T50/viel+SV': {'2.0m': 44.0, '3.5m': 69.4},
+    },
+}
+
+
+def write_md(out):
+    L = []
+    A = L.append
+    A('# VeloroutenCheck — Verifikation der Empirie-Ergebnisse (06)\n')
+    A('Unabhängige Neuberechnung **aus den Einzelantworten** '
+      '(`SurveyResults_200414.json`) ⋈ decodierte Szenen-Merkmale (`scenes_ms/cp/se.csv`). '
+      'Gezählt wird jede Bewertung der **Velo-Foto-Szenen** (Kamera C) — unabhängig von der '
+      'Befragtengruppe; massgebend ist, was das Foto zeigt. feel-safe % = Anteil Bewertungen '
+      'mit `rating ≥ 2`; N = Anzahl Einzelbewertungen. Tram-Szenen ausgeschlossen.\n')
+    m = out['meta']
+    A(f'Velo-Bewertungen total: **{m["n_ratings"]}** · tram-bereinigt: **{m["n_nontram"]}** · '
+      f'nicht ausgewertet (Fotos der anderen Kameras): {m["n_andere_kamera"]} · '
+      f'keiner Szene zuordenbar: {m["n_unbekannt"]}.\n')
+
+    xv = out['sections']['kreuzvalidierung']
+    A('## Kreuzvalidierung gegen radwege `voteScore`\n')
+    A('JSON-feel-safe je Szene vs. offizieller `voteScore` (gleiche Szene). '
+      'Geringe Differenz = Join + Metrik korrekt.\n')
+    A('```')
+    A(f'verglichene Szenen : {xv.get("matched")}')
+    A(f'mittlere |Differenz|: {xv.get("mean_abs_diff")}  Punkte')
+    A(f'Median  |Differenz|: {xv.get("median_abs_diff")}  Punkte')
+    A(f'95%-Perzentil      : {xv.get("p95_abs_diff")}  Punkte')
+    A(f'max |Differenz|    : {xv.get("max_abs_diff")}  Punkte')
+    A('```\n')
+
+    def g(splits):  # Gesamt-Wert (share,n)
+        return splits['Gesamt']
+
+    # §1
+    A('## §1 Kontextmatrix — feel-safe % (Velo gesamt) | MD-Wert | Δ | N\n')
+    A('```')
+    A(f'{"Führungsform":<26}{"Kontext":<14}{"neu":>6}{"MD":>6}{"Δ":>7}{"N":>9}')
+    for form, cells in out['sections']['kontextmatrix'].items():
+        ref = REF06['kontextmatrix'].get(form, {})
+        for ctx, splits in cells.items():
+            v, n = g(splits)
+            r = ref.get(ctx)
+            d = '' if (v is None or r is None) else f'{v - r:+.1f}'
+            A(f'{form:<26}{ctx:<14}{("" if v is None else v):>6}{("" if r is None else r):>6}{d:>7}{n:>9}')
+    A('```\n')
+
+    # §2 Leiter
+    A('## §2 Anlagentyp-Leiter — feel-safe % (Velo gesamt) | MD | Δ | N\n')
+    A('```')
+    A(f'{"Anlagentyp":<20}{"neu":>6}{"MD":>6}{"Δ":>7}{"N":>9}')
+    for k, splits in out['sections']['anlagentyp_leiter'].items():
+        v, n = g(splits)
+        r = REF06['anlagentyp_leiter'].get(k)
+        d = '' if (v is None or r is None) else f'{v - r:+.1f}'
+        A(f'{k:<20}{("" if v is None else v):>6}{("" if r is None else r):>6}{d:>7}{n:>9}')
+    A('```\n')
+
+    # §2 Tempo-Effekt
+    A('## §2 Tempo-Effekt 30→50 (Δ feel-safe, Velo gesamt)\n')
+    A('```')
+    A(f'{"Führungsform":<20}{"T30":>7}{"T50":>7}{"Δ":>7}')
+    for k, d in out['sections']['tempo_effekt'].items():
+        A(f'{k:<20}{str(d["T30"][0]):>7}{str(d["T50"][0]):>7}{str(d["delta"]):>7}')
+    A('```\n')
+
+    # §3 RVA-Breite
+    A('## §3 RVA-Breite 2,0 vs 3,5 m (Fahrbahn, unterbrochen, ungeschützt)\n')
+    A('feel-safe % (neu) mit N, plus MD-Wert. Filter ggf. enger als 06 → Δ/N transparent.\n')
+    A('```')
+    A(f'{"Kontext":<14}{"2.0 neu":>9}{"(N)":>8}{"2.0 MD":>8}{"3.5 neu":>9}{"(N)":>8}{"3.5 MD":>8}')
+    for ctx, b in out['sections']['rva_breite'].items():
+        v2, n2 = g(b['2.0m']); v3, n3 = g(b['3.5m'])
+        r = REF06['rva_breite'].get(ctx, {})
+        A(f'{ctx:<14}{str(v2):>9}{n2:>8}{str(r.get("2.0m","")):>8}'
+          f'{str(v3):>9}{n3:>8}{str(r.get("3.5m","")):>8}')
+    A('```\n')
+
+    # §4 Breite×Parken
+    A('## §4 Breite × Parken (Fahrbahn, ungeschützt) — feel-safe % (N)\n')
+    A('```')
+    A(f'{"Fall":<18}{"2.0m":>8}{"(N)":>8}{"3.5m":>8}{"(N)":>8}{"Δ Breite":>10}')
+    for fall, b in out['sections']['breite_parken'].items():
+        v2, n2 = g(b['2.0m']); v3, n3 = g(b['3.5m'])
+        dd = '' if (v2 is None or v3 is None) else f'{v3 - v2:+.1f}'
+        A(f'{fall:<18}{str(v2):>8}{n2:>8}{str(v3):>8}{n3:>8}{dd:>10}')
+    A('```\n')
+
+    # §2 Tram in der Fahrbahn
+    te = out['sections']['tram_effekt']
+    A('## §2 Tram in der Fahrbahn — feel-safe % (N) mit vs. ohne Tram\n')
+    A('Δ = feel-safe(ohne) − feel-safe(mit) = Verlust durch Schienen in der Fahrbahn. '
+      'Δ [Notenstufen] = Δ / 14,4 — der historische Herleitungs-Kurs (Ersteichung 72 ÷ 5 des '
+      'lokalen Basis-Rechners), mit dem die abgelösten Malus-Werte 1,2/0,7 hergeleitet wurden; '
+      'in `fuehrungsform.ts` gilt seit der Neu-Eichung P13 (13.08.2026) `SCORE_PRO_NOTE` = 14,2. '
+      'Eine Grössenangabe, seit 14.08.2026 nicht mehr die Regel selbst.\n')
+    for form in ('Mischverkehr', 'Radstreifen'):
+        A(f'**{form}**' + ('  _(Referenz: eigene RVA → kaum Effekt)_' if form == 'Radstreifen' else ''))
+        A('```')
+        A(f'{"Kontext":<12}{"mit (N)":>14}{"ohne (N)":>14}{"Δ":>7}{"Δ/14,4":>7}')
+        for ctx in ('Gesamt', 'Tempo 30', 'Tempo 50'):
+            c = te[form][ctx]
+            mv, mn = c['mit']; ov, on = c['ohne']
+            A(f'{ctx:<12}{f"{mv} ({mn})":>14}{f"{ov} ({on})":>14}'
+              f'{str(c["delta"]):>7}{str(c["malus"]):>7}')
+        A('```')
+    ab = te['abgeloest']
+    A(f'\n**Im Tool verdrahtet** (nur Mischverkehr): Die Note ist auf höchstens '
+      f'**{te["angewandt"]["Deckel"]:.0f}** gedeckelt (`TRAM_DECKEL`), unabhängig vom Tempo — auf '
+      'dem gemessenen Niveau (9,4 % bzw. 5,4 % feel-safe) ist keine bessere Note zu '
+      'rechtfertigen. Ein Deckel kappt nur nach oben; eine ohnehin schlechtere Note bleibt. '
+      f'Dazu: Kaphaltestelle an einer Tram-Haltestelle ohne bauliche Trennung → Note '
+      f'**{te["angewandt"]["kapNote"]:.0f}** (`KAP_NOTE`).\n')
+    A(f'_Abgelöst am 14.08.2026_ (bis {ab["bis"]}): {ab["art"]} von −{ab["Tempo<=30"]:.1f} bei '
+      f'Tempo ≤ 30 und −{ab["Tempo>30"]:.1f} bei Tempo > 30 — die gerundeten Tempo-Werte aus obiger '
+      'Tabelle. Die Umstellung gleicht den Online-Rechner an den lokalen Berner Rechner an; '
+      'der Befund selbst ist unverändert.\n')
+
+    # §5 Kalibrierung
+    kal = out['sections']['kalibrierung']
+    A('\n## §5 Kalibrierung der Notenkette — jede Konstante aus `fuehrungsform.ts`\n')
+    A('Zellen: markierte Radstreifen auf der Standard-Kfz-Strasse (FS-Art «Kfz»), '
+      'tram-bereinigt, beide Aufkommen gepoolt — Szenen, die sich sonst NUR im genannten '
+      'Merkmal unterscheiden.\n')
+    A('```')
+    for k, (v, n) in kal['zellen'].items():
+        A(f'{k:<36}{str(v):>7} %  (N={n})')
+    A('')
+    A('Anker gepoolt (Klassen-Mittel, wie FEELSAFE Mischverkehr/Radweg):')
+    for k, (v, n) in kal['anker_gepoolt'].items():
+        A(f'  {k:<20}{str(v):>7} %  (N={n})')
+    A('')
+    ra = kal['referenz_anker']
+    A(f'Referenz-Anker Radstreifen (2,5 m ohne Parken, interpoliert): '
+      f'gepoolt T30 {ra["T30 gepoolt (Erstherleitung)"]} · T50 {ra["T50 gepoolt (Erstherleitung)"]} '
+      f'· grau (Zwischenfassung) T30 {ra["T30 grau (Zwischenfassung 12.08.2026)"]} '
+      f'· T50 {ra["T50 grau (Zwischenfassung 12.08.2026)"]} '
+      f'· GESTRICHELT (gilt seit 12.08.2026, P10-U) '
+      f'T30 {ra["T30 gestrichelt (gilt seit 12.08.2026)"]} '
+      f'· T50 {ra["T50 gestrichelt (gilt seit 12.08.2026)"]} '
+      f'→ Code {ra["im Code (FEELSAFE.Radstreifen)"]}')
+    bs = kal['breitensatz']
+    bg = kal['breitensatz_grau']
+    # Beide Sätze sind seit dem 10.08.2026 tempoabhängig; der Fahrbahn-Satz ist seit dem
+    # 12.08.2026 GESTRICHELT geschnitten (P10-U), der bauliche seit dem 13.08.2026
+    # POLLER-ONLY grau (P14) — die Zeilen nennen gepoolt (Erstherleitung), die
+    # Zwischenfassungen und den Code-Stand.
+    ic = bg['im Code (BREITE_SATZ)']
+    A(f'Breitensatz Fahrbahn: gepoolt {bs["Fahrbahn Noten/m (T30/T50)"]} · '
+      f'grau {bg["Fahrbahn Noten/m (T30/T50)"]} · '
+      f'GESTRICHELT ÷ 14,2 {bg["Fahrbahn Noten/m (T30/T50, gestrichelt ÷ Kurs 14,2)"]} '
+      f'Noten/m (T30/T50) → Code '
+      f'{ic["fahrbahn"]["ruhig"]} / {ic["fahrbahn"]["schnell"]} '
+      f'(seit 22.09.2026 VORLÄUFIGE KALIBRIERUNG aus der Berner Bildumfrage, docs/09 Kap. 5.5 — '
+      f'bewusst über der Berliner Messung 0,65/0,74, die hier weiterhin nachgerechnet wird)')
+    A(f'Breitensatz baulich:  gepoolt {bs["baulich Noten/m (T30/T50)"]} · '
+      f'grau ÷ 14,2 {bg["baulich Noten/m (T30/T50, grau ÷ Kurs 14,2 — Zwischenfassung P3)"]} · '
+      f'POLLER-ONLY ÷ 14,2 {bg["baulich Noten/m (T30/T50, Poller-only ÷ Kurs 14,2)"]} '
+      f'Noten/m (T30/T50; gilt seit 13.08.2026, P14 — derselbe Sperrpfosten-Pool wie der '
+      f'Radweg-Anker) → Code '
+      f'{ic["baulich"]["ruhig"]} / {ic["baulich"]["schnell"]}')
+    po = kal['parken_offset']
+    A(f'Parken-Offset T30 (3,5/2,0 m): {po["T30 bei 3,5 m / 2,0 m"]} Pkte '
+      f'= {po["in Noten (3,5 m / 2,0 m, T30)"]} Noten · T50: {po["T50 bei 3,5 m / 2,0 m"]}')
+    A(f'→ Code: {po["im Code"]}')
+    A('```\n')
+
+    open(MD_SNAPSHOT, 'w', encoding='utf-8').write('\n'.join(L))
+
+
+def print_summary(out):
+    print('\n— Anlagentyp-Leiter (neu | MD) —')
+    for k, splits in out['sections']['anlagentyp_leiter'].items():
+        v, n = splits['Gesamt']
+        r = REF06['anlagentyp_leiter'].get(k)
+        print(f'  {k:<18} {str(v):>6} | {str(r):>4}  (N={n})')
+    xv = out['sections']['kreuzvalidierung']
+    print(f'\nKreuzvalidierung: {xv.get("matched")} Szenen, '
+          f'mittlere |Diff| {xv.get("mean_abs_diff")} Pkt, Median {xv.get("median_abs_diff")} Pkt')
+
+
+if __name__ == '__main__':
+    main()
