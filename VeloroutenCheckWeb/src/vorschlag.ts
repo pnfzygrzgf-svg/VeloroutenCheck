@@ -1,12 +1,12 @@
 // ── Massnahmenvorschlag für die Aufteilung (seit 17.10.2026 Bern, seit 20.10.2026 alle Städte mit Planung) ──
 //
 // Portierung des lokalen Zielbild-Rechners (VeloAuslegeordnung/Rechner/zielbild/massnahmen.py und
-// querschnitt.py, Stand 08.10.2026). Nutzerentscheide 17.10.2026: Vorschläge nur im Berner Rechner, als
+// querschnitt.py, Stand 08.10.2026). Vorschläge nur im Berner Rechner, als
 // Startpunkt der Planung (danach frei änderbar); je eine Variante ohne und mit Randsteinanpassung;
 // Tempo 30 nur, wenn sonst nichts reicht.
 //
-// Gesucht ist die erste Massnahme, die die Note auf mindestens ZIEL bringt (seit 24.10.2026 5,5, «vollständig erfüllt»,
-// Nutzerentscheid; vorher 4,5 «weitgehend erfüllt» wie der lokale Zielbild-Rechner, der bei 4,5 bleibt),
+// Gesucht ist die erste Massnahme, die die Note auf mindestens ZIEL bringt (seit 24.10.2026 5,5, «vollständig erfüllt»;
+// vorher 4,5 «weitgehend erfüllt» wie der lokale Zielbild-Rechner, der bei 4,5 bleibt),
 // in der Rangfolge des lokalen Rechners:
 //   Rang 1  Markierung ohne Parkierungsabbau: Sicherheitsstreifen · Radstreifen verbreitern · Radstreifen
 //           markieren (eine Seite / beide) · Velo vom Fussweg in die Fahrbahn
@@ -27,13 +27,13 @@
 //   - Die Note rechnet die Online-Bewertung (bewertung.ts), nicht die lokale Notenkette.
 // Parkierung je Seite statt «beidseitig/Seite»; Parkierung auf Trottoirniveau braucht keine Fahrbahnbreite.
 //
-// Andere Städte (Nutzerentscheid 20.10.2026): dieselbe Rangfolge (eine normative Festlegung, keine städtische).
+// Andere Städte: dieselbe Rangfolge (eine normative Festlegung, keine städtische).
 // Die Unterschiede kommen über die Note der Stadt (Soll-Führungsform, Breiten) und die Masse der Platzprüfung:
 // die der Stadt, wo ihre Standards etwas nennen (vorgabe(), Breiten der Stadt), sonst die Berner als Ersatz
 // (im Vermerk genannt). Den schmalen Kern (Pilot) gibt es nur in Bern; die Hinweise auf die Berner
 // Querschnittsblätter (Q …) fallen weg.
 //
-// Randsteinanpassung (Nutzerentscheid 17.10.2026): die Trottoirs auf die Vorgabe des Fussverkehrsnetzes
+// Randsteinanpassung: die Trottoirs auf die Vorgabe des Fussverkehrsnetzes
 // (FUSSNETZ, Masterplan Fussverkehr) — schmalere werden auf die Vorgabe verbreitert (zulasten der Fahrbahn),
 // breitere dürfen bis auf die Vorgabe schmaler werden. Ohne gewähltes Netz gibt es diese Variante nicht.
 
@@ -239,7 +239,7 @@ function inDieFahrbahn(e: Eingaben): Eingaben | null {
   return k
 }
 // Q 9 «Nebenstrasse»: in Bern nur auf einer Quartierstrasse der amtlichen Strassenhierarchie (wie massnahmen.velostrasse im
-// lokalen Rechner; Nutzerentscheid 01.11.2026). Fehlt die Angabe (andere Städte, Dienst nicht erreichbar), keine Bedingung.
+// lokalen Rechner). Fehlt die Angabe (andere Städte, Dienst nicht erreichbar), keine Bedingung.
 export const VELOSTRASSE_HIERARCHIE = 'Quartierstrasse'
 export function velostrasse(e: Eingaben): Eingaben | null {
   if (e.ist !== MISCH || (e.geg && e.geg !== MISCH)) return null
@@ -425,7 +425,7 @@ function kernVarianten(e: Eingaben): Kand[] {
 }
 const gegenSchiene = (e: Eingaben) => e.tram && (e.ist === MISCH || e.geg === MISCH)
 
-// ── Wege ohne bzw. neben der Fahrbahn (Nutzerentscheid 20.10.2026; nicht im Katalog des lokalen Rechners) ──
+// ── Wege ohne bzw. neben der Fahrbahn (nicht im Katalog des lokalen Rechners) ──
 // Fussweg mit Velo bzw. gemeinsamer Fuss-/Radweg: Rang 1 als Fuss-/Radweg signalisieren, wenn er die Vorgabe
 // (Q 11) schon hat; Rang 6 auf die Vorgabe verbreitern oder Fuss- und Veloverkehr trennen (Zweirichtungsradweg
 // Q 10 auf dem Weg ohne Fahrbahn, sonst abgesetzter Radweg Q 3, dazu ein Fussweg von 2,00 m). Den Platz neben dem
@@ -483,17 +483,17 @@ export interface Vorschlag {
   noteVor: number | null
   noteNach?: number
   alternative: string
-  // zum Übernehmen (Nutzerwunsch 20.10.2026); art (seit 24.10.2026, bei der bestmöglichen Verbesserung): «pilot» = beste
+  // zum Übernehmen; art (seit 24.10.2026, bei der bestmöglichen Verbesserung): «pilot» = beste
   // Verbesserung mit schmalem Kern; ohne art wie bisher. «Günstiger» und «mit Parkierungsabbau» stehen seit 27.10.2026 in «alle».
   alternativen: { text: string; noteNach: number; k: Eingaben; art?: 'pilot' }[]
   blocker: string
   vermerk: string
   varianten: number                 // geprüfte Varianten
   k?: Eingaben                      // die Eingaben des Vorschlags (für die Aufteilung)
-  // Kein Vorschlag erreicht das Ziel, aber einer verbessert die Note (seit 24.10.2026, Nutzerwunsch): bestmögliche Verbesserung
+  // Kein Vorschlag erreicht das Ziel, aber einer verbessert die Note (seit 24.10.2026): bestmögliche Verbesserung
   // des Katalogs mit rang, text, noteNach und k; erreicht bleibt false, blocker nennt, warum das Ziel nicht erreicht wird
   teilweise?: boolean
-  // Alle Varianten (seit 27.10.2026, Nutzerwunsch «können nicht alle Vorschläge angezeigt werden?»): je Stufe der Rangfolge,
+  // Alle Varianten (seit 27.10.2026): je Stufe der Rangfolge,
   // Parkierung (weg 0/1/2) und Pilot ja/nein die beste Variante, nur solche, die den Erfüllungsgrad von heute heben; nach Note,
   // dann Rangfolge. Ungefiltert wären es am Aargauerstalden 32 je Zeile, meist fast gleich (andere Breite, eine Seite, Tempo 30 davor).
   alle?: { text: string; noteNach: number; k: Eingaben; rang: number; weg: 0 | 1 | 2; pilot: boolean }[]
@@ -510,7 +510,7 @@ export function eingabenVon(s: Section, stadt: Stadt = 'bern', breiten?: Breiten
   const a = seiteA(s), b = seiteB(s), einbahn = s.richtung === 'eine'
   const form = (f: typeof a) => (f.ist || null) as IstFuehrungsform | null
   // Fehlt eine Ist-Breite, gilt wie in der Ausgangslage der Planung die Vorgabe, als «angenommen» vermerkt
-  // (Nutzerentscheid 20.10.2026: Planen auch ohne vollständige Ist-Angaben)
+  // (Planen auch ohne vollständige Ist-Angaben)
   const angenommen: string[] = []
   const annahme: Partial<Record<S, { form: IstFuehrungsform; breite: number }>> = {}
   const breite = (f: typeof a, seite: S) => {
@@ -519,7 +519,7 @@ export function eingabenVon(s: Section, stadt: Stadt = 'bern', breiten?: Breiten
     // Weg ohne Fahrbahn: die gemessene «Fahrbahnbreite» ist die Wegfläche der AV
     if (s.ohneFahrbahn && WEG_TEIL[f.ist] && Number.isFinite(s.fahrbahnbreite)) return s.fahrbahnbreite
     if (!brauchtBreite(f.ist)) return null
-    const v = sollBreite(f.ist, s.routentyp || 'Veloroute', breiten?.[f.ist])
+    const v = sollBreite(f.ist, s.routentyp || 'Velohauptroute', breiten?.[f.ist])
     if (v == null) return null
     angenommen.push(`Breite Seite ${seite} (${f.ist}) mit der Vorgabe ${m2(v)} angenommen`)
     annahme[seite] = { form: f.ist, breite: v }
@@ -538,7 +538,7 @@ export function eingabenVon(s: Section, stadt: Stadt = 'bern', breiten?: Breiten
     parkArt: { ...(tief(s.parkTiefe?.a) ? { A: s.parkTiefe!.a } : {}), ...(tief(s.parkTiefe?.b) ? { B: s.parkTiefe!.b } : {}) },
     ...(s.parkVersetzt && !einbahn ? { parkVersetzt: s.parkVersetzt === 'a' ? 'A' as S : 'B' as S } : {}),
     sich: { A: parkJa(a) && a.parkenSicherheitsstreifen, B: !einbahn && parkJa(b) && b.parkenSicherheitsstreifen },
-    einbahn, route: s.routentyp || 'Veloroute', dtv: Number.isFinite(dtv) ? dtv : null, kmh: Number.isFinite(s.speed) ? s.speed : null,
+    einbahn, route: s.routentyp || 'Velohauptroute', dtv: Number.isFinite(dtv) ? dtv : null, kmh: Number.isFinite(s.speed) ? s.speed : null,
     dtvBelegt: Number.isFinite(s.dtv),   // Kernfahrbahn nur mit belegtem DTV (querschnitt.kern_erlaubt)
     // Mit Mittelinsel: der Querschnitt durch die Insel (wie die Ausgangslage), die Insel selbst steht nicht zur Verfügung
     tram: s.tram, insel: inselB,
@@ -613,7 +613,7 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
   const res: Vorschlag = { erreicht: null, text: '', noteVor: n0, alternative: '', alternativen: [], blocker: '', vermerk: '', varianten: 0 }
   const vermerke: string[] = []
   if (e.angenommen?.length) vermerke.push(`Ist nicht vollständig erfasst: ${e.angenommen.join('; ')}`)
-  if (!base.routentyp) vermerke.push('Routentyp fehlt: gerechnet als Veloroute')
+  if (!base.routentyp) vermerke.push('Routentyp fehlt: gerechnet als Velohauptroute (Annahme)')
   if (e.ohneFahrbahn && (!Number.isFinite(dtvEff(base, stadt)) || !Number.isFinite(base.speed)))
     vermerke.push('Weg ohne Fahrbahn ohne DTV oder Tempo: gerechnet ohne Motorfahrzeugverkehr')
   if (!e.ist) { res.blocker = 'keine Führungsform erfasst'; return res }
@@ -654,7 +654,7 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
     return out
   }
   const rang6 = (x: Eingaben): Kand[] => {
-    // Wege-Regeln nur für Wege ohne Fahrbahn (Nutzerentscheid 20.10.2026); an Strassen gilt der Katalog des lokalen Rechners
+    // Wege-Regeln nur für Wege ohne Fahrbahn; an Strassen gilt der Katalog des lokalen Rechners
     if (x.ohneFahrbahn) return wegVarianten(x).filter(c => c.rang === 6)
     if (![x.ist, x.geg].some(f => f === MISCH || f === RS || f === FUSSWEG || f === UMWELTSPUR)) return []
     return [...veloVarianten(x, 6, RW), ...mitPark(6, x, k => veloVarianten(k, 6, RW))]
@@ -719,14 +719,14 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
       res.alternative = `nur im Pilot möglich: ${altText(piloten[0])}`
       res.alternativen = [{ text: piloten[0].text, noteNach: piloten[0].n, k: piloten[0].k }]
     }
-    // Bestmögliche Verbesserung (Nutzerwunsch 24.10.2026: «dann hätte es einen Vorschlag zur Verbesserung»): die Massnahme mit der
+    // Bestmögliche Verbesserung («dann hätte es einen Vorschlag zur Verbesserung»): die Massnahme mit der
     // höchsten Note über der von heute, ohne Pilot; bei gleicher Note wie sonst nach Rang, Parkierung, Eingriffen, eine Seite vor beiden.
-    // Dazu als Zusatzzeilen (Nutzerwunsch 24.10.2026): «oder günstiger» = die erste Verbesserung in der gewohnten Rangfolge, wenn
+    // Dazu als Zusatzzeilen: «oder günstiger» = die erste Verbesserung in der gewohnten Rangfolge, wenn
     // sie eine andere ist; «oder im Pilot» = die beste mit schmalem Kern, wenn sie mehr bringt als die bestmögliche Verbesserung.
     const verbessert = benotet.filter(c => c.n > n0 + 1e-9)
     const besser = verbessert.filter(c => !c.text.includes('(Pilot)'))
       .sort((x, y) => y.n - x.n || nachRang(x, y))
-    // Pilot als Vorschlag (seit 27.10.2026, Nutzerwunsch: «dann könnte doch der Pilot vorgeschlagen werden»): Hebt ohne Pilot keine
+    // Pilot als Vorschlag (seit 27.10.2026: «dann könnte doch der Pilot vorgeschlagen werden»): Hebt ohne Pilot keine
     // Massnahme den Erfüllungsgrad (Aargauerstalden mit 7,0 m Fahrbahn: nur «Parkierung Seite A aufheben» 1,0 → 2,0), wohl aber
     // eine mit schmalem Kern, wird sie der Vorschlag; erreicht sie das Ziel, gilt es als erreicht (im Pilot).
     const hebt = (n: number) => erfuellungsgrad(n) !== erfuellungsgrad(n0)
@@ -797,7 +797,7 @@ export function trottoirAnpassung(s: Section, a: Aufteilung, stadt: Stadt = 'ber
 // verfügbare Fahrbahn mit Randsteinanpassung
 export const fahrbahnMitRandstein = (fb: number, t: TrottoirAnpassung): number => r2(fb + t.frei.A + t.frei.B - t.fehlt.A - t.fehlt.B)
 
-// Randsteinanpassung so weit wie möglich (seit 24.10.2026, Nutzerentscheid, Befund Kirchenfeldstrasse 307351482: Radweg und
+// Randsteinanpassung so weit wie möglich (seit 24.10.2026, Befund Kirchenfeldstrasse 307351482: Radweg und
 // Trottoirs auf 2,50 m zusammen 1,45 m zu breit für den Strassenraum, also gar kein Vorschlag): Erreicht mit den Trottoirs auf der
 // Vorgabe keine Massnahme das Ziel, werden sie nur so weit verbreitert, dass eine Massnahme es noch erreicht — die grösste
 // Verbreiterung in 5-cm-Schritten (binäre Suche; mehr Fahrbahn macht einen Vorschlag nicht schlechter), auf die Seiten im

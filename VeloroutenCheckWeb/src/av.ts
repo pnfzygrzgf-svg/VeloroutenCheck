@@ -6,7 +6,7 @@
 //
 // Nutzung nach den Betriebsbestimmungen von geodienste.ch (Fair Use: rund 10 WFS-Abfragen pro
 // Minute bei 1 MB); geladen wird nur beim Messen, ein Rechteck um den sichtbaren Ausschnitt.
-// Freigeschaltet für Bern, Zürich und Basel (Nutzerentscheid 16.10.2026); Luzern gibt die AV
+// Freigeschaltet für Bern, Zürich und Basel; Luzern gibt die AV
 // über geodienste.ch nur mit Freigabe ab, dort seit 17.10.2026 die Strassenflächen der Stadt
 // (ladeAvLuzern). Quellenangabe je Kanton (avQuelle).
 
@@ -22,7 +22,7 @@ const WFS = 'https://geodienste.ch/db/av_0/deu'
 // Luzern: Strassenflächen der Stadt statt der AV (siehe unten, ladeAvLuzern)
 export const avQuelle = (kanton: string) => (kanton === 'Luzern'
   ? 'Strassenflächen Stadt Luzern, © Geoinformationszentrum Stadt Luzern'
-  : `Amtliche Vermessung, Kanton ${kanton}, geodienste.ch`)
+  : kanton === 'Schweiz' ? 'Amtliche Vermessung der zuständigen Kantone, geodienste.ch' : `Amtliche Vermessung, Kanton ${kanton}, geodienste.ch`)
 
 export function avUrl(e: number, n: number, radiusM: number): string {
   const bbox = [e - radiusM, n - radiusM, e + radiusM, n + radiusM].map(v => v.toFixed(1)).join(',')

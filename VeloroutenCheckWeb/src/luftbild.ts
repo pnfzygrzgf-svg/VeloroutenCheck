@@ -6,7 +6,7 @@
 // Bern; für Zürich und Basel gibt es keine handverifizierten Seiten zum Vergleich.
 // Öffentlich — anders als der Markierungs-Snapshot (velostreifen.ts).
 //
-// Das Ergebnis ist NUR EIN HINWEIS (Nutzerentscheid 14.10.2026): Es setzt keine Führungsform
+// Das Ergebnis ist NUR EIN HINWEIS: Es setzt keine Führungsform
 // und keine Breite, sondern die Maske zeigt «Radstreifen im Luftbild erkannt» und bietet das
 // Übernehmen an (strecke.ts, luftbildHinweis/luftbildUebernehmen).
 //
@@ -85,3 +85,6 @@ export async function luftbildEbene(cands: Cand[], file: string): Promise<Ebenen
     id: `lb:${l[0].lat.toFixed(6)},${l[0].lon.toFixed(6)}`, linien: [l], klasse: 'luftbild',
     text: 'Radstreifen im Luftbild erkannt (remote_velo, ETH Zürich; nur Hinweis)' }))
 }
+
+/** Fresh source cycle; reuse within one cycle remains allowed. */
+export function quellenCacheLeeren() { caches.clear() }

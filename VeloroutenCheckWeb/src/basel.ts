@@ -180,3 +180,6 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
     }
   }) }
 }
+
+/** Fresh source cycle; reuse within one cycle remains allowed. */
+export function quellenCacheLeeren() { dtvCache = undefined; velostrassenCache = null }

@@ -40,7 +40,7 @@ describe('vorschlagRechnen', () => {
     expect(a.tempo).toBe(30)
     expect(planNote(s, a)).toBe(v.noteNach)
   })
-  it('ohne Ist-Breite trotzdem ein Vorschlag, die Breite als angenommen vermerkt (Nutzerentscheid 20.10.2026)', () => {
+  it('ohne Ist-Breite trotzdem ein Vorschlag, die Breite als angenommen vermerkt', () => {
     const v = vorschlag45(abschnitt({ dtv: 6000, speed: 50, ist: 'Radstreifen', fahrbahnbreite: 10 }))
     expect(v.blocker).toBe('')
     expect(v.vermerk).toMatch(/^Ist nicht vollständig erfasst: Breite Seite A \(Radstreifen\) mit der Vorgabe 1,80 m angenommen/)

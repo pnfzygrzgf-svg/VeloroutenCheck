@@ -1,4 +1,4 @@
-// ── Querschnitt als Skizze (Aufteilung planen, Etappe 2) ──────────────────────
+// ── Querschnitt als Skizze (Aufteilung planen) ──────────────────────
 //
 // Massstäbliche Zeichnung quer zur Strasse, in Fahrtrichtung der Seite A gesehen: links der Rand
 // der Seite B, rechts der Rand der Seite A (wie die Liste der Teile). Gezeichnet wird in
@@ -69,7 +69,7 @@ function figuren(t: Teil, b: number, links: boolean, einbahn: boolean, i: number
     case 'Trottoir': {
       if (bildVon(t) === 'sitzbank') return eine(`bench-${lr}`, 90, 90, 100)
       // Zwei Personen, weiblich und männlich gelesen, ab 1,50 m nebeneinander; weiblich gelesen nur mit
-      // Hose oder langem Rock bzw. Kleid (Nutzerwunsch 16.10.2026, keine kurzen Röcke).
+      // Hose oder langem Rock bzw. Kleid (keine kurzen Röcke).
       const f = WEIBLICH[i % WEIBLICH.length], m = MAENNLICH[i % MAENNLICH.length]
       if (b >= 150) return [{ datei: f, w: 140, h: 220, dx: -b / 5 }, { datei: m, w: 140, h: 220, dx: b / 5 }]
       return eine(i % 2 ? m : f, 140, 220, 80)
@@ -152,10 +152,10 @@ interface SkizzeProps {
   teile: Teil[]
   einbahn: boolean
   massstabCm: number          // gemeinsame Breite aller Skizzen [cm]
-  // Blickrichtung in der Skizze (Nutzerwunsch 21.10.2026): Himmelsrichtungen der Seiten A und B; die Skizze zeigt oben
+  // Blickrichtung in der Skizze: Himmelsrichtungen der Seiten A und B; die Skizze zeigt oben
   // links «Seite B · kommt entgegen», oben rechts «Seite A · Blickrichtung»
   richtungen?: { a?: string | null; b?: string | null }
-  // Kennwerte (seit 24.10.2026, Nutzerwunsch: «damit die Skizzen alleine funktionieren»): Titel, Tempo, DTV und Routentyp
+  // Kennwerte (seit 24.10.2026: «damit die Skizzen alleine funktionieren»): Titel, Tempo, DTV und Routentyp
   // in der ersten Zeile der Zeichnung, lang und kurz (schmale Bildschirme)
   kennwerte?: { lang: string; kurz: string }
 }
@@ -287,7 +287,7 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis, 
             const weiss = (spur(vt) && spur(t)) || park(vt, t) || park(t, vt)
             const gelb = (vor === 'Velostreifen') !== (t.art === 'Velostreifen') && istFahrbahnTeil(vt) && istFahrbahnTeil(t)
             if (!weiss && !gelb) return null
-            // deutlich sichtbar (Nutzerwunsch 20.10.2026): 20 cm breit, etwas über dem Boden
+            // deutlich sichtbar: 20 cm breit, etwas über dem Boden
             return <rect key={`m${i}`} x={x - 10} y={yBoden - 5} width={20} height={10} fill={gelb ? '#facc15' : '#ffffff'} />
           })}
           {/* Tramgleise (Meterspur, Schienen ±0,50 m um die Mitte des Teils) */}
@@ -314,7 +314,7 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis, 
                             {...(entgegen ? { transform: `rotate(180 ${mx} ${my})` } : {})} />
             })
           })}
-          {/* Nummer des Teils wie in der Liste (Nutzerwunsch 21.10.2026): Kreis auf dem Bodenstreifen, bei schmalen Teilen darüber */}
+          {/* Nummer des Teils wie in der Liste: Kreis auf dem Bodenstreifen, bei schmalen Teilen darüber */}
           {lage.map(({ t, i, x, b }) => {
             if (b <= 0) return null
             const r = 0.8 * f, cx = x + b / 2
@@ -359,7 +359,7 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis, 
               </text>
             </g>
           )}
-          {/* Ganzer Querschnitt (Nutzerwunsch 20.10.2026), heute wie Planung */}
+          {/* Ganzer Querschnitt, heute wie Planung */}
           {lage.length > 0 && gesamt > 0 && (
             <g fontSize={f} textAnchor="middle" fill="var(--text-strong)">
               <line x1={x0} x2={x0 + gesamt} y1={yMass + 7.4 * f} y2={yMass + 7.4 * f} stroke="var(--text-muted)" strokeWidth={1.2 / s} />

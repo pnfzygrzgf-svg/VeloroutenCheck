@@ -1,4 +1,4 @@
-// ── Markierungen im Luftbild erkennen (seit 25.10.2026, Probe; Nutzerwunsch Kirchenfeldstrasse 44425592) ─────────────
+// ── Markierungen im Luftbild erkennen (seit 25.10.2026, Probe) ─────────────
 //
 // Ziel: Spurgrenzen quer über die Fahrbahn vorschlagen, damit sich die Breiten der Fahrspuren und Velostreifen von heute
 // nicht nur gleichmässig verteilt, sondern am Bestand ablesen lassen. Keine Daten dazu online (OSM width:lanes fehlt fast
@@ -45,7 +45,7 @@ function mercPx(lat: number, lon: number): [number, number] {
 export type LuftbildQuelle = 'swissimage' | 'bern2026'
 export const LUFTBILD_NAME: Record<LuftbildQuelle | 'beide', string> = {
   swissimage: 'SWISSIMAGE (swisstopo)', bern2026: 'Orthofoto Stadt Bern 2026', beide: 'Orthofoto Stadt Bern 2026 und SWISSIMAGE' }
-const BERN26_WMS = 'https://map.bern.ch/arcgis/services/Geoportal/Orthofoto_2026_1/MapServer/WMSServer'
+const BERN26_WMS = 'https://map.bern.ch/arcgis/services/Geoportal/Orthofoto_2026/MapServer/WMSServer'
 const WMS_MAX_PX = 4096, AUSSERHALB = 0.1
 export interface Bild { hell: (px: number, py: number) => number; quelle: LuftbildQuelle }
 

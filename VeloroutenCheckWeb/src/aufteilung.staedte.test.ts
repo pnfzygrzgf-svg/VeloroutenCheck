@@ -9,7 +9,7 @@ import { parkierungAufTrottoir } from './breitenmessung'
 import type { P } from './lv95'
 import { streifen } from './parkierung'
 
-// Etappe 4 (17.10.2026): Vorgaben der Städte, sonst Bern mit «Ersatz Bern: …»
+// Vorgaben der Städte, sonst Bern mit «Ersatz Bern: …»
 const T = (art: Teil['art'], breite: number): Teil => ({ art, breite })
 
 describe('vorgabe — eigene Werte der Stadt, sonst Ersatz Bern', () => {

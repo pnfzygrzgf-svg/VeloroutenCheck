@@ -1,3 +1,5 @@
+import { datenStaende } from './datenstand'
+import { standardText } from './gebiet'
 // ── Zahlen-Ein-/Ausgabe (de-CH) und CSV-Export (client-seitig, ohne Library) ──
 //
 // Aus App.tsx herausgelöst (29.09.2026), damit Zahlen-Parser und Export testbar sind (csv.test.ts).
@@ -24,9 +26,26 @@ export function parseZahl(r: string): number {
 export const numDE = (x: number, dec = 0) => (Number.isFinite(x) ? x.toFixed(dec).replace('.', ',') : '')
 
 export const QUELLE_LABEL: Record<Quelle, string> = {
-  amtlich: 'Geoportal', osm: 'OSM', manuell: 'manuell', fahrplan: 'opentransportdata',
+  abgeleitet:'abgeleitet', modell:'ARE · NPVM (modelliert)', bestaetigt: 'ausgewählt (Herkunft separat)', amtlich: 'Amtliche Quelle', osm: 'OSM', manuell: 'manuell', fahrplan: 'opentransportdata',
   markierung: 'Markierung', angenommen: 'angenommen ≤2000', luftbild: 'Luftbild',
   gemessen: 'gemessen (Luftbild/AV)', av: 'AV',
+}
+
+/** Die Datenherkunft folgt dem Ort/gewählten Beleg, nicht dem Bewertungsstandard. */
+function quelleLabel(s:Section,feld:string,q:Quelle|undefined):string {
+ if(!q)return ''
+ if(q!=='amtlich')return QUELLE_LABEL[q]
+ const [seite,k]=feld.includes('.')?feld.split('.'):['',feld]
+ const werte=seite==='b'?s.gegen??s:s
+ const wert=werte[k as keyof typeof werte]
+ const option=s.feldQuellen?.[feld]?.find(o=>o.quelle===q&&o.wert===wert&&(!s.feldAuswahl?.[feld]||o.id===s.feldAuswahl[feld]))
+ if(option)return option.name
+ const beleg=(s.e5Auswahl??s.e5Bestaetigt)?.[feld as 'dtv'|'speed']
+ if(beleg&&beleg.wert===wert&&!beleg.modell&&beleg.quelleId!=='osm')return beleg.quelle
+ const stadt=s.datenOrt?.stadt
+ if(!stadt)return 'Amtliche Quelle (örtliche Herkunft unbekannt)'
+ if(feld==='dtv'&&stadt==='zurich')return 'Verkehrsmessstellen, Kanton Zürich'
+ return {bern:'Geodaten Stadt Bern',zurich:'Stadt Zürich',basel:'Kanton Basel-Stadt',luzern:'Stadt Luzern'}[stadt]
 }
 
 // CSV-Feld maskieren (Semikolon-getrennt, de-CH/Excel).
@@ -72,6 +91,7 @@ export function buildCsv(
     'OBS Stand',
     // Haltestellenbereich (nur Bern, 20.10.2026): die Note kommt allein aus der Haltestelle
     'Haltestellenbereich',
+    'Ort', 'Bewertungsstandard', 'Gewählte Quellen', 'Quellenstände', 'Velozählungen (abgerufen)',
   ]
   const rows = sections.map((s, i) => {
     const e = ergebnisse[i]
@@ -89,12 +109,12 @@ export function buildCsv(
     const obsPct = obs && obs.count > 0 ? Math.round(100 * obs.below150 / obs.count) : NaN
     return [
       `Abschnitt ${i + 1}`, s.label ?? '',
-      numDE(s.dtv), s.quelle.dtv ? QUELLE_LABEL[s.quelle.dtv] : (dtvAssumed(s, city) ? QUELLE_LABEL.angenommen : ''),
-      numDE(s.speed), s.quelle.speed ? QUELLE_LABEL[s.quelle.speed] : '',
-      s.ist || '', s.quelle.ist ? QUELLE_LABEL[s.quelle.ist] : '',
-      numDE(s.breite, 2), s.quelle.breite ? QUELLE_LABEL[s.quelle.breite] : '',
-      s.routentyp || '', s.quelle.routentyp ? QUELLE_LABEL[s.quelle.routentyp] : '',
-      s.strassentyp || '', s.quelle.strassentyp ? QUELLE_LABEL[s.quelle.strassentyp] : '',
+      numDE(s.dtv), s.quelle.dtv ? quelleLabel(s,'dtv',s.quelle.dtv) : (dtvAssumed(s, city) ? QUELLE_LABEL.angenommen : ''),
+      numDE(s.speed), s.quelle.speed ? quelleLabel(s,'speed',s.quelle.speed) : '',
+      s.ist || '', s.quelle.ist ? quelleLabel(s,'a.ist',s.quelle.ist) : '',
+      numDE(s.breite, 2), s.quelle.breite ? quelleLabel(s,'a.breite',s.quelle.breite) : '',
+      s.routentyp || 'Velohauptroute', s.quelle.routentyp ? quelleLabel(s,'routentyp',s.quelle.routentyp) : s.routentyp ? '' : 'Annahme',
+      s.strassentyp || '', s.quelle.strassentyp ? quelleLabel(s,'strassentyp',s.quelle.strassentyp) : '',
       s.parkenRechts,
       s.parkenRechts === 'ja' ? (s.parkenSicherheitsstreifen ? 'ja' : 'nein') : '',
       s.tram ? 'ja' : 'nein', s.oevAngebot, hsTypText(s),
@@ -108,16 +128,17 @@ export function buildCsv(
       s.oevAngebot !== 'keine' && !s.ohneHaltestelle ? numDE(s.haltestelleBreite, 2) : '',
       beide ? 'beide' : 'eine', s.peilungA != null ? himmelsrichtung(s.peilungA) : '',
       noteA ? numDE(noteA.note, 1) : '',
-      b ? b.ist : '', b && qb.ist ? QUELLE_LABEL[qb.ist] : '',
-      b ? numDE(b.breite, 2) : '', b && qb.breite ? QUELLE_LABEL[qb.breite] : '',
+      b ? b.ist : '', b && qb.ist ? quelleLabel(s,'b.ist',qb.ist) : '',
+      b ? numDE(b.breite, 2) : '', b && qb.breite ? quelleLabel(s,'b.breite',qb.breite) : '',
       b ? b.parkenRechts : '', b && b.parkenRechts === 'ja' ? (b.parkenSicherheitsstreifen ? 'ja' : 'nein') : '',
       b ? hsTypText(b) : '',
       b && b.ist === 'Umweltspur' ? numDE(b.oevTakt, 1) : '',
       b && s.oevAngebot !== 'keine' && !b.ohneHaltestelle ? numDE(b.haltestelleBreite, 2) : '',
       noteB ? numDE(noteB.note, 1) : '',
-      numDE(s.fahrbahnbreite, 1), s.quelle.fahrbahnbreite ? QUELLE_LABEL[s.quelle.fahrbahnbreite] : '',
+      numDE(s.fahrbahnbreite, 1), s.quelle.fahrbahnbreite ? quelleLabel(s,'fahrbahnbreite',s.quelle.fahrbahnbreite) : '',
       obs && obsStand ? obsStand : '',
       s.haltestellenbereich ? 'ja' : '',
+      s.datenOrt?.name??'von Hand / Ort offen', standardText(city,s.datenOrt), JSON.stringify({werte:s.e5Auswahl??s.e5Bestaetigt??{},felder:s.feldAuswahl??{}}),JSON.stringify(datenStaende()),JSON.stringify(s.velozaehlungen??[]),
     ]
   })
   // Schlusszeile: Strecken-Note (schlechtester Abschnitt). Spalten aus dem Kopf abgeleitet,

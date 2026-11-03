@@ -1,11 +1,29 @@
-import { describe, expect, it } from 'vitest'
-import { achseInRichtungA, profilLesen, profilUrl, steigungAusProfil, umweltspurSteigungText, type ProfilPunkt } from './steigung'
+import { describe, expect, it, vi } from 'vitest'
+import { achseInRichtungA, ladeSteigung, profilLesen, profilUrl, steigungAusProfil, umweltspurSteigungText, type ProfilPunkt } from './steigung'
 import { defaultSection, tauscheSeiten } from './strecke'
 import { pruefeTeil } from './aufteilung'
 import type { P } from './lv95'
 
 const rampe = (pct: number, n = 31, laenge = 300): ProfilPunkt[] =>
   Array.from({ length: n }, (_, k) => ({ dist: k * laenge / (n - 1), h: 540 + pct / 100 * k * laenge / (n - 1) }))
+
+it('stellt dieselben geladenen Höhenpunkte und die tatsächlich abgefragte Achse zur Erklärung bereit, ohne Sichtbefund', async () => {
+  const holen = vi.fn(async () => new Response(JSON.stringify([
+    { dist: 0, alts: { COMB: 500 } }, { dist: 15, alts: { COMB: 500.3 } }, { dist: 30, alts: { COMB: 500.6 } },
+  ])))
+  vi.stubGlobal('fetch', holen)
+  try {
+    const linie: P[] = Array.from({ length: 15 }, (_, i) => [2600000 + i * 2, 1200000 + i % 3])
+    const st = await ladeSteigung(linie)
+    expect(st.pct).toBe(2)
+    expect(st.profil?.punkte).toEqual([{ dist: 0, h: 500 }, { dist: 15, h: 500.3 }, { dist: 30, h: 500.6 }])
+    expect(st.profil?.linie).toEqual(JSON.parse(new URL(profilUrl(linie)).searchParams.get('geom')!).coordinates)
+    expect(st.profil?.sicht).toBeUndefined()
+    expect(st.profil?.datenstand).toBeUndefined()
+    expect(st.profil?.abgerufen).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(holen).toHaveBeenCalledTimes(1)
+  } finally { vi.unstubAllGlobals() }
+})
 
 describe('steigung', () => {
   it('Abfrage in LV95, höchstens 8 Ecken, Anfang und Ende bleiben', () => {

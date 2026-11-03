@@ -5,7 +5,7 @@ import { defaultSection, type Section } from './strecke'
 import type { AvFlaeche } from './av'
 import type { P } from './lv95'
 
-// Velo- und Motorradfelder in der Planung (Bern, Nutzerwunsch Bernastrasse 23.10.2026)
+// Velo- und Motorradfelder in der Planung (Bern)
 describe('Zweiradfelder je Seite (zweiradJeSeite)', () => {
   const r = (e0: number, n0: number, e1: number, n1: number): P[] => [[e0, n0], [e1, n0], [e1, n1], [e0, n1], [e0, n0]]
   // Achse nach Osten, Fahrbahn ±4 m, Trottoir 4–7 m beidseits; Velofelder 2 m tief auf dem nördlichen Trottoir (links), 30–52 m

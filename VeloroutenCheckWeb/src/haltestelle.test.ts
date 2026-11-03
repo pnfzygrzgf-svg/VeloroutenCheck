@@ -7,7 +7,7 @@ import { defaultSection, gegenVon, seiteA, type Section } from './strecke'
 // Die Tests des Katalogs rechnen mit dem bisherigen Ziel 4,5 (die Logik der Ränge ist unabhängig vom Ziel; seit 24.10.2026 online 5,5)
 const vorschlag45 = (...a: Parameters<typeof vorschlagRechnen>) => vorschlagRechnen(a[0], a[1], a[2], a[3], 4.5)
 
-// Haltestellenbereich und Haltestellen in der Planung (Nutzerentscheide 20.10.2026, Masterplan HS 1–7)
+// Haltestellenbereich und Haltestellen in der Planung (Masterplan HS 1–7)
 describe('Haltestellenbereich: Note allein aus der Haltestelle (nur Bern)', () => {
   const n = (route: 'Velohauptroute' | 'Veloroute', oev: 'tram' | 'bus_unter5' | 'bus_5_15' | 'bus_ab15', typ: Parameters<typeof haltestellenbereichNote>[2],
     breite?: number, tram = false) => haltestellenbereichNote(route, oev, typ, breite, tram, 50).note

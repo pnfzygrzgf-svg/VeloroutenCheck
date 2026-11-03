@@ -74,6 +74,8 @@ export function bewerteAbschnitt(
   s: Section, city: Stadt, breiten?: Partial<Record<IstFuehrungsform, BreitenSoll>>,
 ): AbschnittErgebnis {
   const seiten: SeitenErgebnis[] = bewerteteSeiten(s).map(({ seite, felder: f }) => {
+    const quellFelder=(s.offeneQuellen??[]).filter(k=>!k.startsWith(seite==='A'?'b.':'a.'))
+    if(quellFelder.length)return {seite,felder:f,bewertung:null,vergleich:null,fehlt:quellFelder.map(k=>({ist:'Führungsform',breite:'Breite',tram:'Tram in der Fahrbahn',oevAngebot:'ÖV-Angebot'}[k.replace(/^[ab]\./,'')]??k)+' (gewählte Quelle nicht verfügbar)')}
     // Haltestellenbereich (nur Bern, seit 20.10.2026): die Seite mit Haltestelle zählt allein nach der Haltestelle
     if (imHaltestellenbereich(s, f, city)) {
       const fehlt = [...(s.oevAngebot === 'keine' ? ['ÖV-Angebot'] : []), ...(f.haltestellentyp === 'keine' ? ['Haltestellentyp'] : [])]

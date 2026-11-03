@@ -216,7 +216,7 @@ const HALTESTELLEN: Record<Stadt, Partial<Record<Haltestellentyp, HsTyp>>> = {
     'Haltestelle mit Veloumfahrung':       { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.6 } }, // HS1
     'Kaphaltestelle mit Veloüberfahrt':    { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.5 } }, // HS2
     'Kaphaltestelle':                      { familie: 'Mischverkehr' },                                       // HS3
-    // HS4: Masterplan S. 71 Standardbreite 1,80, situativ bis 2,50, minimal 1,60 (Nutzerentscheid 20.10.2026: Minimum
+    // HS4: Masterplan S. 71 Standardbreite 1,80, situativ bis 2,50, minimal 1,60 (Minimum
     // 1,60, anzustreben 1,80 bis 2,50; vorher optimal 2,50)
     'Haltestelle mit rückwärtigem Radweg': { familie: 'Separate', breite: { optimal: 1.8, minimal: 1.6 } }, // HS4
     'Inselhaltestelle':                    { familie: 'Separate', breite: { optimal: 2.5, minimal: 1.5 } }, // HS5
@@ -456,7 +456,7 @@ export const BREITEN_LUZERN: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
 // dieselben vier Werte; ein Wächter dort rechnet sie bei jedem Lauf gegen die Roh-Bewertungen.
 export const BREITE_SATZ: Record<FeelClass, { ruhig: number; schnell: number }> = {
   'Mischverkehr': { ruhig: 0.9,  schnell: 0.9  },
-  // 22.09.2026 (Nutzerentscheid): VORLÄUFIGE KALIBRIERUNG 1,0 für beide Tempi — aus der Berner
+  // 22.09.2026: VORLÄUFIGE KALIBRIERUNG 1,0 für beide Tempi — aus der Berner
   // Bildumfrage (docs/09, Kapitel 5.5): Berner Schätzwerte 1,33 (1,5→1,8 m) und 1,49 (1,5→2,0 m)
   // Noten/m liegen über den Berliner Messwerten 0,65/0,74 (gemessen 2,0→3,5 m, hier extrapoliert);
   // 1,0 = gerundeter Durchschnitt der vier Werte, zugleich im Fenster 0,74–1,05, das mit allen vier
@@ -493,7 +493,7 @@ export const PARKEN_ABZUG = 1.0
 // SEIT 14.08.2026 ein Deckel (vorher ein tempoabhängiger MALUS von 1,2 bei ≤ 30 / 0,7 darüber).
 // Grund: Angleichung an den lokalen Berner Rechner (soll_ist_analyse.py, TRAM_NOTE), der die
 // Schiene seit je als Deckel führt — der Unterschied war der letzte Regel-Unterschied zwischen
-// den beiden Rechnern und ist auf Nutzerentscheid ausgeräumt.
+// den beiden Rechnern und ist ausgeräumt.
 // Die MESSUNG dahinter bleibt unverändert gültig (Velo-Foto-Bewertungen: Mischverkehr mit vs.
 // ohne Tram, 27,1 → 9,4 % bei T30 bzw. 15,2 → 5,4 % bei T50; ÷ 14,4 ergäbe 1,2 bzw. 0,7) —
 // neu ist allein die REGELFORM: Ein Deckel kappt gute Noten hart (6 → 3), drückt aber eine
@@ -767,14 +767,14 @@ export function fuehrungsformNote(
   // SEIT 29.09.2026 NICHT an einer Haltestelle mit separater Velofläche (Familie «Separate»:
   // Veloumfahrung, Veloüberfahrt, rückwärtiger Radweg, Inselhaltestelle u. a.): Das Velo fährt
   // dort an der Schiene vorbei, die Gleise haben keinen Einfluss auf die Note. Angleichung an
-  // den lokalen Berner Rechner (situativ_abzug) auf Nutzerentscheid. Die Kaphaltestelle und die
+  // den lokalen Berner Rechner (situativ_abzug). Die Kaphaltestelle und die
   // übrigen Typen der Familie «Mischverkehr» behalten den Deckel.
   const hsSeparat = hsTyp(stadt, haltestellentyp)?.familie === 'Separate'
   const tramDeckel = (tramInFahrbahn && ist === 'Mischverkehr' && !hsSeparat) ? TRAM_DECKEL : undefined
 
   // ── Kaphaltestelle an einer Tram-Haltestelle ohne bauliche Trennung → Note fix 1 (KAP_NOTE).
   // Auslöser ist EINES der beiden Tram-Merkmale: die Schienen-Angabe oder das ÖV-Angebot «Tram»
-  // (Nutzerentscheid 14.08.2026) — lokal steht dafür ein einziges Datenfeld `tram=ja`, online
+  // — lokal steht dafür ein einziges Datenfeld `tram=ja`, online
   // sind es zwei getrennte Eingaben, und eine vom Tram bediente Kaphaltestelle hat die Schiene
   // per Definition an der Haltekante.
   const kapTramNote1 = haltestellentyp === 'Kaphaltestelle'
@@ -879,7 +879,7 @@ export function fuehrungsformNote(
   //   • verkehrsorientierte Strasse: eine Velostrasse gibt es dort nicht → nicht zulässig (Basis 4).
   //   • «Einbahn Velogegenverkehr ohne Markierung» ist Mischverkehr in einer Einbahnstrasse
   //     (gleicher Rang, gleiche feel-safe-Klasse, keine Breitenvorgabe) und wird auf Pendler-/
-  //     Basisrouten wie Mischverkehr zugelassen (Nutzerentscheid 29.09.2026). Vorher galt die in
+  //     Basisrouten wie Mischverkehr zugelassen. Vorher galt die in
   //     Basler Quartierstrassen alltägliche Form als «nicht konform» (Deckel 4). Auf Vorzugsrouten
   //     bleibt sie es — dort ist allein die Velostrasse vorgesehen.
   if (stadt === 'basel') {
@@ -1051,7 +1051,7 @@ export function vergleichsNoten(a: VergleichArgs, ausser: Stadt): VergleichsNote
   })
 }
 
-// ── Haltestellenbereich (nur Bern, seit 20.10.2026; Nutzerentscheide 20.10.2026) ──────────────────────────────
+// ── Haltestellenbereich (nur Bern, seit 20.10.2026) ──────────────────────────────
 // Wird ein Abschnitt durch die Haltestelle geprägt (Schalter «Haltestellenbereich», von der App vorgeschlagen bei
 // erkannter Haltestelle und höchstens HALTESTELLENBEREICH_MAX_M Länge), zählt für die Note allein die Haltestelle:
 // der Ist-Typ von Hand gegen die Soll-Lösung des Masterplans (Anwendungshilfe Haltestellen, S. 63: ÖV-Angebot ×

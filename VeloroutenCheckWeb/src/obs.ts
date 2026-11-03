@@ -145,3 +145,6 @@ export function mergeObs(parts: (ObsStats | undefined)[]): ObsStats | undefined 
   const mean = count ? wc.reduce((s, x) => s + x.mean * x.count, 0) / count : NaN
   return { median, mean, count, below150, usage }
 }
+
+/** Fresh source cycle; reuse within one cycle remains allowed. */
+export function quellenCacheLeeren() { caches.clear() }

@@ -1,4 +1,4 @@
-// ── Kartenbilder zum Überblick im Menü «Geladene Quellen» (seit 01.11.2026, Nutzerwunsch «die Höhenlinien anzeigen») ─────────
+// ── Kartenbilder zum Überblick im Menü «Geladene Quellen» (seit 01.11.2026) ─────────
 //
 // Anders als die Ebenen der Vorbelegung (ebenen.ts) zeigen sie nicht, was die App gelesen hat, sondern das Kartenbild eines
 // Dienstes, unabhängig von den geladenen Segmenten (wie «Routennetz ganze Stadt»). Zur Prüfung der Steigung:
@@ -27,7 +27,7 @@ const RELIEF: UeberblickEbene = {
   erklaerung: 'Schattierung des Höhenmodells, aus dem die App die Steigung rechnet; Kartenbild, unabhängig von den Segmenten',
 }
 
-export const UEBERBLICK: Record<Stadt, UeberblickEbene[]> = {
+export const UEBERBLICK: Record<Stadt|'schweiz', UeberblickEbene[]> = {
   // Layer-Name des ArcGIS-WMS nicht geprüft (Geoportal am 01.11.2026 aus dem VPN nicht erreichbar): '0' wie beim Routennetz
   bern: [{ id: 'hoehenlinien', titel: 'Höhenlinien (Stadt Bern 2023)', art: 'wms', deckkraft: 0.9, layers: '0',
     url: 'https://map.bern.ch/arcgis/services/Geoportal/Hoehenlinien_2023/MapServer/WMSServer', attribution: 'Geodaten Stadt Bern (Höhenlinien 2023)',
@@ -37,4 +37,5 @@ export const UEBERBLICK: Record<Stadt, UeberblickEbene[]> = {
     erklaerung: 'Haupt- und Nebenhöhenlinien mit Höhenangabe; Kartenbild, unabhängig von den Segmenten' }, RELIEF],
   zurich: [RELIEF],
   luzern: [RELIEF],
+  schweiz: [RELIEF],
 }

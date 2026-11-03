@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dtvKlasse, EBENEN, ebenenFuer, ebenenMischen, ebenenSichtbar, haltestellenObjekte, imUmkreis, legendeFuer, obsObjekte, osmTempoObjekte, spurenText, steigungObjekte, tempoKlasse } from './ebenen'
+import { dtvKlasse, EBENEN, ebenenFarbe, ebenenFuer, ebenenMischen, ebenenSichtbar, haltestellenObjekte, imUmkreis, legendeFuer, obsObjekte, osmTempoObjekte, spurenText, steigungObjekte, tempoKlasse } from './ebenen'
 import { dtvEbene } from './cityShared'
 import type { Cand } from './VeloMap'
 
@@ -68,6 +68,12 @@ describe('ebenen', () => {
     expect(legendeFuer(oev, 'bern').map(l => l[0])).toEqual(['tram', 'bus'])
     expect(legendeFuer(oev, 'zurich').map(l => l[0])).toEqual(['tram'])
   })
+  it('Legende der Verkehrszonen: jede Bezeichnung nur einmal, beide Klassen behalten ihre Farbe', () => {
+    const zonen = EBENEN.find(e => e.id === 'zonen')!
+    const texte = legendeFuer(zonen, 'zurich').map(l => l[2])
+    expect(new Set(texte).size).toBe(texte.length)
+    expect(ebenenFarbe(zonen, 't30_zone')).toBe(ebenenFarbe(zonen, 'Tempo-30-Zone'))
+  })
   it('Routennetz: gelesene Linien mit dem übersetzten Routentyp, ohne Routentyp grau', async () => {
     const { routennetzEbene } = await import('./cityShared')
     const f = (k: string) => ({ geometry: { type: 'LineString', coordinates: [[7.44, 46.95], [7.441, 46.95]] }, properties: { kategorie: k } })
@@ -81,7 +87,7 @@ describe('ebenen', () => {
     const ids = (r: ReturnType<typeof ebenenSichtbar>) => r.zeigen.map(e => e.id)
     const daten = { tempo: [{ id: 't', klasse: 't30', text: '' }] }
     expect(ids(ebenenSichtbar(defs, daten, { moeglich: false, laufend: {} }))).toEqual(['tempo'])
-    expect(ids(ebenenSichtbar(defs, daten, { moeglich: true, laufend: { parkfelder: 1, av: 2 } }))).toEqual(['tempo', 'parkfelder', 'av'])
+    expect(ids(ebenenSichtbar(defs, daten, { moeglich: true, laufend: { parkfelder: 1, av: 2 } }))).toEqual(['av', 'parkfelder', 'tempo'])
     const fertig = ebenenSichtbar(defs, daten, { moeglich: true, laufend: {} })
     expect(ids(fertig)).toEqual(['tempo'])
     expect(fertig.ohne.map(e => e.id)).toContain('parkfelder')

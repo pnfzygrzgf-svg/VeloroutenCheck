@@ -1,6 +1,6 @@
 // ── Breite am Luftbild messen: ab Bordsteinkante (Bern, Zürich, Basel; Luzern: Strassenflächen der Stadt) ─
 //
-// Nutzerentscheid 15.10.2026: Gemessen wird ab der Bordsteinkante bis zur Stelle der Markierung,
+// Gemessen wird ab der Bordsteinkante bis zur Stelle der Markierung,
 // die der Nutzer auf dem Luftbild anklickt; der Messwert ist die Breite an dieser Stelle. Die
 // Bordsteinkante ist die Kante der AV-Fläche «Strasse_Weg» — dieselbe Grundlage wie die Breiten
 // aus dem Berner Markierungsplan (velostreifen_dxf.py: rechtwinkliger Abstand der gelben Linie
@@ -88,7 +88,7 @@ function fusspunkt(p: P, k: Kante): { d: number; fuss: P } {
   return { d: Math.hypot(p[0] - fuss[0], p[1] - fuss[1]), fuss }
 }
 
-// Punkt an eine Bordsteinkante fangen (seit 27.10.2026, Nutzerwunsch: beim Messen mit zwei Punkten «magnetisch» an der AV-Linie,
+// Punkt an eine Bordsteinkante fangen (seit 27.10.2026: beim Messen mit zwei Punkten «magnetisch» an der AV-Linie,
 // damit sich eine Spur von der Markierung bis zur Kante messen lässt und nicht nur ab der Kante). Ohne ersten Punkt die nächste
 // Stelle der Kante; mit erstem Punkt (von) der Fusspunkt des Lots von ihm auf die Kante, wenn er im Fangradius liegt, sodass die
 // Messung rechtwinklig zur Kante ist. null, wenn keine Kante näher als radiusM ist.
@@ -210,7 +210,7 @@ function querschnitte(achsen: P[][], flaechen: AvFlaeche[]): Querschnitt[] {
   return aus
 }
 
-// Seit 20.10.2026 (Nutzerentscheid: die Mittelinsel gehört zur Fahrbahn): Liegt hinter der ersten Kante eine
+// Seit 20.10.2026 (die Mittelinsel gehört zur Fahrbahn): Liegt hinter der ersten Kante eine
 // AV-Verkehrsinsel und dahinter wieder Strasse, läuft der Strahl über die Insel bis zum Bord der Gegenseite.
 // (SCHRITT_UEBER_M ist unten bei den Trottoirbreiten festgelegt.)
 const INSEL_MAX_M = 12
@@ -259,7 +259,7 @@ export function fahrbahnbreite(achsen: P[][], flaechen: AvFlaeche[], kanten: Kan
   return { median: median(werte), min: Math.min(...werte), max: Math.max(...werte), n: werte.length }
 }
 
-// ── Trottoirbreiten aus der AV (seit 16.10.2026, Aufteilung planen Etappe 2) ──────
+// ── Trottoirbreiten aus der AV (seit 16.10.2026, Aufteilung planen) ──────
 // Dieselben Querschnitte wie die Fahrbahnbreite. Je Seite läuft der Strahl bis zur Bordsteinkante
 // und von dort weiter über die AV-Fläche «Trottoir» bis zu deren Ende; aneinanderstossende
 // Trottoirflächen zählen als eine. Liegt hinter dem Bord kein Trottoir (Vorplatz, Parkfläche,
@@ -558,7 +558,7 @@ export function parkierungVersetzt(achsen: P[][], park: { ringe: P[][] }[], tief
   return Math.abs(tl - tr) > 0.05 ? (tl < tr ? 'links' : 'rechts') : nl <= nr ? 'links' : 'rechts'
 }
 
-// ── Velo- und Motorradfelder je Seite (Bern, seit 23.10.2026, Nutzerwunsch Bernastrasse) ─────────────────────────
+// ── Velo- und Motorradfelder je Seite (Bern, seit 23.10.2026) ─────────────────────────
 // Für den Platzbedarf in der Planung: Anteil der Länge je Seite wie bei der Parkierung (parkAnteile, ab ZWEIRAD_SCHWELLE;
 // Zweiradfelder sind kurz), Tiefe quer zur Achse (parkierungTiefe, Annahme 2,00 m), und ob sie auf der Trottoirfläche
 // liegen (parkierungAufTrottoir). Zählen nicht als Parkierung (kein Dooring).
@@ -584,7 +584,7 @@ export function zweiradJeSeite(achsen: P[][], flaechen: AvFlaeche[], park: { rin
 
 // ── Mittelinsel aus der AV (seit 20.10.2026, Nutzerbefund Laubeggstrasse) ──────────────────────────────
 // Jede AV-Verkehrsinsel bis 10 m neben der Achse (nicht neben den Achsenenden), die quer zur Achse auf beiden
-// Seiten an Strasse grenzt, ist eine Mittelinsel — auch eine kurze Schutzinsel am Fussgängerstreifen (Nutzerentscheid:
+// Seiten an Strasse grenzt, ist eine Mittelinsel — auch eine kurze Schutzinsel am Fussgängerstreifen (
 // diese sind relevant). Gemessen durch ihren Schwerpunkt quer zur Achse: Breite der Insel, Länge entlang der Achse
 // und die Fahrbahn von Bord zu Bord samt Insel. Mehrere Inseln: die längste, mit der Anzahl.
 export interface Mittelinsel { breite: number; laenge: number; fahrbahn: number; anzahl: number }
@@ -629,7 +629,7 @@ export function mittelinsel(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[
   return { ...l, anzahl: funde.length }
 }
 
-// ── Haltestelleninsel (seit 21.10.2026, Nutzerentscheid; Befund Monbijoustrasse) ─────────────────────────────────────
+// ── Haltestelleninsel (seit 21.10.2026, Befund Monbijoustrasse) ─────────────────────────────────────
 // An einer Haltestelle ist eine Insel neben der Fahrbahn oft der Wartebereich: dahinter liegt nur ein schmaler Streifen
 // Strasse bis zum Bord (Veloumfahrung, HS 1) oder eine Fahrspur (Inselhaltestelle, HS 5), dann das Trottoir. Gesucht wird
 // die längste AV-Verkehrsinsel bis 10 m neben der Achse, mindestens HS_INSEL_MIN_LAENGE_M lang, mit Strasse auf beiden

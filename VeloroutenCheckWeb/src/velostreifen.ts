@@ -117,3 +117,6 @@ export async function enrichVelostreifen(
   }
   return out
 }
+
+/** Fresh source cycle; reuse within one cycle remains allowed. */
+export function quellenCacheLeeren() { caches.clear() }

@@ -5,6 +5,8 @@
 // Geodaten, Festlegung), nicht aus eigener Auslegung. Nur Adressen, die am 23.10.2026 erreichbar waren (HTTP 200).
 
 import type { Stadt } from './fuehrungsform'
+import type { DatenOrt } from './gebiet'
+import { E6_DIENSTE } from './e5/daten/anbieter/gemeinsam/e6'
 
 export type QuellenEbene =
   | 'Standard der Stadt'        // Masterplan, Velostandards: verbindlich für die eigenen Projekte der Stadt, sonst Orientierung
@@ -29,6 +31,8 @@ export interface Quelle {
   gruppe: QuellenGruppe
   url?: string                  // öffentliche Adresse (Dokument, Seite oder Dienst); fehlt bei kostenpflichtigen Normen
   verwendung: string            // wofür VeloroutenCheck es braucht
+  gebiete?: readonly { kanton:string; bfs?:number; ausgenommen?:readonly number[] }[]
+  gebietLabel?: string
   staedte?: Stadt[]             // nur für diese Städte; fehlt = alle
 }
 
@@ -86,6 +90,9 @@ export const QUELLEN: readonly Quelle[] = [
     verwendung: 'Eigene Festlegungen, wo die Werke schweigen: Trennung mit Pfosten 0,70 m, Note 2 bei nicht erfülltem Haltestellenbereich, ' +
       'Rangfolge der Massnahmen im Vorschlag, Haltestelleninsel unter 2,50 m als Ein- und Ausstieg. Begründet im README.' },
   // ── Daten und Dienste ─────────────────────────────────────────────────────
+  { id: 'hoehenkurven', name: 'Höhenkurven (swissALTI3D)', herausgeber: 'swisstopo', ebene: 'Geodaten', gruppe: 'daten',
+    url: 'https://www.swisstopo.admin.ch/de/hoehenmodell-swissalti3d',
+    verwendung: 'Zuschaltbare 1-m-Höhenkurven aus dem 2-m-Höhenraster des sichtbaren Ausschnitts; neueste passende Ausgabe über STAC v1. Nur Kartenkontext, keine Änderung der Bewertung oder der Höhenprofile. Ausgabe, technische Bereitstellung und Abruf werden getrennt ausgewiesen; das örtliche Aufnahmejahr ist nicht automatisch bekannt.' },
   { id: 'osm', name: 'OpenStreetMap', herausgeber: 'OpenStreetMap-Mitwirkende, ODbL', ebene: 'Geodaten', gruppe: 'daten',
     url: 'https://www.openstreetmap.org/',
     verwendung: 'Strassennetz, Name, Tempo, Breite, Führungsform, Fahrspuren und Pfeile, Einbahn, parallele Radwege, Wartehallen (Overpass API, live).' },
@@ -96,19 +103,33 @@ export const QUELLEN: readonly Quelle[] = [
       'sowie die Altstadt geführt; ohne Eintrag gilt «≤ 2 000 angenommen».' },
   { id: 'ogd_zh', name: 'Open Data Stadt Zürich', herausgeber: 'Stadt Zürich', ebene: 'Geodaten', gruppe: 'daten', staedte: ['zurich'],
     url: 'https://data.stadt-zuerich.ch/',
-    verwendung: 'Velonetzplanung (Routentyp, auch als Kartenebene «Routennetz»), öffentliche Parkplätze (live). Das Tempo kommt in Zürich aus OpenStreetMap.' },
+    verwendung: 'Velonetzplanung (Routentyp, auch als Kartenebene «Routennetz»), öffentliche Parkplätze (live). Tempo und Verkehrszonen aus der amtlichen Signalisation, OSM bleibt als alternative Tempoquelle; Strassenklassierung als amtlicher Hinweis.' },
   { id: 'geo_kt_zh', name: 'Geodaten Kanton Zürich', titel: 'Verkehrsmessstellen', herausgeber: 'Kanton Zürich, Tiefbauamt', ebene: 'Geodaten', gruppe: 'daten',
     staedte: ['zurich'], url: 'https://maps.zh.ch/',
     verwendung: 'Verkehrsmenge (DTV) der nächsten Zählstelle (live).' },
   { id: 'ogd_bs', name: 'Open Data Kanton Basel-Stadt', herausgeber: 'Kanton Basel-Stadt', ebene: 'Geodaten', gruppe: 'daten', staedte: ['basel'],
     url: 'https://data.bs.ch/',
-    verwendung: 'Teilrichtplan Velo und Velostadtplan (Routentyp, Velostrassen; Routennetz Alltag als Kartenebene «Routennetz»), Strassentyp und Tempo, Verkehrszählung (DTV), Teilrichtplan Fuss- und Wanderwege (live bzw. Snapshot).' },
+    verwendung: 'Teilrichtplan Velo und Velostadtplan (Routentyp, Velostrassen; Routennetz Alltag als Kartenebene «Routennetz»), Strassentyp und Tempo, Verkehrszählung (DTV), Lichtsignalanlagen und Velozählungen, Teilrichtplan Fuss- und Wanderwege (live bzw. Snapshot).' },
   { id: 'ogd_lu', name: 'Open Data Stadt Luzern', herausgeber: 'Stadt Luzern', ebene: 'Geodaten', gruppe: 'daten', staedte: ['luzern'],
     url: 'https://map.stadtluzern.ch/',
-    verwendung: 'Velonetz (Routentyp, auch als Kartenebene «Routennetz»), Verkehrszähldaten (DTV der nächsten Zählstelle), öffentliche Parkplätze, Strassenflächen als Ersatz für die amtliche Vermessung (live).' },
-  { id: 'av', name: 'Amtliche Vermessung', titel: 'Bodenbedeckung, Kantone Bern, Zürich und Basel-Stadt', herausgeber: 'geodienste.ch (Kantone)',
-    ebene: 'Geodaten', gruppe: 'daten', staedte: ['bern', 'zurich', 'basel'], url: 'https://www.geodienste.ch/',
+    verwendung: 'Velonetz (Routentyp, auch als Kartenebene «Routennetz»), Verkehrszähldaten (DTV der nächsten Zählstelle), öffentliche Parkplätze, Verkehrszonen, Strassenhierarchie und Lichtsignalanlagen; Velozählstellen des Kantons; Strassenflächen als Ersatz für die amtliche Vermessung (live).' },
+  { id: 'av', name: 'Amtliche Vermessung', titel: 'Bodenbedeckung der frei zugänglichen Kantone', herausgeber: 'geodienste.ch (Kantone)',
+    ebene: 'Geodaten', gruppe: 'daten', gebiete: ['ZH','BE','UR','SZ','GL','ZG','FR','SO','BS','BL','SH','AR','AI','SG','GR','AG','TG','TI','GE','VS','FL'].map(kanton=>({kanton})),
+    gebietLabel: 'Kantone mit freier AV; Wallis teilweise', url: 'https://www.geodienste.ch/',
     verwendung: 'Bordsteinkanten für die Breitenmessung, Fahrbahn- und Trottoirbreiten, Mittelinseln und Haltestelleninseln, Flächen auf der Karte in der Planung (live).' },
+  ...E6_DIENSTE.map((d):Quelle=>({id:d.id,name:d.name,herausgeber:d.anbieter,ebene:'Geodaten',gruppe:'daten',url:d.url,
+    gebiete:[{kanton:d.kanton,bfs:d.bfs,ausgenommen:d.ausgenommen}],
+    gebietLabel:d.bfs===261?'Stadt Zürich':d.bfs===3203?'Stadt St. Gallen':'Kanton Zürich, ohne Städte Zürich und Winterthur',
+    verwendung:`${d.lizenz}. ${d.hinweis} Verwendung: nur Kartenkontext; keine automatische Übernahme in Eingaben oder Bewertung.`})),
+  {id:'gemeinden',name:'Gemeindegrenzen · swissBOUNDARIES3D',herausgeber:'swisstopo',ebene:'Geodaten',gruppe:'daten',
+    url:'https://map.geo.admin.ch/?layers=ch.swisstopo.swissboundaries3d-gemeinde-flaeche.fill',
+    verwendung:'Örtliche Gemeinde und Kanton entlang der Strasse, einschliesslich berührter Grenzgemeinden. Aktueller Jahresstand, nötigenfalls Vorjahr; Datenanbieter unabhängig vom gewählten Bewertungsstandard.'},
+  { id:'bav',name:'BAV-Haltestellen',herausgeber:'Bundesamt für Verkehr',ebene:'Geodaten',gruppe:'daten',url:'https://map.geo.admin.ch/?layers=ch.bav.haltestellen-oev',verwendung:'Haltestellenpunkte für Bus und Tram als Kartenkontext; keine Haltekanten oder automatische Haltestellenform.' },
+  { id:'npvm',name:'ARE · NPVM',herausgeber:'Bundesamt für Raumentwicklung',ebene:'Geodaten',gruppe:'daten',url:'https://map.geo.admin.ch/?layers=ch.are.belastung-personenverkehr-strasse',verwendung:'Motorfahrzeug-DTV als ausdrücklich wählbare Modellalternative zur örtlichen Quelle; Bezugsjahr und Datenstand getrennt.' },
+  { id:'tlm_tram',name:'Tramgleise · swissTLM3D',herausgeber:'swisstopo',ebene:'Geodaten',gruppe:'daten',url:'https://map.geo.admin.ch/?layers=ch.swisstopo.swisstlm3d-eisenbahnnetz',verwendung:'Tramgleise als Kartenkontext; ein paralleles Gleis belegt weder Tram in der Fahrbahn noch einen Haltestellenbereich.' },
+  { id:'velo_zh',name:'Velozählungen Zürich',herausgeber:'Stadt Zürich, Tiefbauamt',ebene:'Geodaten',gruppe:'daten',staedte:['zurich'],url:'https://data.stadt-zuerich.ch/dataset/ted_taz_verkehrszaehlungen_werte_fussgaenger_velo',verwendung:'Richtungsgetrennte Gerätewerte der vorhandenen Viertelstunden mit Standorten; keine automatische Jahres-DTV-Hochrechnung und keine Notenwirkung.' },
+  { id:'velo_bs',name:'Velozählungen Basel-Stadt',herausgeber:'Kanton Basel-Stadt',ebene:'Geodaten',gruppe:'daten',staedte:['basel'],url:'https://data.bs.ch/explore/dataset/100013/',verwendung:'Stundenwerte je Zählstelle, Richtung und Spur, mit Anbieter-Validierung und Ersatzwerten; keine Notenwirkung.' },
+  { id: 'astra', name: 'ASTRA', verwendung: 'Kartenebenen mit Unfällen; kein Einfluss auf Regeln oder Bewertung', titel: 'Unfälle mit Personenschaden (alle, Fussverkehr, Velo); nur Kartenkontext', herausgeber: 'Bundesamt für Strassen', ebene: 'Geodaten', gruppe: 'daten', url: 'https://www.astra.admin.ch/astra/de/home/dokumentation/daten-informationsprodukte/unfalldaten.html' },
   { id: 'swisstopo', name: 'swisstopo', titel: 'SWISSIMAGE, Landeskarte grau, swissALTI3D, amtliches Strassenverzeichnis, Adresssuche', herausgeber: 'Bundesamt für Landestopografie',
     ebene: 'Geodaten', gruppe: 'daten', url: 'https://www.swisstopo.admin.ch/',
     verwendung: 'Luftbild (Standard-Hintergrund, Messen, Bericht), Kartenhintergrund «Karte», Strassennamen über dem Luftbild, Vorschläge der Strassensuche, Höhenprofil swissALTI3D für die Steigung je Abschnitt (Hinweis an der Umweltspur; live).' },
@@ -126,10 +147,29 @@ export const QUELLEN: readonly Quelle[] = [
     verwendung: 'Personen, Velos, Fahrzeuge vom Auto bis zum Tram, Ausstattung und Pfeile in der Querschnitt-Skizze; Boden, Masse und Striche sind eigene Zeichnung.' },
 ]
 
-/** Quellen einer Stadt (allgemeine und stadtspezifische), in der Reihenfolge des Verzeichnisses */
-export const quellenFuer = (stadt: Stadt, gruppe?: QuellenGruppe): Quelle[] =>
-  QUELLEN.filter(q => (!q.staedte || q.staedte.includes(stadt)) && (!gruppe || q.gruppe === gruppe))
+/** Tatsächliche Datenorte können auch ausserhalb der vier Bewertungsprofile liegen. */
+export type QuellenOrt = Stadt | DatenOrt
+const STADT_ORT:Record<Stadt,DatenOrt>={
+  bern:{name:'Bern',stadt:'bern',bfs:351,kanton:'BE'},zurich:{name:'Zürich',stadt:'zurich',bfs:261,kanton:'ZH'},
+  basel:{name:'Basel',stadt:'basel',bfs:2701,kanton:'BS'},luzern:{name:'Luzern',stadt:'luzern',bfs:1061,kanton:'LU'},
+}
+function datenOrte(orte:readonly QuellenOrt[]):DatenOrt[]{
+ return orte.flatMap(o=>typeof o==='string'?[STADT_ORT[o]]:o.gemeinden?.length?datenOrte(o.gemeinden):[o])
+}
+function quelleDeckt(q:Quelle,orte:readonly DatenOrt[]):boolean {
+ if(q.gebiete)return q.gebiete.some(g=>orte.some(o=>o.kanton===g.kanton&&(!g.bfs||g.bfs===o.bfs)&&!g.ausgenommen?.includes(o.bfs??-1)))
+ return !q.staedte||q.staedte.some(s=>orte.some(o=>o.stadt===s||o.bfs===STADT_ORT[s].bfs))
+}
+/** Quellen einer Stadt: allgemeine und örtlich passende Einträge in Verzeichnisreihenfolge. */
+export const quellenFuer=(stadt:Stadt,gruppe?:QuellenGruppe):Quelle[]=>
+ QUELLEN.filter(q=>(!gruppe||q.gruppe===gruppe)&&quelleDeckt(q,[STADT_ORT[stadt]]))
 
-/** Kurzzeile einer Quelle für den Bericht: Name, Titel, Herausgeber, Ausgabe, Adresse */
-export const quellenZeile = (q: Quelle): string =>
-  [q.name + (q.titel ? `: ${q.titel}` : ''), q.herausgeber + (q.ausgabe ? ` (${q.ausgabe})` : ''), q.url].filter(Boolean).join(' · ')
+/** Kurzzeile einer Quelle für den Bericht: Name, Titel, Herausgeber, Ausgabe, Adresse. */
+export const quellenZeile=(q:Quelle):string=>
+ [q.name+(q.titel?`: ${q.titel}`:''),q.herausgeber+(q.ausgabe?` (${q.ausgabe})`:''),q.url].filter(Boolean).join(' · ')
+
+/** Datengebiete unabhängig vom gewählten Bewertungsstandard; keine neue Datenabfrage. */
+export const datenquellenFuer=(orte:readonly QuellenOrt[]):Quelle[]=>{
+ const hier=datenOrte(orte)
+ return QUELLEN.filter(q=>q.gruppe==='daten'&&quelleDeckt(q,hier))
+}

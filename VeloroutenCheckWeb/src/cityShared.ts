@@ -17,6 +17,7 @@ import { dtvStationen, type EbenenDaten, type EbenenObjekt } from './ebenen'
 
 // ── Geo-Matching gegen ein GeoJSON-Liniennetz ─────────────────────────────────
 export interface GeoJsonFeature {
+  id?: string | number
   geometry: { type: string; coordinates: number[] | number[][] | number[][][] } | null
   properties: Record<string, string | number | null>
 }
@@ -301,7 +302,7 @@ export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<
   return { byId, stops, fehler, ebenen: { oev } }
 }
 
-// Kartenebene «Routennetz» (ebenen.ts, seit 01.11.2026, Nutzerentscheid): die für den Routentyp gelesenen Netzlinien mit dem
+// Kartenebene «Routennetz» (ebenen.ts, seit 01.11.2026): die für den Routentyp gelesenen Netzlinien mit dem
 // übersetzten Routentyp; Linien ohne Routentyp (z. B. Zürcher Basisnetz) dünn grau, damit man sieht, dass sie gelesen sind
 export function routennetzEbene(features: GeoJsonFeature[], praefix: string, quelle: string,
   routentypVon: (f: GeoJsonFeature) => string | null | undefined, original: (f: GeoJsonFeature) => string | null): EbenenObjekt[] {
@@ -313,3 +314,6 @@ export function routennetzEbene(features: GeoJsonFeature[], praefix: string, que
       text: `${rt ?? 'kein Routentyp'}${o && o !== rt ? ` (${o})` : ''} · ${quelle}` }]
   })
 }
+
+/** Fresh source cycle; reuse within one cycle remains allowed. */
+export function quellenCacheLeeren() { taktCache.clear() }

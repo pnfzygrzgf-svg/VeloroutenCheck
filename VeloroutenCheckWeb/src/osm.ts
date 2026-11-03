@@ -167,7 +167,7 @@ export function wayToCand(w: OsmWay): Cand | null {
   const einbahn = einbahnAusTags(t)
   const spuren = isRoad ? spurenAusTags(t, einbahn) : undefined
   return {
-    id: w.id, wayId: w.id, ist: istFromTags(t, hw), seiten: istSeiten(t, hw),
+    id: w.id, wayId: w.id, osmTags: { ...t }, ist: istFromTags(t, hw), seiten: istSeiten(t, hw),
     ...(isRoad ? { breiteSeiten: { rechts: brSeite('right'), links: brSeite('left') } } : { ohneFahrbahn: true }),
     ...(einbahn ? { einbahn } : {}), ...(spuren ? { spuren } : {}),
     ...(einbahn && t['oneway:bicycle'] === 'no' ? { veloGegenverkehr: true } : {}),
@@ -209,7 +209,7 @@ export function teileInListe(cs: Cand[], id: number, lat: number, lon: number): 
   const start = c.teil?.startM ?? 0
   const teil = (geom: LL[], len: number, startM: number): Cand => {
     const t: Cand = { ...c, id: naechsteTeilId--, geom, len, teil: { nr: 0, anzahl: 0, startM } }
-    delete t.bern; delete t.obs
+    delete t.bern; delete t.obs; delete t.e5
     return t
   }
   const a = teil(r.a, lenA, start), b = teil(r.b, lenB, start + lenA)
@@ -267,6 +267,7 @@ export function overpassRegexExakt(text: string): string {
 // Case-insensitiver, exakter Namensabgleich (Overpass-Flag „,i"), damit z. B.
 // „jungfraustrasse" oder „JUNGFRAUSTRASSE" ebenso gefunden werden wie „Jungfraustrasse".
 export function loadStreetCandidates(street: string, area: string): Promise<Cand[]> {
+  if (!area.trim()) throw new Error('Bitte Strasse und Ort als «Strassenname · Gemeinde» eingeben oder direkt die Karte verwenden.')
   const areaQl = area.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
   return overpassCands(
     `[out:json][timeout:60];` +
@@ -302,4 +303,16 @@ export async function loadNearestCandidate(lat: number, lon: number): Promise<Ca
     `way(around:25,${lat},${lon})["highway"~"^(primary|secondary|tertiary|residential|unclassified|living_street|road|cycleway|footway|path)$"];` +
     `out tags geom;`)
   return naechsterKandidat(cs, lat, lon)
+}
+
+/** Lädt gespeicherte Wege neu aus OSM; erhalten bleiben nur bewusste Teilungen und die Auswahl. */
+export async function aktualisiereKandidaten(alt: Cand[]): Promise<Cand[]> {
+  if (!alt.length) return []
+  const ids = [...new Set(alt.map(c => c.wayId))]
+  const frisch: Cand[] = []
+  for (let i = 0; i < ids.length; i += 100) frisch.push(...await overpassCands(`[out:json][timeout:30];way(id:${ids.slice(i,i+100).join(',')});out tags geom;`))
+  return alt.flatMap(c => {
+    const n = frisch.find(n => n.wayId === c.wayId)
+    return n ? [{ ...n, id: c.id, selected: c.selected, ...(c.teil ? { teil:c.teil,geom:c.geom,len:geomLength(c.geom) } : {}) }] : []
+  })
 }

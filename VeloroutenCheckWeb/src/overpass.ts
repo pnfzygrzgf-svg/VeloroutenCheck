@@ -1,3 +1,4 @@
+import { meldeAbruf, datenGeneration } from './datenstand'
 // ── Overpass-Anbindung (seit 24.10.2026, eine für die ganze App) ─────────────────────────────────────────────────
 //
 // Vorher gab es zwei: osm.ts (Strassen, Wartehallen; mit Wiederholung bei 429/5xx) und cityShared.ts (ÖV-Haltestellen
@@ -63,6 +64,7 @@ export const mitKennung = (query: string, n: number): string => {
 }
 
 async function abfragen(query: string): Promise<unknown> {
+  const generation = datenGeneration()
   const init = (q: string): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(q) })
   let letzter = 'keine Antwort', kennung = 0
   for (const url of OVERPASS_ENDPOINTS) {
@@ -72,7 +74,7 @@ async function abfragen(query: string): Promise<unknown> {
       catch { letzter = 'Zeitüberschreitung oder Netzwerkfehler'; break }   // hängt bzw. nicht erreichbar → nächster Server
       if (res.ok) {
         const a = overpassAntwort(await res.text())
-        if ('ok' in a) return a.ok
+        if ('ok' in a) { meldeAbruf(url,res,a.ok,undefined,generation); return a.ok }
         letzter = a.fehler
         if (/duplicate_query/i.test(a.fehler)) { kennung++; continue }            // sofort, als andere Abfrage
         await sleep(Math.min(MAX_WARTEN_MS, 700 * 2 ** v + Math.random() * 400))   // Rate-Limit, Abbruch
@@ -105,3 +107,4 @@ export function overpassFetch(query: string): Promise<unknown> {
   laufend.set(query, eintrag)
   return p
 }
+

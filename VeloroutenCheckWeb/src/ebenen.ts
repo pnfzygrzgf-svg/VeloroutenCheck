@@ -1,17 +1,19 @@
-// ── Kartenebenen der Vorbelegung (seit 01.11.2026, Nutzerwunsch «damit dies optisch verifiziert werden kann») ───────────────
+import { datenStaende, standText } from './datenstand'
+import { E6_DIENSTE, e6Legende } from './e5/daten/anbieter/gemeinsam/e6'
+// ── Kartenebenen der Vorbelegung (seit 01.11.2026) ───────────────
 //
 // Was der Rechner aus abrufbaren Quellen vorbelegt, ist auf der Karte als eigene Ebene einblendbar, je Quelle einzeln (Menü
 // «Ebenen» neben der Hintergrundwahl; der Browser merkt sich die Wahl). Gezeigt werden die Objekte, die beim Laden gelesen
 // wurden (keine neue Abfrage): Linien, Punkte oder Flächen, nach Wert gefärbt, ab NAH_ZOOM mit dem Wert beschriftet. Die
 // Ebenen liegen unter den Segmentlinien und sind nicht anklickbar (Klicks gehören den Segmenten); die Segmentlinie nennt im
-// Tooltip die übernommenen Werte. Punkte (Zählstellen, Haltestellen) haben einen eigenen Tooltip.
+// Tooltip die übernommenen Werte. Punkte und die sichtbaren E6-Netzlinien haben einen eigenen Tooltip.
 // Plan und Liste aller Ebenen: _lokal/kartenebenen-quellen-plan.md (V1–V17). Gleiche Farbstufen wie fgsCheck/SichtweitenCheck.
 
 import type { LL } from './geo'
 import type { Stadt } from './fuehrungsform'
 
-export type EbeneId = 'routennetz' | 'tempo' | 'dtv' | 'velostrasse' | 'strassentyp' | 'hierarchie' | 'haltestellen' | 'oev' | 'luftbild' | 'obs'
-  | 'parkfelder' | 'fussnetz' | 'av' | 'wartehallen' | 'markierung' | 'steigung'
+export type EbeneId = `e6.${string}` | 'velozaehlungen' | 'bav' | 'tramTlm' | 'npvm' | 'zonen' | 'lsa' | 'routennetz' | 'tempo' | 'dtv' | 'velostrasse' | 'strassentyp' | 'hierarchie' | 'haltestellen' | 'oev' | 'luftbild' | 'obs'
+  | 'parkfelder' | 'fussnetz' | 'av' | 'wartehallen' | 'markierung' | 'steigung' | 'gelaende'
 /** Ebenen mit eigener Abfrage (App.tsx): nach dem Übernehmen automatisch, je Abschnitt um seine Segmente (Wartehallen gemeinsam) */
 export interface NachladeStand { moeglich: boolean; laufend: Partial<Record<EbeneId, number>> }   // moeglich: es gibt übernommene Abschnitte
 export const NACHLADEN: readonly EbeneId[] = ['parkfelder', 'fussnetz', 'wartehallen', 'steigung', 'av']
@@ -28,6 +30,7 @@ export interface EbenenObjekt {
   gestrichelt?: boolean    // Ersatzquelle (z. B. OSM statt amtlich) bzw. Zuordnungslinie
   deckkraft?: number       // Füllung einer Fläche (Standard 0,3)
   symbol?: string          // Zeichen eines Punkts, wenn es nicht aus der Legende kommt (z. B. Zählstelle «Z»)
+  hoehenprofil?: import('./hoehenprofil/modell').HoehenProfil
 }
 export type EbenenDaten = Partial<Record<EbeneId, EbenenObjekt[]>>
 
@@ -63,13 +66,23 @@ const OBS_FARBEN: [string, string, string][] = [
 export const obsKlasse = (median: number): string => (!Number.isFinite(median) ? 'o0' : median < 1.5 ? 'o1' : median < 2 ? 'o2' : 'o3')
 
 export const EBENEN: readonly EbeneDef[] = [
+  ...E6_DIENSTE.map((d): EbeneDef => ({ id: d.id, titel: d.name, kurz: d.name, quelle: { alle: `${d.anbieter}; ${d.lizenz}; ${d.hinweis}` }, legende: e6Legende(d.art), standardAn: false })),
+  {id:'velozaehlungen',titel:'Velozählstellen',kurz:'Velozählung',quelle:{alle:'Amtliche Zählstellen; Messzeitraum und Erfassungsumfang am Objekt; keine Übertragung auf die ganze Strasse'},legende:[['velo','var(--accent)','Velozählstelle','V']]},
+  {id:'bav',titel:'Haltestellen BAV',kurz:'BAV',quelle:{alle:'© BAV; Haltestellenpunkte, keine Haltekanten'},legende:[['bus','#2563eb','Bus','B'],['tram','#dc2626','Tram','T'],['bus_tram','#7c3aed','Bus und Tram','H']]},
+  {id:'tramTlm',titel:'Tramgleise (swissTLM3D)',kurz:'Tram TLM',quelle:{alle:'© swisstopo; swissTLM3D, keine Ableitung von Haltekanten oder Tram in der Fahrbahn'},legende:[['tram','#dc2626','Tramgleis']]},
+  { id: 'gelaende', titel: 'Gelände (swissALTI3D, Höhenprofile)', kurz: 'Gelände',
+    quelle: { alle: '© swisstopo; Höhenprofile zur Steigung; Datenstand unbekannt; Vollständigkeit unbekannt' },
+    legende: [['profil', '#79512e', 'Geländeprofil der Strassenachse']], hinweis: 'keine Sichtprüfung; Höhenschnitt unter Höhenprofile ansehen' },
+  {id:'npvm',titel:'Verkehrsmenge (NPVM, modelliert)',kurz:'NPVM',legende:[['modell','#7c3aed','Modellierter DTV; Übernahme bestätigen']],quelle:{alle:'© ARE, NPVM 2023; Modellwerte beider Richtungen, keine Verkehrszählung'}},
+  {id:'zonen',titel:'Verkehrszonen',kurz:'Zonen',staedte:['zurich','luzern'],legende:[['t30_zone','#eab308','Tempo-30-Zone'],['begegnungszone','#16a34a','Begegnungszone'],['fussgaengerzone','#7c3aed','Fussgängerzone'],['Tempo-30-Zone','#eab308','Tempo-30-Zone'],['Begegnungszone','#16a34a','Begegnungszone'],['Fussgängerzone','#7c3aed','Fussgängerzone'],['offen','#64748b','ungeklärt']],quelle:{zurich:'Stadt Zürich, bestehende Verkehrszonen',luzern:'Stadt Luzern, verkehrsberuhigte Zonen'}},
+  {id:'lsa',titel:'Lichtsignalanlagen',kurz:'LSA',staedte:['basel','luzern'],legende:[['lsa','#b91c1c','Anlagenstandort','L']],quelle:{basel:'Basel-Stadt, Datensatz 100430; Anlagenpunkte, keine Signalgruppen',luzern:'Stadt Luzern, Lichtsignalanlagen; Anlagenpunkte, keine Signalgruppen'}},
   { id: 'routennetz', titel: 'Routennetz (gelesen für den Routentyp)', kurz: 'Routen',
     legende: [['Velohauptroute', '#1d4ed8', 'Velohauptroute'], ['Veloroute', '#16a34a', 'Veloroute'], ['ohne', '#94a3b8', 'gelesen, ohne Routentyp']],
     quelle: { bern: 'Geoportal Stadt Bern, Veloroutennetz Masterplan (Feld Veloroutentyp)', zurich: 'Stadt Zürich, Velonetzplanung (Vorzugsroute → Velohauptroute, Hauptnetz → Veloroute)',
       basel: 'Kanton Basel-Stadt, Teilrichtplan Velo 2019 (geltend; Pendler- und Basisrouten → Veloroute)', luzern: 'Stadt Luzern, Velonetz (Velohauptroute → Velohauptroute, Hauptroute → Veloroute)' } },
   { id: 'tempo', titel: 'Tempo', kurz: 'Tempo', legende: TEMPO_FARBEN,
     quelle: { bern: 'Geoportal Stadt Bern, Signalisierte Höchstgeschwindigkeit; gestrichelt OSM maxspeed, wo amtlich nichts liegt',
-      basel: 'data.bs.ch 100250 «Strassen und Wege»; gestrichelt OSM maxspeed', alle: 'OpenStreetMap maxspeed (gestrichelt)' } },
+      basel: 'data.bs.ch 100250 «Strassen und Wege»; gestrichelt OSM maxspeed', zurich:'Stadt Zürich, signalisierte Geschwindigkeiten; gestrichelt OpenStreetMap maxspeed', alle: 'OpenStreetMap maxspeed (gestrichelt)' } },
   { id: 'dtv', titel: 'Verkehrsmenge (DTV)', kurz: 'DTV', legende: DTV_FARBEN,
     quelle: { bern: 'Geoportal Stadt Bern, Flächendeckende Verkehrsdaten (DTV ≈ 16·Nt + 8·Nn)',
       zurich: 'Kanton Zürich, Verkehrsmessstellen; Linie zum Segment, das den Wert übernimmt',
@@ -82,11 +95,11 @@ export const EBENEN: readonly EbeneDef[] = [
     legende: [['verkehrsorientiert', '#b91c1c', 'verkehrsorientiert'], ['siedlungsorientiert', '#0f766e', 'siedlungsorientiert']],
     quelle: { basel: 'data.bs.ch 100250 «Strassen und Wege», Feld strassenkategorie' } },
   // Farben der amtlichen Legende (wie der lokale Rechner, soll_ist_analyse.py HIERARCHIE_FARBEN)
-  { id: 'hierarchie', titel: 'Strassenhierarchie', kurz: 'Hierarchie', staedte: ['bern'],
+  { id: 'hierarchie', titel: 'Strassenhierarchie', kurz: 'Hierarchie', staedte: ['bern','zurich','luzern'],
     legende: [['Basisnetz', '#ff7f7f', 'Basisnetz'], ['Quartierverbindungsstrasse', '#ffd37f', 'Quartierverbindungsstrasse'],
       ['Quartierstrasse', '#a3ff73', 'Quartierstrasse (Bedingung der Velostrasse, Q 9)'], ['Quartierstrasse ergänzend', '#cccccc', 'Quartierstrasse ergänzend (Anliefer-/Privatstrassen)'],
-      ['nicht befahrbar', '#cd8966', 'nicht befahrbar (Fuss-/Aare-/Waldwege)']],
-    quelle: { bern: 'Geoportal Stadt Bern, Strassenhierarchie' } },
+      ['nicht befahrbar', '#cd8966', 'nicht befahrbar (Fuss-/Aare-/Waldwege)'],['hinweis','#334155','Amtliche Klassierung (Originalattribut)']],
+    quelle: { bern: 'Geoportal Stadt Bern, Strassenhierarchie', zurich:'Stadt Zürich, Strassenklassierung',luzern:'Stadt Luzern, Strassenachsen (TYP)' } },
   { id: 'haltestellen', titel: 'ÖV-Haltestellen', kurz: 'Halte', standardAn: true,
     legende: [['tram', '#b91c1c', 'Tram (auch mit Bus)', 'T'], ['takt', '#1d4ed8', 'Bus mit Takt (Fahrplan)', 'B'], ['halt', '#60a5fa', 'Bus ohne Fahrt 17–18 Uhr', 'B'],
       ['unbekannt', '#475569', 'Verkehrsmittel unbekannt', 'H']],
@@ -125,11 +138,22 @@ export const EBENEN: readonly EbeneDef[] = [
     quelle: { alle: 'OpenBikeSensor, Snapshot; Farbe nach dem Median je Segment' } },
 ]
 
-export const ebenenFuer = (stadt: Stadt): EbeneDef[] => EBENEN.filter(e => !e.staedte || e.staedte.includes(stadt))
-export const ebenenQuelle = (e: EbeneDef, stadt: Stadt): string => e.quelle[stadt] ?? e.quelle.alle ?? ''
+export const ebenenFuer = (stadt: Stadt | 'schweiz', daten?: EbenenDaten): EbeneDef[] => {
+  const quellen = new Set(datenStaende().map(s => s.ebene))
+  return EBENEN.filter(e =>
+    (!e.id.startsWith('e6.') || Object.prototype.hasOwnProperty.call(daten ?? {}, e.id) || quellen.has(e.id)) &&
+    (!!daten?.[e.id]?.length || !e.staedte || stadt !== 'schweiz' && e.staedte.includes(stadt)))
+    .sort((a, b) => new Intl.Collator('de-CH', { sensitivity: 'base', numeric: true }).compare(a.titel, b.titel))
+}
+export const ebenenQuelle = (e: EbeneDef, stadt: Stadt|'schweiz'): string => {
+  const verwendet = datenStaende().filter(s => s.ebene === e.id)
+  const quelle = verwendet.length ? verwendet.map(s => `${s.name}: ${standText(s)}`).join(' · ') : `${stadt === 'schweiz' ? e.quelle.alle ?? 'örtliche / nationale Quelle' : e.quelle[stadt] ?? e.quelle.alle ?? 'Quelle unbekannt'}; Datenstand unbekannt; Vollständigkeit unbekannt`
+  return quelle
+}
 export const ebenenFarbe = (e: EbeneDef, klasse: string): string => e.legende.find(l => l[0] === klasse)?.[1] ?? '#334155'
 export const ebenenSymbol = (e: EbeneDef, o: EbenenObjekt): string => o.symbol ?? e.legende.find(l => l[0] === o.klasse)?.[3] ?? '•'
-export const legendeFuer = (e: EbeneDef, stadt: Stadt) => e.legende.filter(([k]) => !e.legendeNur?.[k] || e.legendeNur[k]!.includes(stadt))
+export const legendeFuer = (e: EbeneDef, stadt: Stadt|'schweiz', daten?:EbenenDaten) => e.legende.filter(([k]) => e.id==='hierarchie'&&daten ? (daten.hierarchie??[]).some(o=>o.klasse===k) : !e.legendeNur?.[k] || stadt !== 'schweiz' && e.legendeNur[k]!.includes(stadt))
+  .filter((l, i, xs) => xs.findIndex(x => x[2] === l[2]) === i)   // verschiedene Klassen derselben Bezeichnung nur einmal zeigen
 
 /** Neue Objekte zu den vorhandenen (je Ebene nach id eindeutig; neuere ersetzen ältere) */
 export function ebenenMischen(alt: EbenenDaten, neu: EbenenDaten | undefined): EbenenDaten {
@@ -218,14 +242,14 @@ export function spurenText(sp: { vor: string[]; rueck: string[]; busVor?: number
   return `Spuren (OSM): in Wegrichtung ${teil(sp.vor, sp.busVor)}${sp.rueck.length ? ` · Gegenrichtung ${teil(sp.rueck, sp.busRueck)}` : ' · Einbahn'}`
 }
 
-/** Welche Ebenen das Menü zeigt (Nutzerwunsch 01.11.2026: nur solche mit Daten): mit Objekten im Ausschnitt; nachladbare nur,
+/** Welche Ebenen das Menü zeigt (nur solche mit Daten): mit Objekten im Ausschnitt; nachladbare nur,
  *  solange sie laden (nach dem Übernehmen automatisch) oder wenn sie etwas gefunden haben. -> zeigen / ohne Daten */
 export function ebenenSichtbar(defs: EbeneDef[], daten: EbenenDaten, stand: NachladeStand): { zeigen: EbeneDef[]; ohne: EbeneDef[] } {
   const zeigen: EbeneDef[] = [], ohne: EbeneDef[] = []
   for (const e of defs) {
     const n = (daten[e.id] ?? []).length
     const nach = NACHLADEN.includes(e.id)
-    const ok = n > 0 || (nach && stand.moeglich && (stand.laufend[e.id] ?? 0) > 0)
+    const ok = n > 0 || (e.id.startsWith('e6.') && datenStaende().some(s => s.ebene === e.id)) || (nach && stand.moeglich && (stand.laufend[e.id] ?? 0) > 0)
     ;(ok ? zeigen : ohne).push(e)
   }
   return { zeigen, ohne }

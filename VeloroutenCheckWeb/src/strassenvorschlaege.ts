@@ -30,8 +30,8 @@ export function strassenTreffer(data: { results?: RohTreffer[] }, text: string, 
   for (const r of data.results ?? []) {
     if (r.attrs?.origin && r.attrs.origin !== 'address') continue
     const a = adresseLesen(r.attrs?.label ?? '')
-    if (!a || a.ort !== stadt || !klein(a.name).includes(q) || aus.includes(a.name)) continue
-    aus.push(a.name)
+    if (!a || (stadt && a.ort !== stadt) || !klein(a.name).includes(q) || aus.includes(stadt ? a.name : `${a.name} · ${a.ort}`)) continue
+    aus.push(stadt ? a.name : `${a.name} · ${a.ort}`)
     if (aus.length >= SUCHE_MAX) break
   }
   return aus

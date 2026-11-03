@@ -1,4 +1,4 @@
-// ── Querschnitt am Luftbild aufnehmen (seit 20.10.2026, Nutzerwunsch Haltestellen Monbijoustrasse/Helvetiaplatz) ──
+// ── Querschnitt am Luftbild aufnehmen (seit 20.10.2026) ──
 //
 // Wo die Messung aus der AV nicht trifft (Inseln an Haltestellen, Perrons als «Platz», Busbuchten), legt man den
 // Querschnitt von Hand fest: quer über die Strasse von Rand B nach Rand A klicken, an jeder Grenze (Hauswand,
@@ -92,7 +92,7 @@ export function artVorschlag(avArt: string | null, haltestelle: boolean): TeilAr
   }
 }
 
-// «Ganzer Querschnitt» (Nutzerwunsch 21.10.2026): ein Stück, das nur die Gesamtbreite misst (etwa Hauswand bis Hauswand);
+// «Ganzer Querschnitt»: ein Stück, das nur die Gesamtbreite misst (etwa Hauswand bis Hauswand);
 // es wird kein Teil, sein Mass ist die verfügbare Breite (Fahrbahn + ausserhalb)
 export const GANZ = 'GanzerQuerschnitt'
 export type QsArt = TeilArt | typeof GANZ

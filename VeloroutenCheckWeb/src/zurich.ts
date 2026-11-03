@@ -100,6 +100,9 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
       : undefined
     const dtv = nearestDtv(dense, stations)
     if (!routentyp && dtv == null) return c
-    return { ...c, bern: { ...c.bern, ...(routentyp ? { routentyp } : {}), ...(dtv != null ? { dtv } : {}) } }
+    return { ...c, bern: { ...c.bern, ...(routentyp ? { routentyp, routentypQuelle: 'abgeleitet' as const } : {}), ...(dtv != null ? { dtv, dtvQuelle: 'abgeleitet' as const } : {}) } }
   }) }
 }
+
+/** Fresh source cycle; reuse within one cycle remains allowed. */
+export function quellenCacheLeeren() { dtvCache = undefined }

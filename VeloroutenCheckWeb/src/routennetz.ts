@@ -1,10 +1,10 @@
-// ── Velonetz der Städte als Kartenebene «Routennetz» (seit 30.10.2026, Nutzerwunsch) ─────────────────────────────────────
+// ── Velonetz der Städte als Kartenebene «Routennetz» (seit 30.10.2026) ─────────────────────────────────────
 //
-// Je Stadt ein WMS (transparent, über dem Hintergrund) und die Erklärung beim Überfahren einer Linie (seit 30.10.2026,
-// Nutzerwunsch «beim Überfahren der Netzlinien sollte Text angezeigt werden, der es erklärt»): VeloMap fragt an der Stelle
+// Je Stadt ein WMS (transparent, über dem Hintergrund) und die Erklärung beim Überfahren einer Linie (seit 30.10.2026):
+// VeloMap fragt an der Stelle
 // GetFeatureInfo ab (JSON, alle vier Dienste erlauben CORS) und zeigt `beschreiben(Merkmale)` als Tooltip. Abklärung der Felder
 // 30.10.2026 an je einer Probe; die Werte «Null» der ArcGIS-Dienste (Bern, Luzern) sind Text, nicht null.
-// Basel: Teilrichtplan Velo 2026, ENTWURF in Vernehmlassung (Nutzerentscheid 30.10.2026, Variante A); die Buchstaben an den
+// Basel: Teilrichtplan Velo 2026, ENTWURF in Vernehmlassung (Variante A); die Buchstaben an den
 // gestrichelten Linien sind die Massnahmennummern geplanter Netzlücken (Feld «Massnahmennummer Veloinfrastruktur»).
 
 import type { Stadt } from './fuehrungsform'

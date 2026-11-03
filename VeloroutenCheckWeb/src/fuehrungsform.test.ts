@@ -594,12 +594,12 @@ describe('Q7 — Einbahn mit Velogegenverkehr (dreistufig)', () => {
 })
 
 // ════════════════════════════════════════════════════════════════════════════
-// Abzugsmechanik + Sonderfälle (Review-Nachrüstung): Tram-Malus, Velostrasse-
+// Abzugsmechanik + Sonderfälle: Tram-Malus, Velostrasse-
 // Grenzen, Haltestellen-Abzug/-Breite, Erfüllungsskala, Breitenpflicht.
 // ════════════════════════════════════════════════════════════════════════════
 
 // Tram: seit dem 14.08.2026 ein DECKEL (Note ≤ 3) statt des früheren tempoabhängigen Malus
-// (1,2/0,7) — Angleichung an den lokalen Berner Rechner auf Nutzerentscheid. Der Unterschied
+// (1,2/0,7) — Angleichung an den lokalen Berner Rechner. Der Unterschied
 // ist nicht bloss die Höhe: Ein Deckel kappt gute Noten hart und lässt schlechte in Ruhe.
 describe('Tram in der Fahrbahn (TRAM_DECKEL)', () => {
   it('Mischverkehr T30: 6,0 → 3,0 (Deckel statt Abzug)', () => {
@@ -824,7 +824,7 @@ describe('DTV/Tempo-Unabhängigkeit — brauchtDtvTempo()', () => {
 })
 
 // ════════════════════════════════════════════════════════════════════════════
-// Runde AS6: Lücken aus dem Review — Rundung, Übergangs-Soll, Kumulation/Boden,
+// Randfälle: Rundung, Übergangs-Soll, Kumulation/Boden,
 // Decken exakt, Haltestellen-Typlisten inhaltlich.
 // ════════════════════════════════════════════════════════════════════════════
 

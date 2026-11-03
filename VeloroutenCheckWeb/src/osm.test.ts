@@ -234,7 +234,7 @@ describe('Fahrspuren und Pfeile aus OSM (lanes, turn:lanes; Kirchenfeldstrasse, 
   const geom = [{ lat: 46.9401504, lon: 7.4502236 }, { lat: 46.9401713, lon: 7.4508273 }]
   it('Ausgangslage: links eine Spur entgegen, rechts zwei mit «←» und «↑→»; gegen die Way-Richtung gespiegelt', () => {
     const c = wayToCand({ id: 44425592, tags: kirchenfeld, geometry: geom })!
-    const s = { ...candToSection(c), fahrbahnbreite: 13.0 }
+    const s = { ...candToSection(c), routentyp: 'Veloroute' as const, fahrbahnbreite: 13.0 }
     expect(s.spuren).toEqual({ a: ['links', 'geradeaus-rechts'], b: ['keine'] })
     const spuren = startAufteilung(s, 'bern').teile.filter(t => t.art === 'Fahrspur')
     expect(spuren.map(t => [t.richtung, t.markierung ?? 'keine'])).toEqual([['B', 'keine'], ['A', 'links'], ['A', 'geradeaus-rechts']])

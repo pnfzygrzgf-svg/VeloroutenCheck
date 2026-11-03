@@ -1,0 +1,22 @@
+{
+  "quelle": "fgsCheck/fgsCheckWeb/src",
+  "hinweis": "Geprüfte E1b-/E2-Helfer und E6a-Kontextadapter, unverändert übernommen; Anbieterwahl nach tatsächlichem Datenort.",
+  "dateien": {
+    "daten/anbieter/gemeinsam/bundesBudget.ts": "2b9bffcde30ac4b67f07da0f6a516e7fb8c5531d278b5a8d64d468f5de596654",
+    "daten/anbieter/gemeinsam/bundesAbruf.ts": "666278ec067a5e3297dfb0acd2d4ff07c465c09de632d82cdc11b4c4c6a4ded9",
+    "daten/anbieter/gemeinsam/gebiet.ts": "cf318aed9dbb690b3856cc5a801817aa598eb5ce3efb82f94c3ac85a584c0d53",
+    "daten/anbieter/gemeinsam/e6.ts": "88ac45747bbd6f6079456a8f8005ff8fcf6e0ba78196211a955a1f254c73f2e0",
+    "daten/anbieter/gemeinsam/bav.ts": "b42e3803aee11b38c18be7ed6acb6c06c9108a9dac0e13c0887ada5f536a1b7b",
+    "daten/anbieter/gemeinsam/typen.ts": "26b7a16de92305be7b2ebe37a76d3ce63c6cc8b30c2b9a09087b2003ded98ae2",
+    "geo.ts": "816afa0fe0cb07227e78c1c85dbced6b6e76467fbfaaa7d78562ae3da538ee54",
+    "daten/holen.ts": "c67c01e963bacaba9f3bd7f6bc70a8a5bdce88d7484fe869fd07e895f412c4e6",
+    "daten/geoHilfen.ts": "9fec2b077697bd77676b9ddd41224f303ebb307bb20bcfd61199188db2cbcecc",
+    "daten/anbieter/npvm.ts": "4cb163ad6499d1bcac7be4891f39b31ca2181de9b97a322bc7c13db2d42f35c8",
+    "daten/anbieter/npvmZuordnung.ts": "3fde3882ff1ac1c7baaa659e2f5fd9fcd1fa054a669b96cbe8c364585c8db65f",
+    "daten/anbieter/gemeinsam/metadaten.ts": "64b53c143c8a32472055221433aabdaeec3f4e9f23a472b2bf107b663ffa99c8",
+    "daten/anbieter/gemeinsam/qualitaet.ts": "9fa95e40e620b8f1e7e6febf1af467dbffb39c6ee9cda2ba7c5d550bf731d76e",
+    "daten/anbieter/gemeinsam/geoAdmin.ts": "0fb23f2d6c412be87dd6f82db0866a5c242186271ed8411a2e71b89f38201302",
+    "daten/anbieter/gemeinsam/zuerich.ts": "c7644bc259d46874e3cf7223ef9b5935ab8d833829055c9e40f8e26c41a27072",
+    "daten/anbieter/gemeinsam/zuerichZuordnung.ts": "17687b8d77cf7c3666ba1dfaf58268359c22335047461aac3142cb2b6a616065"
+  }
+}

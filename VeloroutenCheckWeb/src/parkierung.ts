@@ -1,6 +1,6 @@
 // ── Parkierung je Seite aus amtlichen Parkplatzdaten (Bern, Zürich, Luzern) ──
 //
-// Belegt «Parkierung rechts (Dooring)» je Seite vor (Nutzerentscheid 16.10.2026: jede Parkierung
+// Belegt «Parkierung rechts (Dooring)» je Seite vor (jede Parkierung
 // zählt, auch Quer- und Schrägparkierung). Regel wie im lokalen Berner Rechner (situativ_flag.py
 // parken: mode coverage, maxd 9 m, frac 0,30): Eine Seite hat Parkierung, wenn auf mindestens
 // PARK_SCHWELLE ihrer Länge Parkfelder bis PARK_MAX_M neben der Achse liegen. Gemessen in Bins
@@ -100,7 +100,7 @@ function punkteAus(g: { type?: string; coordinates?: unknown } | null | undefine
 // bei Spezialfeldern ohne Polizei, Lastwagen und Sanität.
 const BERN_TYPEN = ['Parkfeld_Gebuehrenpflichtig', 'Parkfeld_blau_APK', 'Parkfeld_weiss_APK', 'Parkfeld_weiss_Kurzzeit',
   'Parkverbot', 'Spezialfeld', 'Andere_Unbekannt']
-// Velo- und Motorradfelder als Flächen (seit 23.10.2026, Nutzerwunsch Bernastrasse): nicht für «Parkierung rechts»
+// Velo- und Motorradfelder als Flächen (seit 23.10.2026): nicht für «Parkierung rechts»
 // (kein Dooring), aber für die Karte und den Platzbedarf in der Planung (Element «Zweiradabstellplatz»)
 const BERN_ZWEIRAD: Record<string, 'velo' | 'motorrad'> = { Parkplatz_Velo_Mofa: 'velo', Parkplatz_Motorrad: 'motorrad' }
 export const bernSpezialAusgeschlossen = (pr: Record<string, unknown>): boolean =>

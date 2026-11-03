@@ -1,4 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { kartenKlick, segmentKlick } from './kartenKlick'
+import { zeichneQuellenLinie } from './quellenLinie'
+import { useHoehenkurven } from './hoehenkurven/Karte'
+import { HoehenkurvenWahl } from './hoehenkurven/Wahl'
+import { standText as hoehenkurvenStandText } from './hoehenkurven/modell'
+import { meldeKartenbild, meldeQuelleStand, meldeQuellenFehler, ebenenStandText, datenGeneration } from './datenstand'
+import { useDatenstaende } from './Datenstaende'
+import { ASTRA_EBENEN, ladeAstraStand } from './astra'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { EbenenGruppe, HoehenprofilAnsicht } from './hoehenprofil/Ansicht'
+import { profilObjekteWaehlen, standardProfil } from './hoehenprofil/modell'
 import L from 'leaflet'
 import { netzTexte, type RoutennetzWms } from './routennetz'
 import { ebenenFarbe, ebenenFuer, ebenenQuelle, ebenenSichtbar, ebenenSymbol, legendeFuer, NACHLADEN, spurenText, type EbeneId, type EbenenDaten, type NachladeStand } from './ebenen'
@@ -11,10 +21,15 @@ import { escapeHtml } from './netz'
 
 // Ein OSM-Rohsegment (Kandidat) — auf der Karte anklickbar, vor dem Zusammenfassen.
 export interface Cand {
+  osmOev?: import('./bern').OevInfo
+  velozaehlungen?: import('./velozaehlung').VeloZaehldaten[]
+  datenOrt?: import('./gebiet').DatenOrt
   // Kennung des Kandidaten — eindeutig in der Liste, Schlüssel für Karte, Anreicherung und
   // Abschnitte. Bei einem ganzen Way = OSM-Way-ID; die Teile eines geteilten Ways erhalten
   // eigene, negative Kennungen (osm.ts, teileInListe), damit sie nie mit einer Way-ID kollidieren.
   id: number
+  e5?: import('./e5').E5Daten
+  osmTags?: Record<string,string>
   wayId: number                           // OSM-Way-ID (bei Teilen die des ursprünglichen Ways)
   // Nur bei Teilen eines von Hand geteilten Ways: Nummer entlang der Way-Richtung, Anzahl
   // Teile, Lage des Teilanfangs ab Way-Anfang [m]. Ein Schnitt bleibt beim Zusammenfassen
@@ -40,6 +55,8 @@ export interface Cand {
   selected: boolean
   // Amtliche Geodaten Stadt Bern (siehe bern.ts) — additiv, ergänzt die OSM-Werte oben.
   bern?: {
+    dtvQuelle?: 'abgeleitet'
+    routentypQuelle?: 'abgeleitet'
     speed?: number                        // V_sig, Signalisierte Höchstgeschwindigkeit
     dtv?: number                          // 16×Nt + 8×Nn, Flächendeckende Verkehrsdaten
     dtvGeprueft?: boolean                 // nur Bern: Verkehrsdaten-Layer hat für DIESES Segment geantwortet (Grundlage der ≤-2000-Annahme)
@@ -163,7 +180,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   markers?: SectionMarker[]               // nummerierte Abschnitts-Marker
   highlightIds?: Set<number>              // Cand-IDs des gehoverten Abschnitts → hervorheben
   ebenen?: EbenenDaten                    // gelesene Objekte der Vorbelegung je Ebene (ebenen.ts), einzeln einblendbar
-  stadt?: Stadt                           // für die Liste der Ebenen und ihre Quellen
+  stadt?: Stadt|'schweiz'                           // für die Liste der Ebenen und ihre Quellen
   onEbenenAn?: (ids: Set<EbeneId>) => void   // gewählte Ebenen (App lädt die nachzuladenden, ebenen.NACHLADEN)
   nachladen?: NachladeStand                // ob nachladbare Ebenen Daten bekommen können und welche gerade laden
   attribution?: string                    // Quellenangabe der amtlichen Anreicherung (stadtabhängig)
@@ -190,7 +207,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   const aktiveBasis = useRef(ORTHO)                                 // gerade gezeigter Hintergrund
   const [basis, setBasis] = useState(ORTHO)                         // … für die Knöpfe auf der Karte
   const namenRef = useRef<L.TileLayer | null>(null)                 // Strassennamen (nur über dem Orthofoto)
-  const [namen, setNamen] = useState(false)                       // Strassennamen aus, bis sie gewählt sind (Nutzerentscheid 22.10.2026)
+  const [namen, setNamen] = useState(false)                       // Strassennamen aus, bis sie gewählt sind
   // Routennetz zuschalten (seit 30.10.2026): über jedem Hintergrund, unter den Segmentlinien; der Browser merkt sich die Wahl
   const [netzAn, setNetzAn] = useState(() => { try { return localStorage.getItem('vrc.routennetz') === '1' } catch { return false } })
   const netzRef = useRef<L.TileLayer | null>(null)
@@ -204,6 +221,34 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     try { localStorage.setItem('vrc.ueberblick', JSON.stringify([...n])) } catch { /* nur für diese Sitzung */ }
     return n
   })
+  const [astraAn, setAstraAn] = useState<Set<string>>(new Set())
+  const [astraStaende, setAstraStaende] = useState<Record<string,string>>({})
+  const datenlauf=datenGeneration()
+  const [hkMap, setHkMap] = useState<L.Map | null>(null)
+  const hk = useHoehenkurven(hkMap, datenlauf)
+  useEffect(()=>{
+    if(hk.stand.ergebnis)meldeQuelleStand('hoehenkurven',hk.titel,'https://data.geo.admin.ch/api/stac/v1/collections/ch.swisstopo.swissalti3d','hoehenkurven',hoehenkurvenStandText(hk.stand.ergebnis),hk.stand.ergebnis.abgerufen,datenlauf)
+    else if(hk.stand.phase==='fehler')meldeQuellenFehler('hoehenkurven',hk.titel,'https://data.geo.admin.ch/api/stac/v1/collections/ch.swisstopo.swissalti3d','hoehenkurven',hk.stand.text,datenlauf)
+  },[hk.stand,datenlauf])
+  useEffect(() => {
+    const aktiv=ASTRA_EBENEN.filter(a=>astraAn.has(a.id))
+    if(!aktiv.length)return
+    const ausstehend=new Set(aktiv.map(a=>a.id)),ctrl=new AbortController(),timer=setTimeout(()=>{if(datenlauf===datenGeneration())setAstraStaende(s=>({...s,...Object.fromEntries([...ausstehend].map(id=>[id,'unbekannt (Zeitlimit beim Metadatenabruf)']))}));ctrl.abort()},15000)
+    for(const a of aktiv) void ladeAstraStand(a.layer,ctrl.signal).then(stand=>{
+      if(!ctrl.signal.aborted&&datenlauf===datenGeneration()){
+        setAstraStaende(s=>({...s,[a.id]:stand}))
+        meldeQuelleStand(a.id,a.titel,a.url,'unfaelle',stand,new Date().toISOString(),datenlauf)
+      }
+    },()=>{if(!ctrl.signal.aborted&&datenlauf===datenGeneration())setAstraStaende(s=>({...s,[a.id]:'unbekannt (Metadaten nicht erreichbar)'}))}).finally(()=>{ausstehend.delete(a.id);if(!ausstehend.size)clearTimeout(timer)})
+    return ()=>{clearTimeout(timer);ctrl.abort()}
+  },[astraAn,datenlauf])
+  useEffect(() => {
+    const map=mapRef.current;if(!map)return
+    if(!map.getPane('astra'))map.createPane('astra').style.zIndex='460'
+    map.getPane('astra')!.style.pointerEvents='none'
+    const lagen=ASTRA_EBENEN.filter(a=>astraAn.has(a.id)).map(a=>L.tileLayer(a.url,{pane:'astra',maxZoom:22,maxNativeZoom:18,attribution:a.attribution}).addTo(map))
+    return ()=>{for(const l of lagen)l.remove()}
+  },[astraAn])
   // Kartenebenen der Vorbelegung (seit 01.11.2026): gewählte Ebenen (der Browser merkt sich die Wahl), Menü, Zoom für die Beschriftung
   const [ebenenAn, setEbenenAn] = useState<Set<EbeneId>>(() => {
     try { const v = JSON.parse(localStorage.getItem('vrc.ebenen') ?? 'null'); if (Array.isArray(v)) return new Set(v as EbeneId[]) } catch { /* ohne Speicher */ }
@@ -215,10 +260,13 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     return n
   })
   const [ebenenOffen, setEbenenOffen] = useState(false)
+  useDatenstaende()
+  const [profilAuswahl, setProfilAuswahl] = useState<string | null>(null)
+  const [alleGelaendeProfile, setAlleGelaendeProfile] = useState(false)
   const ebenenAnCb = useRef(onEbenenAn)
   ebenenAnCb.current = onEbenenAn
   useEffect(() => { ebenenAnCb.current?.(ebenenAn) }, [ebenenAn])
-  // Fenster «Geladene Quellen» an der Kopfzeile verschiebbar (Nutzerwunsch 01.11.2026 «damit es nicht im Weg steht»); die Lage
+  // Fenster «Kartenebenen» an der Kopfzeile verschiebbar; die Lage
   // links oben in px relativ zur Karte, gemerkt; ohne Lage unten links über der Hintergrund-Leiste
   const [ebenenPos, setEbenenPos] = useState<{ x: number; y: number } | null>(() => {
     try { const v = JSON.parse(localStorage.getItem('vrc.ebenenPos') ?? 'null'); return v && Number.isFinite(v.x) && Number.isFinite(v.y) ? v : null } catch { return null }
@@ -312,7 +360,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     // am Luftbild prüfbar — OSM-Tags sagen nicht immer, was gebaut ist), Landeskarte grau (ruhiger
     // Kontrast für die Linienfarben; seit 22.10.2026 statt «Hell (Carto)», dessen Kacheln ohne
     // API-Schlüssel nur noch «API key required» zeigen). swisstopo deckt alle vier Städte ab.
-    // Standard ist seit 16.10.2026 das Orthofoto (Nutzerwunsch), vorher CyclOSM.
+    // Standard ist seit 16.10.2026 das Orthofoto, vorher CyclOSM.
     const basemaps: Record<string, L.TileLayer> = {
       'CyclOSM': L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', {
         maxZoom: 19, attribution: '© OpenStreetMap-Mitwirkende · Stil: CyclOSM',
@@ -325,15 +373,25 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       'Landeskarte grau (swisstopo)': L.tileLayer(
         'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/{z}/{x}/{y}.jpeg',
         { maxZoom: 21, maxNativeZoom: 19, attribution: '© swisstopo' }),
-      // Orthofoto der Stadt Bern, Flug 19.03.2026, 10 cm (Nutzerwunsch 27.10.2026: SWISSIMAGE zeigt in Bern
+      // Orthofoto der Stadt Bern, Flug 19.03.2026, 10 cm (SWISSIMAGE zeigt in Bern
       // den Stand 2024). Nur als WMS (ArcGIS, liefert auch EPSG:3857, obwohl die Capabilities nur 2056/4326
       // nennen); deckt nur das Gemeindegebiet ab, darum auf dessen Ausdehnung begrenzt (LV95 2588000–2605000 /
       // 1196000–1205000, gerundet). Knopf nur, wenn Bern gewählt ist (bern2026).
-      [BERN26]: L.tileLayer.wms('https://map.bern.ch/arcgis/services/Geoportal/Orthofoto_2026_1/MapServer/WMSServer', {
+      [BERN26]: L.tileLayer.wms('https://map.bern.ch/arcgis/services/Geoportal/Orthofoto_2026/MapServer/WMSServer', {
         layers: '0', styles: '', format: 'image/jpeg', version: '1.3.0', maxZoom: 21,
         bounds: L.latLngBounds([46.91, 7.27], [47.0, 7.51]),
         attribution: '© Geodaten Stadt Bern (Orthofoto 19.03.2026)',
       }),
+    }
+    for(const [name,layer] of Object.entries(basemaps)){
+      let gemeldeterLauf=-1
+      layer.on('tileload',()=>{
+        const lauf=datenGeneration();if(gemeldeterLauf===lauf)return;gemeldeterLauf=lauf
+        const url=name===BERN26?'https://map.bern.ch/arcgis/services/Geoportal/Orthofoto_2026/MapServer/WMSServer?LAYERS=0'
+          :name===ORTHO?'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg'
+          :name==='CyclOSM'?'https://tile-cyclosm.openstreetmap.fr/':'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/{z}/{x}/{y}.jpeg'
+        meldeKartenbild(url)
+      })
     }
     basemaps[ORTHO].addTo(map)
     // Strassennamen über dem Orthofoto (Nutzerbefund 22.10.2026: auf dem Luftbild fehlen die Namen):
@@ -363,11 +421,12 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     const netzPane = map.getPane('netz')!
     netzPane.style.zIndex = '340'
     netzPane.style.pointerEvents = 'none'
-    // Kartenebenen der Vorbelegung: Linien und Flächen über dem Routennetz, unter AV und Segmentlinien, klick-durchlässig
+    // Quellen unter AV/Segmenten: E6 empfängt Hover für Tooltips und gibt Klicks an die Karte weiter; übrige Linien/Flächen nicht interaktiv.
     map.createPane('ebenen')
+    const hpPane = map.createPane('hoehenprofile'); hpPane.style.zIndex = '580'; hpPane.style.pointerEvents = 'none'
     const ebPane = map.getPane('ebenen')!
     ebPane.style.zIndex = '345'
-    ebPane.style.pointerEvents = 'none'
+    ebPane.style.pointerEvents = 'auto'
     map.createPane('av')
     const avPane = map.getPane('av')!
     avPane.style.zIndex = '350'
@@ -408,12 +467,12 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     standortKnopf.addTo(map)
     // Klick auf freie Karte (nicht auf eine Linie) → Segment an der Stelle hinzufügen.
     map.on('click', (e: L.LeafletMouseEvent) => {
-      if (suppress.current) { suppress.current = false; return }
-      clickCb.current?.(e.latlng.lat, e.latlng.lng)
+      kartenKlick(e, suppress, (lat, lon) => clickCb.current?.(lat, lon))
     })
     map.on('zoomend', () => { stilSetzen(); setZoom(map.getZoom()) })
     setZoom(map.getZoom())
     mapRef.current = map
+    setHkMap(map)
     readyCb.current?.(map)
     return () => {
       map.remove()
@@ -456,8 +515,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       // Die Klickstelle geht mit: im Teil-Modus schneidet die App dort.
       const hit = L.polyline(pts, { color: '#000', weight: 16, opacity: 0 })
       hit.on('click', (e: L.LeafletMouseEvent) => {
-        suppress.current = true
-        onLineClick(c.id, e.latlng.lat, e.latlng.lng)
+        segmentKlick(c.id, e, suppress, onLineClick)
       })
       const bernParts = c.bern && [
         c.bern.speed != null ? `Tempo ${c.bern.speed}` : null,
@@ -479,7 +537,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         `${escapeHtml(c.name)} · ${Math.round(c.len)} m` +
         (c.teil ? ` · Teil ${c.teil.nr}/${c.teil.anzahl}` : '') +
         ` · ${escapeHtml(istB ? `Seite A ${istA} / Seite B ${istB}` : istA)}${c.selected ? '' : ' (abgewählt)'}` +
-        (bernParts && bernParts.length ? `<br>${escapeHtml(attribution)}: ${escapeHtml(bernParts.join(' · '))}` : '') +
+        (bernParts && bernParts.length ? `<br>${escapeHtml(c.datenOrt?.stadt ? ({bern:'Geoinformation Stadt Bern',zurich:'Geodaten Stadt Zürich',basel:'Geodaten Kanton Basel-Stadt',luzern:'Geodaten Stadt Luzern'}[c.datenOrt.stadt]) : c.datenOrt ? 'Örtliche Quellen · '+c.datenOrt.name : attribution)}: ${escapeHtml(bernParts.join(' · '))}` : '') +
         (c.speed != null && c.bern?.speed == null ? `<br>OpenStreetMap: Tempo ${c.speed}` : '') +
         (spurenText(c.spuren) ? `<br>${escapeHtml(spurenText(c.spuren)!)}` : '') +
         obsPart,
@@ -536,31 +594,35 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     }
   }, [cands, onLineClick, markers, attribution, fitKey, obsStand, formen, onMarkerClick])
 
-  // Kartenebenen zeichnen (ebenen.ts): Linien und Flächen nicht anklickbar unter den Segmenten, Punkte mit Tooltip;
+  // Kartenebenen: E6-Linien und Punkte mit Tooltip, übrige Linien/Flächen nicht interaktiv unter den Segmenten;
   // ab BESCHRIFT_ZOOM der Wert als Beschriftung (Linie: Mitte des längsten Stücks)
   useEffect(() => {
     const eg = ebenenRef.current
     if (!eg) return
     eg.clearLayers()
-    const defs = ebenenFuer(stadt)
+    const defs = ebenenFuer(stadt, ebenen)
+    const profilId = standardProfil((ebenen.gelaende ?? []).flatMap(o => o.hoehenprofil ? [o.hoehenprofil] : []), profilAuswahl)?.id
     const beschriften = zoom >= BESCHRIFT_ZOOM
     const marke = (p: LLo, text: string, farbe: string) => L.marker([p.lat, p.lon], { interactive: false, keyboard: false,
       icon: L.divIcon({ className: 'vrc-ebene-wert', iconSize: [0, 0],
         html: `<span style="border-color:${farbe}">${escapeHtml(text)}</span>` }) }).addTo(eg)
     for (const def of defs) {
       if (!ebenenAn.has(def.id)) continue
-      for (const o of ebenen[def.id] ?? []) {
+      for (const o of def.id === 'gelaende' ? profilObjekteWaehlen(ebenen.gelaende ?? [], profilAuswahl, alleGelaendeProfile) : ebenen[def.id] ?? []) {
         const farbe = ebenenFarbe(def, o.klasse)
         if (o.ringe) L.polygon(o.ringe.map(r => r.map(p => [p.lat, p.lon] as [number, number])), { pane: 'ebenen', color: farbe, weight: 1.5,
           fillColor: farbe, fillOpacity: o.deckkraft ?? 0.3, interactive: false }).addTo(eg)
         if (o.linien) {
           const ll = o.linien.map(l => l.map(p => [p.lat, p.lon] as [number, number]))
           // dunkler Rand: Quellen-Linien heben sich von den Segmentlinien (weisser Rand) ab (Form statt Farbe allein)
-          L.polyline(ll, { pane: 'ebenen', color: '#111827', weight: 7, opacity: 0.75, interactive: false }).addTo(eg)
-          L.polyline(ll, { pane: 'ebenen', color: farbe, weight: 4, opacity: 0.95, interactive: false, ...(o.gestrichelt ? { dashArray: '6 6' } : {}) }).addTo(eg)
+          zeichneQuellenLinie(L.polyline, eg, ll, def, o, farbe)
           if (beschriften && o.wert) {
             const l = o.linien.reduce((a, b) => (b.length > a.length ? b : a))
             marke(l[l.length >> 1], o.wert, farbe)
+          }
+          if (o.hoehenprofil && o.hoehenprofil.id === profilId) {
+            L.polyline(ll, { pane: 'hoehenprofile', color: '#ffffff', weight: 11, interactive: false }).addTo(eg)
+            L.polyline(ll, { pane: 'hoehenprofile', color: '#0369a1', weight: 5, interactive: false }).addTo(eg)
           }
         }
         if (o.punkt) {
@@ -571,7 +633,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         }
       }
     }
-  }, [ebenen, ebenenAn, zoom, stadt])
+  }, [ebenen, ebenenAn, zoom, stadt, profilAuswahl, alleGelaendeProfile])
 
   // Teil-Modus: Fadenkreuz über den Linien (CSS-Klasse am Karten-Container, index.css).
   useEffect(() => {
@@ -589,6 +651,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
+    for(const u of (UEBERBLICK[stadt]??[]).filter(u=>ueberAn.has(u.id)))meldeKartenbild(u.url+(u.layers?'?LAYERS='+encodeURIComponent(u.layers):''))
     const lagen = (UEBERBLICK[stadt] ?? []).filter(u => ueberAn.has(u.id)).map(u => (u.art === 'wms'
       ? L.tileLayer.wms(u.url, { layers: u.layers ?? '', styles: '', format: 'image/png', transparent: true, version: '1.3.0', pane: 'netz',
           opacity: u.deckkraft, maxZoom: 21, attribution: u.attribution })
@@ -602,13 +665,14 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     if (!map) return
     netzRef.current?.remove(); netzRef.current = null
     if (!routennetz || !netzAn) return
+    meldeKartenbild(routennetz.url+'?LAYERS='+encodeURIComponent(routennetz.layers))
     netzRef.current = L.tileLayer.wms(routennetz.url, {
       layers: routennetz.layers, styles: '', format: 'image/png', transparent: true, version: '1.3.0', pane: 'netz',
       opacity: 0.8, maxZoom: 21, attribution: routennetz.attribution,
     }).addTo(map)
   }, [routennetz, netzAn])
 
-  // Erklärung beim Überfahren einer Netzlinie (seit 30.10.2026, Nutzerwunsch): nach einer kurzen Pause GetFeatureInfo an der Stelle
+  // Erklärung beim Überfahren einer Netzlinie (seit 30.10.2026): nach einer kurzen Pause GetFeatureInfo an der Stelle
   // (Fenster ±NETZ_FANG_PX um den Zeiger, Mitte abgefragt), Text aus routennetz.beschreiben als Tooltip. Nur mit Maus (Touch kennt
   // kein Überfahren) und nicht während einer Messung; die jeweils letzte Abfrage gilt.
   useEffect(() => {
@@ -744,11 +808,11 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         ))}
         {/* Ergänzung zum Luftbild, kein eigener Hintergrund: Kästchen «+ Strassennamen», nur bei den Luftbildern (seit
             22.10.2026 standardmässig aus) */}
-        {/* «Geladene Quellen» (seit 01.11.2026): Routennetz und die Quellen der Vorbelegung, je einzeln einblendbar */}
+        {/* «Kartenebenen» (seit 01.11.2026): Routennetz und die Quellen der Vorbelegung, je einzeln einblendbar */}
         <button type="button" aria-expanded={ebenenOffen} onClick={() => setEbenenOffen(o => !o)}
                 className={ebenenOffen || netzAn || ebenenAn.size ? 'aktiv-rand' : undefined}
-                title="Geladene Quellen auf der Karte zeigen: Routennetz und die Quellen, aus denen die Felder vorbelegt sind">
-          <span className="lang">Geladene Quellen</span><span className="kurz">Quellen</span>{(() => { const k = (netzAn && routennetz ? 1 : 0) + (UEBERBLICK[stadt] ?? []).filter(u => ueberAn.has(u.id)).length + ebenenSichtbar(ebenenFuer(stadt), ebenen, nachladen).zeigen.filter(e => ebenenAn.has(e.id)).length; return k ? ` (${k})` : '' })()} ▴
+                title="Kartenebenen auf der Karte zeigen: Routennetz und die Quellen, aus denen die Felder vorbelegt sind">
+          <span className="lang">Kartenebenen</span><span className="kurz">Quellen</span>{(() => { const k = (hk.an ? 1 : 0) + (netzAn && routennetz ? 1 : 0) + (UEBERBLICK[stadt] ?? []).filter(u => ueberAn.has(u.id)).length + astraAn.size + ebenenSichtbar(ebenenFuer(stadt, ebenen), ebenen, nachladen).zeigen.filter(e => ebenenAn.has(e.id)).length; return k ? ` (${k})` : '' })()} ▴
         </button>
         {LUFTBILDER.includes(basis) && (
           <label className="namen" title="Strassennamen aus dem amtlichen Strassenverzeichnis über dem Luftbild (swisstopo, ab Zoomstufe 17)">
@@ -758,48 +822,62 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         )}
       </div>
       {ebenenOffen && (
-        <div className="vrc-ebenen" role="group" aria-label="Geladene Quellen" ref={ebenenFensterRef}
+        <div className="vrc-ebenen" role="group" aria-label="Kartenebenen" ref={ebenenFensterRef}
              style={ebenenPos ? { left: ebenenPos.x, top: ebenenPos.y, bottom: 'auto', maxHeight: `calc(100% - ${ebenenPos.y + 10}px)` } : undefined}>
           <div className="vrc-ebenen-kopf" onPointerDown={ziehen} title="An dieser Zeile ziehen, um das Fenster zu verschieben (Doppelklick: zurück an den Ursprung)"
                onDoubleClick={() => { setEbenenPos(null); try { localStorage.removeItem('vrc.ebenenPos') } catch { /* egal */ } }}>
-            <span><span className="griff" aria-hidden="true">⠿</span> Geladene Quellen</span>
+            <span><span className="griff" aria-hidden="true">⠿</span> Kartenebenen</span>
             <button type="button" onClick={() => setEbenenOffen(false)} aria-label="Schliessen">×</button>
           </div>
-          {ebenenSichtbar(ebenenFuer(stadt), ebenen, nachladen).zeigen.map(e => {
+          {(() => {
+            const eintraege: { id:string; titel:string; inhalt:ReactNode }[]=[]
+            eintraege.push({id:'hoehenkurven',titel:hk.titel,inhalt:<HoehenkurvenWahl an={hk.an} setzen={hk.setzen} stand={hk.stand} klasse="vrc-ebene" />})
+            for(const e of ebenenSichtbar(ebenenFuer(stadt, ebenen), ebenen, nachladen).zeigen) {
             const n = (ebenen[e.id] ?? []).length
             const zahl = n ? `${n} im Ausschnitt${(nachladen.laufend[e.id] ?? 0) > 0 ? ', lädt weiter …' : ''}` : (nachladen.laufend[e.id] ?? 0) > 0 ? 'lädt …' : ''
-            return (
-              <label key={e.id} className="vrc-ebene" title={ebenenQuelle(e, stadt)}>
+            eintraege.push({id:e.id,titel:e.titel,inhalt:(
+              <EbenenGruppe key={e.id} mitProfil={e.id === 'gelaende'} titel={e.titel}><label className="vrc-ebene" title={ebenenQuelle(e, stadt)}>
                 <input type="checkbox" checked={ebenenAn.has(e.id)} onChange={x => ebeneSchalten(e.id, x.target.checked)} />
                 <span>
                   <b>{e.titel}</b> <small className="zahl">{zahl}</small>
                   <small>{ebenenQuelle(e, stadt)}{e.hinweis ? ` (${e.hinweis})` : ''}</small>
                   {ebenenAn.has(e.id) && (
                     <span className="vrc-legende">
-                      {legendeFuer(e, stadt).map(([k, farbe, text, symbol]) => <span key={k}>{symbol ? <i className="sym" style={{ background: farbe }}>{symbol}</i> : <i style={{ background: farbe }} />}{text}</span>)}
+                      {legendeFuer(e, stadt, ebenen).map(([k, farbe, text, symbol]) => <span key={k}>{symbol ? <i className="sym" style={{ background: farbe }}>{symbol}</i> : <i style={{ background: farbe }} />}{text}</span>)}
                     </span>
                   )}
                 </span>
               </label>
-            )
-          })}
-          {routennetz && (
+              {e.id === 'gelaende' && <HoehenprofilAnsicht profile={(ebenen.gelaende ?? []).flatMap(o => o.hoehenprofil ? [o.hoehenprofil] : [])}
+                onAuswahl={id => { setProfilAuswahl(id); if (id) ebeneSchalten('gelaende', true) }} kartenAlle={alleGelaendeProfile}
+                onKartenAlle={an => { setAlleGelaendeProfile(an); if (an) ebeneSchalten('gelaende', true) }} />}
+              </EbenenGruppe>
+            )})
+            }
+            if(routennetz)eintraege.push({id:'netz-gesamt',titel:'Routennetz ganze Stadt (Plan der Stadt)',inhalt:(
             <label className="vrc-ebene" title={`${routennetz.titel} (${routennetz.attribution})`}>
               <input type="checkbox" checked={netzAn} onChange={e => {
                 setNetzAn(e.target.checked)
                 try { localStorage.setItem('vrc.routennetz', e.target.checked ? '1' : '0') } catch { /* nur für diese Sitzung */ }
               }} />
-              <span><b>Routennetz ganze Stadt (Plan der Stadt)</b><small>{routennetz.attribution}; Kartenbild des Dienstes, unabhängig von den geladenen Segmenten; Linie überfahren für Einzelheiten</small></span>
+              <span><b>Routennetz ganze Stadt (Plan der Stadt)</b><small>{routennetz.attribution}; Kartenbild des Dienstes; Datenstand/Vollständigkeit unter «Datenquellen und Ladezustand»; Linie überfahren für Einzelheiten</small></span>
             </label>
-          )}
-          {(UEBERBLICK[stadt] ?? []).map(u => (
+            )})
+            for(const u of UEBERBLICK[stadt]??[])eintraege.push({id:'ueberblick:'+u.id,titel:u.titel,inhalt:(
             <label key={u.id} className="vrc-ebene" title={`${u.titel} (${u.attribution})`}>
               <input type="checkbox" checked={ueberAn.has(u.id)} onChange={e => ueberSchalten(u.id, e.target.checked)} />
-              <span><b>{u.titel}</b><small>{u.attribution}; {u.erklaerung}</small></span>
+              <span><b>{u.titel}</b><small>{u.attribution}; {u.erklaerung}; {ebenenStandText(u.id==='relief'?'relief':'kartenbild')}</small></span>
             </label>
-          ))}
+            )})
+            for(const a of ASTRA_EBENEN)eintraege.push({id:a.id,titel:a.titel,inhalt:<label key={a.id} className="vrc-ebene">
+            <input type="checkbox" checked={astraAn.has(a.id)} onChange={ev=>{const an=ev.target.checked;setAstraAn(s=>{const n=new Set(s);if(an)n.add(a.id);else n.delete(a.id);return n})}} />
+            <span><b>{a.titel}</b><small>{a.attribution}; Datenstand {astraStaende[a.id] ?? 'unbekannt (Metadaten werden geladen)'}; Vollständigkeit unbekannt; alle angebotenen Jahre. Anonymisierte Lage, nur Kartenkontext, keine Wirkung auf die Bewertung.</small></span>
+            </label>})
+            const kollator=new Intl.Collator('de-CH',{sensitivity:'base',numeric:true})
+            return eintraege.sort((a,b)=>kollator.compare(a.titel,b.titel)).map(e=><Fragment key={e.id}>{e.inhalt}</Fragment>)
+          })()}
           {(() => {
-            const ohne = ebenenSichtbar(ebenenFuer(stadt), ebenen, nachladen).ohne
+            const ohne = ebenenSichtbar(ebenenFuer(stadt, ebenen), ebenen, nachladen).ohne
             return ohne.length ? <p className="vrc-ebenen-fuss">Ohne Daten im Ausschnitt: {ohne.map(e => e.titel.replace(/ \(.*\)$/, '')).join(', ')}
               {!nachladen.moeglich && ohne.some(e => NACHLADEN.includes(e.id)) ? ' (Parkfelder, Fussnetz, Wartehallen, Steigung und amtliche Vermessung lädt die App nach dem Übernehmen der Segmente)' : ''}.</p> : null
           })()}

@@ -76,7 +76,7 @@ details.hilfe p { margin: 8px 0 2px; }
   .leaflet-touch .leaflet-bar a { width: 36px; height: 36px; line-height: 36px; }
 }
 
-/* ── Rechner-Layout: zwei Ansichten (seit 28.10.2026, Nutzerentscheid; vorher drei mit Grenze 1100 px) ──────────
+/* ── Rechner-Layout: zwei Ansichten (seit 28.10.2026, vorher drei mit Grenze 1100 px) ──────────
    Mobile (unter 700 px): Karte fest oben (--vrc-karte-h, mit dem Knopf ⇕ 30/45/70 % der Höhe), darunter das Panel mit
    eigenem Scrollen. Karte und Elementliste sind gleichzeitig zu sehen; ein Finger auf der Karte pannt nur die Karte.
    Desktop (ab 700 px): Karte links in voller Fensterhöhe, rechts das Panel mit eigenem Scrollen.
@@ -170,7 +170,7 @@ details.hilfe p { margin: 8px 0 2px; }
   .vrc-karte { position: absolute; top: 0; bottom: 0; left: 0; right: var(--vrc-panel-w); }
   .vrc-karte .vrc-velomap-wrap, .vrc-karte .vrc-velomap { height: 100%; border: none; border-radius: 0; }
   /* Trenner zwischen Karte und Panel (seit 20.10.2026): 10 px breit über der Panelkante, Linie beim Zeigen */
-  /* Wie fgsCheck (Nutzerwunsch 21.10.2026): sichtbarer Balken, beim Überfahren, mit der Tastatur und beim Ziehen in der
+  /* Wie fgsCheck: sichtbarer Balken, beim Überfahren, mit der Tastatur und beim Ziehen in der
      Akzentfarbe. Über den Ebenen der Karte (Leaflet bis 1000), sonst nahm die Karte die Maus auf ihrer Hälfte weg. */
   .vrc-trenner { display: block; position: absolute; top: 0; bottom: 0; right: calc(var(--vrc-panel-w) - 4px); width: 8px;
     z-index: 1001; cursor: col-resize; touch-action: none; background: var(--border); transition: background-color .12s; }
@@ -395,3 +395,11 @@ details.hilfe p { margin: 8px 0 2px; }
   border: 2px solid #ffffff; box-shadow: 0 0 0 1px #111827; color: #ffffff; font: 700 11px/1 system-ui, sans-serif; }
 .vrc-legende i.sym { width: 14px; height: 14px; border-radius: 3px; color: #ffffff; font: 700 9px/14px system-ui, sans-serif; text-align: center;
   font-style: normal; vertical-align: middle; }
+
+/* Quellenangabe ist eine Linse; nur alternative Werte sind auswählbar. */
+button.vrc-quellenwahl { display:inline-block; font-family:inherit; font-size:var(--fs-105); font-weight:600; line-height:1.4; min-height:0; padding:0 6px; margin:2px 0; border:1px solid var(--border); border-radius:9px; background:#fff; color:var(--accent); max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; vertical-align:middle; }
+button.vrc-quellenwahl[aria-pressed="true"] { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+
+.vrc-feldquellen { display:flex; flex-wrap:wrap; gap:2px 4px; margin-top:2px; width:100%; max-width:100%; min-width:0; }
+.vrc-feldquellen > button.vrc-quellenwahl { min-width:0; max-width:100%; flex:0 1 auto; box-sizing:border-box; }

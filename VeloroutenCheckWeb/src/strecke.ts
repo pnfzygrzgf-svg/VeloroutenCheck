@@ -20,7 +20,7 @@ import type { Steigung } from './steigung'
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
 // Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
 // Fehlt ein Eintrag, ist das Feld leer (keine erfundenen Werte).
-export type Quelle = 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung' | 'angenommen' | 'luftbild' | 'gemessen' | 'av'
+export type Quelle = 'abgeleitet' | 'modell' | 'bestaetigt' | 'amtlich' | 'osm' | 'manuell' | 'fahrplan' | 'markierung' | 'angenommen' | 'luftbild' | 'gemessen' | 'av'
 
 // DTV-Annahme (nur Bern): fehlt der DTV, gilt bei bekanntem Tempo DTV ≤ 2000. Die „Flächendeckenden
 // Verkehrsdaten" Bern führen alle Strassen > 2000 + alle Altstadt-Strassen — kein Eintrag ⇒ ≤ 2000
@@ -33,9 +33,10 @@ export const DTV_ANGENOMMEN = 1000   // Repräsentant des „< 2000"-Bands (jede
 // dem Ende der Anreicherung übernommen wurden, und rückwirkend für Segmente, deren Abfrage
 // gescheitert war. In allen drei Fällen entstand die günstigste Soll-Führungsform samt Chip.
 export function dtvAssumed(s: Section, city: Stadt): boolean {
-  return city === 'bern' && s.dtvGeprueft && !Number.isFinite(s.dtv) && Number.isFinite(s.speed)
+  return (s.datenOrt ? s.datenOrt.stadt === 'bern' : city === 'bern') && s.dtvGeprueft && !s.offeneQuellen?.includes('dtv') && !s.e5Auswahl?.dtv && !s.e5Bestaetigt?.dtv && !Number.isFinite(s.dtv) && Number.isFinite(s.speed)
 }
 export function dtvEff(s: Section, city: Stadt): number {
+  if (s.offeneQuellen?.includes('dtv')) return NaN
   return Number.isFinite(s.dtv) ? s.dtv : (dtvAssumed(s, city) ? DTV_ANGENOMMEN : NaN)
 }
 // Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
@@ -65,6 +66,15 @@ export type Richtung = 'beide' | 'eine'
 
 // Die Seiten-Felder (Seite) des Abschnitts selbst sind Seite A.
 export interface Section extends Seite {
+  offeneQuellen?: string[]
+  feldQuellen?: Record<string, import('./FeldQuellen').FeldQuelle[]>
+  feldAuswahl?: Record<string,string>
+  velozaehlungen?: import('./velozaehlung').VeloZaehldaten[]
+
+  datenOrt?: import('./gebiet').DatenOrt
+  e5?: import('./e5').E5Daten
+  e5Auswahl?: Partial<Record<'speed'|'dtv', import('./e5').E5Beleg>>
+  e5Bestaetigt?: Partial<Record<'speed'|'dtv', import('./e5').E5Beleg>>
   id: number
   dtv: number                  // NaN = leer
   dtvGeprueft: boolean         // nur Bern: Verkehrsdaten-Layer wurde für diesen Abschnitt erfolgreich abgefragt
@@ -90,6 +100,7 @@ export interface Section extends Seite {
   obs?: ObsStats               // OpenBikeSensor-Überholabstände (Zusatzinfo, nicht in der Note)
   oev?: OevInfo                // ÖV-Erkennung (Geoportal): Haltestelle/Modus im Abschnitt
   aufteilung?: Aufteilung      // geplanter Querschnitt (aufteilung.ts; nur Bern, nicht in der Note von heute)
+  trottoirQuelle?: 'av'|'manuell'
   trottoir?: { a: number; b: number; parkA?: boolean; parkB?: boolean; gruenA?: number; gruenB?: number; wegA?: boolean; wegB?: boolean }  // Trottoirbreite je Seite aus der AV [m], NaN = keines;
                                        // wegA/B: der parallele Radweg der Seite liegt auf der Trottoirfläche (wegAufTrottoir), die Ausgangslage zieht ihn ab
                                        // gruenA/B: Grünstreifen zwischen Fahrbahn und Trottoir (trottoirbreiten, seit 20.10.2026)
@@ -187,6 +198,10 @@ export function bewerteteSeiten(s: Section): { seite: 'A' | 'B'; felder: Seite }
 // So lässt sich bei «nur eine Seite» die Gegenrichtung bewerten.
 export function tauscheSeiten(s: Section): Section {
   const neu: Section = { ...s, quelle: { ...s.quelle } }
+  const spiegeln = (k: string) => k.startsWith('a.') ? 'b.' + k.slice(2) : k.startsWith('b.') ? 'a.' + k.slice(2) : k
+  if (s.feldQuellen) neu.feldQuellen = Object.fromEntries(Object.entries(s.feldQuellen).map(([k,v]) => [spiegeln(k),v]))
+  if (s.feldAuswahl) neu.feldAuswahl = Object.fromEntries(Object.entries(s.feldAuswahl).map(([k,v]) => [spiegeln(k),v]))
+  if (s.offeneQuellen) neu.offeneQuellen = s.offeneQuellen.map(spiegeln)
   if (s.steigung?.pct != null) neu.steigung = { ...s.steigung, pct: -s.steigung.pct || 0 }
   if (s.gegen) {
     const b = s.gegen
@@ -289,7 +304,7 @@ export function candToSection(c: Cand, gleich = true): Section {
   if (c.bern?.speed != null) { s.speed = c.bern.speed; s.quelle.speed = 'amtlich' }
   else if (c.speed != null) { s.speed = c.speed; s.quelle.speed = 'osm' }
   // DTV: nur amtlich (OSM kennt keinen DTV)
-  if (c.bern?.dtv != null) { s.dtv = c.bern.dtv; s.quelle.dtv = 'amtlich' }
+  if (c.bern?.dtv != null) { s.dtv = c.bern.dtv; s.quelle.dtv = c.bern.dtvQuelle === 'abgeleitet' ? 'abgeleitet' : 'amtlich' }
   s.dtvGeprueft = c.bern?.dtvGeprueft === true
   if (c.ohneFahrbahn) s.ohneFahrbahn = true
   // Führungsform und Breite je Seite (seiteAusCand). Seite A = die Way-Seite in Fahrtrichtung
@@ -303,12 +318,12 @@ export function candToSection(c: Cand, gleich = true): Section {
   // Parkierung je Seite aus den amtlichen Parkfeldern (parkierung.ts): ab PARK_SCHWELLE «ja»,
   // sonst «nein» — nur wo die Stadt eine Quelle hat (sonst bleibt «egal»).
   const pk = c.bern?.parken
-  const parkA = pk ? (pk[aWay] >= PARK_SCHWELLE ? 'ja' : 'nein') : undefined
-  const parkB = pk ? (pk[bWay] >= PARK_SCHWELLE ? 'ja' : 'nein') : undefined
-  if (pk) { s.parkenRechts = parkA!; s.quelle.parkenRechts = 'amtlich'; s.parkAnteil = { a: pk[aWay], b: pk[bWay] } }
+  const parkA = pk ? (pk[aWay] >= PARK_SCHWELLE ? 'ja' : 'egal') : undefined
+  const parkB = pk ? (pk[bWay] >= PARK_SCHWELLE ? 'ja' : 'egal') : undefined
+  if (pk) { s.parkenRechts = parkA!; if (parkA === 'ja') s.quelle.parkenRechts = 'amtlich'; s.parkAnteil = { a: pk[aWay], b: pk[bWay] } }
   if (b.ist !== a.ist || !gleicheZahl(b.breite, a.breite) || parkA !== parkB)
     s.gegen = { ...waehle(s), ist: b.ist, breite: b.breite, ...(parkB ? { parkenRechts: parkB } : {}),
-      quelle: { ...b.quelle, ...(pk ? { parkenRechts: 'amtlich' as const } : {}) } }
+      quelle: { ...b.quelle, ...(parkB === 'ja' ? { parkenRechts: 'amtlich' as const } : {}) } }
   if (c.einbahn) {
     s.richtung = 'eine'; s.quelle.richtung = 'osm'
     if (c.veloGegenverkehr) s.osmVeloGegenverkehr = true
@@ -330,7 +345,7 @@ export function candToSection(c: Cand, gleich = true): Section {
   s.candsGegenA = aWay === 'rechts' ? [] : [c.id]
   if (c.bern?.luftbild) s.luftbild = { a: c.bern.luftbild[aWay], b: c.bern.luftbild[bWay] }
   // Routentyp: nur amtlich
-  if (c.bern?.routentyp) { s.routentyp = c.bern.routentyp; s.quelle.routentyp = 'amtlich' }
+  if (c.bern?.routentyp) { s.routentyp = c.bern.routentyp; s.quelle.routentyp = c.bern.routentypQuelle === 'abgeleitet' ? 'abgeleitet' : 'amtlich' }
   // Strassentyp: nur amtlich (Basel, Dataset 100250)
   if (c.bern?.strassentyp) { s.strassentyp = c.bern.strassentyp; s.quelle.strassentyp = 'amtlich' }
   // Strassenhierarchie: nur amtlich (Bern, Geoportal Strassenhierarchie)
@@ -361,6 +376,30 @@ export function candToSection(c: Cand, gleich = true): Section {
   s.label = `${c.name} · ${Math.round(c.len)} m · OSM way ${c.wayId}` +
     (c.teil ? ` · Teil ${c.teil.nr}/${c.teil.anzahl}` : '')
   s.candIds = [c.id]
+  s.datenOrt = c.datenOrt
+  s.e5 = c.e5
+  s.velozaehlungen = c.velozaehlungen
+  s.feldQuellen = {}
+  for(const [seite,way] of [['a',aWay],['b',bWay]] as const){
+    const osm=seiteAusCand({...c,bern:undefined},way),akt=seite==='a'?s:s.gegen??s
+    for(const feld of ['ist','breite'] as const){
+      const optionen: import('./FeldQuellen').FeldQuelle[]=[]
+      if(!(typeof osm[feld]==='number'&&!Number.isFinite(osm[feld])))optionen.push({id:'osm',name:'OSM',wert:osm[feld],quelle:'osm'})
+      const q=akt.quelle[feld]
+      if(q&&q!=='osm'&&akt[feld]!==''&&!(typeof akt[feld]==='number'&&!Number.isFinite(akt[feld])))optionen.unshift({id:q,name:q==='amtlich'?`Geoportal ${c.datenOrt?.name??''}`:q==='markierung'?'Markierung':'Luftbild',wert:akt[feld],quelle:q,datumQuelle:q==='markierung'?'velostreifen_':undefined})
+      if(feld==='ist' && (c.bern?.luftbild?.[way]??0)>=0.3 && !optionen.some(o=>o.quelle==='luftbild'))optionen.push({id:'luftbild',name:'Luftbild-Erkennung',wert:'Radstreifen',quelle:'luftbild',datumQuelle:'luftbild_',hinweis:'Automatische Erkennung; am Luftbild prüfen.'})
+      s.feldQuellen[seite+'.'+feld]=optionen
+    }
+  }
+  const tram: import('./FeldQuellen').FeldQuelle[]=[]
+  if(s.quelle.tram)tram.push({id:s.quelle.tram,name:s.quelle.tram==='amtlich'?`Geoportal ${c.datenOrt?.name??''}`:'OSM',wert:s.tram,quelle:s.quelle.tram})
+  if(c.osmOev && !tram.some(o=>o.id==='osm'))tram.push({id:'osm',name:'OSM',wert:c.osmOev.oevTram,quelle:'osm',hinweis:'Gleisverlauf zur Strasse geprüft; Lage in der Fahrbahn am Luftbild kontrollieren.'})
+  s.feldQuellen.tram=tram
+  const angebot: import('./FeldQuellen').FeldQuelle[]=[]
+  if(s.quelle.oevAngebot)angebot.push({id:s.quelle.oevAngebot,name:s.quelle.oevAngebot==='amtlich'?`Geoportal ${c.datenOrt?.name??''}`:s.quelle.oevAngebot==='fahrplan'?'Fahrplan':'OSM',wert:s.oevAngebot,quelle:s.quelle.oevAngebot})
+  const osmAngebot=c.osmOev?oevAngebotAuto(c.osmOev):undefined
+  if(osmAngebot&&!angebot.some(o=>o.id==='osm'))angebot.push({id:'osm',name:'OSM',wert:osmAngebot,quelle:'osm'})
+  s.feldQuellen.oevAngebot=angebot
   if (c.obs) s.obs = c.obs   // OpenBikeSensor-Überholabstände (Zusatzinfo)
   return s
 }
@@ -464,6 +503,7 @@ const schnittZu = (seg: Seg, gruppe: Seg[]) =>
 // Veloroute auf Velohauptroute, verschwand das im Abschnitt — und mit ihm die strengere
 // Soll-Führungsform. Die Strecken-Note ist die des schlechtesten Abschnitts; sie kann nur
 // stimmen, wenn der schlechteste Abschnitt auch als eigener Abschnitt existiert.
+
 export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
   const longest = (g: Seg[]) => g.reduce((a, b) => (b.len > a.len ? b : a))
   interface Gruppe { segs: Seg[]; routentyp: Routentyp | ''; soll?: Fuehrungsart }
@@ -471,7 +511,7 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
   const groups: Gruppe[] = []
   for (const seg of ordered) {
     const g = groups[groups.length - 1]
-    if (!g || schnittZu(seg, g.segs)) { groups.push(neu(seg)); continue }
+    if (!g || schnittZu(seg, g.segs) || g.segs[0].sec.datenOrt?.bfs !== seg.sec.datenOrt?.bfs) { groups.push(neu(seg)); continue }
     if (istStummel(seg)) { g.segs.push(seg); continue }   // Stummel: geht auf, prägt die Gruppe nicht
     const rep = longest(g.segs)
     // Tempo NaN-sicher vergleichen (leeres Tempo === leeres Tempo gilt als gleich).
@@ -558,11 +598,16 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
       const a = pa.reduce((m, x) => m + x.len * x.sec.parkAnteil!.a, 0) / paLen
       const b = pa.reduce((m, x) => m + x.len * x.sec.parkAnteil!.b, 0) / paLen
       rep.sec.parkAnteil = { a, b }
-      rep.sec.parkenRechts = a >= PARK_SCHWELLE ? 'ja' : 'nein'; rep.sec.quelle.parkenRechts = 'amtlich'
-      const parkB = b >= PARK_SCHWELLE ? 'ja' : 'nein'
+      rep.sec.parkenRechts = a >= PARK_SCHWELLE ? 'ja' : 'egal'
+      if (rep.sec.parkenRechts === 'ja') rep.sec.quelle.parkenRechts = 'amtlich'
+      else delete rep.sec.quelle.parkenRechts
+      const parkB = b >= PARK_SCHWELLE ? 'ja' : 'egal'
       if (rep.sec.richtung === 'beide' && seiteB(rep.sec).parkenRechts !== parkB) {
         const g0 = gegenVon(rep.sec)
-        rep.sec.gegen = { ...g0, parkenRechts: parkB, quelle: { ...g0.quelle, parkenRechts: 'amtlich' } }
+        const quelle = { ...g0.quelle }
+        if (parkB === 'ja') quelle.parkenRechts = 'amtlich'
+        else delete quelle.parkenRechts
+        rep.sec.gegen = { ...g0, parkenRechts: parkB, quelle }
       }
     }
     // Gegenseite, die nach dem Zusammenführen Seite A gleicht → «gleich wie Seite A».
@@ -595,12 +640,21 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
       if (auto) { rep.sec.oevAngebot = auto; rep.sec.quelle.oevAngebot = auto === 'tram' ? oevQ : 'fahrplan' }
       rep.sec.tram = rep.sec.oev.oevTram; rep.sec.quelle.tram = oevQ
     }
+    // Die bestehende Abschnittsbildung bleibt. Eine Quellenalternative gibt es nur, wenn sie
+    // jedes enthaltene Segment abdeckt; Breiten folgen derselben Regel der engsten Stelle.
+    rep.sec.feldQuellen=Object.fromEntries(Object.entries(rep.sec.feldQuellen??{}).map(([feld,optionen])=>[feld,optionen.flatMap(o=>{
+      const os=g.map(seg=>seg.sec.feldQuellen?.[feld]?.find(x=>x.id===o.id));if(os.some(x=>!x))return[]
+      if(os.every(x=>typeof x!.wert==='number'))return[{...o,wert:Math.min(...os.map(x=>Number(x!.wert)))}]
+      return os.every(x=>x!.wert===o.wert)?[o]:[]
+    })]))
+    if(rep.sec.e5){const e={...rep.sec.e5};e.vorschlaege=e.vorschlaege.filter(o=>g.every(seg=>seg.sec.e5?.vorschlaege.some(x=>x.feld===o.feld&&x.quelleId===o.quelleId&&x.wert===o.wert)));rep.sec.e5=e}
+    rep.sec.velozaehlungen=[...new Map(g.flatMap(seg=>seg.sec.velozaehlungen??[]).map(v=>[v.id,v])).values()]
     return rep.sec
   })
 }
 
 // ── Breite am Luftbild gemessen (breitenmessung.ts) ───────────────────────────
-// Der Messwert ist die Breite der Seite an der gemessenen Stelle (Nutzerentscheid 15.10.2026),
+// Der Messwert ist die Breite der Seite an der gemessenen Stelle,
 // Herkunft «gemessen». Seite B nur, wenn sie eigene Werte hat; bei gleichen Seiten gilt Seite A
 // für beide.
 export function setzeGemesseneBreite(s: Section, seite: 'A' | 'B', breite: number): Section {
@@ -656,12 +710,15 @@ export function luftbildHinweis(s: Section, schwelle: number): { a: boolean; b: 
 // nur für eine von zwei gleichen Seiten, werden die Seiten dabei «verschieden» (die andere behält
 // ihre Form). Die Breite bleibt, wie sie ist — das Luftbild liefert keine.
 export function luftbildUebernehmen(s: Section, welche: { a: boolean; b: boolean }): Section {
-  const neu: Section = { ...s, quelle: { ...s.quelle } }
+  const neu: Section = { ...s, quelle: { ...s.quelle }, feldQuellen:{...s.feldQuellen}, feldAuswahl:{...s.feldAuswahl} }
+
   const beideGleich = s.richtung === 'beide' && !s.gegen
   if (beideGleich && welche.a !== welche.b) neu.gegen = gegenVon(s)
-  if (welche.a) { neu.ist = 'Radstreifen'; neu.quelle.ist = 'luftbild' }
-  if (welche.b && neu.gegen)
+  if (welche.a) { neu.ist = 'Radstreifen'; neu.quelle.ist = 'luftbild'; neu.feldAuswahl!['a.ist']='luftbild' }
+  if (welche.b && neu.gegen) {
+    neu.feldAuswahl!['b.ist']='luftbild'
     neu.gegen = { ...neu.gegen, ist: 'Radstreifen', quelle: { ...neu.gegen.quelle, ist: 'luftbild' } }
+  }
   return neu
 }
 

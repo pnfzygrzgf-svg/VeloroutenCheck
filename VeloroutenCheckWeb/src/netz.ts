@@ -1,3 +1,4 @@
+import { meldeAbruf, datenGeneration } from './datenstand'
 // ── Netz-Helfer: Abrufe mit Timeout, ArcGIS-Abfragen, HTML-Maskierung ─────────
 //
 // Geteilt von allen Stadt-Adaptern, den Snapshot-Ladern und der Karte. Drei Dinge, die
@@ -18,9 +19,15 @@ export function timeoutSignal(ms: number): AbortSignal {
 // JSON holen; wirft bei HTTP-Fehler. Wer das Ergebnis cacht, cacht damit nie eine Fehlantwort:
 // ein einmaliges 503 fror vorher «keine Zählstellen» bis zum Neuladen der Seite ein.
 export async function holeJson<T>(url: string, ms: number, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { ...init, signal: timeoutSignal(ms) })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return await res.json() as T
+  const generation = datenGeneration()
+  let res: Response | null = null
+  try {
+    res = await fetch(url, { cache: 'no-store', ...init, signal: timeoutSignal(ms) })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const daten = await res.json() as T
+    meldeAbruf(url, res, daten, daten && typeof daten === 'object' && 'error' in daten ? JSON.stringify(daten.error) : undefined, generation)
+    return daten
+  } catch (e) { meldeAbruf(url, res, undefined, e, generation); throw e }
 }
 
 // ── ArcGIS REST (Bern, Luzern) ────────────────────────────────────────────────

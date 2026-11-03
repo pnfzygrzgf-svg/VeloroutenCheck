@@ -45,7 +45,7 @@ describe('Querschnitt am Luftbild aufnehmen', () => {
 })
 
 import { GANZ } from './querschnittAufnahme'
-describe('Ganzer Querschnitt (Nutzerwunsch 21.10.2026)', () => {
+describe('Ganzer Querschnitt', () => {
   it('ein Stück als Ganzer Querschnitt: kein Teil, nur die Gesamtbreite', () => {
     expect(aufnahmeTeile([-10, 12.5], [GANZ])).toEqual({ teile: [], fahrbahn: 0, seitenraum: 0, gesamt: 22.5 })
   })

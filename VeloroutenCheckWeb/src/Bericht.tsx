@@ -1,4 +1,7 @@
-// ── Bericht «Aufteilung planen» (Etappe 3): Druckansicht, als PDF über den Druckdialog ──
+import { standardText } from './gebiet'
+import { E5Abschnitt } from './E5Abschnitt'
+import { Datenstaende } from './Datenstaende'
+// ── Bericht «Aufteilung planen»: Druckansicht, als PDF über den Druckdialog ──
 //
 // Muster aus fgsCheck (Bericht.tsx): eigene Ansicht über der App, als Portal im body, A4 hoch per
 // @media print (index.css). Das Kartenbild ist KEIN Leaflet-Ausschnitt (Kacheln laden beim Drucken
@@ -50,6 +53,8 @@ function quelleText(q: Quelle | undefined, amtlich: string | undefined): string 
   switch (q) {
     case 'amtlich': return amtlich ?? 'Geoportal der Stadt'
     case 'osm': return 'OpenStreetMap'
+    case 'modell': return 'ARE · NPVM (modelliert)'
+    case 'bestaetigt': return 'gewählte Quelle; Herkunft beim Abschnitt'
     case 'manuell': return 'von Hand eingegeben'
     default: return 'Quelle unbekannt'
   }
@@ -148,7 +153,7 @@ function BerichtKarte({ achsen, av, park, nr, onBereit }: {
 
 const strecke = (l: P[]) => l.reduce((m, p, i) => (i ? m + Math.hypot(p[0] - l[i - 1][0], p[1] - l[i - 1][1]) : 0), 0)
 
-// Beurteilung im Bericht (seit 22.10.2026, Nutzerwunsch): der Erfüllungsgrad vorne, die Note als Herleitung in
+// Beurteilung im Bericht (seit 22.10.2026): der Erfüllungsgrad vorne, die Note als Herleitung in
 // Klammern, unabhängig von einer Einstellung in der App. Vorher folgte der Bericht dem Schalter «Anzeige»:
 // «2,0 (Gar nicht erfüllt)» bzw. nur «Gar nicht erfüllt»; den Schalter gibt es nicht mehr.
 const noteText = (n: number | null) =>
@@ -175,7 +180,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
   basis: string                           // Pfad zu logo.svg und den Streetmix-Bildern
 }) {
   const a = section.aufteilung
-  const rt = section.routentyp || 'Veloroute'
+  const rt = section.routentyp || 'Velohauptroute'
   const sTempo = a.tempo != null ? { ...section, speed: a.tempo } : section   // Tempo mit der Planung (Vorschlag «Tempo 30»)
   const umfeld = umfeldVon(sTempo, a.teile, a.fussnetz, city)
   const plan = bewerteAufteilung(section, a, city, breiten)
@@ -195,14 +200,14 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
     <article className="bericht-seite">
       {/* Druckrand als Rahmen: Kopf und Fuss der Tabelle wiederholen sich auf jeder gedruckten Seite. So kommt der
           Bericht ohne Seitenrand aus (@page margin 0), und der Browser setzt keine eigene Kopf- und Fusszeile
-          (Titel, Adresse, Seitenzahl, Datum) dazu (Nutzerwunsch 16.10.2026). */}
+          (Titel, Adresse, Seitenzahl, Datum) dazu. */}
       <table className="bericht-rahmen">
         <thead><tr><td><div className="bericht-rand-oben" /></td></tr></thead>
         <tfoot><tr><td><div className="bericht-rand-unten" /></td></tr></tfoot>
         <tbody><tr><td>
             <header>
               <h1><img className="bericht-logo" src={basis + 'logo.svg'} alt="" width={34} height={34} />Aufteilung planen</h1>
-              <p className="klein">VeloroutenCheck · Bericht vom {datum}</p>
+              <p className="klein">VeloroutenCheck · Bericht vom {datum}</p><p>{standardText(city,section.datenOrt)}</p>
             </header>
 
             <section className="bericht-block">
@@ -215,13 +220,13 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                 </td></tr>
                 <tr><td>Stadt</td><td>{stadtName}</td></tr>
                 <tr><td>Routentyp</td><td>{section.routentyp
-                  ? `${routenLabel?.[section.routentyp] ?? section.routentyp} (${quelleText(section.quelle.routentyp, ROUTENTYP_AMTLICH[city])})`
-                  : `– (geprüft wie ${routenLabel?.Veloroute ?? 'Veloroute'})`}</td></tr>
+                  ? `${routenLabel?.[section.routentyp] ?? section.routentyp} (${quelleText(section.quelle.routentyp, ROUTENTYP_AMTLICH[section.datenOrt?.stadt??city])})`
+                  : `– (geprüft wie ${routenLabel?.Velohauptroute ?? 'Velohauptroute'})`}</td></tr>
                 <tr><td>DTV, Tempo</td><td>{Number.isFinite(section.dtv)
-                    ? `${Math.round(section.dtv).toLocaleString('de-CH')} Fz/Tag (${quelleText(section.quelle.dtv, DTV_AMTLICH[city])})`
+                    ? `${Math.round(section.dtv).toLocaleString('de-CH')} Fz/Tag (${quelleText(section.quelle.dtv, DTV_AMTLICH[section.datenOrt?.stadt??city])})`
                     : dtvAssumed(section, city) ? `≤ 2'000 Fz/Tag (angenommen: kein Eintrag in den ${DTV_AMTLICH.bern})` : 'DTV –'}
                   {' · '}{Number.isFinite(section.speed)
-                    ? `${section.speed} km/h (${quelleText(section.quelle.speed, TEMPO_AMTLICH[city])})` : 'Tempo –'}
+                    ? `${section.speed} km/h (${quelleText(section.quelle.speed, TEMPO_AMTLICH[section.datenOrt?.stadt??city])})` : 'Tempo –'}
                   {a.tempo != null && ` · mit der Planung Tempo ${a.tempo}`}</td></tr>
                 {a.vorschlag && <tr><td>Ausgangspunkt</td><td>Massnahmenvorschlag: {a.vorschlag}</td></tr>}
                 <tr><td>Fahrbahnbreite</td><td>heute {Number.isFinite(section.fahrbahnbreite) ? `${numDE(section.fahrbahnbreite, 1)} m` : '–'}
@@ -286,7 +291,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                   })}
                 </tbody>
               </table>
-              {a.teile.some(t => t.angenommen) && <p className="klein">* Breite heute unbekannt (keine Angabe in OSM, nicht gemessen): Vorgabe eingesetzt.</p>}
+              {a.teile.some(t => t.angenommen) && <p className="klein">* Breite heute unbekannt (keine Angabe in OSM, nicht gemessen): Richtwert als Breite angenommen.</p>}
               <p><b>Bilanz:</b> {bt.kopf} · {bt.fehlmass ? <b>{bt.ergebnis}</b> : bt.ergebnis}
                 {bt.zusatz.length > 0 && <span className="klein"> · {bt.zusatz.join(' · ')}</span>}</p>
               {kern.length > 0 && <><p><b>Kernfahrbahn:</b></p><ul className="klein">{kern.map(k => <li key={k.text}>{k.streng ? <b>{k.text}</b> : k.text}</li>)}</ul></>}
@@ -312,13 +317,13 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                 Abschnitts ist die schlechtere Seite.{Number.isFinite(b.rest) && b.rest < -0.005 ? ' Die Elemente haben im verfügbaren Querschnitt keinen Platz; die Note setzt voraus, dass sie passen.' : ''}</p>
             </section>
 
+            <E5Abschnitt s={section} druck /><Datenstaende druck />
             <section className="bericht-block">
               <h2>Annahmen und Grenzen</h2>
               <ul className="klein">
                 <li>Die Masse sind nicht ganz genau. Fahrbahn- und Trottoirbreiten aus der amtlichen Vermessung sind Mediane aus Querschnitten
                   alle 5 m, gerundet auf 0,1 m bzw. 5 cm; sie folgen dem Datenstand der AV und mitteln Einengungen und Verbreiterungen weg. Am
-                  Luftbild gemessene Breiten hängen zudem von der Klickgenauigkeit ab (10 cm pro Bildpunkt), angenommene Breiten sind Vorgaben,
-                  keine Messung.</li>
+                  Luftbild gemessene Breiten hängen zudem von der Klickgenauigkeit ab (10 cm pro Bildpunkt), angenommene Breiten beruhen auf Richtwerten.</li>
                 <li>Nicht geprüft: Mittelinseln, Abbiegespuren, Längsgefälle, Sichtweiten. Von der Haltestelle prüft die Planung nur die Breite von Wartehäuschen und Warteraum; ihre Bewertung bleibt wie im Rechner eingegeben.</li>
                 <li>Die Bilanz zählt den ganzen Querschnitt: verfügbar sind die Fahrbahn und die Breite ausserhalb der Fahrbahn von heute
                   (Trottoirs aus der AV). Trottoirbreiten können angepasst werden. Ist diese Breite unbekannt, gilt die Bilanz nur für die Fahrbahn.</li>

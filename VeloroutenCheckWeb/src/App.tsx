@@ -1,3 +1,19 @@
+import { DatenabrufHinweis } from './DatenabrufHinweis'
+import { ladeMeldungen, feldFehlerText as fehlerText } from './ladeMeldungen'
+import { KartenHinweise } from './KartenHinweise'
+import { QuellenHerkunft } from './QuellenHerkunft'
+import { abschnittAendern } from './abschnittAendern'
+import { avBreiteErmitteln, avBreiteUebernehmen, avNachladenUebernehmen } from './avNachladen'
+import { FeldQuellen } from './FeldQuellen'
+import { ladeVelozaehlungen } from './velozaehlung'
+import { fallText, fallLesen, abschnitteAktualisieren, type Fall } from './fallDatei'
+import { bundesquellen } from './bundesquellen'
+import { E5Abschnitt, DatenFeldVorschlaege } from './E5Abschnitt'
+import { orteFuer, standardText, type Suchgebiet } from './gebiet'
+import { enrichE5, e5BelegQuelle } from './e5'
+import { ladeE6Kontext } from './e6'
+import { Datenstaende } from './Datenstaende'
+import { datenlaufNeu, datenStaende, datenGeneration, datenlaufUebernehmen } from './datenstand'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -24,11 +40,11 @@ import { artVorschlag, aufnahmeTeile, avArtAn, fangeLage, grenzenAufLinie, querL
 import {
   candsToSections, defaultSection, dtvAssumed, gegenVon, seiteA, seiteB, tauscheSeiten,
   luftbildHinweis, luftbildUebernehmen, setzeGemesseneBreite, velostrasseGleich, velostrasseBreiteAusFahrbahn,
-  type Quelle, type QuelleFeld, type Section, type Seite, type SeitenQuelle,
+  type Quelle, type Section, type Seite, type SeitenQuelle,
 } from './strecke'
 import { bewerteAbschnitt, aufzaehlen, type AbschnittErgebnis } from './bewertung'
 import { QuerschnittSkizze, breiteCm, kennwerteText } from './Querschnitt'
-import { quellenFuer, type QuellenGruppe } from './quellen'
+import { datenquellenFuer, quellenFuer, type QuellenOrt, type QuellenGruppe } from './quellen'
 import { ROUTENNETZ, type RoutennetzWms } from './routennetz'
 import Bericht from './Bericht'
 import { ladeFussnetz, ladeFussnetzBasel, fussnetzLinien, FUSSNETZ_BASEL, FUSSNETZ_GEOPORTAL } from './fussnetz'
@@ -37,24 +53,26 @@ import {
   BILDER, BILD_LABEL, MARKIERUNG_LABEL, PFEILE, markierungAus, parkTiefeVorbelegt, pfeileVon, TEIL_GRUPPEN, TEIL_LABEL, auf5cm,
   type Aufteilung, type Bild, type FussNetz, type Pfeil, type Richtung, type Teil, type TeilArt, type TeilPruefung,
 } from './aufteilung'
-import { himmelsrichtung, peilung } from './geo'
+import { distPointToLineM, himmelsrichtung, peilung } from './geo'
 import { mitParallelen } from './parallelwege'
-import { ladeWartehallen, loadBboxCandidates, loadNearestCandidate, loadStreetCandidates, teileInListe, MIN_TEIL_M } from './osm'
+import { aktualisiereKandidaten, ladeWartehallen, loadBboxCandidates, loadNearestCandidate, loadStreetCandidates, teileInListe, MIN_TEIL_M } from './osm'
 import { buildCsv, numDE, parseZahl } from './csv'
-import { bboxOf, type Anreicherung } from './cityShared'
+import { quellenCacheLeeren as cityCacheLeeren, bboxOf, loadOevFromOsm, type Anreicherung } from './cityShared'
 import * as bern from './bern'
 import * as zurich from './zurich'
 import * as basel from './basel'
 import * as luzern from './luzern'
 // import * as stgallen from './stgallen'   // St. Gallen vorerst nicht weiterverfolgt (siehe CITIES)
 import { type OevInfo } from './bern'
-import { enrichObs, type ObsStats } from './obs'
-import { enrichVelostreifen, type VeloInfo } from './velostreifen'
-import { enrichLuftbild, luftbildEbene, LUFTBILD_SCHWELLE, LUFTBILD_ERKENNUNG_BILD, type LuftbildInfo } from './luftbild'
+import { quellenCacheLeeren as obsCacheLeeren, enrichObs, type ObsStats } from './obs'
+import { quellenCacheLeeren as veloCacheLeeren, enrichVelostreifen, type VeloInfo } from './velostreifen'
+import { quellenCacheLeeren as luftCacheLeeren, enrichLuftbild, luftbildEbene, LUFTBILD_SCHWELLE, LUFTBILD_ERKENNUNG_BILD, type LuftbildInfo } from './luftbild'
 import { enrichParkierung, ladeParkflaechen, PARK_MAX_M, PARK_QUELLE, type Box as ParkBox, type ParkFlaeche, type ParkInfo, type ParkStadt } from './parkierung'
 
 // ── Städte-Registry: pro Stadt die Datenquellen + Beschriftungen bündeln ───────
 // Alle Adapter (bern/zurich/basel/luzern/stgallen.ts) tragen dieselben Schnittstellen.
+const quellenNeu = () => { const generation = datenlaufNeu({ uebernahmeAbwarten: true }); bern.quellenCacheLeeren(); zurich.quellenCacheLeeren(); basel.quellenCacheLeeren(); luzern.quellenCacheLeeren(); cityCacheLeeren(); obsCacheLeeren(); veloCacheLeeren(); luftCacheLeeren(); return generation }
+const cfgFuer = (s?: Section): CityCfg => s?.datenOrt?.stadt ? CITIES[s.datenOrt.stadt] : SCHWEIZ
 type CityId = Stadt   // 'bern' | 'zurich' | 'basel' | 'luzern' (St. Gallen vorerst nicht weiterverfolgt)
 type LoadOevResult = { byId: Map<number, OevInfo & { oevQuelle?: 'amtlich' | 'osm' }>; stops: Stop[]; fehler: string[]; ebenen?: EbenenDaten }
 interface CityCfg {
@@ -89,13 +107,13 @@ const CITIES: Record<CityId, CityCfg> = {
   bern: {
     label: 'Bern', osmArea: 'Bern', center: [46.948, 7.447],
     attribution: 'Geoinformation Stadt Bern',
-    enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json', obsStand: 'Juni 2026',
+    enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json', obsStand: undefined,
     parkierung: 'bern',
     velostreifenFile: 'velostreifen_bern.json',   // lokaler Snapshot; im öffentlichen Build nicht vorhanden
     luftbildFile: 'luftbild_bern.json',           // öffentlich (tools/luftbild_bern.py)
     routennetz: ROUTENNETZ.bern,   // Kartenebene «Routennetz» (routennetz.ts, seit 30.10.2026)
     avKanton: 'Bern',                             // Breitenmessung (seit 15.10.2026)
-    aufteilung: true,                             // Aufteilung planen (seit 16.10.2026, Etappe 1)
+    aufteilung: true,                             // Aufteilung planen (seit 16.10.2026)
     standardDoc: {
       titel: 'Standards Masterplans Veloinfrastruktur Stadt Bern',
       url: 'https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur',
@@ -105,12 +123,12 @@ const CITIES: Record<CityId, CityCfg> = {
   zurich: {
     label: 'Zürich', osmArea: 'Zürich', center: [47.374, 8.541],
     attribution: 'Geodaten Stadt Zürich',
-    enrichCands: zurich.enrichCands, loadOev: zurich.loadOev, obsFile: 'obs_zurich.json', obsStand: 'Juni 2026',
+    enrichCands: zurich.enrichCands, loadOev: zurich.loadOev, obsFile: 'obs_zurich.json', obsStand: undefined,
     parkierung: 'zurich',
     breiten: BREITEN_ZUERICH, breitenQuelle: 'Velostandards Zürich',   // Rest → Bern-Fallback
     avKanton: 'Zürich',                           // Breitenmessung (seit 16.10.2026)
     routennetz: ROUTENNETZ.zurich,   // Kartenebene «Routennetz» (routennetz.ts, seit 30.10.2026)
-    aufteilung: true,                             // Aufteilung planen (seit 17.10.2026, Etappe 4)
+    aufteilung: true,                             // Aufteilung planen (seit 17.10.2026)
     luftbildFile: 'luftbild_zurich.json',         // öffentlich (tools/luftbild_stadt.py), seit 16.10.2026
     standardDoc: {
       titel: 'Velostandards Stadt Zürich',
@@ -128,7 +146,7 @@ const CITIES: Record<CityId, CityCfg> = {
     breiten: BREITEN_BASEL, breitenQuelle: 'Standards Basel-Stadt',
     avKanton: 'Basel-Stadt',                      // Breitenmessung (seit 16.10.2026)
     routennetz: ROUTENNETZ.basel,   // Kartenebene «Routennetz» (routennetz.ts, seit 30.10.2026)
-    aufteilung: true,                             // Aufteilung planen (seit 17.10.2026, Etappe 4)
+    aufteilung: true,                             // Aufteilung planen (seit 17.10.2026)
     luftbildFile: 'luftbild_basel.json',          // öffentlich (tools/luftbild_stadt.py), seit 16.10.2026
     standardDoc: {
       titel: 'Standards Fuss- und Velo-Verkehrsinfrastruktur',
@@ -147,7 +165,7 @@ const CITIES: Record<CityId, CityCfg> = {
     breiten: BREITEN_LUZERN, breitenQuelle: 'Standards Stadt Luzern',
     avKanton: 'Luzern',                           // Strassenflächen der Stadt statt AV (seit 17.10.2026)
     routennetz: ROUTENNETZ.luzern,   // Kartenebene «Routennetz» (routennetz.ts, seit 30.10.2026)
-    aufteilung: true,                             // Aufteilung planen (seit 17.10.2026, Etappe 4)
+    aufteilung: true,                             // Aufteilung planen (seit 17.10.2026)
     standardDoc: {
       titel: 'Standards Veloverkehr Stadt Luzern',
       url: 'https://www.stadtluzern.ch/_docn/2965064/Standards_Veloverkehr.pdf',
@@ -166,6 +184,13 @@ const CITIES: Record<CityId, CityCfg> = {
   // },
 }
 
+const SCHWEIZ: CityCfg = {
+  ...CITIES.bern, label: 'Schweiz', osmArea: '', center: [46.8, 8.2], attribution: 'örtlich zuständige Quellen; schweizweite Bundesdaten',
+  enrichCands: async cands => ({ cands, fehler: [] }), loadOev: cands => loadOevFromOsm(cands),
+  obsFile: undefined, obsStand: undefined, velostreifenFile: undefined, luftbildFile: undefined,
+  parkierung: undefined, routennetz: undefined, avKanton: 'Schweiz',
+}
+
 // Kurzlabel je Stadt für die kompakte Vergleichszeile (andere Standards) und die Stadtwahl auf Mobile.
 const STADT_KURZ: Record<CityId, string> = { bern: 'BE', zurich: 'ZH', basel: 'BS', luzern: 'LU' }
 
@@ -180,7 +205,7 @@ const IST_OPTIONS: IstFuehrungsform[] = [
 ]
 const ROUTE_OPTIONS: Routentyp[] = ['Velohauptroute', 'Veloroute']
 const PARKEN_OPTIONS: { value: ParkenRechts; label: string }[] = [
-  { value: 'egal', label: 'Egal' },
+  { value: 'egal', label: 'Noch nicht geprüft' },
   { value: 'nein', label: 'Nein' },
   { value: 'ja', label: 'Ja' },
 ]
@@ -239,7 +264,7 @@ function noteColor(n: number): { bg: string; fg: string } {
   return { bg: '#b91c1c', fg: '#ffffff' }                // Gar nicht erfüllt (unterer Bereich)
 }
 
-// Beurteilung einer Note (seit 22.10.2026, Nutzerwunsch): vorne der Erfüllungsgrad, dahinter klein die
+// Beurteilung einer Note (seit 22.10.2026): vorne der Erfüllungsgrad, dahinter klein die
 // Schulnote als Herleitung. Vorher schaltete «Anzeige: Schulnote | Erfüllungsgrad» oben im Panel zwischen
 // beiden um (Standard Schulnote); der Schalter ist weg, jede Stelle zeigt beides in dieser Reihenfolge.
 function Beurteilung({ note }: { note: number }) {
@@ -249,46 +274,7 @@ function Beurteilung({ note }: { note: number }) {
 // Herkunfts-Chip am Feld: blau „amtlich" (Geodaten Stadt Bern), grau „OSM";
 // bei „manuell"/leer kein Chip. Für leere Pflichtfelder ein rötlicher „Eingabe nötig"-Chip.
 function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
-  const [auf, setAuf] = useState(false)            // Erklärung auf Tippen (seit 28.10.2026: Touch kennt kein title)
-  const amtlichTitle = useContext(AttribContext)   // stadtabhängige Quellenangabe (Bern/Zürich)
-  const avTitle = useContext(AvContext)            // Quellenangabe der amtlichen Vermessung (Messung)
-  const map: Record<string, { t: string; bg: string; fg: string; title?: string }> = {
-    amtlich: { t: 'Geoportal', bg: '#dbeafe', fg: '#1e40af', title: amtlichTitle },
-    osm: { t: 'OSM', bg: 'var(--border-subtle)', fg: 'var(--text-muted-strong)', title: 'OpenStreetMap' },
-    fahrplan: { t: 'opentransportdata', bg: '#dcfce7', fg: '#166534', title: 'Fahrplan (opentransportdata.swiss / GTFS)' },
-    markierung: { t: 'Markierung', bg: '#ffedd5', fg: '#9a3412', title: 'Aus der Fahrbahnmarkierung ermittelt (lokale Auswertung): Velostreifen auf dieser Seite — oder keiner, wenn die Striche nur auf der anderen Seite liegen' },
-    luftbild: { t: 'Luftbild', bg: '#e0f2fe', fg: '#075985', title: 'Aus dem Luftbild-Hinweis übernommen (Bern: SWISSIMAGE 2024 © swisstopo und Orthofoto Stadt Bern 2026, Zürich und Basel: SWISSIMAGE; Erkennung mit dem Modell remote_velo der ETH Zürich) — bitte am Luftbild prüfen' },
-    av: { t: 'AV', bg: '#f1f5f9', fg: '#334155', title: `Aus der amtlichen Vermessung ermittelt: Fahrbahn von Bordstein zu Bordstein, Median der Querschnitte alle 5 m; bei der Velostrasse die Breite = Fahrbahn ohne Parkierung (${avTitle || 'Amtliche Vermessung, geodienste.ch'})` },
-    gemessen: { t: 'gemessen', bg: '#ede9fe', fg: '#5b21b6', title: `Am Luftbild gemessen: ab der Bordsteinkante der amtlichen Vermessung bis zur angeklickten Stelle der Markierung (Luftbild © swisstopo; ${avTitle || 'Amtliche Vermessung, geodienste.ch'})` },
-    angenommen: { t: '≤ 2000 angenommen', bg: '#fef9c3', fg: '#854d0e', title: 'Flächendeckende Verkehrsdaten Bern: kein Eintrag ⇒ DTV ≤ 2000 (ausserhalb Altstadt)' },
-    fehlt: { t: 'Eingabe nötig', bg: '#fee2e2', fg: '#b91c1c' },
-  }
-  const key = fehlt ? 'fehlt'
-    : q === 'amtlich' ? 'amtlich' : q === 'osm' ? 'osm' : q === 'fahrplan' ? 'fahrplan'
-    : q === 'markierung' ? 'markierung' : q === 'angenommen' ? 'angenommen' : q === 'luftbild' ? 'luftbild'
-    : q === 'gemessen' ? 'gemessen' : q === 'av' ? 'av' : null
-  if (!key) return null
-  const c = map[key]
-  const chip = (
-    <span style={{ fontSize: 'var(--fs-105)', fontWeight: 700, color: c.fg, background: c.bg,
-                   borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap',
-                   display: 'inline-block', verticalAlign: 'middle', marginLeft: c.title ? 0 : 6,
-                   cursor: c.title ? 'help' : 'default' }}>
-      {c.t}
-    </span>
-  )
-  if (!c.title) return chip
-  // Mit Erklärung: Knopf, ein Tippen zeigt sie unter dem Feld (wie ⓘ), der Tooltip bleibt für die Maus
-  return (
-    <>
-      <button type="button" onClick={e => { e.preventDefault(); setAuf(v => !v) }} aria-expanded={auf} title={c.title}
-              aria-label={`Herkunft: ${c.t}${auf ? ' (Erklärung schliessen)' : ''}`}
-              style={{ border: 'none', background: 'none', padding: 0, marginLeft: 6, minHeight: 0, cursor: 'help', verticalAlign: 'middle', font: 'inherit' }}>
-        {chip}
-      </button>
-      {auf && <span style={{ display: 'block', fontSize: 12, fontWeight: 400, color: 'var(--text-muted-strong)', marginTop: 2, lineHeight: 1.4 }}>{c.title}</span>}
-    </>
-  )
+  return <QuellenHerkunft q={q} fehlt={fehlt} amtlichTitle={useContext(AttribContext)} avTitle={useContext(AvContext)} />
 }
 
 // Label im normalen Textfluss (kein Flex): bei zweizeiligen Labels bricht der Chip
@@ -297,7 +283,7 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
 function FieldLabel({ label, chip }: { label: string; chip?: React.ReactNode }) {
   return (
     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4,
-                   display: 'block', minHeight: '2.8em' }}>
+                   display: 'block', minHeight: '2.8em', minWidth: 0, overflowWrap: 'anywhere' }}>
       {label}{chip}
     </span>
   )
@@ -333,7 +319,7 @@ function NumberField({ label, unit, value, onChange, chip, kompakt, dezimalen }:
           onChange={e => { setText(e.target.value); onChange(parseZahl(e.target.value)) }}
           onBlur={() => setText(anzeige(value))}
           style={{
-            width: '100%', padding: '8px 10px', borderRadius: 8,
+            width: '100%', minWidth: 0, padding: '8px 10px', borderRadius: 8,
             border: '1px solid var(--border)', fontSize: 16, textAlign: 'right',
           }}
         />
@@ -343,7 +329,7 @@ function NumberField({ label, unit, value, onChange, chip, kompakt, dezimalen }:
   )
 }
 
-// Übliche Masse als Knöpfe (seit 27.10.2026, Nutzerwunsch: Velostreifen 1,50 · 1,80 · 2,00 · 2,20 · 2,50 m als Vorschlag sichtbar;
+// Übliche Masse als Knöpfe (seit 27.10.2026: Velostreifen 1,50 · 1,80 · 2,00 · 2,20 · 2,50 m als Vorschlag sichtbar;
 // eine Auswahlliste im Feld war zu versteckt). Ein Klick setzt die Breite, das aktuelle Mass ist hervorgehoben.
 function UeblicheMasse({ werte, wert, onWahl, label }: { werte: number[]; wert: number; onWahl: (v: number) => void; label: string }) {
   return (
@@ -369,6 +355,7 @@ function UeblicheMasse({ werte, wert, onWahl, label }: { werte: number[]; wert: 
 
 const selectStyle: React.CSSProperties = {
   padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 16, background: '#fff',
+  minWidth: 0, maxWidth: '100%', boxSizing: 'border-box',
 }
 const fieldStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 150,
@@ -379,7 +366,7 @@ const groupLabelStyle: React.CSSProperties = {
   color: 'var(--text-muted)', marginBottom: 8,
 }
 
-// Ein- und ausklappbare Gruppe der Abschnittsmaske (Nutzerwunsch 16.10.2026: weniger scrollen).
+// Ein- und ausklappbare Gruppe der Abschnittsmaske (weniger scrollen).
 // Natives <details>, anfangs offen; der Zustand bleibt beim Neuzeichnen erhalten.
 function Klappe({ titel, children, stil }: { titel: React.ReactNode; children: React.ReactNode; stil?: React.CSSProperties }) {
   return (
@@ -476,7 +463,7 @@ function Menu({ label, klasse, titel, children }: { label: React.ReactNode; klas
 }
 // Stelle des Karten-Markers und Fahrtrichtung der Seite A (Street View; in der Kopfzeile und in der Planung)
 type Ort = { lat: number; lon: number; peilung?: number }
-// Google Street View an der Stelle des Karten-Markers, Blick in Fahrtrichtung der Seite A (Nutzerwunsch 20.10.2026);
+// Google Street View an der Stelle des Karten-Markers, Blick in Fahrtrichtung der Seite A;
 // Google Maps URLs (map_action=pano) sucht das nächste Panorama
 function StreetViewLink({ ort, stil }: { ort: Ort; stil?: React.CSSProperties }) {
   return (
@@ -493,7 +480,8 @@ function StreetViewLink({ ort, stil }: { ort: Ort; stil?: React.CSSProperties })
 // ── Eingaben einer Fahrtrichtung (Seite A oder B, strecke.ts: Seite) ─────────
 // Was je Fahrtrichtung verschieden sein kann: Führungsform samt Breite, Parkierung rechts,
 // öV-Takt der Umweltspur, Haltestellentyp und -breite. Seite A und B nutzen dieselbe Maske.
-function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typAngenommen, onTypBestaetigt }: {
+function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typAngenommen, onTypBestaetigt, quellen }: {
+  quellen?: {ist:React.ReactNode;breite:React.ReactNode}
   typAngenommen?: boolean               // Haltestellentyp aus der AV vorbelegt (Haltestelleninsel, seit 21.10.2026)
   onTypBestaetigt?: () => void          // Vermerk «angenommen» entfernen (Typ gewählt)
   felder: Seite
@@ -508,7 +496,7 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
       <label style={fieldStyle}>
         <FieldLabel label="Vorhandene Führungsform (Ist)"
-                    chip={<QuelleChip q={quelle.ist} fehlt={ist === ''} />} />
+                    chip={quellen?.ist??<QuelleChip q={quelle.ist} fehlt={ist === ''} />} />
         <select value={GEGENVERKEHR_FORMEN.includes(ist as IstFuehrungsform) ? '__gegenverkehr__' : ist}
                 onChange={e => onChange({ ist: e.target.value === '__gegenverkehr__'
                   ? GEGENVERKEHR_DEFAULT : e.target.value as IstFuehrungsform })}
@@ -534,7 +522,7 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
       {ist !== '' && brauchtBreite(ist) && (
         <NumberField label="Breite der Führungsform" unit="m" value={felder.breite} step={0.1}
                      onChange={v => onChange({ breite: v })}
-                     chip={<QuelleChip q={quelle.breite} fehlt={!Number.isFinite(felder.breite)} />} />
+                     chip={quellen?.breite??<QuelleChip q={quelle.breite} fehlt={!Number.isFinite(felder.breite)} />} />
       )}
       {/* Breite am Luftbild messen: ab Bordsteinkante bis zur Markierung (App.tsx, Messung). */}
       {ist !== '' && brauchtBreite(ist) && onMessen && (
@@ -610,7 +598,7 @@ function zurHerleitung() {
   setTimeout(() => document.getElementById('herleitung-note')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
 }
 
-// ── Herleitung der Note einer Seite als Abzugsliste (seit 22.10.2026, Nutzerwunsch) ──
+// ── Herleitung der Note einer Seite als Abzugsliste (seit 22.10.2026) ──
 // Vorher stand hier «feel-safe-Defizit 41 Pkt. → Form-Note 3,1»: richtig, aber nur für Leute
 // verständlich, die das Verfahren kennen. Jetzt steht jeder Schritt als Zeile mit seinem Abzug:
 // Ausgangspunkt, Führungsform (6 − Form-Note), Breite, Parkierung, Haltestelle, dann die gerundete
@@ -754,7 +742,7 @@ function Herleitung({ bewertung, felder, routentyp, city, breitenQuelle }: {
   )
 }
 
-// ── «Wie die Note entsteht»: Herleitung im Referenzteil (seit 22.10.2026, Nutzerwunsch) ──
+// ── «Wie die Note entsteht»: Herleitung im Referenzteil (seit 22.10.2026) ──
 // Ziel des Links aus jedem Ergebnis (zurHerleitung). Erklärt den Abzug für die Führungsform aus den Feel-Safe-Werten,
 // die übrigen Abzüge und den Erfüllungsgrad. Alle Zahlen kommen aus den Konstanten der Rechnung (fuehrungsform.ts),
 // damit der Text nicht von ihr abweicht. Gilt für die Regeln aller Städte; abweichende Sonderregeln (Basel, Umweltspur
@@ -905,7 +893,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
           {brauchtDtvTempo(bewertung.ist) &&
             <div><strong>Vorgabe:</strong> {bewertung.soll}</div>}
           <div><strong>Heute:</strong> {bewertung.ist}</div>
-          {/* Herleitung einklappbar (Nutzerwunsch 16.10.2026); Vorgabe und Heute bleiben sichtbar */}
+          {/* Herleitung einklappbar; Vorgabe und Heute bleiben sichtbar */}
           <details className="vrc-klappe auf-farbe" style={{ marginTop: 4 }}>
             <summary style={{ cursor: 'pointer', userSelect: 'none', fontSize: 12.5, opacity: 0.9 }}>
               Wie die Beurteilung entsteht{bewertung.hinweis || bewertung.warnung ? ' · ⚠ Hinweis' : ''}
@@ -948,9 +936,9 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
   )
 }
 
-// ── Aufteilung planen (Etappen 1–4; aufteilung.ts) ────────────────────────────
+// ── Aufteilung planen (aufteilung.ts) ────────────────────────────
 // Der Querschnitt wird von Hand aus Teilen zusammengestellt; die App schlägt nichts vor
-// (Nutzerentscheid 16.10.2026). Sie zeigt die Bilanz gegen die verfügbare Fahrbahnbreite, die
+//. Sie zeigt die Bilanz gegen die verfügbare Fahrbahnbreite, die
 // Prüfung je Teil und die Note mit dieser Aufteilung neben der von heute (dieselbe Bewertung).
 const TEIL_FARBE: Record<TeilPruefung['status'], string> = {
   ok: '#15803d', 'zu schmal': '#b91c1c', 'zu breit': '#b91c1c', 'unter Richtwert': '#a16207', leer: '#9a3412',
@@ -1038,7 +1026,7 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
             )
           })}
           {v.vermerk && <div style={{ fontSize: 12, color: '#92400e' }}>{v.vermerk}</div>}
-          {/* Alle Varianten (seit 27.10.2026, Nutzerwunsch): je Stufe, Parkierung und Pilot die beste, die den Erfüllungsgrad hebt */}
+          {/* Alle Varianten (seit 27.10.2026): je Stufe, Parkierung und Pilot die beste, die den Erfüllungsgrad hebt */}
           {(v.alle?.length ?? 0) > 1 && (
             <details style={{ marginTop: 4, fontSize: 12 }}>
               <summary style={{ cursor: 'pointer', color: 'var(--accent)' }}>Alle Varianten ({v.alle!.length})</summary>
@@ -1055,7 +1043,7 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
                     <span style={{ flex: '1 1 220px' }}>
                       {numDE(x.noteNach, 1)} («{erfuellungsgrad(x.noteNach)}») · {RANG_TEXT[x.rang]} · {x.text}{istVorschlag ? ' (= Vorschlag)' : ''}
                     </span>
-                    {/* der Vorschlag selbst ohne eigenen Knopf: der grosse «Übernehmen» der Zeile tut dasselbe (Nutzerentscheid 27.10.2026) */}
+                    {/* der Vorschlag selbst ohne eigenen Knopf: der grosse «Übernehmen» der Zeile tut dasselbe */}
                     {!istVorschlag && (
                       <button type="button" disabled={!xPlan} onClick={() => xPlan && onChange(xPlan)}
                               title={xPlan ? 'Ersetzt die Elemente der Planung durch diese Variante; danach frei änderbar'
@@ -1133,7 +1121,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   onFahrbahnAusHeute?: (m: number) => void   // Fahrbahnbreite = Summe der Fahrbahnelemente von heute (gemessen von Hand)
   onHeuteBestaetigt?: () => void             // Schritt 1 erledigt: heute geprüft, die Planung beginnt (seit 25.10.2026)
   kartenAktionen?: React.ReactNode        // Abschnitt ohne Karte: gewählte Segmente übernehmen / teilen, direkt im Hinweis (Nutzerbefund 22.10.2026)
-  ort?: Ort                               // Street View auch in der Planung (Nutzerwunsch 21.10.2026)
+  ort?: Ort                               // Street View auch in der Planung
   onQuerschnitt?: () => void              // Querschnitt am Luftbild aufnehmen (seit 20.10.2026)
   onTeileMessen?: (teil?: { ziel: 'plan' | 'heute'; nr?: number }) => void   // Teil für Teil am Luftbild messen (seit 21.10.2026); mit Teil: dessen Breite
   onQuerschnittVerwerfen?: () => void     // den von Hand aufgenommenen Querschnitt von heute verwerfen
@@ -1163,7 +1151,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   const hsVorlagen = HS_VORLAGEN.filter(t => haltestellenTypen(city).includes(t))
   const [hsSeite, setHsSeite] = useState<'A' | 'B'>('A')
   const [hsWahl, setHsWahl] = useState<Haltestellentyp>(hsVorlagen[0] ?? 'keine')
-  // Welche Elemente die Liste bearbeitet (seit 25.10.2026, Nutzerwunsch Kirchenfeldstrasse 44425592: die Breiten von heute von
+  // Welche Elemente die Liste bearbeitet (seit 25.10.2026: die Breiten von heute von
   // Hand setzen, damit die Fahrbahn von heute zur gemessenen passt): die Planung oder den Querschnitt von heute
   const [liste, setListe] = useState<'plan' | 'heute'>('plan')
   // Ohne Planung nichts (seit 22.10.2026): der Einstieg ist der Reiter «Planen» bzw. «Aufteilung planen» in der
@@ -1171,9 +1159,9 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   if (!a) return null
 
   const breiten = CITIES[city].breiten
-  const rt: Routentyp = section.routentyp || 'Veloroute'
+  const rt: Routentyp = section.routentyp || 'Velohauptroute'
   const ausgang = startAufteilung(section, city, CITIES[city].breiten)
-  // Schritt 1 (seit 25.10.2026, Nutzerwunsch): zuerst den Querschnitt von heute fertigstellen (aus AV und Luftbild vorbelegt,
+  // Schritt 1 (seit 25.10.2026): zuerst den Querschnitt von heute fertigstellen (aus AV und Luftbild vorbelegt,
   // von Hand anpassen oder messen); erst nach «Heute stimmt» gibt es Vorschlag und Planung
   const schritt1 = !section.heuteBestaetigt && !!onHeute && !!onHeuteBestaetigt
   const heuteListe = (schritt1 || liste === 'heute') && !!onHeute
@@ -1194,7 +1182,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   }
   const setTeile = (teile: Teil[]) => (heuteListe ? onHeute!(teile) : onChange({ ...a, teile }))
   const aendere = (i: number, t: Teil) => setTeile(L.map((x, j) => (j === i ? t : x)))
-  // Rest der Fahrbahn für ein Fahrbahnelement (seit 27.10.2026, Nutzerwunsch: Fahrbahn, Velostreifen und eine Spur gemessen → die
+  // Rest der Fahrbahn für ein Fahrbahnelement (seit 27.10.2026: Fahrbahn, Velostreifen und eine Spur gemessen → die
   // zweite Spur ist bekannt): Fahrbahnbreite minus die übrigen Fahrbahnelemente; null, wenn nichts zu tun ist
   const fbZiel = heuteListe ? section.fahrbahnbreite : a.fahrbahn
   const restFuer = (i: number): number | null => {
@@ -1208,7 +1196,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
     const basis = Number.isFinite(t.breite) ? t.breite : vorgabe(t.art, t.bild)
     if (Number.isFinite(basis)) aendere(i, { ...t, breite: Math.max(0, auf5cm(basis + d)), angenommen: undefined })
   }
-  // Andere Art; eine Kernfahrbahn ersetzt die Fahrspuren beider Richtungen (Nutzerwunsch 20.10.2026):
+  // Andere Art; eine Kernfahrbahn ersetzt die Fahrspuren beider Richtungen:
   // die übrigen Fahrspuren, Fahrbahnen ohne Mittellinie und Tramspuren fallen weg, ihre Breite geht in den
   // Kern (4,50–5,50 m); ein Rest bleibt in der Bilanz sichtbar.
   const artWechsel = (i: number, art: TeilArt) => {
@@ -1224,7 +1212,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   }
   const einfuegen = (an: number, art: TeilArt) => {
     if (!art) return
-    // neues Teil ohne Breite (Nutzerwunsch 21.10.2026): die Vorgabe steht in der Prüfung, eingetragen wird von Hand oder gemessen
+    // neues Teil ohne Breite: die Vorgabe steht in der Prüfung, eingetragen wird von Hand oder gemessen
     const t = [...L]; t.splice(an, 0, { art, breite: NaN })
     setTeile(t)
   }
@@ -1264,7 +1252,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   const formText = (f: Seite) => `${f.ist || '—'}${Number.isFinite(f.breite) ? ` ${numDE(f.breite, 2)} m` : ''}` +
     `${f.parkenRechts === 'ja' ? ', neben Parkierung' : ''}`
 
-  // Kasten «Schritt 1» (seit 25.10.2026): oben mit Erklärung, unten nach der Liste (Nutzerwunsch: nach dem Hinunterscrollen ist alles
+  // Kasten «Schritt 1» (seit 25.10.2026): oben mit Erklärung, unten nach der Liste (nach dem Hinunterscrollen ist alles
   // geprüft) knapp mit Status und Knopf
   const schritt1Kasten = (unten: boolean) => {
     // Stand der Spurbreiten: aus dem Luftbild, noch gesucht, oder gleichmässig verteilt (mit Grund)
@@ -1277,7 +1265,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
       : !section.markierung.breiten.length ? 'Im Luftbild keine Markierungen erkannt: die Spuren sind gleichmässig verteilt.'
       : mp?.unplausibel ? `Im Luftbild erkannt, aber nicht glaubhaft (${mp.unplausibel}): die Spuren sind gleichmässig verteilt; bitte messen.`
       : `Im Luftbild ${section.markierung.stuecke.join(', ')} Stücke je Querschnitt erkannt, die Ausgangslage hat ${mp?.erwartet} Fahrbahnelemente: die Spuren sind gleichmässig verteilt (Linie im Schatten, verdeckt oder fehlend, oder Parkierung bzw. Radstreifen im Reiter «Bewerten» anders erfasst).`
-    // Hinweis aufs gelesene Luftbild (Nutzerwunsch 27.10.2026): in Bern liest die Suche zwei Bilder, die Querschnitte können aus einem
+    // Hinweis aufs gelesene Luftbild: in Bern liest die Suche zwei Bilder, die Querschnitte können aus einem
     // anderen Bild stammen als dem Kartenhintergrund
     const lb = section.markierung?.luftbild
     const bildHinweis = !section.markierung || section.querschnittHeute || av?.markierungLaden ? null
@@ -1443,7 +1431,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
               ))}
             </span>
             {unveraendert ? <span>Die Planung ist noch wie heute.</span> : onAlsHeute && (
-              // Ausgangslage von Hand (Nutzerwunsch 23.10.2026: Parkierung ergänzen, Breiten ändern): in der Liste unten
+              // Ausgangslage von Hand (Parkierung ergänzen, Breiten ändern): in der Liste unten
               // bearbeiten und hier als «heute» setzen; danach ist die Planung wieder gleich wie heute
               <button type="button" onClick={onAlsHeute} style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: 'var(--accent)' }}
                       title="Die Elemente der Planung werden zum Querschnitt von heute (Ausgangslage); so lassen sich Parkierung, Breiten und Elemente der Ausgangslage von Hand setzen">
@@ -1642,7 +1630,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                     {bilder.map(b => <option key={b} value={b}>{BILD_LABEL[b]}</option>)}
                   </select>
                 )}
-                {/* Pfeil auf dem Element als Knopfgruppe (Nutzerentscheid 20.10.2026: «keine Markierung» als Auswahl war missverständlich);
+                {/* Pfeil auf dem Element als Knopfgruppe («keine Markierung» als Auswahl war missverständlich);
                     die Richtungen einzeln ein- und ausschalten, damit auch «geradeaus und rechts» geht (OSM turn:lanes) */}
                 {marks.length > 0 && (() => {
                   const an = pfeileVon(t.markierung)
@@ -1666,13 +1654,13 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                     </span>
                   )
                 })()}
-                {/* Anordnung der Parkierung (Nutzerwunsch 20.10.2026): längs, schräg, senkrecht; gemessen «schräg oder senkrecht» */}
+                {/* Anordnung der Parkierung: längs, schräg, senkrecht; gemessen «schräg oder senkrecht» */}
                 {t.art === 'Parkierung' && (
                   <select value={t.parkart === 'schraeg' && t.winkel ? `s${t.winkel}` : t.parkart ?? 'laengs'} aria-label={`Anordnung Parkierung Element ${i + 1}`}
                           title="Anordnung der Parkfelder"
                           onChange={e => {
                             const wahl = e.target.value as 'laengs' | 's45' | 's60' | 'schraeg' | 'quer' | 'tief'
-                            // Längs: Vorgabe. Schräg/senkrecht: eine gemessene Tiefe bleibt (Nutzerentscheid 20.10.2026), sonst
+                            // Längs: Vorgabe. Schräg/senkrecht: eine gemessene Tiefe bleibt, sonst
                             // nach den Normalien Stadt Bern vorbelegt (schräg 45° 4,90, 60° 5,25, senkrecht 5,00 m)
                             const { parkart: _a, tiefeGemessen: _b, winkel: _w, ...rest } = t
                             if (wahl === 'laengs') { aendere(i, { ...rest, breite: vorgabe('Parkierung'), angenommen: undefined }); return }
@@ -1735,7 +1723,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                 {pruefungText(t, p)}
                 {t.angenommen && (
                   <span style={{ display: 'block', fontWeight: 500, color: '#92400e' }}>
-                    Breite heute unbekannt (keine Angabe in OSM, nicht gemessen): Vorgabe eingesetzt. Am Luftbild messen
+                  Breite heute unbekannt (keine Angabe in OSM, nicht gemessen): Richtwert als Breite angenommen. Am Luftbild messen
                     (📏 neben dem Feld oder «📏 Am Luftbild messen» bei der Seite) oder hier eintragen.
                   </span>
                 )}
@@ -1759,7 +1747,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
           )}
         </div>
 
-        {/* Schritt 1 nochmals am Ende der Liste (Nutzerwunsch 25.10.2026): nach dem Hinunterscrollen ist alles geprüft */}
+        {/* Schritt 1 nochmals am Ende der Liste: nach dem Hinunterscrollen ist alles geprüft */}
         {schritt1 && schritt1Kasten(true)}
 
         {/* Bilanz über den ganzen Querschnitt (bilanz, bilanzText) */}
@@ -1800,7 +1788,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
           {Number.isFinite(b.rest) && b.rest < -0.005 &&
             <div style={{ color: '#991b1b' }}>Die Elemente haben im verfügbaren Querschnitt keinen Platz; die Note setzt voraus, dass sie passen.</div>}
         </div>
-        {/* Erläuterung: ein Satz sichtbar, der Rest in einer Klappe (Nutzerentscheid 16.10.2026, aus der fgsCheck-Sitzung
+        {/* Erläuterung: ein Satz sichtbar, der Rest in einer Klappe (aus der fgsCheck-Sitzung
             weitergeleitet); im Bericht steht alles offen unter «Annahmen und Grenzen» und «Quellen». */}
         <div style={{ marginTop: 8, fontSize: 'var(--fs-115)', color: 'var(--text-muted)' }}>
           {city === 'bern'
@@ -1813,14 +1801,14 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
             Note nicht; bewertet werden die Velostreifen an ihren Rändern. Nicht geprüft: Mittelinseln,
             Abbiegespuren; von der Haltestelle nur die Breite (Wartehäuschen und Warteraum). DTV, Tempo,
             Routentyp und die Bewertung der Haltestelle gelten wie oben eingegeben.
-            {!section.routentyp && ' Ohne Routentyp gelten für Velostreifen und Radweg die Werte der Veloroute.'}
+            {!section.routentyp && ' Ohne Routentyp gelten einheitlich die Werte der Velohauptroute (Annahme).'}
             {' '}Richtwerte und Vorgaben: {STANDARD_QUELLE[city]}
             {city !== 'bern' && '; was diese nicht regeln, nach dem Masterplan Veloinfrastruktur Stadt Bern (in der Prüfung als «Ersatz Bern» gekennzeichnet)'};
             Trottoirs: {FUSS_QUELLE[city]}; Lichtraum von Lastwagen und Bus nach SN 640 201, Tram 2,80 m
             (1,40 m ab Gleisachse, Masterplan Bern).
             {city !== 'bern' && ' Die Fahrbahn ohne Mittellinie wird nach den Mindestbreiten der Stadt geprüft.'} Jede Fahrspur ist ab 3,00 m gültig. Ein Velostreifen direkt neben einer
             Trennung mit Pfosten gilt als geschützter Radstreifen; Veloabstellplatz und Parklet zählen nicht als Parkierung.
-            {av?.gezeigt && ` Karte: ${avQuelle(CITIES[city].avKanton ?? '')}${av.park && CITIES[city].parkierung ? `; Parkfelder: ${PARK_QUELLE[CITIES[city].parkierung!]}` : ''}.`}
+            {av?.gezeigt && ` Karte: ${avQuelle(cfgFuer(section).avKanton ?? 'Schweiz')}${av.park && cfgFuer(section).parkierung ? `; Parkfelder: ${PARK_QUELLE[cfgFuer(section).parkierung!]}` : ''}.`}
             </div>
           </details>
         </div>
@@ -1862,10 +1850,11 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
   breitenQuelle: (ist: IstFuehrungsform | '') => string   // Herkunft der Breiten-Vorgabe je Form
   city: CityId                          // Stadt → bestimmt Sichtbarkeit des Strassentyp-Felds (Basel)
 }) {
-  const q = section.quelle
+  const q = { ...section.quelle }
+  for(const feld of ['dtv','speed'] as const){const b=(section.e5Auswahl??section.e5Bestaetigt)?.[feld];if(q[feld]==='bestaetigt'&&b)q[feld]=e5BelegQuelle(b)}
   const routenOptions = CITIES[city].routenOptions ?? ROUTE_OPTIONS.map(v => ({ value: v, label: v }))
   const hatMarker = (section.candIds?.length ?? 0) > 0   // nur OSM-Abschnitte sind auf der Karte markiert
-  const obsStand = CITIES[city].obsStand
+  const obsStand = cfgFuer(section).obsStand
   const beide = section.richtung === 'beide'
   const abweichend = beide && !!section.gegen
   // Formen der bewerteten Seiten: DTV/Tempo sind Pflicht, sobald eine davon sie auswertet.
@@ -1918,6 +1907,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
     if ('ist' in patch) quelle.ist = 'manuell'
     if ('breite' in patch) quelle.breite = 'manuell'
     if ('parkenRechts' in patch) quelle.parkenRechts = 'manuell'
+    if ('oevTakt' in patch) quelle.oevTakt = 'manuell'
     // Velostrasse: eine Breite für beide Richtungen (velostrasseGleich)
     const neu = velostrasseGleich({ ...section, gegen: { ...g, ...patch, quelle } }, 'B')
     onChange({ gegen: neu.gegen, ...('breite' in patch && neu.breite !== section.breite ? { breite: neu.breite, quelle: neu.quelle } : {}) })
@@ -1992,6 +1982,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
       </div>
 
       {!zu && (<>
+      {section.datenOrt && section.datenOrt.stadt !== city && <p className="klein">{standardText(city, section.datenOrt)}</p>}
       {/* Reiter (seit 22.10.2026): «Bewerten» mit Eingaben und Noten, «Planen» mit der Aufteilung; vorher stand die
           Planung unter dem Ergebnis, mit einem Werbekasten in jedem Abschnitt und einem dritten Einstieg oben im Panel.
           Ohne Note am Reiter (seit 22.10.2026 abends): sie steht schon in der Kopfzeile, zusammen mit der der Planung. */}
@@ -2011,17 +2002,16 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
         <NumberField label="DTV MIV" unit="Fz/Tag" value={section.dtv} step={100}
                      onChange={v => onChange({ dtv: v })}
-                     chip={<QuelleChip q={dtvAssumed(section, city) ? 'angenommen' : q.dtv}
-                                       fehlt={brauchtVerkehr && city !== 'basel' && !Number.isFinite(section.dtv) && !dtvAssumed(section, city)} />} />
+                     chip={<DatenFeldVorschlaege s={section} feld="dtv" aendern={onChange} fallback={<QuelleChip q={dtvAssumed(section, city) ? 'angenommen' : q.dtv} fehlt={brauchtVerkehr && city !== 'basel' && !Number.isFinite(section.dtv) && !dtvAssumed(section, city)}/>}/> } />
         <NumberField label="Zul. Höchstgeschwindigkeit" unit="km/h" value={section.speed} step={10}
                      onChange={v => onChange({ speed: v })}
-                     chip={<QuelleChip q={q.speed} fehlt={brauchtVerkehr && !Number.isFinite(section.speed)} />} />
+                     chip={<DatenFeldVorschlaege s={section} feld="speed" aendern={onChange} fallback={<QuelleChip q={q.speed} fehlt={brauchtVerkehr && !Number.isFinite(section.speed)}/>}/> } />
         <label style={fieldStyle}>
           <FieldLabel label="Routentyp" chip={<QuelleChip q={q.routentyp} />} />
-          <select value={section.routentyp}
+          <select title="Ohne Wahl gilt für Bewertung und Planung die Annahme Velohauptroute; eine eigene Wahl behauptet keinen amtlichen Netzeintrag." value={section.routentyp}
                   onChange={e => onChange({ routentyp: e.target.value as Routentyp })}
                   style={selectStyle}>
-            <option value="">— wählen —</option>
+            <option value="">— wählen (Annahme: Velohauptroute) —</option>
             {routenOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
@@ -2040,7 +2030,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
         )}
         {/* Tram in der Fahrbahn — entkoppelt von der Haltestelle; wirkt nur bei Mischverkehr. */}
         <label style={fieldStyle}>
-          <FieldLabel label="Tram in der Fahrbahn" chip={<QuelleChip q={q.tram} />} />
+          <FieldLabel label="Tram in der Fahrbahn" chip={<FeldQuellen s={section} feld="tram" aendern={onChange} fallback={<QuelleChip q={q.tram}/>}/>} />
           <select value={section.tram ? 'ja' : 'nein'}
                   onChange={e => onChange({ tram: e.target.value === 'ja' })}
                   style={selectStyle}>
@@ -2052,7 +2042,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
         <NumberField label="Fahrbahnbreite (Bordstein–Bordstein)" unit="m" value={section.fahrbahnbreite} step={0.1}
                      onChange={v => onChange({ fahrbahnbreite: v })}
                      chip={<QuelleChip q={q.fahrbahnbreite} />} />
-        {/* Mittelinsel aus der AV: nur Hinweis, nicht in der Note (Nutzerentscheid 20.10.2026) */}
+        {/* Mittelinsel aus der AV: nur Hinweis, nicht in der Note */}
         {section.mittelstreifen && (
           <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: '#f8fafc', border: '1px solid var(--border)', color: 'var(--text-muted-strong)' }}>
             Mittelstreifen (AV) auf Seite {section.mittelstreifen.seite.toUpperCase()}: {numDE(section.mittelstreifen.breite, 2)} m breit, {section.mittelstreifen.laenge} m lang.
@@ -2082,11 +2072,12 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
       </div>
       </Klappe>
 
+      <E5Abschnitt s={section} aendern={onChange} />
       {/* Eingaben — Gruppe 2: ÖV-Haltestelle im Abschnitt (Angebot gemeinsam, Typ je Seite) */}
       <Klappe titel="ÖV-Haltestelle" stil={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <label style={fieldStyle}>
-          <FieldLabel label="ÖV-Angebot (Haltestelle)" chip={<QuelleChip q={q.oevAngebot} />} />
+          <FieldLabel label="ÖV-Angebot (Haltestelle)" chip={<FeldQuellen s={section} feld="oevAngebot" aendern={onChange} fallback={<QuelleChip q={q.oevAngebot}/>}/>} />
           <select value={section.oevAngebot}
                   onChange={e => {
                     const v = e.target.value as OevAngebot
@@ -2208,7 +2199,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
             <div>
               <strong>Luftbild:</strong> Radstreifen erkannt auf {lbSeiten.join(' und ')}. Das ist nur ein
               Hinweis aus einer automatischen Erkennung — bitte am Luftbild prüfen (Kartenhintergrund
-              «{city === 'bern' ? 'Bern 2026' : 'Luftbild'}»). Eine Breite liefert das Luftbild nicht.
+              «{section.datenOrt?.stadt === 'bern' ? 'Bern 2026' : 'Luftbild'}»). Eine Breite liefert das Luftbild nicht.
             </div>
             <button type="button" onClick={() => onLuftbild(lbHinweis)}
                     style={{ marginTop: 6, border: '1px solid #93c5fd', background: '#fff', color: '#1e3a8a',
@@ -2216,14 +2207,14 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
               {lbKnopf}
             </button>
             <div style={{ marginTop: 6, fontSize: 'var(--fs-115)', opacity: 0.8 }}>
-              {LUFTBILD_ERKENNUNG_BILD[city] ?? 'SWISSIMAGE © swisstopo'} · Erkennung: Modell remote_velo, ETH Zürich
+              {LUFTBILD_ERKENNUNG_BILD[section.datenOrt?.stadt??''] ?? 'SWISSIMAGE © swisstopo'} · Erkennung: Modell remote_velo, ETH Zürich
             </div>
           </div>
         )}
       </div>
 
       {/* Beide Seiten gleich: EIN gemeinsamer Kasten, eine Erfassung für beide Fahrtrichtungen
-          (Nutzerwunsch 15.10.2026: beide Seiten in einem Schritt erfassen). Die Knöpfe zum
+          (beide Seiten in einem Schritt erfassen). Die Knöpfe zum
           Trennen stehen in seiner Kopfzeile und nennen Seite B ausdrücklich. */}
       {seitenModus === 'gleich' && (
         <div style={seiteKastenStyle}>
@@ -2243,7 +2234,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
             Gilt für beide Fahrtrichtungen, mit einer gemeinsamen Note.
           </div>
           <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite, parkenRechts: q.parkenRechts, oevTakt: q.oevTakt }}
-                       onChange={aendereA} city={city} oevAngebot={section.oevAngebot}
+                       quellen={{ist:<FeldQuellen s={section} feld="a.ist" aendern={onChange} fallback={<QuelleChip q={q.ist}/>}/>,breite:<FeldQuellen s={section} feld="a.breite" aendern={onChange} fallback={<QuelleChip q={q.breite}/>}/>}} onChange={aendereA} city={city} oevAngebot={section.oevAngebot}
                        onMessen={onMessen && (() => onMessen('A'))} typAngenommen={!!section.hsTypAngenommen?.a}
                        onTypBestaetigt={() => onChange({ hsTypAngenommen: { ...section.hsTypAngenommen, a: false } })} />
         </div>
@@ -2261,7 +2252,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
           </button>
         </div>
         <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite, parkenRechts: q.parkenRechts, oevTakt: q.oevTakt }}
-                     onChange={aendereA} city={city} oevAngebot={section.oevAngebot}
+                     quellen={{ist:<FeldQuellen s={section} feld="a.ist" aendern={onChange} fallback={<QuelleChip q={q.ist}/>}/>,breite:<FeldQuellen s={section} feld="a.breite" aendern={onChange} fallback={<QuelleChip q={q.breite}/>}/>}} onChange={aendereA} city={city} oevAngebot={section.oevAngebot}
                        onMessen={onMessen && (() => onMessen('A'))} typAngenommen={!!section.hsTypAngenommen?.a}
                        onTypBestaetigt={() => onChange({ hsTypAngenommen: { ...section.hsTypAngenommen, a: false } })} />
       </div>
@@ -2293,7 +2284,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
         </div>
         {seitenModus === 'verschieden' && (
           <SeiteFelder felder={seiteB(section)} quelle={section.gegen!.quelle}
-                       onChange={aendereB} city={city} oevAngebot={section.oevAngebot}
+                       quellen={{ist:<FeldQuellen s={section} feld="b.ist" aendern={onChange} fallback={<QuelleChip q={section.gegen?.quelle.ist}/>}/>,breite:<FeldQuellen s={section} feld="b.breite" aendern={onChange} fallback={<QuelleChip q={section.gegen?.quelle.breite}/>}/>}} onChange={aendereB} city={city} oevAngebot={section.oevAngebot}
                        onMessen={onMessen && (() => onMessen('B'))} typAngenommen={!!section.hsTypAngenommen?.b}
                        onTypBestaetigt={() => onChange({ hsTypAngenommen: { ...section.hsTypAngenommen, b: false } })} />
         )}
@@ -2464,9 +2455,9 @@ function downloadCsv(csv: string) {
 // Je Eintrag: Name als Link (wo es eine öffentliche Adresse gibt), Titel, Herausgeber, Ausgabe, Ebene, Geltung (Stadt
 // oder alle Städte) und wofür die App es braucht.
 const STADT_NAME: Record<Stadt, string> = { bern: 'Bern', zurich: 'Zürich', basel: 'Basel', luzern: 'Luzern' }
-function QuellenTeil({ city }: { city: CityId }) {
+function QuellenTeil({ city, datenOrte }: { city: CityId; datenOrte: QuellenOrt[] }) {
   const gruppe = (g: QuellenGruppe, titel: string) => {
-    const liste = quellenFuer(city, g)
+    const liste = g==='daten'?datenquellenFuer(datenOrte):quellenFuer(city, g)
     return (
       <div style={{ marginTop: 10 }}>
         <h3 style={{ fontSize: 13.5, margin: '0 0 6px', color: 'var(--text-strong)' }}>{titel}</h3>
@@ -2482,8 +2473,8 @@ function QuellenTeil({ city }: { city: CityId }) {
               <div style={{ color: 'var(--text-muted)', fontSize: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span>{q.herausgeber}{q.ausgabe ? ` · ${q.ausgabe}` : ''} · {q.ebene}</span>
                 <span style={{ fontSize: 'var(--fs-105)', fontWeight: 700, borderRadius: 999, padding: '1px 7px',
-                               background: q.staedte ? '#dbeafe' : 'var(--border-subtle)', color: q.staedte ? '#1e40af' : 'var(--text-muted-strong)' }}>
-                  {q.staedte ? q.staedte.map(x => STADT_NAME[x]).join(', ') : 'alle Städte'}
+                               background: q.staedte || q.gebiete ? '#dbeafe' : 'var(--border-subtle)', color: q.staedte || q.gebiete ? '#1e40af' : 'var(--text-muted-strong)' }}>
+                  {q.gebietLabel ?? (q.staedte ? q.staedte.map(x => STADT_NAME[x]).join(', ') : g === 'daten' ? 'Schweiz / allgemein' : 'alle Städte')}
                 </span>
               </div>
               <div style={{ color: 'var(--text)' }}>{q.verwendung}</div>
@@ -2499,7 +2490,7 @@ function QuellenTeil({ city }: { city: CityId }) {
         Quellen und Grundlagen ({STADT_NAME[city]})
       </summary>
       <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
-        Worauf sich Bewertung und Planung für {STADT_NAME[city]} stützen; die Liste wechselt mit der Stadt oben auf der Karte.
+        Worauf sich Bewertung und Planung für {STADT_NAME[city]} stützen; die Grundlagen folgen dem Bewertungsstandard, die Datendienste dem tatsächlichen Ort.
         Standards einer Stadt gelten für deren eigene Projekte, Normen sind Fachregeln ohne Gesetzeskraft. Wo ein Werk eine
         öffentliche Adresse hat, führt der Name dorthin.
       </div>
@@ -2705,14 +2696,11 @@ function Landing({ onStart }: { onStart: () => void }) {
                     background: '#f8fafc', border: '1px solid var(--border-subtle)',
                     fontSize: 'var(--fs-115)', color: 'var(--text-muted)', lineHeight: 1.45, textAlign: 'left' }}>
         <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Datenspeicherung</div>
-        <div>Alle Berechnungen laufen vollständig im Browser. Eingaben und Ergebnisse bleiben im Browser. Um
-          Daten zu laden, schickt der Browser nur den Kartenausschnitt bzw. die Lage des Abschnitts und den
-          Suchtext der Strassensuche an die Datendienste (OpenStreetMap, Geoportale der Städte, swisstopo,
-          geodienste.ch).</div>
+        <div><DatenabrufHinweis /></div>
         <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>
           <li>Eingaben existieren nur im Arbeitsspeicher des Browsers und gehen beim Schliessen des Tabs verloren.</li>
           <li>CSV-Export: „Als CSV exportieren" lädt die Bewertung als CSV-Datei auf den
-            lokalen Rechner — kein Upload, kein Cloud-Speicher. Ein Datei-Import ist derzeit nicht vorgesehen.</li>
+            lokalen Rechner — kein Upload, kein Cloud-Speicher. Fall-Dateien werden ebenfalls lokal gespeichert und geladen.</li>
           <li>Bericht / PDF: entsteht über den Druckdialog des Browsers, ebenfalls ohne Upload.</li>
           <li>Nutzungsstatistik: Seitenaufrufe werden mit GoatCounter gezählt — datenschutzfreundlich: keine
             Cookies, keine Speicherung der IP-Adresse, keine personenbezogenen Daten. Übermittelt wird nur ein
@@ -2771,7 +2759,7 @@ interface Messung {
   fehler?: string
   punkte: P[]                                     // gesetzte Punkte (zwei Punkte von Hand)
   ergebnis?: { breite: number; von: P; bis: P }   // Messlinie Bordsteinkante → Markierung
-  // Teil für Teil in die Planung messen (Nutzerwunsch 21.10.2026): jede Messung wird ein neues Teil (teilArt) oder die
+  // Teil für Teil in die Planung messen: jede Messung wird ein neues Teil (teilArt) oder die
   // Breite eines bestehenden (teilNr); das Werkzeug bleibt offen bis «Fertig»
   plan?: boolean
   ziel?: 'plan' | 'heute'                         // in die Planung oder in den Querschnitt von heute (Section.querschnittHeute)
@@ -2799,6 +2787,8 @@ export default function App() {
     const t = setTimeout(() => setToast(null), toast.kind === 'error' ? 9000 : 5000)
     return () => clearTimeout(t)
   }, [toast])
+  const [gebiet, setGebiet] = useState<Suchgebiet>('bern')
+  const datenCfg = gebiet === 'schweiz' ? SCHWEIZ : CITIES[gebiet]
   const [city, setCity] = useState<CityId>('bern')               // gewählte Stadt → Datenquellen/Beschriftung
   const cityCfg = CITIES[city]
   // OBS-Snapshot der Stadt (bis ~2,7 MB) im Hintergrund vorwärmen, sobald die Stadt feststeht —
@@ -2807,19 +2797,19 @@ export default function App() {
   const [cands, setCands] = useState<Cand[]>([])
   const [fitKey, setFitKey] = useState(0)   // +1 → Karte passt sich den Segmenten an (nur «Strasse laden»)
   const [stops, setStops] = useState<Stop[]>([])                  // ÖV-Haltestellen für Karten-Marker
+  const [kartenHinweise, setKartenHinweise] = useState<string[]>([])
   const [ebenen, setEbenen] = useState<EbenenDaten>({})            // gelesene Objekte der Vorbelegung (Kartenebenen, seit 01.11.2026)
   // Stadtwechsel: geladene Segmente/Haltestellen UND Abschnitte verwerfen — die Abschnitte tragen
   // Quellen/Annahmen der alten Stadt (z. B. Bern-DTV-Annahme, Geoportal-Chips) und wären in der
   // neuen Stadt still falsch etikettiert.
   const wechsleStadt = (c: CityId) => {
     if (c === city) return
-    ladeGen.current++   // hängige Lade-Ketten (falls doch eine läuft) als veraltet markieren
-    const hatte = sections.some(s => s.ist !== '' || Number.isFinite(s.dtv) || s.candIds?.length)
-    setCity(c); setCands([]); setStops([]); setEbenen({}); setStreet(''); setSections([defaultSection()]); setTeilModus(false)
-    setMessung(null)
-    setOsmBusy(false)      // eine evtl. hängige Ladung ist verworfen — nicht als „Lädt …" stehen lassen
-    undoRef.current = null; setUndoLabel(null)   // Undo über den Stadtwechsel hinweg wäre falsch etikettiert
-    setMsg(hatte ? 'Stadtwechsel: die übernommenen Abschnitte wurden geleert.' : '')
+    setCity(c)
+    setMsg('Bewertungsstandard geändert. Ort, Daten und eigene Eingaben bleiben erhalten.')
+  }
+  const wechsleGebiet = (g: Suchgebiet) => {
+    setGebiet(g); setStreet('')
+    if (!sections.some(s => s.candIds?.length || s.ist || Number.isFinite(s.dtv))) setCity(g === 'schweiz' ? 'bern' : g)
   }
   // Herkunft der massgeblichen Breiten-Vorgabe eines Abschnitts: stadtspezifischer Standard,
   // wenn die Stadt für diese Führungsform/diesen Routentyp einen Wert liefert — sonst Masterplan Bern.
@@ -2856,16 +2846,16 @@ export default function App() {
   useEffect(() => { if (view === 'rechner') zaehleRechner() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
   // (Fortsetzung des Vorwärmens von oben — steht hier, weil `view` erst jetzt deklariert ist.)
   useEffect(() => {
-    if (view === 'rechner' && cityCfg.obsFile) void enrichObs([], cityCfg.obsFile).catch(() => {})
-  }, [view, cityCfg.obsFile])
+    if (view === 'rechner' && datenCfg.obsFile) void enrichObs([], datenCfg.obsFile).catch(() => {})
+  }, [view, datenCfg.obsFile])
   // Lokalen Velostreifen-Snapshot (falls vorhanden) ebenso vorwärmen; fehlt er (öffentlicher Build) → no-op.
   useEffect(() => {
-    if (view === 'rechner' && cityCfg.velostreifenFile) void enrichVelostreifen([], cityCfg.velostreifenFile).catch(() => {})
-  }, [view, cityCfg.velostreifenFile])
+    if (view === 'rechner' && datenCfg.velostreifenFile) void enrichVelostreifen([], datenCfg.velostreifenFile).catch(() => {})
+  }, [view, datenCfg.velostreifenFile])
   // Luftbild-Snapshot (Bern, Zürich, Basel) ebenso vorwärmen.
   useEffect(() => {
-    if (view === 'rechner' && cityCfg.luftbildFile) void enrichLuftbild([], cityCfg.luftbildFile).catch(() => {})
-  }, [view, cityCfg.luftbildFile])
+    if (view === 'rechner' && datenCfg.luftbildFile) void enrichLuftbild([], datenCfg.luftbildFile).catch(() => {})
+  }, [view, datenCfg.luftbildFile])
   const mapRef = useRef<import('leaflet').Map | null>(null)
   // Breitbild-Layout (Karte links, Panel rechts) schaltet rein per CSS (index.css, gleiche
   // Media-Query). Leaflet misst seine Containergrösse aber nur bei window-resize (trackResize)
@@ -2879,7 +2869,7 @@ export default function App() {
     mq.addEventListener('change', neuMessen)
     return () => { mq.removeEventListener('change', neuMessen); cancelAnimationFrame(raf) }
   }, [view])
-  // Breite des Panels im Breitbild (Nutzerwunsch 20.10.2026): mit dem Trenner verschiebbar zwischen der
+  // Breite des Panels im Breitbild: mit dem Trenner verschiebbar zwischen der
   // Standardbreite (Minimum) und der doppelten (höchstens 70 % des Fensters); im Planmodus (eine Planung offen)
   // automatisch breiter. Die gezogene Breite merkt sich der Browser je Modus (nur Bequemlichkeit, localStorage).
   const planModus = sections.some(s => s.aufteilung)
@@ -2938,7 +2928,6 @@ export default function App() {
   // hängige await-Kette erkennt am veralteten Wert, dass ihr Ergebnis nicht mehr in den State
   // gehört, und verwirft es still. Das Stadt-Select ist während osmBusy zusätzlich gesperrt —
   // der Zähler ist der Gurt für alles, was daran vorbeikommt (z. B. langsame Anreicherung).
-  const ladeGen = useRef(0)
   const selCount = cands.filter(c => c.selected).length
   // Ist die Auswahl schon die Strecke? (Nutzerbefund 01.11.2026: nach «… in Strecke übernehmen» blieb der Text gleich.) Gleich =
   // dieselben Segmente wie in den Abschnitten; dann ist der Knopf erledigt, sonst übernimmt er die geänderte Auswahl neu
@@ -2963,31 +2952,33 @@ export default function App() {
   //   bestehende = schon geladene Kandidaten (Klick/Ausschnitt): OpenBikeSensor ordnet jedes
   //   Mess-Teilstück genau EINEM Segment zu — das geht nur über ALLE Segmente zusammen. `obs`
   //   gilt darum für bestehende UND neue Kandidaten und ersetzt deren bisherige Werte.
-  const enrichAll = async (c: Cand[], bestehende: Cand[] = []): Promise<{
-    cands: Cand[]; stops: Stop[]; obs: Map<number, ObsStats>; fehler: string[]
+  const enrichStadt = async (c: Cand[], bestehh: Cand[], cfg: CityCfg): Promise<{
+    cands: Cand[]; stops: Stop[]; obs: Map<number, ObsStats>; fehler: string[]; ebenen: EbenenDaten
   }> => {
     const fehler: string[] = []
     const neuIds = new Set(c.map(x => x.id))
-    const alle = [...bestehende.filter(x => !neuIds.has(x.id)), ...c]
-    const [ec, obs, oev, velo, luftbild, park, lbEbene] = await Promise.all([
-      cityCfg.enrichCands(c).catch((): Anreicherung => { fehler.push(cityCfg.attribution); return { cands: c, fehler: [] } }),
-      cityCfg.obsFile
-        ? enrichObs(alle, cityCfg.obsFile).catch(() => new Map<number, ObsStats>())
+    const alle = [...bestehh.filter(x => !neuIds.has(x.id)), ...c]
+    const [ec, obs, oev, velo, luftbild, park, lbEbene, osmOev, velozaehlungen] = await Promise.all([
+      cfg.enrichCands(c).catch((): Anreicherung => { fehler.push(cfg.attribution); return { cands: c, fehler: [] } }),
+      cfg.obsFile
+        ? enrichObs(alle, cfg.obsFile).catch(() => new Map<number, ObsStats>())
         : Promise.resolve(new Map<number, ObsStats>()),
-      cityCfg.loadOev(c).catch((): LoadOevResult => { fehler.push('ÖV'); return { byId: new Map<number, OevInfo>(), stops: [], fehler: [] } }),
-      cityCfg.velostreifenFile
-        ? enrichVelostreifen(c, cityCfg.velostreifenFile).catch(() => new Map<number, VeloInfo>())
+      cfg.loadOev(c).catch((): LoadOevResult => { fehler.push('ÖV'); return { byId: new Map<number, OevInfo>(), stops: [], fehler: [] } }),
+      cfg.velostreifenFile
+        ? enrichVelostreifen(c, cfg.velostreifenFile).catch(() => new Map<number, VeloInfo>())
         : Promise.resolve(new Map<number, VeloInfo>()),
-      cityCfg.luftbildFile
-        ? enrichLuftbild(c, cityCfg.luftbildFile).catch(() => new Map<number, LuftbildInfo>())
+      cfg.luftbildFile
+        ? enrichLuftbild(c, cfg.luftbildFile).catch(() => new Map<number, LuftbildInfo>())
         : Promise.resolve(new Map<number, LuftbildInfo>()),
-      cityCfg.parkierung
-        ? enrichParkierung(c, cityCfg.parkierung).catch(() => { fehler.push('Parkfelder'); return new Map<number, ParkInfo>() })
+      cfg.parkierung
+        ? enrichParkierung(c, cfg.parkierung).catch(() => { fehler.push('Parkfelder'); return new Map<number, ParkInfo>() })
         : Promise.resolve(new Map<number, ParkInfo>()),
-      cityCfg.luftbildFile ? luftbildEbene(c, cityCfg.luftbildFile).catch(() => [] as EbenenObjekt[]) : Promise.resolve([] as EbenenObjekt[]),
+      cfg.luftbildFile ? luftbildEbene(c, cfg.luftbildFile).catch(() => [] as EbenenObjekt[]) : Promise.resolve([] as EbenenObjekt[]),
+      cfg===CITIES.bern?loadOevFromOsm(c).catch(()=>null):Promise.resolve(null),
+      ladeVelozaehlungen(c,c[0]?.datenOrt?.stadt??'schweiz'),
     ])
     // Gelesene Objekte für die Kartenebenen (ebenen.ts), über alle Ladungen gesammelt
-    setEbenen(prev => ebenenMischen(ebenenMischen(prev, { ...ec.ebenen, luftbild: lbEbene }), oev.ebenen))
+    const geleseneEbenen = ebenenMischen({ ...ec.ebenen, luftbild: lbEbene, velozaehlungen:velozaehlungen.map(v=>({id:v.id,punkt:v.punkt,klasse:'velo',text:`${v.name}: ${v.datum}; ${v.hinweis}`})) }, oev.ebenen)
     fehler.push(...ec.fehler, ...oev.fehler)
     const bernById = new Map(ec.cands.map(x => [x.id, x.bern]))
     const cands = c.map(cand => {
@@ -2995,12 +2986,50 @@ export default function App() {
       const bern = { ...bernById.get(cand.id), ...(oev.byId.get(cand.id) ?? {}),
                      ...(v ? { radstreifen: v } : {}), ...(lb ? { luftbild: lb } : {}), ...(pk ? { parken: pk } : {}) }
       const o = obs.get(cand.id)
-      const out: Cand = { ...cand }
+      const out: Cand = { ...cand, osmOev: (osmOev??oev).byId.get(cand.id), velozaehlungen:velozaehlungen.filter(v=>distPointToLineM(v.punkt,cand.geom)<=40) }
       if (Object.keys(bern).length) out.bern = bern
       if (o) out.obs = o
       return out
     })
-    return { cands, stops: oev.stops, obs, fehler }
+    return { cands, stops: oev.stops, obs, fehler, ebenen: geleseneEbenen }
+  }
+  const enrichAll = async (c: Cand[], bestehende: Cand[] = []) => {
+    const generation = datenGeneration(), orte = await orteFuer(c)
+    const leer = () => ({ cands: [] as Cand[], stops: [] as Stop[], obs: new Map<number, ObsStats>(), fehler: [] as string[] })
+    if (generation !== datenGeneration()) return leer()
+    const gruppen = new Map<Suchgebiet, Cand[]>()
+    for (const cand of c) {
+      const datenOrt = orte.get(cand.id) ?? { name: 'Ort unbekannt' }, g = datenOrt.stadt ?? 'schweiz'
+      gruppen.set(g, [...(gruppen.get(g) ?? []), { ...cand, datenOrt }])
+    }
+    const bund = bundesquellen(c)
+    const e6 = ladeE6Kontext([...gruppen.values()].flat())
+    const verwerfen = () => { void Promise.allSettled([bund, e6]); return leer() }
+    const alle: Cand[] = [], stops: Stop[] = [], obs = new Map<number, ObsStats>(bestehende.flatMap(c=>c.obs?[[c.id,c.obs] as [number,ObsStats]]:[])), fehler: string[] = []
+    let gelesene: EbenenDaten = {}
+    for (const [g, liste] of gruppen) {
+      const cfg = g === 'schweiz' ? SCHWEIZ : CITIES[g]
+      const basis = await enrichStadt(liste, bestehende.filter(c => (c.datenOrt?.stadt??'schweiz') === g), cfg)
+      if (generation !== datenGeneration()) return verwerfen()
+      const zusatz = await enrichE5(basis.cands, g)
+      if (generation !== datenGeneration()) return verwerfen()
+      alle.push(...zusatz.cands); stops.push(...basis.stops);for(const c of bestehende)if((c.datenOrt?.stadt??'schweiz')===g||liste.some(n=>n.id===c.id))obs.delete(c.id); basis.obs.forEach((v,k) => obs.set(k,v))
+      fehler.push(...basis.fehler, ...zusatz.fehler)
+      gelesene = ebenenMischen(gelesene, ebenenMischen(basis.ebenen, zusatz.ebenen))
+    }
+    const national = await bund
+    const kontext = await e6
+    if (generation !== datenGeneration()) return leer()
+    gelesene = ebenenMischen(gelesene, kontext.ebenen)
+    fehler.push(...national.fehler); gelesene = ebenenMischen(gelesene,national.ebenen)
+    for (const c of alle) c.e5 = {belege:{},vorschlaege:[],...c.e5,hinweise:[...(c.e5?.hinweise??[]),...(c.datenOrt?.hinweis ? [c.datenOrt.hinweis] : []),...(national.hinweise.get(c.id)??[])]}
+    fehler.push(...[...new Set(alle.flatMap(c => c.datenOrt?.hinweis && !c.datenOrt.gemeinden?.length ? [c.datenOrt.hinweis] : []))])
+    const meldungen = ladeMeldungen(fehler, kontext.fehler)
+    datenlaufUebernehmen(generation, () => {
+      setEbenen(prev => ebenenMischen(prev, gelesene))
+      setKartenHinweise(meldungen.kartenHinweise)
+    })
+    return { cands: alle, stops, obs, fehler: meldungen.fehler }
   }
   // Angereicherte Kandidaten in den State einspielen: neue je Id ersetzen (Auswahl erhalten),
   // OpenBikeSensor-Werte für ALLE setzen (neu verteilt, siehe enrichAll).
@@ -3014,9 +3043,6 @@ export default function App() {
     })
   }
   // Zusatz zur Statusmeldung, wenn Quellen nicht geantwortet haben.
-  const fehlerText = (fehler: string[]) => fehler.length
-    ? ` ⚠ Nicht erreichbar: ${[...new Set(fehler)].join(', ')} — betroffene Felder bitte von Hand prüfen.`
-    : ''
   // Trägt ein Kandidat amtliche WERTE (nicht bloss den Prüfvermerk des DTV-Layers)?
   const hatAmtlich = (x: Cand) => !!x.bern && Object.keys(x.bern).some(k => k !== 'dtvGeprueft')
   // Haltestellen-Marker zusammenführen (nach Name+Position eindeutig).
@@ -3025,6 +3051,28 @@ export default function App() {
     return [...prev, ...neu.filter(s => !seen.has(`${s.name}|${s.lat}|${s.lon}`))]
   }
 
+  const fallInput = useRef<HTMLInputElement>(null)
+  const fallSpeichern = () => {
+    const blob=new Blob([fallText({standard:city,gebiet,strasse:street,sections,cands,quellen:datenStaende()})],{type:'application/json'})
+    const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`veloroutencheck_${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
+  }
+  const quellenAktualisieren = async (fall?: Fall) => {
+    const geometrien=fall?.cands??cands,standard=fall?.standard??city
+    const gen=quellenNeu();avCacheRef.current.clear();parkCacheRef.current.clear();nachgeladenRef.current.clear()
+    setOsmBusy(true);setMsg('Aktualisiere die verwendeten Quellen. Eigene und bestätigte Angaben bleiben erhalten.')
+    setPlanAv(null);setEbenen({});setKartenHinweise([]);setStops([])
+    if(fall){setCity(fall.standard);setGebiet(fall.gebiet);setStreet(fall.strasse)}
+    try {
+      const roh=await aktualisiereKandidaten(geometrien)
+      const r=await enrichAll(roh)
+      if(gen!==datenGeneration())return
+      setCands(r.cands);setStops(r.stops);setSections(prev=>abschnitteAktualisieren(fall?.sections??prev,r.cands,standard));setFitKey(k=>k+1)
+      setMsg('Quellen neu geladen; eigene und bestätigte Werte sowie die Planung bleiben erhalten.'+fehlerText(r.fehler),r.fehler.length?'info':'ok')
+    }catch(e){if(gen!==datenGeneration())return;setCands(geometrien);setSections(prev=>abschnitteAktualisieren(fall?.sections??prev,[],standard));setMsg('Quellen konnten nicht vollständig aktualisiert werden. Nicht bestätigte automatische Werte bleiben offen: '+String(e),'error')}
+    finally{if(gen===datenGeneration())setOsmBusy(false)}
+  }
+  const fallLaden = async (file?:File) => {if(!file)return;try{const f=fallLesen(await file.text());await quellenAktualisieren(f)}catch(e){setMsg('Fall nicht geladen: '+String(e),'error')}finally{if(fallInput.current)fallInput.current.value=''}}
+
   // Weg 1: Strasse laden → Kandidaten auf die Karte (alle zunächst gewählt).
   // Anschliessend mit den amtlichen/öffentlichen Daten der gewählten Stadt anreichern
   // (Bern: Tempo/DTV/Routentyp/Velostrasse; Zürich: Routentyp); ein Fehler dabei darf den
@@ -3032,32 +3080,34 @@ export default function App() {
   const ladeStrasse = async (nameArg?: string) => {
     const name = (nameArg ?? street).trim()
     if (!name) return
-    const gen = ++ladeGen.current
+    const gen = quellenNeu()
+    avCacheRef.current.clear();parkCacheRef.current.clear();nachgeladenRef.current.clear()
     setOsmBusy(true); setMsg('Lade Segmente aus OpenStreetMap …')
     try {
-      const c = await loadStreetCandidates(name, cityCfg.osmArea)
-      if (gen !== ladeGen.current) return          // inzwischen Stadtwechsel/neue Ladung → verwerfen
-      setCands(c); setStops([]); setEbenen({})   // Segmente SOFORT zeigen (anklickbar) — Anreicherung folgt im Hintergrund
+      const c = await loadStreetCandidates(name.includes(' · ') ? name.split(' · ')[0] : name, name.includes(' · ') ? name.split(' · ').slice(1).join(' · ') : datenCfg.osmArea)
+      if (gen !== datenGeneration()) return          // inzwischen Stadtwechsel/neue Ladung → verwerfen
+      setCands(c); setStops([]); setEbenen({}); setKartenHinweise([])   // Segmente SOFORT zeigen (anklickbar) — Anreicherung folgt im Hintergrund
       setTeilModus(false)                // die Liste ist neu — ein angefangenes Teilen gilt nicht mehr
       setMessung(null)
       setFitKey(k => k + 1)              // auf die geladene Strasse einpassen
       if (!c.length) {
-        setMsg(`Keine Velo-relevanten Segmente für „${name}" (Stadt ${cityCfg.label}) gefunden.`, 'info')
+        datenlaufUebernehmen(gen, () => {})
+        setMsg(`Keine Velo-relevanten Segmente für „${name}" (Suchgebiet ${datenCfg.label}) gefunden.`, 'info')
         return
       }
       setMsg(`${segmente(c.length)} geladen (© OpenStreetMap, ODbL) · reichere an …`, 'ok')
       const { cands: enriched, stops: st, obs, fehler } = await enrichAll(c)
-      if (gen !== ladeGen.current) return
+      if (gen !== datenGeneration()) return
       // Angereicherte je Id einspielen; Auswahl (falls inzwischen getoggelt) erhalten. Ids, die nicht
       // mehr da sind (zwischenzeitlich neue Ladung), werden ignoriert.
-      setCands(prev => einspielen(prev, enriched, obs, !!cityCfg.obsFile))
+      setCands(prev => einspielen(prev, enriched, obs, true))
       setStops(st)
       const amtlichHit = enriched.some(hatAmtlich)
       setMsg(`${segmente(c.length)} geladen (© OpenStreetMap, ODbL)` +
-        (amtlichHit ? ` · Anreicherung: ${cityCfg.attribution}.` : '.') +
+        (amtlichHit ? ` · Anreicherung nach tatsächlichem Ort: ${[...new Set(enriched.map(c=>c.datenOrt?.name??'Ort unbekannt'))].join(', ')}.` : '.') +
         ' Auf der Karte ab-/zuwählen, dann übernehmen.' + fehlerText(fehler), fehler.length ? 'info' : 'ok')
-    } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
-    finally { if (gen === ladeGen.current) setOsmBusy(false) }
+    } catch (e) { if (gen === datenGeneration()) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
+    finally { if (gen === datenGeneration()) setOsmBusy(false) }
   }
 
   // Weg 2: Segmente im aktuellen Kartenausschnitt nachladen (zu den vorhandenen hinzufügen).
@@ -3065,11 +3115,11 @@ export default function App() {
     const map = mapRef.current
     if (!map) return
     const b = map.getBounds()
-    const gen = ++ladeGen.current
+    const gen = datenlaufNeu({ behalten: true, uebernahmeAbwarten: true })
     setOsmBusy(true); setMsg('Lade Segmente im Kartenausschnitt …')
     try {
       const roh = await loadBboxCandidates(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
-      if (gen !== ladeGen.current) return
+      if (gen !== datenGeneration()) return
       // Abgleich über die WAY-ID, nicht die Kandidaten-Kennung: ein geteilter Way ist schon da
       // (als Teile mit eigenen Kennungen) und darf nicht ein zweites Mal ganz dazukommen.
       setCands(prev => {                 // neue Segmente SOFORT hinzufügen (roh), Anreicherung folgt
@@ -3078,18 +3128,18 @@ export default function App() {
       })
       setMsg(roh.length ? `${segmente(roh.length)} im Ausschnitt · reichere an …` : 'Keine neuen Segmente im Ausschnitt.',
         roh.length ? 'ok' : 'info')
-      if (!roh.length) return
+      if (!roh.length) { datenlaufUebernehmen(gen, () => {}); return }
       // Nur anreichern, was wirklich NEU ist — schon geladene Segmente behalten ihre Werte.
       const schon = new Set(candsRef.current.map(c => c.wayId))
       const neuRoh = roh.filter(c => !schon.has(c.wayId))
-      if (!neuRoh.length) { setMsg('Keine neuen Segmente im Ausschnitt.', 'info'); return }
+      if (!neuRoh.length) { datenlaufUebernehmen(gen, () => {}); setMsg('Keine neuen Segmente im Ausschnitt.', 'info'); return }
       const { cands: neu, stops: st, obs, fehler } = await enrichAll(neuRoh, candsRef.current)
-      if (gen !== ladeGen.current) return
-      setCands(prev => einspielen(prev, neu, obs, !!cityCfg.obsFile))
+      if (gen !== datenGeneration()) return
+      setCands(prev => einspielen(prev, neu, obs, true))
       setStops(prev => mergeStops(prev, st))
       setMsg(`${segmente(neu.length)} im Ausschnitt (angereichert).` + fehlerText(fehler), fehler.length ? 'info' : 'ok')
-    } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
-    finally { if (gen === ladeGen.current) setOsmBusy(false) }
+    } catch (e) { if (gen === datenGeneration()) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
+    finally { if (gen === datenGeneration()) setOsmBusy(false) }
   }
 
   // Stabil (useCallback): geht als Prop in den VeloMap-Zeichen-Effekt — eine neue Referenz je
@@ -3124,7 +3174,7 @@ export default function App() {
     const [a, b] = r.neu
     const warUebernommen = sections.some(s => s.candIds?.includes(id))
     undoMerken('Teilen rückgängig')
-    const gen = ++ladeGen.current
+    const gen = datenlaufNeu({ behalten: true, uebernahmeAbwarten: true })
     setCands(r.cands)                           // Teile SOFORT zeigen, Anreicherung folgt
     setOsmBusy(true); setMsg(`Segment „${a.name}" geteilt · reichere die Teile an …`, 'ok')
     try {
@@ -3132,21 +3182,21 @@ export default function App() {
       // jedes Mess-Teilstück auf genau einen Kandidaten — der alte darf dabei nicht mehr mitbieten.
       const rest = r.cands.filter(c => c.id !== a.id && c.id !== b.id)
       const { cands: neu, stops: st, obs, fehler } = await enrichAll([a, b], rest)
-      if (gen !== ladeGen.current) return
-      setCands(prev => einspielen(prev, neu, obs, !!cityCfg.obsFile))
+      if (gen !== datenGeneration()) return
+      setCands(prev => einspielen(prev, neu, obs, true))
       setStops(prev => mergeStops(prev, st))
       setMsg(`Segment „${a.name}" geteilt: Teil ${a.teil!.nr} (${Math.round(a.len)} m) und ` +
         `Teil ${b.teil!.nr} (${Math.round(b.len)} m) von ${a.teil!.anzahl}.` +
         (warUebernommen ? ' Die Abschnitte folgen erst nach erneutem «in Strecke übernehmen».' : '') +
         fehlerText(fehler), fehler.length ? 'info' : 'ok')
-    } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Anreichern: ' + (e as Error).message, 'error') }
-    finally { if (gen === ladeGen.current) setOsmBusy(false) }
+    } catch (e) { if (gen === datenGeneration()) setMsg('Fehler beim Anreichern: ' + (e as Error).message, 'error') }
+    finally { if (gen === datenGeneration()) setOsmBusy(false) }
   }
   // Stabil (wie toggleCand): der aktuelle Modus und die aktuelle teilen-Funktion laufen über Refs.
   const teilenRef = useRef(teilen)
   teilenRef.current = teilen
   // ── Breite am Luftbild messen (Städte mit avKanton; breitenmessung.ts) ──────
-  // Nutzerentscheid 15.10.2026: ab der Bordsteinkante der amtlichen Vermessung bis zur
+  // Ab der Bordsteinkante der amtlichen Vermessung bis zur
   // angeklickten Stelle auf der Markierung; der Messwert ist die Breite an dieser Stelle.
   // Passt die AV-Kante nicht zum Bord (etwa Parkfelder dazwischen), misst man mit zwei Punkten.
   // Die Bordsteinkanten kommen von geodienste.ch, nur beim Messen und nur um den Abschnitt
@@ -3159,7 +3209,7 @@ export default function App() {
     const gen = ++messGen.current
     setMessung(m => m && { ...m, laden: true, fehler: undefined })
     try {
-      const kanten = bordkanten(await ladeAvFuer(cityCfg.avKanton ?? '', e, n, r))
+      const kanten = bordkanten(await ladeAvFuer(cfgFuer(sectionsRef.current.find(s => s.id === messungRef.current?.secId)).avKanton ?? 'Schweiz', e, n, r))
       if (gen !== messGen.current) return
       setMessung(m => m && { ...m, kanten, geladen: { e, n, r }, laden: false,
         fehler: kanten.length ? undefined : 'Hier kennt die amtliche Vermessung keine Strassenfläche. Mit «Zwei Punkte» messen.' })
@@ -3186,6 +3236,7 @@ export default function App() {
       .map(c => { const l = c.geom.map(p => zuLv95(p.lat, p.lon)); return gegen.has(c.id) ? l.reverse() : l })
   }
   const avFuerAbschnitt = async (s: Section): Promise<{ achsen: P[][]; flaechen: AvFlaeche[] }> => {
+    const generation=datenGeneration()
     const achsen = avAchsen(s)
     if (!achsen.length) throw new Error('Der Abschnitt hat keine Geometrie auf der Karte.')
     const schluessel = (s.candIds ?? []).join(',')
@@ -3201,13 +3252,14 @@ export default function App() {
     const flaechen: AvFlaeche[] = [], gesehen = new Set<string>()
     for (const [x, y] of kacheln.values()) {
       let liste: AvFlaeche[]
-      try { liste = await ladeAvFuer(cityCfg.avKanton ?? '', x * KACHEL + KACHEL / 2, y * KACHEL + KACHEL / 2, KACHEL / 2 + 10) }
+      try { liste = await ladeAvFuer(cfgFuer(s).avKanton ?? 'Schweiz', x * KACHEL + KACHEL / 2, y * KACHEL + KACHEL / 2, KACHEL / 2 + 10) }
       catch (err) { throw new Error(`amtliche Vermessung nicht erreichbar (${(err as Error).message}).`) }
       for (const f of liste) {
         const sig = `${f.art}|${f.ringe[0]?.slice(0, 3).join(';')}|${f.ringe[0]?.length}`
         if (!gesehen.has(sig)) { gesehen.add(sig); flaechen.push(f) }
       }
     }
+    if(generation!==datenGeneration())return {achsen,flaechen}
     avCacheRef.current.set(schluessel, flaechen)
     // Kartenebene «Amtliche Vermessung» (ebenen.ts): die gemessenen Flächen der gezeigten Arten sammeln
     setEbenen(prev => ebenenMischen(prev, { av: flaechen.filter(f => f.art in AV_FARBEN && f.ringe[0]?.length).map(f => ({
@@ -3232,6 +3284,7 @@ export default function App() {
     const s = sectionsRef.current.find(x => x.id === secId)   // aktueller Stand, auch kurz nach dem Übernehmen
     if (!s || fbLaden != null) return
     if (!avAchsen(s).length) { setMsg('Fahrbahnbreite: Der Abschnitt hat keine Geometrie auf der Karte.', 'info'); return }
+    const generation=datenGeneration()
     setFbLaden(secId); setMsg('Ermittle die Fahrbahnbreite aus der amtlichen Vermessung …', 'info')
     try {
       let av: { achsen: P[][]; flaechen: AvFlaeche[] }
@@ -3240,13 +3293,16 @@ export default function App() {
         const t = (err as Error).message
         setMsg(`Fahrbahnbreite: ${t}`, t.includes('nicht erreichbar') ? 'error' : 'info'); return
       }
+      if(generation!==datenGeneration())return
       const { achsen, flaechen } = av
-      const r = fahrbahnbreite(achsen, flaechen)
-      const insel = mittelinsel(achsen, flaechen)
-      // Haltestelleninsel: die Fahrbahn misst nur bis zur Insel (Achsen in Richtung der Seite A für die Seite)
+      // Haltestelleninsel: die Fahrbahn misst nur bis zur Insel, wie beim automatischen Nachladen.
       const hsi = hatHaltestelle(s) ? await haltestelleninselMitOsm(s, avAchsen(s, true), flaechen, bordkanten(flaechen)) : null
+      if(generation!==datenGeneration())return
+      const ermittlung = avBreiteErmitteln(achsen, flaechen, hsi), r = ermittlung.messung, insel = ermittlung.insel
+      const inzwischenEigen = (x: Section) => ['manuell','gemessen','bestaetigt'].includes(x.quelle.fahrbahnbreite ?? '') &&
+        (x.quelle.fahrbahnbreite !== s.quelle.fahrbahnbreite || !Object.is(x.fahrbahnbreite,s.fahrbahnbreite))
       if (hsi && ziel === 'abschnitt') {
-        setSections(prev => prev.map(x => (x.id !== secId ? x : haltestelleninselUebernehmen(x, hsi, city, true))))
+        setSections(prev => prev.map(x => (x.id !== secId || inzwischenEigen(x) ? x : avBreiteUebernehmen(x, ermittlung, city, velostrasseNachfuehren))))
         setMsg(`Fahrbahnbreite ${numDE(hsi.innen, 1)} m bis zur Haltestelleninsel (Seite ${hsi.seite === 'rechts' ? 'A' : 'B'}: Wartebereich `
           + `${numDE(hsi.insel, 2)} m, dahinter ${hsi.aussen < 3 ? 'Veloumfahrung' : 'Fahrspur'} ${numDE(hsi.aussen, 2)} m). Haltestellentyp angenommen, bitte prüfen.`, 'ok')
         return
@@ -3254,8 +3310,9 @@ export default function App() {
       if (!r) { setMsg('Fahrbahnbreite: Die amtliche Vermessung liefert hier keine eindeutige Strassenfläche (zu kurz, Platz oder Kreuzung). Bitte von Hand eintragen.', 'info'); return }
       const wert = Math.round((hsi ? hsi.innen : r.median) * 10) / 10
       setSections(prev => prev.map(x => (x.id !== secId ? x
+        : inzwischenEigen(x) ? x
         : ziel === 'plan' ? (x.aufteilung ? { ...x, aufteilung: { ...x.aufteilung, fahrbahn: wert } } : x)
-        : velostrasseNachfuehren({ ...x, fahrbahnbreite: wert, mittelinsel: insel, quelle: { ...x.quelle, fahrbahnbreite: 'av' } }))))
+        : avBreiteUebernehmen(x, ermittlung, city, velostrasseNachfuehren))))
       setMsg(`Fahrbahnbreite ${numDE(wert, 1)} m: Median aus ${r.n} Querschnitten, Spannweite ${numDE(r.min, 1)}–${numDE(r.max, 1)} m. ` +
         'Die Fläche umfasst auch Parkierung, Busbuchten und Tramgleise.'
         + (insel ? ` Mittelinsel ${numDE(insel.breite, 2)} m breit, ${insel.laenge} m lang; an ihr ${numDE(insel.fahrbahn, 1)} m von Bord zu Bord.` : ''), 'ok')
@@ -3273,7 +3330,7 @@ export default function App() {
   // die Fahrbahnbreite. Für Abschnitte von der Karte mit Velostrasse und ohne Fahrbahnbreite wird sie von selbst aus der AV
   // ermittelt (nach dem Übernehmen und wenn die Form von Hand auf Velostrasse wechselt); die Breite der Form folgt daraus.
   const velostrasseAvHolen = (liste: Section[]) => {
-    if (!cityCfg.avKanton) return
+    if (!datenCfg.avKanton) return
     const ids = liste.filter(s => s.candIds?.length && !Number.isFinite(s.fahrbahnbreite)
       && (seiteA(s).ist === 'Velostrasse' || (s.richtung === 'beide' && seiteB(s).ist === 'Velostrasse'))).map(s => s.id)
     if (ids.length) setTimeout(() => void fahrbahnbreitenAlle(ids, 'Velostrasse: '), 0)
@@ -3327,7 +3384,7 @@ export default function App() {
   const berichtSchliessen = useCallback(() => setBerichtSec(null), [])
   const parkCacheRef = useRef(new Map<string, ParkFlaeche[]>())
   const parkFuerAbschnitt = async (s: Section): Promise<ParkFlaeche[]> => {
-    const stadt = cityCfg.parkierung
+    const stadt = cfgFuer(s).parkierung
     if (!stadt || !PARK_QUELLE[stadt]) return []
     const schluessel = (s.candIds ?? []).join(',')
     const gemerkt = parkCacheRef.current.get(schluessel)
@@ -3349,8 +3406,8 @@ export default function App() {
     // Fussverkehrsnetz vorbelegen: Bern Richtplan Fussverkehr, Basel Teilrichtplan Fuss- und Wanderwege
     // Basel: Teilrichtplan Fuss- und Wanderwege (kantonal/kommunal); Zürich und Luzern: keine offenen Daten
     const netzLaden = !cityCfg.aufteilung || !avAchsen(s).length ? Promise.resolve(null)
-      : city === 'bern' ? ladeFussnetz(avAchsen(s)).catch(() => null)
-      : city === 'basel' ? ladeFussnetzBasel(avAchsen(s)).catch(() => null) : Promise.resolve(null)
+      : s.datenOrt?.stadt === 'bern' ? ladeFussnetz(avAchsen(s)).catch(() => null)
+      : s.datenOrt?.stadt === 'basel' ? ladeFussnetzBasel(avAchsen(s)).catch(() => null) : Promise.resolve(null)
     // Steigung aus swissALTI3D (seit 01.11.2026, Hinweis an der Umweltspur): einmal je Abschnitt, im Hintergrund
     if (!s.steigung && avAchsen(s).length) {
       ladeSteigung(achseInRichtungA(avAchsen(s, true), s.peilungA)).then(st =>
@@ -3384,7 +3441,7 @@ export default function App() {
       const netz = await netzLaden
       setSections(prev => prev.map(x => {
         if (x.id !== secId) return x
-        let neu: Section = { ...x, trottoir: { a: tr.rechts ?? NaN, b: tr.links ?? NaN,
+        let neu: Section = { ...x, trottoirQuelle:'av', trottoir: { a: tr.rechts ?? NaN, b: tr.links ?? NaN,
           ...(pt.rechts && tr.rechts != null ? { parkA: true } : {}), ...(pt.links && tr.links != null ? { parkB: true } : {}),
           ...(tr.gruen?.rechts != null ? { gruenA: tr.gruen.rechts } : {}), ...(tr.gruen?.links != null ? { gruenB: tr.gruen.links } : {}) } }
         if (fb) { neu.fahrbahnbreite = Math.round(fb.median * 10) / 10; neu.quelle = { ...x.quelle, fahrbahnbreite: 'av' } }
@@ -3409,7 +3466,7 @@ export default function App() {
         else if (x.aufteilung) {
           neu.aufteilung = mitTrottoirs(x.aufteilung, neu.trottoir!)
           // ein schon gewähltes Netz bleibt; sonst das aus dem Geoportal
-          if (netz && !neu.aufteilung.fussnetz) neu.aufteilung = { ...neu.aufteilung, fussnetz: netz.netz, fussnetzQuelle: 'geoportal' }
+          if (netz && fussnetzOptionen(city).includes(netz.netz) && !neu.aufteilung.fussnetz) neu.aufteilung = { ...neu.aufteilung, fussnetz: netz.netz, fussnetzQuelle: 'geoportal' }
         }
         return neu
       }))
@@ -3432,11 +3489,11 @@ export default function App() {
           + `${hsi.aussen < 3 ? 'Veloumfahrung' : 'Fahrspur'} ${numDE(hsi.aussen, 2)} m, Fahrbahn bis zur Insel ${numDE(hsi.innen, 1)} m`
           + `${hsi.wartehalle === 'insel' ? ', Wartehalle auf der Insel (OSM)' : hsi.wartehalle === 'hinten' ? ', Wartehalle hinter der Veloumfahrung (OSM)'
             : hsi.wartehalle === 'keine' ? ', Insel ohne Wartehalle (OSM)' : ''}; Haltestellentyp angenommen, bitte prüfen` : ''}.`, 'ok')
-      // Markierungen im Luftbild für die Spurbreiten von heute (markierungenAbschnitt, seit 25.10.2026, Nutzerwunsch: beim Wechsel in
+      // Markierungen im Luftbild für die Spurbreiten von heute (markierungenAbschnitt, seit 25.10.2026: beim Wechsel in
       // die Planung aus AV und Luftbild messen); einmal je Abschnitt, im Hintergrund. Eine unveränderte Planung folgt.
       if (!s.markierung && !s.querschnittHeute && !s.ohneFahrbahn) {
         setMkLaden(secId)
-        markierungenAbschnitt(achsen, flaechen, city === 'bern' ? 'bern2026' : 'swissimage').then(m => {
+        markierungenAbschnitt(achsen, flaechen, s.datenOrt?.stadt === 'bern' ? 'bern2026' : 'swissimage').then(m => {
           setSections(prev => prev.map(x => {
             if (x.id !== secId) return x
             const vorher = startAufteilung(x, city, cityCfg.breiten)
@@ -3470,9 +3527,9 @@ export default function App() {
     flaechen: planAv.flaechen.filter(f => f.art in AV_FARBEN)
       .map(f => ({ art: f.art, ringe: f.ringe.map(r => r.map(p => zuWgs(p[0], p[1]))) })),
     park: planAv.park.map(f => ({ verbot: f.verbot, ...(f.zweirad ? { zweirad: true } : {}), ringe: f.ringe.map(r => r.map(p => zuWgs(p[0], p[1]))) })),
-    quelle: [avQuelle(cityCfg.avKanton ?? ''), ...(planAv.park.length && cityCfg.parkierung ? [PARK_QUELLE[cityCfg.parkierung] ?? ''] : [])]
+    quelle: [avQuelle(cfgFuer(sections.find(s=>s.id===planAv.secId)).avKanton ?? 'Schweiz'), ...(planAv.park.length && cfgFuer(sections.find(s=>s.id===planAv.secId)).parkierung ? [PARK_QUELLE[cfgFuer(sections.find(s=>s.id===planAv.secId)).parkierung!] ?? ''] : [])]
       .filter(Boolean).join(' · '),
-  } : null), [planAv, cityCfg.avKanton, cityCfg.parkierung])
+  } : null), [planAv, sections])
 
   const messungStarten = (secId: number, seite: 'A' | 'B', plan = false, teil?: { ziel: 'plan' | 'heute'; nr?: number }) => {
     const map = mapRef.current
@@ -3526,7 +3583,7 @@ export default function App() {
         ergebnis: r ? { breite: r.breite, von: r.fuss, bis: p } : undefined,
         fehler: r ? undefined : `Keine Bordsteinkante innert ${FANG_M} m. Näher bei der Kante klicken oder mit «Zwei Punkte» messen.` })
     } else {
-      // Nahe einer Bordsteinkante (orange) rastet der Punkt auf ihr ein (seit 27.10.2026, Nutzerwunsch), der zweite rechtwinklig zum
+      // Nahe einer Bordsteinkante (orange) rastet der Punkt auf ihr ein (seit 27.10.2026), der zweite rechtwinklig zum
       // ersten; Fangradius wie beim Querschnitt am Luftbild (QS_FANG_PX Bildschirmpunkte, höchstens QS_FANG_MAX_M)
       const map = mapRef.current
       let q = p
@@ -3547,7 +3604,7 @@ export default function App() {
     const m = messungRef.current
     if (!m?.ergebnis || !m.plan) return
     const wert = aufZentimeter(m.ergebnis.breite)
-    // Als Fahrbahnbreite (seit 27.10.2026, Nutzerwunsch: ganze Fläche messen, dann die Elemente; das letzte ergibt sich mit «= Rest»)
+    // Als Fahrbahnbreite (seit 27.10.2026: ganze Fläche messen, dann die Elemente; das letzte ergibt sich mit «= Rest»)
     if (ziel === 'fahrbahn') {
       setSections(prev => prev.map(s => {
         if (s.id !== m.secId) return s
@@ -3663,7 +3720,7 @@ export default function App() {
   }
   const qsKlickRef = useRef(qsKlick)
   qsKlickRef.current = qsKlick
-  // Markierungen im Luftbild vorschlagen (markierungen.ts, seit 25.10.2026, Nutzerwunsch Kirchenfeldstrasse): Querlinie am ersten
+  // Markierungen im Luftbild vorschlagen (markierungen.ts, seit 25.10.2026): Querlinie am ersten
   // Punkt, sonst in der Kartenmitte; Bordkanten aus der AV (das Stück Strasse um die Achse), dazwischen die erkannten Linien.
   // Die Randstücke bekommen eine Art nach den Angaben der Seite: Radstreifen → Velostreifen (bis 2,50 m), Parkierung → Parkierung
   // (1,50 bis 2,50 m); alles übrige nach der AV. Ein Vorschlag zum Prüfen: Linien im Schatten oder unter Autos können fehlen.
@@ -3687,7 +3744,7 @@ export default function App() {
         const bild = await luftbildLaden(ecken, q)
         return { bild, mk: ohneRinne(markierungenFinden(profilLesen(bild, linie.c, linie.r, von + 0.3, bis - 0.3)), von, bis) }
       }
-      const erst = await lesen(city === 'bern' ? 'bern2026' : 'swissimage')
+      const erst = await lesen(sectionsRef.current.find(s=>s.id===q.secId)?.datenOrt?.stadt === 'bern' ? 'bern2026' : 'swissimage')
       const zweit = erst.bild.quelle === 'bern2026' ? await lesen('swissimage') : null
       const { bild, mk } = zweit && zweit.mk.length > erst.mk.length ? zweit : erst
       const bildText = !zweit ? LUFTBILD_NAME[bild.quelle]
@@ -3783,7 +3840,7 @@ export default function App() {
     const w = (p: P) => zuWgs(p[0], p[1])
     const erg = messung.ergebnis
     return {
-      kanten: messKantenWgs,   // auch bei «Zwei Punkte» sichtbar (Nutzerwunsch 20.10.2026)
+      kanten: messKantenWgs,   // auch bei «Zwei Punkte» sichtbar
       punkte: messung.modus === 'hand' && !erg ? messung.punkte.map(w) : [],
       ...(erg ? { linie: [w(erg.von), w(erg.bis)] as [{ lat: number; lon: number }, { lat: number; lon: number }],
                   label: `${numDE(erg.breite, 2)} m` } : {}),
@@ -3805,23 +3862,23 @@ export default function App() {
     if (messung) { messKlick(lat, lon); return }
     if (teilModus) { setMsg('Teilen: bitte direkt auf die Linie tippen, die geteilt werden soll (Esc bricht ab).', 'info'); return }
     if (osmBusy) return                         // läuft schon eine Anfrage → Klick ignorieren (Rate-Limit schonen)
-    const gen = ++ladeGen.current
+    const gen = datenlaufNeu({ behalten: true, uebernahmeAbwarten: true })
     setOsmBusy(true); setMsg('Suche Segment an der Klickstelle …')
     try {
       const roh = await loadNearestCandidate(lat, lon)
-      if (gen !== ladeGen.current) return
-      if (!roh) { setMsg('An dieser Stelle kein velorelevantes Segment gefunden.', 'info'); return }
+      if (gen !== datenGeneration()) return
+      if (!roh) { datenlaufUebernehmen(gen, () => {}); setMsg('An dieser Stelle kein velorelevantes Segment gefunden.', 'info'); return }
       // Über die Way-ID: auch ein geteilter Way (Teile mit eigenen Kennungen) ist «bereits geladen».
-      if (candsRef.current.some(p => p.wayId === roh.wayId)) { setMsg(`Segment „${roh.name}" ist bereits geladen.`, 'info'); return }
+      if (candsRef.current.some(p => p.wayId === roh.wayId)) { datenlaufUebernehmen(gen, () => {}); setMsg(`Segment „${roh.name}" ist bereits geladen.`, 'info'); return }
       setCands(prev => (prev.some(p => p.wayId === roh.wayId) ? prev : [...prev, roh]))   // sofort hinzufügen
       setMsg(`Segment „${roh.name}" hinzugefügt · reichere an …`, 'ok')
       const { cands: [c], stops: st, obs, fehler } = await enrichAll([roh], candsRef.current)
-      if (gen !== ladeGen.current) return
-      setCands(prev => einspielen(prev, [c], obs, !!cityCfg.obsFile))
+      if (gen !== datenGeneration()) return
+      setCands(prev => einspielen(prev, [c], obs, true))
       setStops(prev => mergeStops(prev, st))
       setMsg(`Segment „${c.name}" hinzugefügt.` + fehlerText(fehler), fehler.length ? 'info' : 'ok')
-    } catch (e) { if (gen === ladeGen.current) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
-    finally { if (gen === ladeGen.current) setOsmBusy(false) }
+    } catch (e) { if (gen === datenGeneration()) setMsg('Fehler beim Laden: ' + (e as Error).message, 'error') }
+    finally { if (gen === datenGeneration()) setOsmBusy(false) }
   }
 
   // Undo-Schnappschuss für die zwei Aktionen, die viel Zustand auf einmal ersetzen/verwerfen
@@ -3868,9 +3925,7 @@ export default function App() {
       'Herkunft je Feld am Chip (amtlich/OSM); leere Felder bitte ergänzen.', 'ok')
   }
 
-  // Manuelle Änderung eines getrackten Feldes setzt dessen Herkunft auf „manuell".
-  const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram', 'strassentyp', 'richtung',
-    'fahrbahnbreite', 'parkenRechts']
+  // Feldänderungen und Quellenwahl gehen durch dieselbe reine Funktion; leere Zahlenwerte tragen keine manuelle Herkunft.
   // Velostrasse: Breite aus Fahrbahnbreite und Parkierung ableiten, sobald beides bekannt ist (strecke.ts, seit 23.10.2026);
   // greift bei jeder Änderung von Fahrbahnbreite, Form, Parkierung oder Seite B, nach «aus AV ermitteln» und beim Übernehmen
   const parkBreiteStadt = standardBreite({ art: 'Parkierung', breite: NaN }, 'Veloroute', cityCfg.breiten)
@@ -3879,10 +3934,7 @@ export default function App() {
   const update = (id: number, patch: Partial<Section>) =>
     setSections(prev => prev.map(s => {
       if (s.id !== id) return s
-      const quelle = { ...s.quelle }
-      for (const k of TRACKED) if (k in patch) quelle[k] = 'manuell'
-      const neu = { ...s, ...patch, quelle }
-      return ['fahrbahnbreite', 'ist', 'parkenRechts', 'gegen', 'richtung'].some(k => k in patch) ? velostrasseNachfuehren(neu) : neu
+      return abschnittAendern(s, patch, velostrasseNachfuehren)
     }))
   // Form von Hand auf Velostrasse gewechselt: Fahrbahnbreite aus der AV holen, falls sie fehlt (velostrasseAvHolen)
   const updateMitAv = (id: number, patch: Partial<Section>) => {
@@ -3917,7 +3969,7 @@ export default function App() {
   const streckePlanNote = sections.some(s => s.aufteilung) && planNoten.every(n => n != null)
     ? Math.min(...planNoten.map(n => n!)) : null
 
-  // ── Hauptfunktionen im Kopf (seit 22.10.2026, Nutzerwunsch): Bewerten | Planen und Bericht / PDF ──
+  // ── Hauptfunktionen im Kopf (seit 22.10.2026): Bewerten | Planen und Bericht / PDF ──
   // Vorher stand dort «Anzeige: Schulnote | Erfüllungsgrad»; die Planung war nur im Reiter jedes Abschnitts
   // zu finden und «Bericht / PDF» nur in der Werkzeugleiste einer Planung.
   // «Planen» stellt alle Abschnitte auf den Reiter «Planen», öffnet den massgebenden (sonst den ersten) und legt
@@ -3927,7 +3979,7 @@ export default function App() {
     if (!s || !cityCfg.aufteilung) return
     if (!s.aufteilung) {
       update(s.id, { aufteilung: startAufteilung(s, city, cityCfg.breiten) })
-      if (cityCfg.avKanton && s.candIds?.length) void planAvZeigen(s.id)
+      if (datenCfg.avKanton && s.candIds?.length) void planAvZeigen(s.id)
     }
     setPlanTab(p => new Set([...p, s.id]))
     zumAbschnitt(idx)
@@ -3944,7 +3996,7 @@ export default function App() {
   const berichtOeffnen = (secId: number) => {
     const s = sections.find(x => x.id === secId)
     setBerichtWahl(false)
-    if (s && cityCfg.avKanton && s.candIds?.length && planAv?.secId !== s.id) void planAvZeigen(s.id)
+    if (s && datenCfg.avKanton && s.candIds?.length && planAv?.secId !== s.id) void planAvZeigen(s.id)
     setBerichtSec(secId)
   }
 
@@ -3967,7 +4019,8 @@ export default function App() {
   const zaehlen = (id: EbeneId, d: 1 | -1) => setLaufend(p => ({ ...p, [id]: Math.max(0, (p[id] ?? 0) + d) }))
   useEffect(() => { nachgeladenRef.current.clear() }, [city])
   useEffect(() => {
-    // Seit 01.11.2026 ohne Einschalten (Nutzerwunsch «es sollte geladen werden, was vorhanden ist»): nach dem Übernehmen alle
+    // Seit 01.11.2026 ohne Einschalten: nach dem Übernehmen alle
+    const generation=datenGeneration()
     const an = [...NACHLADEN]
     const ring = (r: P[]) => r.map(p => zuWgs(p[0], p[1]))
     const fehlerName: Record<string, string> = { parkfelder: 'Parkfelder', fussnetz: 'Fussverkehrsnetz', wartehallen: 'Wartehallen' }
@@ -3984,17 +4037,18 @@ export default function App() {
         if (!an.includes(id) || nachgeladenRef.current.has(k)) return
         nachgeladenRef.current.add(k)
         zaehlen(id, 1)
-        laden().then(o => setEbenen(prev => ebenenMischen(prev, { [id]: o })))
+        laden().then(o => {if(generation===datenGeneration())setEbenen(prev => ebenenMischen(prev, { [id]: o }))})
           .catch(() => { nachgeladenRef.current.delete(k); setMsg(`Geladene Quellen: ${fehlerName[id]} nicht erreichbar.`, 'info') })
           .finally(() => zaehlen(id, -1))
       }
-      if (cityCfg.parkierung) einmal('parkfelder', async () => (await ladeParkflaechen(cityCfg.parkierung!, box as ParkBox)).filter(f => f.ringe[0]?.length).map(f => ({
+      const lokal = cfgFuer(s), datenStadt = s.datenOrt?.stadt
+      if (lokal.parkierung) einmal('parkfelder', async () => (await ladeParkflaechen(lokal.parkierung!, box as ParkBox)).filter(f => f.ringe[0]?.length).map(f => ({
         id: `pk:${f.ringe[0][0][0].toFixed(1)},${f.ringe[0][0][1].toFixed(1)}`, ringe: f.ringe.map(ring), deckkraft: 0.4,
         klasse: f.verbot ? 'verbot' : f.zweirad ? 'zweirad' : 'auto',
         text: f.verbot ? 'Parkverbotsfeld (zählt als Parkierung)' : f.zweirad ? `${f.zweirad === 'velo' ? 'Velo' : 'Motorrad'}feld` : `Parkfeld${f.anzahl ? ` (${f.anzahl} Plätze)` : ''}` })))
-      if (city === 'bern' || city === 'basel') einmal('fussnetz', async () => (await fussnetzLinien(city, box)).map(x => ({
+      if (datenStadt === 'bern' || datenStadt === 'basel') einmal('fussnetz', async () => (await fussnetzLinien(datenStadt, box)).map(x => ({
         id: `fn:${x.klasse}:${x.linie[0][0].toFixed(1)},${x.linie[0][1].toFixed(1)}`, linien: [ring(x.linie)], klasse: x.klasse,
-        text: city === 'bern' ? 'Basisnetz Fussweg (Richtplan Fussverkehr)' : x.klasse === 'basis' ? 'Kantonales Fusswegnetz (Teilrichtplan)' : 'Kommunales Fusswegnetz (Teilrichtplan)' })))
+        text: datenStadt === 'bern' ? 'Basisnetz Fussweg (Richtplan Fussverkehr)' : x.klasse === 'basis' ? 'Kantonales Fusswegnetz (Teilrichtplan)' : 'Kommunales Fusswegnetz (Teilrichtplan)' })))
       if (an.includes('steigung') && !s.steigung && !nachgeladenRef.current.has(`steigung|${ab}`)) { nachgeladenRef.current.add(`steigung|${ab}`); steigungOffen.push(s) }
     }
     // Wartehallen und Perrons: EINE Overpass-Abfrage für alle übernommenen Abschnitte (Overpass sperrt viele Abfragen kurz hintereinander)
@@ -4011,13 +4065,24 @@ export default function App() {
     }
     // Amtliche Vermessung je Abschnitt (avFuerAbschnitt: dieselben Kacheln und derselbe Zwischenspeicher wie Messen und Planung,
     // sammelt die Flächen für die Kartenebene), nacheinander; zu lange Abschnitte (über 6 Kacheln) bleiben aus
-    if (cityCfg.avKanton) {
+    if (datenCfg.avKanton) {
       const avOffen = mitAchse.filter(s => !avCacheRef.current.has(s.candIds!.join(',')) && !nachgeladenRef.current.has(`av|${s.candIds!.join(',')}`))
       if (avOffen.length) {
         for (const s of avOffen) nachgeladenRef.current.add(`av|${s.candIds!.join(',')}`)
         zaehlen('av', 1)
         void (async () => {
-          for (const s of avOffen) { try { await avFuerAbschnitt(s) } catch { /* zu lang oder nicht erreichbar: Ebene ohne diesen Abschnitt */ } }
+          for (const s of avOffen) { try {
+            const av=await avFuerAbschnitt(s)
+            if(generation!==datenGeneration())break
+            if(s.quelle.fahrbahnbreite==='av'||s.trottoirQuelle==='av'){
+              const hsi=hatHaltestelle(s) ? await haltestelleninselMitOsm(s,avAchsen(s,true),av.flaechen,bordkanten(av.flaechen)) : null
+              if(generation!==datenGeneration())break
+              const fb=avBreiteErmitteln(av.achsen,av.flaechen,hsi),tr=s.trottoirQuelle==='av'?trottoirbreiten(avAchsen(s,true),av.flaechen,bordkanten(av.flaechen)):null
+              setSections(prev=>prev.map(x=>x.id!==s.id?x:{...avNachladenUebernehmen(x,fb,city,velostrasseNachfuehren),
+                ...(tr&&x.trottoirQuelle==='av'?{trottoir:{...x.trottoir,a:tr.rechts??NaN,b:tr.links??NaN}}:{})
+              }))
+            }
+          } catch { /* Die Quelle meldet den Abruffehler; eigene Werte bleiben erhalten. */ } }
           zaehlen('av', -1)
         })()
       }
@@ -4043,6 +4108,11 @@ export default function App() {
     const candById = new Map(cands.map(c => [c.id, c]))
     out.steigung = steigungObjekte(sections.map((s, i) => ({ id: s.id, nr: i + 1, steigung: s.steigung,
       linien: (s.candIds ?? []).map(id => candById.get(id)?.geom ?? []).filter(g => g.length >= 2) })))
+    out.gelaende = sections.flatMap((s, i) => {
+      const p = s.steigung?.profil
+      return p ? [{ id: `gel:${s.id}`, linien: [p.linie.map(([e, n]) => zuWgs(e, n))], klasse: 'profil',
+        hoehenprofil: { ...p, id: `gel:${s.id}`, titel: `Abschnitt ${i + 1}${s.label ? ` – ${s.label}` : ''}` }, text: p.zweck }] : []
+    })
     return out
   }, [ebenen, cands, stops, sections])
   const formen = useMemo(() => {
@@ -4084,8 +4154,8 @@ export default function App() {
     [hoverSec, candIdsKey])
 
   return (
-    <AttribContext.Provider value={cityCfg.attribution}>
-    <AvContext.Provider value={cityCfg.avKanton ? avQuelle(cityCfg.avKanton) : ''}>
+    <AttribContext.Provider value={datenCfg.attribution}>
+    <AvContext.Provider value={datenCfg.avKanton ? avQuelle(datenCfg.avKanton) : ''}>
     <div className={view === 'rechner' ? 'vrc-app-rechner' : undefined}
          style={{ fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text-strong)',
                   ...(view === 'rechner' ? { '--vrc-panel-w': `${panelW}px`, '--vrc-karte-h': `${karteStufe}dvh` } as React.CSSProperties : {}) }}>
@@ -4118,7 +4188,7 @@ export default function App() {
         </h1>
         <SoFunktionierts />
 
-      {/* Hauptfunktionen (seit 22.10.2026, Nutzerwunsch): Bewerten | Planen und Bericht / PDF. Ersetzt den Schalter
+      {/* Hauptfunktionen (seit 22.10.2026): Bewerten | Planen und Bericht / PDF. Ersetzt den Schalter
           «Anzeige: Schulnote | Erfüllungsgrad»; der Erfüllungsgrad steht seither überall vorne, die Note dahinter. */}
       {cityCfg.aufteilung && (
         <div className="vrc-haupt">
@@ -4170,7 +4240,7 @@ export default function App() {
           )}
         </div>
       )}
-      {/* Sticky Ergebnis-Leiste: Strecken-Beurteilung jederzeit sichtbar (Punkt 1). Klick springt zum massgebenden
+      {/* Sticky Ergebnis-Leiste: Strecken-Beurteilung jederzeit sichtbar. Klick springt zum massgebenden
           bzw. ersten unvollständigen Abschnitt. Seit 22.10.2026 die einzige Strecken-Anzeige: «Abschnitte» klappt die
           Beurteilung jedes Abschnitts auf (vorher ein zweiter Strecken-Kasten über der Abschnittsliste), und mit einer
           Planung steht dahinter die Strecke mit der Planung. */}
@@ -4237,7 +4307,9 @@ export default function App() {
                     marginBottom: 18 }}>
         {/* Stadt und Strassensuche stehen seit 17.10.2026 über der Karte (Kartenkopf, wie fgsCheck) */}
         <div style={{ flexBasis: '100%', fontSize: 12, color: 'var(--text-muted-strong)' }}>
-          Grundlage {cityCfg.label}:{' '}
+          <label>Bewertungsstandard: <select value={city} onChange={e => wechsleStadt(e.target.value as CityId)} aria-label="Bewertungsstandard">
+            {(Object.keys(CITIES) as CityId[]).map(k => <option key={k} value={k}>{CITIES[k].label}</option>)}
+          </select></label>{' · '}
           <a href={cityCfg.standardDoc.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
             {cityCfg.standardDoc.titel}
           </a>
@@ -4270,10 +4342,10 @@ export default function App() {
           <div className="vrc-karte">
             <VeloMap cands={cands} onLineClick={linieGeklickt} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
-                     markers={markers} highlightIds={highlightIds} ebenen={ebenenAnzeige} stadt={city}
+                     markers={markers} highlightIds={highlightIds} ebenen={ebenenAnzeige} stadt={gebiet}
                      nachladen={{ moeglich: sections.some(s => s.candIds?.length), laufend }}
-                     attribution={cityCfg.attribution} center={cityCfg.center} fitKey={fitKey} obsStand={cityCfg.obsStand}
-                     teilModus={teilModus} orthofoto={messAktiv || planAv != null || qsa != null} bern2026={city === 'bern'} routennetz={cityCfg.routennetz ?? null} messung={messAnzeige ?? qsAnzeige} av={planAvWgs} formen={formen}
+                     attribution={datenCfg.attribution} center={datenCfg.center} fitKey={fitKey} obsStand={datenCfg.obsStand}
+                     teilModus={teilModus} orthofoto={messAktiv || planAv != null || qsa != null} bern2026={gebiet === 'bern'} routennetz={datenCfg.routennetz ?? null} messung={messAnzeige ?? qsAnzeige} av={planAvWgs} formen={formen}
                      onMeldung={(t, art) => setMsg(t, art)} onMarkerClick={markerKlick} />
             {/* Kartenhöhe (nur Mobile, index.css .vrc-karte-hoehe): 30 → 45 → 70 % der Fensterhöhe */}
             <button type="button" className="vrc-karte-hoehe" onClick={karteStufeWeiter}
@@ -4284,20 +4356,20 @@ export default function App() {
             {/* Kartenkopf: Stadt und Strassensuche (während einer Messung steht dort deren Werkzeugleiste) */}
             {!messung && !qsa && (
               <div className="vrc-kartenkopf">
-                <select value={city} onChange={e => wechsleStadt(e.target.value as CityId)} aria-label="Stadt"
+                <select value={gebiet} onChange={e => wechsleGebiet(e.target.value as Suchgebiet)} aria-label="Ort für die Strassensuche"
                         disabled={osmBusy}   // Stadtwechsel während einer laufenden Ladung sperren (Race-Schutz)
                         title={`Grundlage: ${cityCfg.standardDoc.titel}`}>
                   {/* Mobile: Kürzel, damit die Suche Platz hat (seit 28.10.2026) */}
-                  {(Object.keys(CITIES) as CityId[]).map(k => <option key={k} value={k}>{mobil ? STADT_KURZ[k] : CITIES[k].label}</option>)}
+                  {(Object.keys(CITIES) as CityId[]).map(k => <option key={k} value={k}>{mobil ? STADT_KURZ[k] : CITIES[k].label}</option>)}<option value="schweiz">Schweiz</option>
                 </select>
-                <Strassensuche text={street} setText={setStreet} stadt={cityCfg.label} busy={osmBusy}
+                <Strassensuche text={street} setText={setStreet} stadt={gebiet === 'schweiz' ? '' : datenCfg.label} busy={osmBusy}
                                onLaden={name => void ladeStrasse(name)} />
               </div>
             )}
             {/* Breitenmessung: Werkzeugleiste auf der Karte (klickbar, liegt über dem Kartenrand). */}
             {messung && (
               <Kartenleiste ziel={mobil ? leisteZiel : null} titel={`📏 ${messung.plan ? 'Element für Element messen' : 'Breite messen'} · ${messung.titel}`}
-                            onSchliessen={() => setMessung(null)} quelle={avQuelle(cityCfg.avKanton ?? '')}>
+                            onSchliessen={() => setMessung(null)} quelle={avQuelle(cfgFuer(sections.find(s=>s.id===(messung?.secId??qsa?.secId))).avKanton??'Schweiz')}>
                 <div role="group" aria-label="Messart"
                      style={{ display: 'inline-flex', flexWrap: 'wrap', border: '1px solid var(--border)', borderRadius: 8,
                               overflow: 'hidden', marginBottom: 6 }}>
@@ -4432,7 +4504,7 @@ export default function App() {
             {/* Querschnitt am Luftbild aufnehmen: Werkzeugleiste auf der Karte */}
             {qsa && (
               <Kartenleiste ziel={mobil ? leisteZiel : null} titel={`📐 Querschnitt am Luftbild · ${qsa.titel}`} breit onSchliessen={() => setQsa(null)}
-                            quelle={avQuelle(cityCfg.avKanton ?? '')}>
+                            quelle={avQuelle(cfgFuer(sections.find(s=>s.id===(messung?.secId??qsa?.secId))).avKanton??'Schweiz')}>
                 <div>
                   Weit hineinzoomen und quer über die Strasse von Rand B nach Rand A klicken (Seite B links, in Fahrtrichtung der Seite A gesehen):
                   an jeder Grenze ein Punkt, etwa Hauswand oder Trottoirrand, Bord, Markierung, Insel, Gleismitte. Die Punkte liegen auf
@@ -4570,7 +4642,7 @@ export default function App() {
               </button>
             )}
             {cands.length > 0 && (
-              <button onClick={() => { undoMerken('Karte leeren rückgängig'); setCands([]); setStops([]); setMsg(''); setTeilModus(false); setMessung(null) }}
+              <button onClick={() => { undoMerken('Karte leeren rückgängig'); quellenNeu(); setCands([]); setStops([]); setEbenen({}); setKartenHinweise([]); datenlaufUebernehmen(datenGeneration(), () => {}); setMsg(''); setTeilModus(false); setMessung(null) }}
                       style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
                                borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
                 Karte leeren
@@ -4586,7 +4658,7 @@ export default function App() {
           </div>
           {/* Teil-Modus: eigene Anleitung. Die drei Schritte zum Aufbau der Strecke standen bis
               16.10.2026 immer hier; sie stehen in «So funktioniert's» und im Hinweis auf der leeren
-              Karte (Nutzerentscheid: doppelt, entfernt). */}
+              Karte (doppelt, entfernt). */}
           {teilModus && (
             <div style={{ fontSize: 12.5, marginTop: 8, padding: '8px 12px', borderRadius: 8, lineHeight: 1.6,
                           background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
@@ -4596,7 +4668,7 @@ export default function App() {
               einen Schnitt zurück.
             </div>
           )}
-          {/* Legende Führungsform, einklappbar (Nutzerwunsch 16.10.2026) */}
+          {/* Legende Führungsform, einklappbar */}
           <details className="vrc-klappe" style={{ marginTop: 6, fontSize: 12 }}>
             <summary style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--text-muted-strong)' }}>Legende Führungsform</summary>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
@@ -4628,10 +4700,10 @@ export default function App() {
         const rB = s.peilungA != null ? himmelsrichtung(s.peilungA + 180) : null
         const mitAv = planAv?.secId === s.id
         const quellen = [
-          `Abschnittsdaten (DTV, Tempo, Routentyp u. a.): ${cityCfg.attribution}`,
-          ...(mitAv && cityCfg.avKanton ? [`Bodenbedeckung und Trottoirs: ${avQuelle(cityCfg.avKanton)}`] : []),
-          ...(mitAv && planAv!.park.length && cityCfg.parkierung ? [`Parkfelder: ${PARK_QUELLE[cityCfg.parkierung]}`] : []),
-          ...(s.aufteilung.fussnetzQuelle === 'geoportal' ? [`Fussverkehrsnetz: ${city === 'basel' ? FUSSNETZ_BASEL : FUSSNETZ_GEOPORTAL}`] : []),
+          `Abschnittsdaten (DTV, Tempo, Routentyp u. a.): ${cfgFuer(s).attribution}`,
+          ...(mitAv && datenCfg.avKanton ? [`Bodenbedeckung und Trottoirs: ${avQuelle(cfgFuer(s).avKanton ?? 'Schweiz')}`] : []),
+          ...(mitAv && planAv!.park.length && cfgFuer(s).parkierung ? [`Parkfelder: ${PARK_QUELLE[cfgFuer(s).parkierung!]}`] : []),
+          ...(s.aufteilung.fussnetzQuelle === 'geoportal' ? [`Fussverkehrsnetz: ${s.datenOrt?.stadt === 'basel' ? FUSSNETZ_BASEL : FUSSNETZ_GEOPORTAL}`] : []),
         ]
         return <Bericht section={{ ...s, aufteilung: s.aufteilung }} nr={i + 1} heute={ergebnisse[i]} city={city} breiten={cityCfg.breiten}
                         stadtName={cityCfg.label} rA={rA} rB={rB} achsen={avAchsen(s, true)}
@@ -4642,7 +4714,7 @@ export default function App() {
 
       {/* Abschnitte: Überschrift mit dem Knopf für alle Fahrbahnbreiten (seit 22.10.2026; vorher je Abschnitt) */}
       {(() => {
-        const ohne = cityCfg.avKanton ? sections.filter(s => s.candIds?.length && !Number.isFinite(s.fahrbahnbreite)) : []
+        const ohne = datenCfg.avKanton ? sections.filter(s => s.candIds?.length && !Number.isFinite(s.fahrbahnbreite)) : []
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '26px 0 12px' }}>
             <h2 style={{ fontSize: 16, margin: 0 }}>Abschnitte</h2>
@@ -4660,7 +4732,7 @@ export default function App() {
       })()}
       {sections.map((s, i) => (
         <div key={s.id} id={'sec-' + i} style={{ scrollMarginTop: 64 }}>
-          <SectionCard
+          <AttribContext.Provider value={cfgFuer(s).attribution}><AvContext.Provider value={avQuelle(cfgFuer(s).avKanton ?? 'Schweiz')}><SectionCard
             kartenAktionen={s.candIds?.length ? undefined : (
               // Abschnitt ohne Karte (Nutzerbefund 22.10.2026): nach dem Antippen eines Segments war nicht klar, dass es noch
               // übernommen werden muss — die Knöpfe stehen deshalb auch hier, nicht nur unter der Karte
@@ -4689,13 +4761,13 @@ export default function App() {
             onChange={patch => updateMitAv(s.id, patch)}
             onTauschen={() => tauschen(s.id)}
             onLuftbild={welche => luftbildAnnehmen(s.id, welche)}
-            onMessen={cityCfg.avKanton ? ((seite, plan, teil) => messungStarten(s.id, seite, plan, teil)) : undefined}
-            onFahrbahnbreite={cityCfg.avKanton && s.candIds?.length ? (ziel => void fahrbahnbreiteErmitteln(s.id, ziel)) : undefined}
+            onMessen={datenCfg.avKanton ? ((seite, plan, teil) => messungStarten(s.id, seite, plan, teil)) : undefined}
+            onFahrbahnbreite={datenCfg.avKanton && s.candIds?.length ? (ziel => void fahrbahnbreiteErmitteln(s.id, ziel)) : undefined}
             fbLaden={fbLaden === s.id}
             onBericht={() => setBerichtSec(s.id)}
             zu={zuSec.has(s.id)} onKlappen={() => klappen(s.id)}
             tab={planTab.has(s.id) ? 'planen' : 'bewerten'} onTab={t => tabSetzen(s.id, t)}
-            av={cityCfg.avKanton && s.candIds?.length ? {
+            av={datenCfg.avKanton && s.candIds?.length ? {
               gezeigt: planAv?.secId === s.id, laden: planAvLaden === s.id, park: planAv?.secId === s.id && planAv.park.length > 0,
               zeigen: () => void planAvZeigen(s.id), ausblenden: () => setPlanAv(p => (p?.secId === s.id ? null : p)), markierungLaden: mkLaden === s.id,
             } : undefined}
@@ -4706,8 +4778,8 @@ export default function App() {
             city={city}
             ort={markers.find(m => m.num === i + 1)}
             laengeM={(s.candIds ?? []).reduce((m, id) => m + (cands.find(c => c.id === id)?.len ?? 0), 0) || undefined}
-            onQuerschnitt={cityCfg.avKanton && s.candIds?.length ? () => void qsStarten(s.id) : undefined}
-          />
+            onQuerschnitt={datenCfg.avKanton && s.candIds?.length ? () => void qsStarten(s.id) : undefined}
+          /></AvContext.Provider></AttribContext.Provider>
         </div>
       ))}
 
@@ -4718,7 +4790,7 @@ export default function App() {
                          cursor: 'pointer', flex: 1, minWidth: 200 }}>
           + Abschnitt hinzufügen
         </button>
-        <button onClick={() => downloadCsv(buildCsv(sections, ergebnisse, streckeNote, city, cityCfg.label, undefined, cityCfg.obsStand))}
+        <button onClick={() => downloadCsv(buildCsv(sections, ergebnisse, streckeNote, city, cityCfg.label, undefined, datenCfg.obsStand))}
                 title="Alle Abschnitte mit Werten, Herkunft und Note als CSV (Excel) herunterladen"
                 style={{ border: '1px solid var(--accent)', background: '#fff', color: 'var(--accent)',
                          borderRadius: 10, padding: '10px 16px', fontSize: 14, fontWeight: 600,
@@ -4727,12 +4799,21 @@ export default function App() {
         </button>
       </div>
 
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}}>
+        <button type="button" onClick={fallSpeichern} disabled={osmBusy}>Fall speichern</button>
+        <button type="button" onClick={()=>fallInput.current?.click()} disabled={osmBusy}>Fall laden</button>
+        <button type="button" onClick={()=>void quellenAktualisieren()} disabled={osmBusy}>Verwendete Quellen aktualisieren</button>
+        <input ref={fallInput} type="file" accept=".json,application/json" hidden onChange={e=>void fallLaden(e.target.files?.[0])}/>
+      </div>
+      <p className="klein">Beim Laden einer Fall-Datei werden die Quellen neu abgerufen. Eigene Eingaben, bestätigte Werte und die Planung bleiben erhalten; bei bestätigten Angaben bleibt auch der damalige Quellenstand dokumentiert.</p>
+      <KartenHinweise hinweise={kartenHinweise} />
+      <Datenstaende />
       {/* Quellen und Grundlagen je Stadt (seit 23.10.2026, nach dem Muster von fgsCheck; quellen.ts): Vorgaben, Normen,
           Daten mit Link. Die Berner Entscheidungstabellen (Soll-Führungsform, Soll-Haltestellenlösung) standen bis dahin
-          hier für alle Städte; sie sind weg, die Soll-Tabellen stehen in den verlinkten Werken (Nutzerentscheid 23.10.2026). */}
-      <QuellenTeil city={city} />
+          hier für alle Städte; sie sind weg, die Soll-Tabellen stehen in den verlinkten Werken. */}
+      <QuellenTeil city={city} datenOrte={sections.some(s=>s.datenOrt)?sections.flatMap(s=>s.datenOrt?[s.datenOrt]:[]):gebiet==='schweiz'?[]:[gebiet]} />
 
-      {/* Referenz: Herleitung der Note — eingeklappt, um Scroll zu sparen (Punkt 6).
+      {/* Referenz: Herleitung der Note — eingeklappt, um Scroll zu sparen.
           id «referenz»: die Herleitung im Ergebnis (zurHerleitung) klappt den Teil auf und springt zu «herleitung-note». */}
       <details id="referenz" className="vrc-klappe" style={{ marginTop: 20 }}>
         <summary style={{ cursor: 'pointer', fontSize: 16, fontWeight: 700, color: 'var(--text)', userSelect: 'none' }}>

@@ -1,12 +1,12 @@
 // ── Steigung je Abschnitt aus dem Höhenmodell swissALTI3D (© swisstopo), seit 01.11.2026 ─────────────────────────────────
 //
-// Übernommen aus fgsCheck (knotensicht/daten/hoehen.ts und rechner/neigung.ts, Nutzerentscheid 01.11.2026 «swissALTI3D überall»):
+// Übernommen aus fgsCheck (knotensicht/daten/hoehen.ts und rechner/neigung.ts):
 // GET api3.geo.admin.ch/rest/services/profile.json mit der Achse als GeoJSON-LineString in LV95 (sr=2056) und nb_points
 // Stützpunkten; CORS offen. Antwort: Liste {dist, alts: {COMB, DTM2, DTM25}}; COMB = swissALTI3D, wo vorhanden. Hinaus geht nur
 // die Linie. Mittlere Steigung = Ausgleichsgerade (kleinste Quadrate) über (dist, Höhe); Punkte weit neben der ersten Geraden
 // (Brücke, Mauer, Böschung im Höhenmodell) fallen weg, bleibt die Streuung gross, gibt es einen Hinweis.
 // Gebraucht nur als Hinweis an der Umweltspur (Masterplan Q 4, S. 20: bei Steigung über 2 % Umweltspur ab 4,50 m oder separater
-// Velobereich); die Note bleibt unverändert (Nutzerentscheid 01.11.2026, wie im lokalen Regelwerk).
+// Velobereich); die Note bleibt unverändert (wie im lokalen Regelwerk).
 // Vorzeichen: positiv = bergauf in Fahrtrichtung der Seite A.
 
 import type { P } from './lv95'
@@ -27,7 +27,7 @@ const MIN_PUNKTE = 3, MIN_LAENGE_M = 20
 
 export interface ProfilPunkt { dist: number; h: number }
 /** Steigung eines Abschnitts: pct null = unbekannt (Dienst nicht erreichbar, zu kurz), dann mit Hinweis */
-export interface Steigung { pct: number | null; laenge: number; hinweis?: string }
+export interface Steigung { pct: number | null; laenge: number; hinweis?: string; profil?: import('./hoehenprofil/modell').HoehenProfil }
 
 export function profilUrl(linie: P[], punkte = PROFIL_PUNKTE): string {
   const schritt = Math.max(1, Math.ceil((linie.length - 1) / (PROFIL_ECKEN_MAX - 1)))
@@ -90,7 +90,12 @@ export function achseInRichtungA(stuecke: P[][], peilungA?: number): P[] {
 export async function ladeSteigung(linie: P[]): Promise<Steigung> {
   if (linie.length < 2) return { pct: null, laenge: 0, hinweis: 'Keine Achse auf der Karte: Steigung nicht bestimmbar.' }
   try {
-    return steigungAusProfil(profilLesen(await holeJson<unknown>(profilUrl(linie), PROFIL_MS)))
+    const url = profilUrl(linie), punkte = profilLesen(await holeJson<unknown>(url, PROFIL_MS))
+    return { ...steigungAusProfil(punkte), profil: {
+      id: url, titel: 'Strassenprofil', linie: (JSON.parse(new URL(url).searchParams.get('geom')!) as { coordinates: P[] }).coordinates, punkte,
+      zweck: 'Geländehöhen entlang der Strassenachse zur Ermittlung der mittleren Steigung. Keine Prüfung einer Sichtverdeckung.',
+      quelle: '© swisstopo; Höhenprofil swissALTI3D/Kombinationsmodell', abgerufen: new Date().toISOString(),
+    } }
   } catch (e) {
     return { pct: null, laenge: 0, hinweis: `Höhenmodell nicht erreichbar (${(e as Error).message}): Steigung nicht geprüft.` }
   }

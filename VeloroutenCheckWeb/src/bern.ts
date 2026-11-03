@@ -261,8 +261,8 @@ export async function loadOev(cands: Cand[]): Promise<{ byId: Map<number, OevInf
     const nr = f.properties.Nummer_linie, typ = f.properties.Verkehrsmittel_typ
     if (nr != null && (typ === 'Tram' || typ === 'Bus' || typ === 'Trolleybus')) modusJeLinie.set(String(nr), typ === 'Tram' ? 'tram' : 'bus')
   }
-  // Tram in der Fahrbahn aus «Verkehrsdaten Tram» (Strassenabschnitte mit Tramverkehr), wie der lokale Rechner (seit 01.11.2026,
-  // Nutzerentscheid; vorher der Linienverlauf aus OeV_Linien bis TRAM_OVERLAP_M)
+  // Tram in der Fahrbahn aus «Verkehrsdaten Tram» (Strassenabschnitte mit Tramverkehr), wie der lokale Rechner (seit 01.11.2026;
+  // vorher der Linienverlauf aus OeV_Linien bis TRAM_OVERLAP_M)
   const tramAbschnitte = tramRoh.filter(istLinie)
   const tramGeo = tramAbschnitte.map(featureLatLon)
   // Haltestellen-Punkte ([lon,lat]) für die Karte (mit BPUIC für den Fahrplan-Join). Das Feld Nummer_nach listet die Linien
@@ -334,3 +334,6 @@ export async function loadOev(cands: Cand[]): Promise<{ byId: Map<number, OevInf
   ]
   return { byId, stops, fehler, ebenen: { oev } }
 }
+
+/** Fresh source cycle; reuse within one cycle remains allowed. */
+export function quellenCacheLeeren() { velostrassenCache = null; taktCache = null }

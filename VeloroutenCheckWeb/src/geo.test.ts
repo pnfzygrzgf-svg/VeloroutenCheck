@@ -93,7 +93,7 @@ describe('majorityValue — Mehrheit nach WERT (Routentyp)', () => {
 })
 
 // ════════════════════════════════════════════════════════════════════════════
-// Runde AS6: Lücken aus dem Review — overlapScore-Richtung, densify-Grenzfälle,
+// Randfälle: overlapScore-Richtung, densify-Grenzfälle,
 // leere Bboxen, mergeObs ohne Überholungen.
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -167,7 +167,7 @@ describe('mergeObs — Befahrungen ohne Überholmessung', () => {
   })
 })
 
-// ── Ergänzt am 29.09.2026 (Review): die Fälle, die bis dahin still falsch liefen ─────────────
+// ── Ergänzt am 29.09.2026: die Fälle, die bis dahin still falsch liefen ─────────────
 
 describe('mehrteilige Linien — keine Phantomkante zwischen den Teilen', () => {
   // Zwei Teile einer Tramlinie mit 600 m Lücke; der Abschnitt liegt MITTEN in der Lücke.
