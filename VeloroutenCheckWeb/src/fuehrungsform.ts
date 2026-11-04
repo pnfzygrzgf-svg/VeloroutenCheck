@@ -531,7 +531,7 @@ export const KAP_TRENNUNG_AB = 2   // ab diesem Rang (bauliche Trennung) greift 
 //     Taktdichte, Velofrequenz) → keine Takt-Abhängigkeit; Note rein breitengetrieben + Hinweis.
 // Max. Note (Decke) bei zulässigem Takt und genügender Breite — je Stadt.
 export const UMWELTSPUR_DECKE: Record<Stadt, number> = { bern: 5, zurich: 4, luzern: 4, basel: 4 }
-// Bern: dreistufige Tabelle, deckungsgleich mit dem lokalen Batch-Rechner (umweltspur_note()).
+// Bern: dreistufige Tabelle, deckungsgleich mit dem lokalen Batch-Rechner (umweltspur_note).
 // Unter 7,5 Min bleibt es bei Note 2 — der Standard nennt die Umweltspur dort als Führungsform
 // unzulässig, das steht als Warnung daneben, erzwingt die Note aber nicht mehr.
 // Zürich/Luzern: Rampe zwischen den beiden Ankern, unter taktNote1 fix Note 1.
@@ -846,7 +846,7 @@ export function fuehrungsformNote(
   ): NotenErgebnis => {
     // Tram-Deckel wirkt wie ein maxNote und verträgt sich mit den Deckeln der Sonderfälle
     // (Basel 4, Q12 4) — es gilt der jeweils strengere. Die Kap-Regel überschreibt ALLES,
-    // auch forceNote und jeden Deckel (lokal steht sie als erstes `return` in situativ()).
+    // auch forceNote und jeden Deckel (lokal steht sie als erstes `return` in situativ).
     const maxNote = Math.min(opts.maxNote ?? 6, tramDeckel ?? 6)
     const roh = basisnote - breitenabzug - parkenAbzug - haltestelleAbzug - hsBreitenabzug
     const note = kapTramNote1 ? KAP_NOTE

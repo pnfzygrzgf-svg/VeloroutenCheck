@@ -17,7 +17,7 @@ export interface RoutennetzWms {
   titel: string                                   // Tooltip am Kästchen «Routennetz» (Quelle und Farben)
   infoFormat: string                              // GetFeatureInfo-Format, das der Dienst als JSON liefert
   // Zusätzliche Parameter der Abfrage. QGIS Server (Zürich, Basel) trifft eine Linie ohne Angabe nur bis rund 3 Pixel daneben,
-  // ArcGIS (Bern, Luzern) bis 6–8 Pixel (Probe 30.10.2026, Nutzerbefund «funktioniert in Basel und Zürich nicht»)
+  // ArcGIS (Bern, Luzern) bis 6–8 Pixel (Probe 30.10.2026, «funktioniert in Basel und Zürich nicht»)
   infoExtra?: Record<string, string>
   beschreiben: (m: Merkmale) => string | null     // Text einer Linie; null = nichts zu zeigen
 }

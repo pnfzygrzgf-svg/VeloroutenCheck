@@ -90,7 +90,7 @@ export function einbahnAusTags(t: Record<string, string>): 'vor' | 'rueck' | und
 
 export interface OsmWay { id: number; tags?: Record<string, string>; geometry?: LL[] }
 
-// Fahrspuren je Richtung mit ihren Pfeilen (seit 20.10.2026, Nutzerbefund Kirchenfeldstrasse): vor = in Way-Richtung,
+// Fahrspuren je Richtung mit ihren Pfeilen (seit 20.10.2026, Beispiel Kirchenfeldstrasse): vor = in Way-Richtung,
 // rueck = dagegen; je Spur von links nach rechts in Fahrtrichtung. Aus lanes, lanes:forward/backward und
 // turn:lanes(:forward/:backward). Ohne Angabe je Richtung: bei Gegenverkehr die Hälfte von lanes (nur gerade Zahl).
 // Busspuren zählt OSM in lanes mit; sie werden nicht abgezogen.
@@ -123,7 +123,7 @@ export function spurenAusTags(t: Record<string, string>, einbahn: 'vor' | 'rueck
   if (n != null && nv == null && nr != null && n > nr) nv = n - nr
   if (n != null && nr == null && nv != null && n > nv) nr = n - nv
   if (n != null && nv == null && nr == null && n % 2 === 0) nv = nr = n / 2
-  // Alle Spuren in einer Richtung (seit 27.10.2026, Nutzerbefund Kirchenfeldstrasse 1349754377: lanes=2 und
+  // Alle Spuren in einer Richtung (seit 27.10.2026, Beispiel Kirchenfeldstrasse 1349754377: lanes=2 und
   // turn:lanes:forward «left|through;right», im Luftbild zwei Spuren mit Pfeilen in dieselbe Richtung): Gegenrichtung ohne Spur
   if (n != null && nv === n && nr == null) nr = 0
   if (n != null && nr === n && nv == null) nv = 0
@@ -175,7 +175,7 @@ export function wayToCand(w: OsmWay): Cand | null {
     ...(isRoad && (['right', 'left'] as const).some(sd => (t[`cycleway:${sd}`] ?? t['cycleway:both'] ?? t.cycleway) === 'separate')
       ? { radwegSeparat: { rechts: (t['cycleway:right'] ?? t['cycleway:both'] ?? t.cycleway) === 'separate',
           links: (t['cycleway:left'] ?? t['cycleway:both'] ?? t.cycleway) === 'separate' } } : {}),
-    // Einbahn, Bus bzw. ÖV in beide Richtungen (seit 21.10.2026, Nutzerbefund Helvetiaplatz)
+    // Einbahn, Bus bzw. ÖV in beide Richtungen (seit 21.10.2026, Beispiel Helvetiaplatz)
     ...(einbahn && (t['oneway:bus'] === 'no' || t['oneway:psv'] === 'no' || t['oneway:tram'] === 'no') ? { oevGegen: true } : {}),
     speed: isFinite(sp) && sp > 0 ? sp : undefined,
     breite: osmBreite(cwW || ((isCycle || isFootBike) ? t.width : undefined)),
@@ -225,7 +225,7 @@ export function teileInListe(cs: Cand[], id: number, lat: number, lon: number): 
 
 // Overpass: gemeinsame Anbindung in overpass.ts (seit 24.10.2026)
 
-// Wartehallen und Perrons an Haltestellen um eine Geometrie (seit 21.10.2026, Nutzerbefund Monbijoustrasse): wo eine
+// Wartehallen und Perrons an Haltestellen um eine Geometrie (seit 21.10.2026, Beispiel Monbijoustrasse): wo eine
 // Wartehalle steht (amenity=shelter mit shelter_type=public_transport, Perron mit shelter=yes) bzw. ein Perron ohne
 // Wartehalle (shelter=no). Mittelpunkte in WGS84; leer, wenn Overpass nicht antwortet.
 export interface HaltestellenPunkt { lat: number; lon: number; wartehalle: boolean }

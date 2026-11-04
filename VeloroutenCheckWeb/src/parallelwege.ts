@@ -1,4 +1,4 @@
-// ── Parallele Wege einer Strasse (seit 21.10.2026, Nutzerbefund Schwarzenburgstrasse) ─────────────────────────────
+// ── Parallele Wege einer Strasse (seit 21.10.2026, Beispiel Schwarzenburgstrasse) ─────────────────────────────
 //
 // OSM erfasst Radwege oft als eigene Wege neben der Strasse (highway=cycleway, Fuss-/Radweg mit Velofreigabe). Beim
 // Laden nach Name kommen sie als eigene Segmente, parallel zur Strasse, und würden eigene Abschnitte, während die

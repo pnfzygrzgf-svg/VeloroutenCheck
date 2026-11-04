@@ -61,7 +61,7 @@ function kategorieToRoutentyp(kat: unknown): Routentyp | undefined {
 
 async function fetchVelonetz(bbox: Bbox): Promise<GeoJsonFeature[]> {
   // WFS 1.1.0 mit bbox lon,lat (EPSG:4326): seit Oktober 2026 antwortet der Dienst auf WFS 2.0.0 mit HTTP 500 und einer
-  // HTML-Seite (Nutzerbefund Langstrasse 24.10.2026: «Nicht erreichbar: Velonetzplanung»); 1.1.0 liefert dieselben Linien
+  // HTML-Seite (Beispiel Langstrasse: «Nicht erreichbar: Velonetzplanung»); 1.1.0 liefert dieselben Linien
   // mit CORS «*». Fällt 1.1.0 aus, wird 2.0.0 (bbox lat,lon) versucht.
   const v11 = new URLSearchParams({
     service: 'WFS', version: '1.1.0', request: 'GetFeature',

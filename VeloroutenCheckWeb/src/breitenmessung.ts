@@ -219,7 +219,7 @@ function flaechenTest(flaechen: AvFlaeche[], art: string): Test {
   const fs = flaechen.filter(f => f.art === art).map(f => ({ f, box: box(f.ringe) }))
   return p => fs.some(s => inBox(p, s.box) && imPolygon(p, s.f.ringe))
 }
-// Kurze Inseln (seit 21.10.2026, Nutzerbefund Bubenbergplatz): nur sie gehören zur Fahrbahn und werden von den
+// Kurze Inseln (seit 21.10.2026, Beispiel Bubenbergplatz): nur sie gehören zur Fahrbahn und werden von den
 // Strahlen überquert (Schutz- und Mittelinseln an Querungen, Laubeggstrasse 7 m). Längere sind ein Mittelstreifen
 // zwischen zwei Fahrbahnteilen (Bubenbergplatz 161 m: MIV-Fahrbahn | Mittelstreifen | Tram-/Bustrassee); die Fahrbahn
 // reicht dann nur bis zum Streifen. Haltestelleninseln (36–54 m) werden eigens erkannt (haltestelleninsel).
@@ -266,7 +266,7 @@ export function fahrbahnbreite(achsen: P[][], flaechen: AvFlaeche[], kanten: Kan
 // Gebäude), zählt der Querschnitt als «ohne Trottoir». Eine Seite hat ein Trottoir, wenn es auf
 // mindestens TROTTOIR_ANTEIL ihrer Querschnitte (mit Bordsteinkante) gefunden wird, und mindestens
 // drei Werte; dann gilt der Median. Breiter als TROTTOIR_MAX_M (Platz) zählt nicht.
-// Grünstreifen zwischen Fahrbahn und Fussweg (seit 20.10.2026, Nutzerbefund Spöndlistrasse Zürich: hinter dem Bord
+// Grünstreifen zwischen Fahrbahn und Fussweg (seit 20.10.2026, Beispiel Spöndlistrasse Zürich: hinter dem Bord
 // 0,30 m Trottoir, dann eine Grünfläche als Loch in der Trottoirfläche, dahinter der Fussweg): Endet das Trottoir an
 // einer Grünfläche (GRUEN_ARTEN) von höchstens GRUEN_MAX_M und folgt dahinter wieder Trottoir, geht die Messung weiter.
 // Das Trottoir ist dann der Fussweg hinter dem Grün; schmale Trottoirstreifen davor (unter TROTTOIR_MIN_M) zählen zum
@@ -277,7 +277,7 @@ const SCHRITT_UEBER_M = 0.05   // Prüfpunkt knapp hinter einer Kante
 const GRUEN_MAX_M = 4
 const GRUEN_ARTEN = ['Gartenanlage', 'uebrige_humusierte', 'Acker_Wiese_Weide']
 // Schmaler befestigter Streifen (Bankett, «uebrige_befestigte») direkt hinter dem Bord, dahinter das Trottoir
-// (Schwarzenburgstrasse 1568298241, Nutzerbefund 21.10.2026): zählt zum Trottoir
+// (Schwarzenburgstrasse 1568298241): zählt zum Trottoir
 const BANKETT_MAX_M = 1.5
 
 export interface Trottoirbreiten { links: number | null; rechts: number | null; gruen?: { links: number | null; rechts: number | null } }
@@ -331,7 +331,7 @@ export function trottoirbreiten(achsen: P[][], flaechen: AvFlaeche[], kanten: Ka
           vorn = bEnde
         }
       }
-      // Grünstreifen direkt hinter dem Bord, dahinter das Trottoir (Schwarzenburgstrasse, Nutzerbefund 21.10.2026)
+      // Grünstreifen direkt hinter dem Bord, dahinter das Trottoir (Schwarzenburgstrasse)
       if (!aufTrottoir(bei(SCHRITT_UEBER_M)) && vorn === 0) {
         if (!aufGruen(bei(SCHRITT_UEBER_M))) continue
         const nahG = gruene.filter(s => inBox(bei(0), [s.box[0] - GRUEN_MAX_M, s.box[1] - GRUEN_MAX_M, s.box[2] + GRUEN_MAX_M, s.box[3] + GRUEN_MAX_M])).map(s => s.f.ringe)
@@ -377,7 +377,7 @@ export function trottoirbreiten(achsen: P[][], flaechen: AvFlaeche[], kanten: Ka
   return { links: l.tr, rechts: r.tr, ...(l.gr != null || r.gr != null ? { gruen: { links: l.gr, rechts: r.gr } } : {}) }
 }
 
-// ── Parkierung auf Trottoirniveau (seit 17.10.2026, Nutzerbefund Kanzleistrasse Zürich) ──────────
+// ── Parkierung auf Trottoirniveau (seit 17.10.2026, Beispiel Kanzleistrasse Zürich) ──────────
 // Manche Längsparkierung liegt hinter dem Randstein auf der Fläche, die die AV als «Trottoir» führt.
 // trottoirbreiten misst sie dann mit; die Ausgangslage der Planung setzte sie zusätzlich auf die
 // Fahrbahn (doppelt gezählt). Je Seite: Liegen die Parkfelder bis PARK_SEITE_M neben der Achse nach
@@ -417,7 +417,7 @@ export function parkierungAufTrottoir(achsen: P[][], flaechen: AvFlaeche[], park
   return { links: ja(summe.links), rechts: ja(summe.rechts) }
 }
 
-// ── Tiefe der Parkierung je Seite (seit 20.10.2026, Nutzerbefund Egghölzlistrasse: Schrägparkierung als 1,90 m) ──
+// ── Tiefe der Parkierung je Seite (seit 20.10.2026, Beispiel Egghölzlistrasse: Schrägparkierung als 1,90 m) ──
 // Die Berner und Luzerner Parkfelder sind Flächen (in Bern ganze Reihen): ihre Ausdehnung quer zur Achse ist die
 // Tiefe (Längsreihen rund 1,9–2,1 m, Schräg- und Querreihen rund 4,2–5,3 m; Probe Egghölzlistrasse). Je Seite
 // zählt die Anordnung mit der grösseren Länge entlang der Achse, die Tiefe ist ihr längengewichteter Median.
@@ -438,7 +438,7 @@ const TIEF_AB_M = 2.6
 const SCHRAEG_AB_M = 2.85
 const WINKEL45_AB_M = 3.2     // zwischen schräg 60° (2,90 m) und 45° (3,55 m je Feld)
 export const PARK_TIEFE_ANNAHME: Record<'laengs' | 'schraeg' | 'quer', number> = { laengs: 1.9, schraeg: 5.25, quer: 5.0 }
-// Gekrümmte Reihen (seit 27.10.2026, Nutzerbefund Aargauerstalden 585349949: 54 Längsfelder als EINE Fläche entlang der Kurve,
+// Gekrümmte Reihen (seit 27.10.2026, Beispiel Aargauerstalden 585349949: 54 Längsfelder als EINE Fläche entlang der Kurve,
 // rund 270 m lang, quer zum nächsten geraden Achsstück 21,60 m «tief» → Schrägparkierung 45°): Ist die Ausdehnung quer zur
 // Achse grösser als PARK_TIEF_MAX_M (tiefer ist keine Parkierung, senkrecht 5,00, schräg 60° 5,25 m), gilt die Breite des
 // Bandes aus Fläche A und Umfang U (Rechteck: Breite = (U − √(U² − 16·A)) / 4, Länge = A / Breite): dort 1,80 m auf 277 m,
@@ -518,7 +518,7 @@ export function parkierungTiefe(achsen: P[][], park: { ringe: P[][]; art?: 'laen
   return { links: auswerten(je.links), rechts: auswerten(je.rechts) }
 }
 
-// ── Versetzte Parkierung (seit 20.10.2026, Nutzerbefund): abwechselnd Seite A und Seite B ──────────────────
+// ── Versetzte Parkierung (seit 20.10.2026): abwechselnd Seite A und Seite B ──────────────────
 // Liegen die Parkfelder beider Seiten an verschiedenen Stellen entlang der Achse, steht in einem Querschnitt nur
 // eine Seite; die Fahrbahn braucht dann nur die tiefere Parkierung. Abgedeckt wird je Seite in Schritten von 1 m
 // entlang der Achse (Stationen der Achsen hintereinander). Versetzt, wenn beide Seiten mindestens VERSETZT_MIN_M
@@ -582,7 +582,7 @@ export function zweiradJeSeite(achsen: P[][], flaechen: AvFlaeche[], park: { rin
   return out
 }
 
-// ── Mittelinsel aus der AV (seit 20.10.2026, Nutzerbefund Laubeggstrasse) ──────────────────────────────
+// ── Mittelinsel aus der AV (seit 20.10.2026, Beispiel Laubeggstrasse) ──────────────────────────────
 // Jede AV-Verkehrsinsel bis 10 m neben der Achse (nicht neben den Achsenenden), die quer zur Achse auf beiden
 // Seiten an Strasse grenzt, ist eine Mittelinsel — auch eine kurze Schutzinsel am Fussgängerstreifen (
 // diese sind relevant). Gemessen durch ihren Schwerpunkt quer zur Achse: Breite der Insel, Länge entlang der Achse
@@ -629,7 +629,7 @@ export function mittelinsel(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[
   return { ...l, anzahl: funde.length }
 }
 
-// ── Haltestelleninsel (seit 21.10.2026, Befund Monbijoustrasse) ─────────────────────────────────────
+// ── Haltestelleninsel (seit 21.10.2026, Beispiel Monbijoustrasse) ─────────────────────────────────────
 // An einer Haltestelle ist eine Insel neben der Fahrbahn oft der Wartebereich: dahinter liegt nur ein schmaler Streifen
 // Strasse bis zum Bord (Veloumfahrung, HS 1) oder eine Fahrspur (Inselhaltestelle, HS 5), dann das Trottoir. Gesucht wird
 // die längste AV-Verkehrsinsel bis 10 m neben der Achse, mindestens HS_INSEL_MIN_LAENGE_M lang, mit Strasse auf beiden
@@ -637,7 +637,7 @@ export function mittelinsel(achsen: P[][], flaechen: AvFlaeche[], kanten: Kante[
 // zur Achse: Insel, Streifen (aussen), Fahrbahn von der Insel bis zum Bord gegenüber (innen) und das Trottoir hinter dem
 // Streifen. Unter HS_UMFAHRUNG_MAX_M ist der Streifen eine Veloumfahrung, sonst eine Fahrspur.
 export const HS_INSEL_MIN_LAENGE_M = 15, HS_STREIFEN_MAX_M = 4.5, HS_UMFAHRUNG_MAX_M = 3.0
-// Perron als breites «Trottoir» zwischen zwei Strassenflächen (seit 23.10.2026, Nutzerbefund Helvetiaplatz): die AV führt das
+// Perron als breites «Trottoir» zwischen zwei Strassenflächen (seit 23.10.2026, Beispiel Helvetiaplatz): die AV führt das
 // Perron einer Haltestelle dort nicht als Verkehrsinsel, sondern als Trottoir von 6 bis 16 m Breite, dahinter eine zweite
 // Strasse (Tramtrassee bzw. andere Fahrbahn). Es gilt als Perron, wenn OSM darauf eine Wartehalle oder ein Perron kennt
 // (perronPunkte, Pflicht: breite Trottoirs zwischen zwei Strassen gibt es auch an Plätzen ohne Haltestelle), es mindestens
@@ -675,7 +675,7 @@ export function haltestelleninsel(achsen: P[][], flaechen: AvFlaeche[], kanten: 
     const seite: 'links' | 'rechts' = (c[0] - fuss[0]) * links[0] + (c[1] - fuss[1]) * links[1] > 0 ? 'links' : 'rechts'
     const aus: P = seite === 'links' ? links : [-links[0], -links[1]], ein: P = [-aus[0], -aus[1]]
     // Mehrere Querschnitte über die Länge der Insel (alle HS_SCHRITT_M, Mediane): ein einzelner durch den Schwerpunkt
-    // traf an der Schwarzenburgstrasse die Schutzinsel des Fussgängerstreifens (Nutzerbefund 21.10.2026)
+    // traf an der Schwarzenburgstrasse die Schutzinsel des Fussgängerstreifens
     const sc = c[0] * d[0] + c[1] * d[1], s0 = Math.min(...laengs) + 1, s1 = Math.max(...laengs) - 1
     const ringeTr = flaechen.filter(x => x.art === 'Trottoir').map(x => x.ringe)
     const mI: number[] = [], mA: number[] = [], mIn: number[] = [], mTr: (number | null)[] = []
@@ -710,7 +710,7 @@ export function haltestelleninsel(achsen: P[][], flaechen: AvFlaeche[], kanten: 
   return best
 }
 
-// Lage der Wartehalle an einer Haltestelleninsel (seit 21.10.2026, Nutzerbefund Monbijoustrasse): Punkte aus OSM (Wartehalle
+// Lage der Wartehalle an einer Haltestelleninsel (seit 21.10.2026, Beispiel Monbijoustrasse): Punkte aus OSM (Wartehalle
 // bzw. Perron mit/ohne Wartehalle) auf der Seite der Insel. Eine Wartehalle auf der Insel (bis 0,5 m daneben) → 'insel';
 // sonst eine auf der Seite ausserhalb der Strasse → 'hinten'; nur ein Perron ohne Wartehalle auf der Insel → 'keine'.
 export function wartehalleLage(achsen: P[][], flaechen: AvFlaeche[], seite: 'links' | 'rechts', punkte: { p: P; wartehalle: boolean }[]): WartehalleLage | undefined {
@@ -734,7 +734,7 @@ export function wartehalleLage(achsen: P[][], flaechen: AvFlaeche[], seite: 'lin
   return undefined
 }
 
-// ── Perron als Trottoirfläche zwischen zwei Strassen (seit 23.10.2026, Nutzerbefund Helvetiaplatz) ─────────────────
+// ── Perron als Trottoirfläche zwischen zwei Strassen (seit 23.10.2026, Beispiel Helvetiaplatz) ─────────────────
 // Gesucht wird nicht eine Fläche, sondern ein Muster in den Querschnitten (querschnitte, alle QUER_SCHRITT_M): auf einer
 // Seite hinter dem Bord Trottoir von höchstens HS_PERRON_MAX_M, unmittelbar dahinter wieder Strasse (Tramtrassee bzw.
 // zweite Fahrbahn). Die Flächen selbst taugen nicht als Kandidaten: am Helvetiaplatz ist das Perron Teil einer 285 m
@@ -778,7 +778,7 @@ export function haltestellenperron(achsen: P[][], flaechen: AvFlaeche[], kanten:
   return best
 }
 
-// ── Mittelstreifen (seit 21.10.2026, Nutzerbefund Bubenbergplatz) ────────────────────────────────────────────
+// ── Mittelstreifen (seit 21.10.2026, Beispiel Bubenbergplatz) ────────────────────────────────────────────
 // Eine Verkehrsinsel länger als MITTELINSEL_MAX_LAENGE_M bis 10 m neben der Achse, mit Strasse auf beiden Seiten: sie
 // trennt die Fahrbahn des Abschnitts von einem zweiten Fahrbahnteil (Gegenfahrbahn oder ÖV-Trassee). Gemessen durch
 // den Schwerpunkt: Breite des Streifens, Länge und die Strasse dahinter bis zum Bord. Nur Hinweis.

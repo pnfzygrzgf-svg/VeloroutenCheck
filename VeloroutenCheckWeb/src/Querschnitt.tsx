@@ -42,7 +42,7 @@ const KUERZEST: Record<TeilArt, string> = {
 }
 // Parkierung auf Trottoirniveau (seit 17.10.2026) liegt wie das Trottoir erhöht, ausserhalb der Fahrbahn;
 // die Mittelinsel (seit 20.10.2026) ist erhöht, gehört aber zur Fahrbahn (Bordstein–Bordstein)
-// Radweg mit Trennstreifen (seit 24.10.2026, Nutzerbefund: der Trennstreifen allein ragte wie eine Schwelle heraus): beide auf
+// Radweg mit Trennstreifen (seit 24.10.2026: der Trennstreifen allein ragte wie eine Schwelle heraus): beide auf
 // RADWEG_CM, also ein kleiner Absatz von der Fahrbahn hinauf und vom Trottoir hinunter; der Trennstreifen nur in anderer Farbe
 const RADWEG_CM = 5
 const erhoeht = (t: Teil) => (t.art === 'Trottoir' || t.art === 'Haltestelle' || t.art === 'HaltAbstand' || t.art === 'HaltEinstieg' || t.art === 'Gruen' || t.art === 'Mittelinsel' || t.trottoirniveau || istWeg(t) ? BORD_CM
@@ -240,7 +240,7 @@ export function SkizzeSvg({ titel, teile: alle, einbahn, massstabCm, px, basis, 
             </pattern>
           </defs>
           {/* Blickrichtung: links Seite B (kommt entgegen), rechts Seite A (Blickrichtung). Auf schmalen Bildschirmen
-              (grosse Schrift je cm) überlagerten sich die Texte (Befund 22.10.2026): drei Stufen, bis sie passen. */}
+              (grosse Schrift je cm) überlagerten sich die Texte: drei Stufen, bis sie passen. */}
           {(() => {
             const ra = richtungen?.a ?? '', rb = richtungen?.b ?? ''
             const links = einbahn ? ['links: Rand der Seite B', 'links: Seite B', 'B']

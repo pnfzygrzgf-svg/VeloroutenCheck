@@ -89,7 +89,7 @@ export interface Cand {
 export interface Stop { lat: number; lon: number; name: string; bpuic?: string; perH?: number; modi?: ('tram' | 'bus')[]; linien?: string[] }
 
 // Farbe je Führungsform (Linien auf der Karte). Seit 17.10.2026 kein Grau mehr: Mischverkehr war grau
-// wie die abgewählten Segmente und auf dem Luftbild kaum zu sehen (Nutzerbefund). Abgewählt ist jetzt
+// wie die abgewählten Segmente und auf dem Luftbild kaum zu sehen. Abgewählt ist jetzt
 // gestrichelt (ABGEWAEHLT), jede gewählte Linie hat einen weissen Rand.
 export const ISTCOLOR: Record<string, string> = {
   'Mischverkehr': '#7c3aed',
@@ -313,7 +313,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   const hlRef = useRef<Set<number> | undefined>(undefined)
   const messAktivRef = useRef(false)
   // Die Linie eines gewählten Segments liegt auf der OSM-Achse, meist genau auf der Mittellinie der Fahrbahn
-  // (Nutzerbefund 27.10.2026: «die Mittellinie ist nicht mehr zu sehen, es kann nicht gemessen werden»). Darum ab
+  // («die Mittellinie ist nicht mehr zu sehen, es kann nicht gemessen werden»). Darum ab
   // NAH_ZOOM nur noch dünn und durchscheinend, und während einer Messung gar nicht (Klicks gehen weiter an die Messung).
   const stilSetzen = () => {
     const map = mapRef.current
@@ -394,7 +394,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       })
     }
     basemaps[ORTHO].addTo(map)
-    // Strassennamen über dem Orthofoto (Nutzerbefund 22.10.2026: auf dem Luftbild fehlen die Namen):
+    // Strassennamen über dem Orthofoto (auf dem Luftbild fehlen die Namen):
     // amtliches Strassenverzeichnis von swisstopo als WMS, ohne Schlüssel. Beim Wechsel auf eine
     // Karte mit eigenen Namen geht die Ebene aus, zurück aufs Orthofoto wieder an; von Hand abwählbar.
     namenRef.current = L.tileLayer.wms('https://wms.geo.admin.ch/', {

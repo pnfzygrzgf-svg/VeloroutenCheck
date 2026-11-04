@@ -39,7 +39,7 @@ export interface EbeneDef {
   titel: string
   kurz: string             // Beschriftung auf schmalen Bildschirmen
   quelle: Partial<Record<Stadt, string>> & { alle?: string }   // Herkunft je Stadt (Tooltip im Menü)
-  // symbol: Zeichen im Quadrat der Punkte (Form statt Farbe allein, Nutzerbefund 01.11.2026); Punkte der Quellen sind Quadrate,
+  // symbol: Zeichen im Quadrat der Punkte (Form statt Farbe allein); Punkte der Quellen sind Quadrate,
   // die Abschnitts-Marker Kreise
   legende: [klasse: string, farbe: string, text: string, symbol?: string][]
   legendeNur?: Partial<Record<string, Stadt[]>>   // Legendeneintrag nur in diesen Städten (z. B. Bus-Linien nur Bern)

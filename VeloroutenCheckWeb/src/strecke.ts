@@ -663,7 +663,7 @@ export function setzeGemesseneBreite(s: Section, seite: 'A' | 'B', breite: numbe
   return velostrasseGleich({ ...s, gegen: { ...g, breite, quelle: { ...g.quelle, breite: 'gemessen' } } }, 'B')
 }
 
-// ── Velostrasse: eine Breite für beide Richtungen (seit 23.10.2026, Nutzerbefund Militärstrasse) ──
+// ── Velostrasse: eine Breite für beide Richtungen (seit 23.10.2026, Beispiel Militärstrasse) ──
 // Die Breite der Velostrasse ist das Fahrband der ganzen Fahrbahn ohne Parkierung (Q 9); sie gehört zu keiner Seite.
 // Haben beide Seiten die Form «Velostrasse» mit eigenen Werten (z. B. Parkierung nur auf einer Seite), gilt die Breite
 // der geänderten Seite (von) auch für die andere, samt Herkunft.
@@ -675,8 +675,7 @@ export function velostrasseGleich(s: Section, von: 'A' | 'B'): Section {
 // Breite der Velostrasse aus der Fahrbahnbreite: Fahrbahn minus Parkierung je Seite mit «Parkierung rechts: Ja» (parkBreite,
 // Vorgabe der Stadt), auf 5 cm. Gesetzt, wo die Breite unbekannt ist oder zuletzt so abgeleitet wurde (Herkunft «AV»):
 // ändert sich die Fahrbahnbreite oder die Parkierung, folgt die abgeleitete Breite nach; eine von Hand eingetragene oder
-// gemessene bleibt. Herkunft «AV», wenn die Fahrbahnbreite aus der AV oder gemessen ist, sonst «manuell» (Nutzerfrage 23.10.2026:
-// «warum wird die Breite nicht automatisch eingetragen, wenn Fahrbahnbreite und Parkplätze bekannt sind?»).
+// gemessene bleibt. Herkunft «AV», wenn die Fahrbahnbreite aus der AV oder gemessen ist, sonst «manuell».
 export function velostrasseBreiteAusFahrbahn(s: Section, fahrbahn: number, parkBreite: number): Section {
   if (!Number.isFinite(fahrbahn)) return s
   const seiten = bewerteteSeiten(s)

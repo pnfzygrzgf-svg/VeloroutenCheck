@@ -8,7 +8,7 @@
 export type LL = { lat: number; lon: number }
 
 // LÜCKEN-MARKE für mehrteilige Linien (GeoJSON MultiLineString). Die Teile wurden bis zum
-// 29.09.2026 mit `.flat()` aneinandergehängt — zwischen dem Ende des einen und dem Anfang des
+// 29.09.2026 mit `.flat` aneinandergehängt — zwischen dem Ende des einen und dem Anfang des
 // nächsten Teils entstand so eine PHANTOMKANTE, die es in den Daten nicht gibt. Ein Abschnitt
 // in einer 600-m-Lücke zwischen zwei Teilen einer Tramlinie lag damit «auf» der Linie
 // (overlapScore 1) und bekam «Tram in der Fahrbahn». Die Marke trennt die Teile; alle
@@ -81,7 +81,7 @@ function distToLine(p: LL, line: LL[], kx: number): number {
 //   - langes Segment über viele kurze Teilstücke → Anteil der Teilstück-Punkte am Segment hoch.
 // Score = max(beide Anteile), aber nur LOKAL PARALLELE Punkte zählen (≤ 30°, wie
 // majorityLineIndex). Ohne den Parallelitätsfilter zählte ein kurzes QUERstück voll:
-// seine sämtlichen Punkte liegen nahe der langen Linie, und max() machte daraus Score 1,0 —
+// seine sämtlichen Punkte liegen nahe der langen Linie, und max machte daraus Score 1,0 —
 // so wurde eine an der Kreuzung abgetrennte OSM-Tramweiche zum „Tram in der Fahrbahn"
 // (−0,55/−0,8 Note) und ein kreuzender Velostreifen zur Ist-Führungsform (07.08.2026).
 // Restrisiko bleibt — wie bei majorityLineIndex dokumentiert — eine PARALLELE Nachbarlinie

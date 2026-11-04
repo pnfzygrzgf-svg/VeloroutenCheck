@@ -174,7 +174,7 @@ describe('parkierungTiefe — Tiefe und Anordnung der Parkierung je Seite (Eggh�
   })
 })
 
-describe('Mittelinsel (Nutzerbefund Laubeggstrasse, 20.10.2026)', () => {
+describe('Mittelinsel (Beispiel Laubeggstrasse)', () => {
   // Strasse 100 × 10 m (N 0…10), Achse auf N 2 (eine Richtung), Insel 2 m breit in der Mitte (N 4…6), 8 m lang
   const achse: P[] = [[0, 2], [100, 2]]
   const av: AvFlaeche[] = [strasse([rechteck(0, 0, 100, 10), rechteck(46, 4, 54, 6)]), { art: 'Verkehrsinsel', ringe: [rechteck(46, 4, 54, 6)] }]

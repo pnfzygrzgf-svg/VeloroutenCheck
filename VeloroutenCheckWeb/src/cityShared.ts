@@ -24,7 +24,7 @@ export interface GeoJsonFeature {
 
 export const SAMPLE_M = 15      // Schrittweite zum Verdichten der Kandidaten-Geometrie.
 export const OVERLAP_M = 20     // Punkt gilt als „auf dem Feature", wenn ≤ 20 m entfernt.
-// Tramgleis IN der Fahrbahn: enger als OVERLAP_M (seit 21.10.2026, Nutzerbefund Bubenbergplatz: das Tram auf dem Trassee hinter
+// Tramgleis IN der Fahrbahn: enger als OVERLAP_M (seit 21.10.2026, Beispiel Bubenbergplatz: das Tram auf dem Trassee hinter
 // dem Mittelstreifen, rund 12 m neben der Achse, machte die MIV-Fahrbahn zur Tramstrasse). Gleise in der eigenen Fahrbahn
 // liegen bis rund 5 m neben der Achse.
 export const TRAM_OVERLAP_M = 8

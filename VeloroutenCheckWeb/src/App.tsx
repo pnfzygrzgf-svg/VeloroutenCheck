@@ -253,7 +253,7 @@ const FUSSWEG_VORAUSSETZUNGEN = [
 ]
 
 // Farbe der Note (CH-Skala: 6 = beste/grün … 1 = schlechteste/rot). Die oberen drei Grenzen
-// liegen auf den Wortgrenzen von erfuellungsgrad() (5,5 / 4,5 / 3,5) — vorher sprang die Farbe
+// liegen auf den Wortgrenzen von erfuellungsgrad (5,5 / 4,5 / 3,5) — vorher sprang die Farbe
 // bei 4,0, das Wort aber bei 3,5: Note 3,5 hiess «Teilweise erfüllt» und war trotzdem orange.
 // Farbtöne dunkel genug für weisse Schrift (Kontrast ≥ 4,5:1).
 function noteColor(n: number): { bg: string; fg: string } {
@@ -427,7 +427,7 @@ function Kartenleiste({ titel, breit, onSchliessen, quelle, ziel, children }: {
   return ziel ? createPortal(box, ziel) : box
 }
 
-// «1 Segment», «2 Segmente» (Befund 22.10.2026: «1 Segmente» im Knopf und in der Meldung)
+// «1 Segment», «2 Segmente» («1 Segmente» im Knopf und in der Meldung)
 const segmente = (n: number) => `${n} ${n === 1 ? 'Segment' : 'Segmente'}`
 
 // Erklärung hinter einem ⓘ (seit 22.10.2026): kurzer Text als Tooltip und auf Klick (auch auf Touch) unter dem Feld.
@@ -1088,7 +1088,7 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
           : 'Trottoirs aus der AV fehlen: zuerst «AV auf der Karte zeigen».')
         : 'Die Trottoirs entsprechen genau der Vorgabe des Fussverkehrsnetzes; wie ohne Randsteinanpassung.', trZeile)}
       {/* Erklärung als Fussnote (seit 22.10.2026 nach dem Ergebnis, vorher davor). Die Rangfolge steht seit 27.10.2026 nur hier, als
-          Liste mit der Stufe der Vorschläge (Nutzerbefund: «Rang 2, Kernfahrbahn» in der Vorschlagszeile verwirrte) */}
+          Liste mit der Stufe der Vorschläge («Rang 2, Kernfahrbahn» in der Vorschlagszeile verwirrte) */}
       <div style={{ fontSize: 'var(--fs-115)', color: 'var(--text-muted)', marginTop: 6 }}>
         Vorgeschlagen wird die erste Massnahme in der Rangfolge, die die Note auf mindestens {ZIEL_TEXT} bringt (vollständig erfüllt);
         reicht keine, die bestmögliche Verbesserung. «Übernehmen» setzt sie als Startpunkt, danach ist alles frei änderbar.
@@ -1105,7 +1105,7 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
             })}
           </ol>
           <div style={{ marginTop: 2 }}>Unter gleicher Stufe: weniger Parkierung weg, weniger Eingriffe, eine Seite vor beiden, bessere Note.</div>
-          {/* Nutzerfrage 27.10.2026: «in dieser Rangfolge fehlten die Varianten mit Randsteinanpassung, oder?» */}
+          {/* «in dieser Rangfolge fehlten die Varianten mit Randsteinanpassung, oder?» */}
           <div style={{ marginTop: 2 }}>
             Die Randsteinanpassung ist keine Stufe: Beide Zeilen gehen dieselbe Rangfolge durch, «mit Randsteinanpassung» mit den
             Trottoirs auf der Vorgabe des Fussverkehrsnetzes (ein Umbau), also mit entsprechend breiterer oder schmalerer Fahrbahn.
@@ -1120,7 +1120,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   onHeute?: (teile: Teil[]) => void         // Elemente von heute von Hand setzen (Liste «Heute», seit 25.10.2026)
   onFahrbahnAusHeute?: (m: number) => void   // Fahrbahnbreite = Summe der Fahrbahnelemente von heute (gemessen von Hand)
   onHeuteBestaetigt?: () => void             // Schritt 1 erledigt: heute geprüft, die Planung beginnt (seit 25.10.2026)
-  kartenAktionen?: React.ReactNode        // Abschnitt ohne Karte: gewählte Segmente übernehmen / teilen, direkt im Hinweis (Nutzerbefund 22.10.2026)
+  kartenAktionen?: React.ReactNode        // Abschnitt ohne Karte: gewählte Segmente übernehmen / teilen, direkt im Hinweis
   ort?: Ort                               // Street View auch in der Planung
   onQuerschnitt?: () => void              // Querschnitt am Luftbild aufnehmen (seit 20.10.2026)
   onTeileMessen?: (teil?: { ziel: 'plan' | 'heute'; nr?: number }) => void   // Teil für Teil am Luftbild messen (seit 21.10.2026); mit Teil: dessen Breite
@@ -1294,7 +1294,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   return (
     <div id={`plan-${section.id}`} style={{ scrollMarginTop: 64 }}>
       <div style={{ ...seiteKastenStyle, marginTop: 0 }}>
-        {/* Ohne Abschnitt von der Karte fehlen Fahrbahnbreite, Trottoirs, AV und Parkfelder (Nutzerbefund 16.10.2026) */}
+        {/* Ohne Abschnitt von der Karte fehlen Fahrbahnbreite, Trottoirs, AV und Parkfelder */}
         {!section.candIds?.length && (
           <div style={{ fontSize: 12.5, color: '#92400e', marginBottom: 8, padding: '8px 12px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
             <strong>Zuerst einen Abschnitt auf der Karte wählen:</strong> auf eine Strasse tippen oder oben eine Strasse suchen,
@@ -1686,7 +1686,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                     auf Trottoirniveau
                   </label>
                 )}
-                {/* Versetzte Parkierung (Nutzerbefund 20.10.2026): abwechselnd Seite A und B */}
+                {/* Versetzte Parkierung: abwechselnd Seite A und B */}
                 {(t.art === 'Parkierung' || (t.art === 'Sicherheitsstreifen' && t.versetzt)) && (
                   <label title="Parkierung an anderer Stelle als die Parkierung gegenüber (abwechselnd Seite A und B): zählt nicht zur Breite des Querschnitts und wird nicht gezeichnet; bewertet weiter als Parkierung"
                          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--text)' }}>
@@ -1711,7 +1711,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                           aria-label={`Element ${i + 1} nach rechts`} title="nach rechts">→</button>
                 </span>
                 {/* Einfügen direkt hinter diesem Element; die Art wird gleich hier gewählt (vorher kam
-                    jedes neue Element an den rechten Rand und musste verschoben werden, Nutzerbefund 16.10.2026). */}
+                    jedes neue Element an den rechten Rand und musste verschoben werden). */}
                 <select value="" onChange={e => einfuegen(i + 1, e.target.value as TeilArt)}
                         aria-label={`Neues Element hinter Element ${i + 1} einfügen`} title="Neues Element hinter dieser Zeile einfügen (in der Skizze rechts davon)"
                         style={{ ...kleinKnopfStyle, padding: '4px 8px', marginLeft: 'auto' }}>
@@ -1899,7 +1899,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
                      background: noteColor(note).bg, color: noteColor(note).fg }}>
         <Beurteilung note={note} />
       </span>
-  // Änderung an Seite B: Herkunft von Form/Breite wird «manuell» (wie update() für Seite A).
+  // Änderung an Seite B: Herkunft von Form/Breite wird «manuell» (wie update für Seite A).
   const aendereB = (patch: Partial<Seite>) => {
     const g = section.gegen
     if (!g) return
@@ -2929,7 +2929,7 @@ export default function App() {
   // gehört, und verwirft es still. Das Stadt-Select ist während osmBusy zusätzlich gesperrt —
   // der Zähler ist der Gurt für alles, was daran vorbeikommt (z. B. langsame Anreicherung).
   const selCount = cands.filter(c => c.selected).length
-  // Ist die Auswahl schon die Strecke? (Nutzerbefund 01.11.2026: nach «… in Strecke übernehmen» blieb der Text gleich.) Gleich =
+  // Ist die Auswahl schon die Strecke? (nach «… in Strecke übernehmen» blieb der Text gleich.) Gleich =
   // dieselben Segmente wie in den Abschnitten; dann ist der Knopf erledigt, sonst übernimmt er die geänderte Auswahl neu
   const inStrecke = new Set(sections.flatMap(s => s.candIds ?? []))
   const auswahlUebernommen = selCount > 0 && inStrecke.size > 0 && cands.every(c => c.selected === inStrecke.has(c.id))
@@ -3326,7 +3326,7 @@ export default function App() {
     for (const id of ids) await fahrbahnbreiteErmitteln(id)
     setMsg(`${grund}Fahrbahnbreiten aus der AV für ${ids.length} ${ids.length === 1 ? 'Abschnitt' : 'Abschnitte'} ermittelt; Einzelheiten je Abschnitt am Chip «AV».`, 'ok')
   }
-  // Velostrasse (Nutzerbefund Militärstrasse 23.10.2026): ihre Breite ist die Fahrbahn ohne Parkierung, also braucht die Bewertung
+  // Velostrasse (Beispiel Militärstrasse): ihre Breite ist die Fahrbahn ohne Parkierung, also braucht die Bewertung
   // die Fahrbahnbreite. Für Abschnitte von der Karte mit Velostrasse und ohne Fahrbahnbreite wird sie von selbst aus der AV
   // ermittelt (nach dem Übernehmen und wenn die Form von Hand auf Velostrasse wechselt); die Breite der Form folgt daraus.
   const velostrasseAvHolen = (liste: Section[]) => {
@@ -3421,7 +3421,7 @@ export default function App() {
       // Mit der AV gleich messen: Trottoirs je Seite und, falls leer, die Fahrbahnbreite (wie
       // «aus AV ermitteln»). Ist die Planung noch die unveränderte Ausgangslage, wird sie mit den
       // Messwerten neu aufgebaut; sonst bleiben die eigenen Teile. Die bestehenden Trottoirs gehen
-      // dabei nie verloren (Nutzerbefund 16.10.2026): Hat eine schon geänderte Planung keine,
+      // dabei nie verloren: Hat eine schon geänderte Planung keine,
       // kommen die gemessenen an die Ränder (mitTrottoirs).
       const achsen = avAchsen(s, true), kanten = bordkanten(flaechen)
       // Autoparkierung (für Trottoirniveau, Tiefe, versetzt) getrennt von den Velo- und Motorradfeldern (Platzbedarf, seit 23.10.2026)
@@ -3621,7 +3621,7 @@ export default function App() {
       setMsg(`${numDE(wert, 2)} m als Fahrbahnbreite ${m.ziel === 'heute' ? 'von heute' : 'der Planung'} übernommen; die übrigen Elemente messen, das letzte mit «= Rest» in der Liste.`, 'ok')
       return
     }
-    // neues Element an der gewählten Stelle (Nutzerbefund 23.10.2026: die Position war nicht wählbar, «Heute» hat keine Liste)
+    // neues Element an der gewählten Stelle (die Position war nicht wählbar, «Heute» hat keine Liste)
     const neuTeile = (teile: Teil[]) => {
       if (ziel !== 'neu') return teile.map((t, i) => (i === m.teilNr ? { ...t, breite: wert, angenommen: undefined } : t))
       const t = [...teile]; t.splice(Math.min(m.an ?? t.length, t.length), 0, { art: m.teilArt ?? 'Trottoir', breite: wert }); return t
@@ -3914,7 +3914,7 @@ export default function App() {
     setSections(neu)
     velostrasseAvHolen(neu)
     setZuSec(new Set(neu.slice(1).map(s => s.id)))   // nur der erste Abschnitt offen (Akkordeon)
-    // Im Planmodus bleiben (Nutzerbefund 22.10.2026: nach dem Übernehmen aus dem Hinweis der Planung landete man in
+    // Im Planmodus bleiben (nach dem Übernehmen aus dem Hinweis der Planung landete man in
     // «Bewerten»): alle neuen Abschnitte auf den Reiter «Planen», im ersten die Planung anlegen (nach dem Rendern,
     // damit planungStarten die neuen Abschnitte sieht)
     const planen = hauptAnsicht === 'planen' || planTab.size > 0
@@ -4012,7 +4012,7 @@ export default function App() {
   // Schlüssel als Text: die Karte zeichnet nur neu, wenn sich eine Form ändert, nicht bei jeder Eingabe
   const formenSchluessel = sections.map(s => `${(s.candIds ?? []).join(',')}:${seiteA(s).ist}|${s.richtung === 'beide' ? seiteB(s).ist : ''}`).join(';')
   // Nachzuladende Kartenebenen (ebenen.NACHLADEN, Batch 2): erst für die ÜBERNOMMENEN Abschnitte und je Abschnitt nur um
-  // seine Segmente (Nutzervorschlag 01.11.2026: weniger laden als für alles, was «Strasse laden» geholt hat); jeder Abschnitt
+  // seine Segmente (weniger laden als für alles, was «Strasse laden» geholt hat); jeder Abschnitt
   // einmal je Ebene (Schlüssel aus den Segment-Kennungen), neue Abschnitte kommen dazu
   const nachgeladenRef = useRef(new Set<string>())
   const [laufend, setLaufend] = useState<Partial<Record<EbeneId, number>>>({})
@@ -4401,7 +4401,7 @@ export default function App() {
                   const teile = (messung.ziel === 'heute' ? (sec?.querschnittHeute?.teile ?? (sec ? startAufteilung(sec, city, cityCfg.breiten).teile : [])) : sec?.aufteilung?.teile) ?? []
                   return (
                     // Zeilen als Raster «Beschriftung · Auswahl · Knopf» mit minmax(0, 1fr): die Auswahl schrumpft unter ihre
-                    // Textbreite (Nutzerbefund 23.10.2026: «Haltestelle: Wartebereich …» machte die Zeile breiter als die Leiste,
+                    // Textbreite («Haltestelle: Wartebereich …» machte die Zeile breiter als die Leiste,
                     // die Knöpfe waren abgeschnitten)
                     <div style={{ marginTop: 8, display: 'grid', gap: 6, minWidth: 0 }}>
                       <div role="group" aria-label="Ziel" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -4417,7 +4417,7 @@ export default function App() {
                         </span>
                       </div>
                       {(() => {
-                        // Zwei Wege, klar getrennt (Nutzerbefund 23.10.2026): entweder ein NEUES Element einfügen (Art und Stelle) oder die
+                        // Zwei Wege, klar getrennt: entweder ein NEUES Element einfügen (Art und Stelle) oder die
                         // Breite eines BESTEHENDEN Elements ersetzen (welches). Ein Knopf, der sagt, was mit der Messung geschieht.
                         const wie = messung.wie ?? 'neu'
                         const zeile: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: 6, alignItems: 'center', minWidth: 0 }
@@ -4734,7 +4734,7 @@ export default function App() {
         <div key={s.id} id={'sec-' + i} style={{ scrollMarginTop: 64 }}>
           <AttribContext.Provider value={cfgFuer(s).attribution}><AvContext.Provider value={avQuelle(cfgFuer(s).avKanton ?? 'Schweiz')}><SectionCard
             kartenAktionen={s.candIds?.length ? undefined : (
-              // Abschnitt ohne Karte (Nutzerbefund 22.10.2026): nach dem Antippen eines Segments war nicht klar, dass es noch
+              // Abschnitt ohne Karte: nach dem Antippen eines Segments war nicht klar, dass es noch
               // übernommen werden muss — die Knöpfe stehen deshalb auch hier, nicht nur unter der Karte
               <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8, color: 'var(--text)' }}>
                 <span>{selCount ? `${segmente(selCount)} auf der Karte gewählt${osmBusy ? ' (lädt noch)' : ''}.` : 'Noch kein Segment gewählt.'}</span>

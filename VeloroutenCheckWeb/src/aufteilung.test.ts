@@ -162,7 +162,7 @@ describe('mitTrottoirs — bestehende Trottoirs gehen beim Planen nicht verloren
   })
 })
 
-describe('Neue Teile, Bilder und Lichtraum (Entscheide 16.10.2026)', () => {
+describe('Neue Teile, Bilder und Lichtraum', () => {
   it('Lichtraum SN 640 201: Auto 2,40/2,60, Lastwagen und Bus 3,30/3,50', () => {
     expect(lichtraum('auto', 30)).toBeCloseTo(2.4, 9)
     expect(lichtraum('auto', 50)).toBeCloseTo(2.6, 9)
@@ -258,7 +258,7 @@ describe('Haltestelle (Wartehäuschen und Warteraum)', () => {
   })
 })
 
-describe('Bilanz über den ganzen Querschnitt (Entscheid 16.10.2026)', () => {
+describe('Bilanz über den ganzen Querschnitt', () => {
   const teile = [T('Trottoir', 3.0), T('Velostreifen', 1.8), T('Fahrspur', 3), T('Fahrspur', 3), T('Velostreifen', 1.8), T('Trottoir', 2.0)]
   it('mit Seitenraum: alle Teile gegen Fahrbahn + heute ausserhalb; breiteres Trottoir geht zulasten der Fahrbahn', () => {
     const b = bilanz({ fahrbahn: 9.6, seitenraum: 5.0, teile })

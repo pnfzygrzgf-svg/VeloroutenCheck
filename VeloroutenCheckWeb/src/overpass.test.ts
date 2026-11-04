@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { overpassAntwort, overpassFetch, mitKennung } from './overpass'
 
-describe('Overpass-Antwort (overpass.ts, Befund 24.10.2026)', () => {
+describe('Overpass-Antwort (overpass.ts)', () => {
   it('JSON mit Daten ist ok, HTML mit duplicate_query und ein Abbruch sind Fehler', () => {
     expect(overpassAntwort('{"elements":[]}')).toEqual({ ok: { elements: [] } })
     const html = '<html><body><p><strong style="color:#FF0000">Error</strong>: runtime error: open64: 0 Success /osm3s_osm_base Dispatcher_Client::request_read_and_idx::duplicate_query </p></body></html>'

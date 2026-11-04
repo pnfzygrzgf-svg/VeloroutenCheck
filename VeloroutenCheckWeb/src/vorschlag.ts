@@ -29,7 +29,7 @@
 //
 // Andere Städte: dieselbe Rangfolge (eine normative Festlegung, keine städtische).
 // Die Unterschiede kommen über die Note der Stadt (Soll-Führungsform, Breiten) und die Masse der Platzprüfung:
-// die der Stadt, wo ihre Standards etwas nennen (vorgabe(), Breiten der Stadt), sonst die Berner als Ersatz
+// die der Stadt, wo ihre Standards etwas nennen (vorgabe, Breiten der Stadt), sonst die Berner als Ersatz
 // (im Vermerk genannt). Den schmalen Kern (Pilot) gibt es nur in Bern; die Hinweise auf die Berner
 // Querschnittsblätter (Q …) fallen weg.
 //
@@ -134,7 +134,7 @@ export interface Eingaben {
   // Haltestelle je Seite (Rang 5, seit 20.10.2026): Typ, Seite ohne Haltestelle, umgebaute Seiten, Trottoir heute [m]
   hsTyp: Record<S, Haltestellentyp>; hsOhne: Record<S, boolean>; hsUmbau?: S[]; trottoir: Record<S, number | null>
   oevGegen?: boolean   // Einbahn mit Bus bzw. Tram in der Gegenrichtung: eine Gegenspur (seit 21.10.2026)
-  hbSeiten: S[]   // Seiten im Haltestellenbereich (Note allein aus der Haltestelle): dort nur Rang 5 (Nutzerbefund 20.10.2026)
+  hbSeiten: S[]   // Seiten im Haltestellenbereich (Note allein aus der Haltestelle): dort nur Rang 5
   ohnePlatz?: boolean; parkWeg?: boolean; quer?: Quer
   angenommen?: string[]                                          // Ist-Breiten, die fehlten und mit der Vorgabe angenommen sind
   // Angenommene Breite je Seite: nur für die Note (wie die Ausgangslage der Planung); für Platz und Regeln gilt
@@ -667,7 +667,7 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
       ...rang5(t).map(davor), ...rang6(t).map(davor)]
   }
   const kand = e.ohneFahrbahn ? [...rang12(e), ...rang6(e)] : [...rang12(e0), ...rang3(e0), ...rang4(e0), ...rang5(e0), ...rang6(e0), ...rang7(e0)]
-  // Haltestellenbereich (Nutzerbefund Muristrasse 20.10.2026): An der Haltestelle selbst ändert nur der Umbau etwas; eine
+  // Haltestellenbereich (Beispiel Muristrasse): An der Haltestelle selbst ändert nur der Umbau etwas; eine
   // Markierung, ein Kern oder ein Radweg auf dieser Seite ist dort nicht möglich (Tramhaltestelle) und zählt für die Note nicht
   const hbUnberuehrt = (c: Kand) => !e.hbSeiten.length || (!c.k.quer?.kern && e.hbSeiten.every(s =>
     formVon(c.k, s) === formVon(e, s) && c.k.breite[s] === e.breite[s] && c.k.park[s] === e.park[s] && c.k.sich[s] === e.sich[s]))
@@ -797,7 +797,7 @@ export function trottoirAnpassung(s: Section, a: Aufteilung, stadt: Stadt = 'ber
 // verfügbare Fahrbahn mit Randsteinanpassung
 export const fahrbahnMitRandstein = (fb: number, t: TrottoirAnpassung): number => r2(fb + t.frei.A + t.frei.B - t.fehlt.A - t.fehlt.B)
 
-// Randsteinanpassung so weit wie möglich (seit 24.10.2026, Befund Kirchenfeldstrasse 307351482: Radweg und
+// Randsteinanpassung so weit wie möglich (seit 24.10.2026, Beispiel Kirchenfeldstrasse 307351482: Radweg und
 // Trottoirs auf 2,50 m zusammen 1,45 m zu breit für den Strassenraum, also gar kein Vorschlag): Erreicht mit den Trottoirs auf der
 // Vorgabe keine Massnahme das Ziel, werden sie nur so weit verbreitert, dass eine Massnahme es noch erreicht — die grösste
 // Verbreiterung in 5-cm-Schritten (binäre Suche; mehr Fahrbahn macht einen Vorschlag nicht schlechter), auf die Seiten im
@@ -903,7 +903,7 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
     const heute = (s === 'A' ? trA : trB) + gr
     const R = std ? 1.8 : 1.6, A = std ? 0.5 : 0.3, H = 3.1, Tmin = std ? 2.5 : 2.0
     // Trottoir heute unbekannt: kein Platz ausserhalb angenommen, alles kommt aus der Fahrbahn (die Prüfung der Fahrspuren
-    // zeigt, wenn es nicht reicht; Nutzerbefund Muristrasse: vorher entstanden 7,90 m aus dem Nichts)
+    // zeigt, wenn es nicht reicht; Beispiel Muristrasse: vorher entstanden 7,90 m aus dem Nichts)
     const da = Number.isFinite(heute) ? heute : 0
     const T = da >= R + A + H + Tmin - 1e-9 ? r2(da - R - A - H) : Tmin
     if (da < R + A + H + Tmin - 1e-9) fb = r2(fb - (R + A + H + Tmin - da))

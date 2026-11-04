@@ -2,7 +2,7 @@ import { meldeAbruf, datenGeneration } from './datenstand'
 // ── Overpass-Anbindung (seit 24.10.2026, eine für die ganze App) ─────────────────────────────────────────────────
 //
 // Vorher gab es zwei: osm.ts (Strassen, Wartehallen; mit Wiederholung bei 429/5xx) und cityShared.ts (ÖV-Haltestellen
-// und Tram für Zürich, Basel, Luzern; ein Versuch je Server). Befund 24.10.2026 (Feierabendstrasse Basel, Sälistrasse
+// und Tram für Zürich, Basel, Luzern; ein Versuch je Server). Beispiele (Feierabendstrasse Basel, Sälistrasse
 // Luzern: «Nicht erreichbar: ÖV-Haltestellen und Tram»): Overpass weist GLEICHZEITIGE IDENTISCHE Abfragen derselben
 // Adresse ab («Dispatcher_Client::request_read_and_idx::duplicate_query»), und zwar mit HTTP 200 und einer HTML-Seite
 // statt JSON. Beim Hinzufügen oder Teilen eines Segments lief dieselbe Haltestellen-Abfrage mehrfach zugleich; die

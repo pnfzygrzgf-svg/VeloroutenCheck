@@ -781,7 +781,7 @@ describe('erfuellungsgrad + brauchtBreite', () => {
   })
 })
 
-describe('DTV/Tempo-Unabhängigkeit — brauchtDtvTempo()', () => {
+describe('DTV/Tempo-Unabhängigkeit — brauchtDtvTempo', () => {
   const DTVS = [0, 1500, 12000, NaN]
   const TEMPI = [20, 30, 50, 60, NaN]
   // Note über alle DTV×Tempo-Kombinationen sammeln; bei den unabhängigen Formen muss es genau

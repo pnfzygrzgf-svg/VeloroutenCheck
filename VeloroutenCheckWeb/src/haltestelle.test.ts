@@ -88,7 +88,7 @@ describe('Vorschlag Rang 5: Haltestelle umbauen (Veloumfahrung), mit Platzprüfu
     expect(vorschlag45(s(3.5), 9.6).rang).not.toBe(5))
 })
 
-describe('Vorschlag im Haltestellenbereich (Nutzerbefund Muristrasse 20.10.2026)', () => {
+describe('Vorschlag im Haltestellenbereich (Beispiel Muristrasse)', () => {
   const g = { ...gegenVon(defaultSection()), ist: 'Mischverkehr' as const, breite: NaN, parkenRechts: 'nein' as const, haltestellentyp: 'keine' as const, ohneHaltestelle: true }
   const s: Section = { ...defaultSection(), routentyp: 'Velohauptroute', dtv: 8000, speed: 50, ist: 'Radstreifen', breite: 1.54, fahrbahnbreite: 8.6,
     parkenRechts: 'nein', oevAngebot: 'tram', tram: true, haltestellentyp: 'Kaphaltestelle', gegen: g, haltestellenbereich: true }
@@ -143,7 +143,7 @@ describe('Haltestelleninsel statt Mittelinsel (Monbijoustrasse, 21.10.2026)', ()
     expect([seiteA(neu).haltestellentyp, seiteB(neu).haltestellentyp, seiteB(neu).haltestelleBreite]).toEqual(['Kaphaltestelle', 'Haltestelle mit Veloumfahrung', 1.7])
     expect(neu.hsTypAngenommen).toEqual({ a: true, b: true })
     const a = start(neu, 'bern')
-    // Insel 2,20 < 3,10: nur Ein- und Ausstieg, der Wartebereich mit Häuschen liegt hinter der Veloumfahrung (Nutzerbefund 21.10.2026)
+    // Insel 2,20 < 3,10: nur Ein- und Ausstieg, der Wartebereich mit Häuschen liegt hinter der Veloumfahrung
     expect(a.teile.slice(0, 3).map(t => [t.art, t.breite])).toEqual([['Haltestelle', 3], ['RadwegAbgesetzt', 1.7], ['HaltEinstieg', 2.2]])
     // gegenüber die Kaphaltestelle: das Trottoir an der Haltestelle ist der Wartebereich
     const mitA = start({ ...neu, trottoir: { ...neu.trottoir!, a: 2 } }, 'bern')

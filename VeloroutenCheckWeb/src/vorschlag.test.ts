@@ -78,14 +78,14 @@ describe('Randsteinanpassung', () => {
   it('ohne Randsteinanpassung bleibt es beim Rang dahinter', () => {
     expect(vorschlag45(s).rang ?? 9).toBeGreaterThan(1)
   })
-  it('schmalere Trottoirs kommen auf die Vorgabe, zulasten der Fahrbahn (Nutzerbefund Kirchenfeldstrasse)', () => {
+  it('schmalere Trottoirs kommen auf die Vorgabe, zulasten der Fahrbahn (Beispiel Kirchenfeldstrasse)', () => {
     const s2 = abschnitt({ dtv: 1500, speed: 30, ist: 'Mischverkehr', fahrbahnbreite: 9, trottoir: { a: 1.8, b: 2.2 } })
     const a2: Aufteilung = { ...startAufteilung(s2), fussnetz: 'basis' }
     const ta = trottoirAnpassung(s2, a2)!
     expect(ta.fehlt).toEqual({ A: 0.7, B: 0.3 })
     expect(fahrbahnMitRandstein(9, ta)).toBe(8)
   })
-  it('Bilanz geht auf: Trottoirs auf 5 cm wie der Seitenraum (Nutzerbefund Jungfraustrasse, 0,01 m Fehlmass)', () => {
+  it('Bilanz geht auf: Trottoirs auf 5 cm wie der Seitenraum (Beispiel Jungfraustrasse, 0,01 m Fehlmass)', () => {
     const s3 = abschnitt({ dtv: 6000, speed: 50, ist: 'Mischverkehr', parkenRechts: 'ja', fahrbahnbreite: 11, trottoir: { a: 3.02, b: 3.04 } })
     const v = vorschlag45(s3)
     const a = aufteilungAusVorschlag(s3, startAufteilung(s3), v, null)!
@@ -114,7 +114,7 @@ describe('ohne Lösung', () => {
   })
 })
 
-describe('Wege ohne Fahrbahn (Nutzerbefund Familienspaziergang, 20.10.2026)', () => {
+describe('Wege ohne Fahrbahn (Beispiel Familienspaziergang)', () => {
   const weg = (x: Partial<Section>) => abschnitt({ ist: 'Fussweg Velo gestattet', ohneFahrbahn: true, ...x })
   it('Ausgangslage: nur der Weg, mit der gemessenen Breite', () => {
     const a = startAufteilung(weg({ fahrbahnbreite: 2.8 }))
@@ -149,7 +149,7 @@ describe('Wege ohne Fahrbahn (Nutzerbefund Familienspaziergang, 20.10.2026)', ()
   })
 })
 
-describe('Schräg- und Querparkierung (Nutzerbefund Egghölzlistrasse, 20.10.2026)', () => {
+describe('Schräg- und Querparkierung (Beispiel Egghölzlistrasse)', () => {
   const s = abschnitt({ dtv: 6000, speed: 50, ist: 'Mischverkehr', parkenRechts: 'ja', fahrbahnbreite: 16,
     parkTiefe: { a: { tiefe: 5.05, art: 'tief' }, b: { tiefe: 5.25, art: 'tief' } } })
   it('Ausgangslage mit der gemessenen Tiefe, ohne Längs-Vorgabe', () => {
