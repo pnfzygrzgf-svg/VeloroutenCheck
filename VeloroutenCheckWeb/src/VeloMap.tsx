@@ -421,6 +421,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
     })
     basisRef.current = basemaps
     wahlRef.current = L.control.layers({}, { 'Strassennamen (ab Zoomstufe 17)': namenRef.current }, { collapsed: true }).addTo(map)
+    L.control.scale({ imperial: false }).addTo(map)   // wie fgsCheck und SichtweitenCheck, «Kartenebenen» darüber
     map.on('baselayerchange', (e: L.LayersControlEvent) => {
       const name = Object.keys(basemaps).find(k => basemaps[k] === e.layer)
       if (!name) return
@@ -830,7 +831,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
         <button type="button" aria-expanded={ebenenOffen} onClick={() => setEbenenOffen(o => !o)}
                 className={ebenenOffen || netzAn || ebenenAn.size ? 'aktiv-rand' : undefined}
                 title="Kartenebenen auf der Karte zeigen: Routennetz und die Quellen, aus denen die Felder vorbelegt sind">
-          <span className="lang">Kartenebenen</span><span className="kurz">Quellen</span>{(() => { const k = (hk.an ? 1 : 0) + (netzAn && routennetz ? 1 : 0) + (UEBERBLICK[stadt] ?? []).filter(u => ueberAn.has(u.id)).length + astraAn.size + ebenenSichtbar(ebenenFuer(stadt, ebenen), ebenen, nachladen).zeigen.filter(e => ebenenAn.has(e.id)).length; return k ? ` (${k})` : '' })()} ▴
+          Kartenebenen{(() => { const k = (hk.an ? 1 : 0) + (netzAn && routennetz ? 1 : 0) + (UEBERBLICK[stadt] ?? []).filter(u => ueberAn.has(u.id)).length + astraAn.size + ebenenSichtbar(ebenenFuer(stadt, ebenen), ebenen, nachladen).zeigen.filter(e => ebenenAn.has(e.id)).length; return k ? ` (${k})` : '' })()} ▴
         </button>
       </div>
       {ebenenOffen && (

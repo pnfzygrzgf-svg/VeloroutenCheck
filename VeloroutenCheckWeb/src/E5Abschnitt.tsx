@@ -19,7 +19,7 @@ export function E5Abschnitt({s,druck=false}:{s:Section;aendern?:(p:Partial<Secti
   </>
   // im Bericht ein Abschnitt wie die übrigen, ohne Aufklapp-Pfeil
   return druck?<section className="bericht-block"><h2>Quellenzuordnung und Hinweise</h2><div className="klein">{inhalt}</div></section>
-   :<details><summary>Quellenzuordnung und Hinweise</summary>{inhalt}</details>})()}
+   :<details><summary>Quellenzuordnung und Hinweise</summary><div className="klein">{inhalt}</div></details>})()}
 
  </div>
 }

@@ -235,12 +235,9 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
               <p className="klein">VeloroutenCheck · Bericht vom {datum}</p><p>{standardText(city,section.datenOrt)}</p>
             </header>
 
-            {/* Seite 1: Ergebnis, Kartenbild, Angaben; der Querschnitt beginnt auf einer neuen Seite (index.css, .bericht-neue-seite) */}
-            {heute.note != null && plan.note != null && <p><b>{bez.trim() ? `${bez.trim().split(' · ')[0]}: ` : ''}heute Note {numDE(heute.note, 1)}, mit der Planung Note {numDE(plan.note, 1)}</b></p>}
-            {achsen.length > 0 && <BerichtKarte achsen={achsen} av={av} park={park} nr={nr} flugjahr={flugjahr} onBereit={onBild} />}
-
+            {/* Seite 1 wie in den anderen Rechnern: Ort, Ergebnis, Kartenbild, Angaben; der Querschnitt beginnt auf einer neuen Seite (index.css, .bericht-neue-seite) */}
             <section className="bericht-block">
-              <h2>Abschnitt {nr}</h2>
+              <h2>Ort</h2>
               <table className="bericht-zahlen"><tbody>
                 <tr><td>Bezeichnung</td><td>
                   <input className="nicht-drucken bericht-eingabe" type="text" placeholder="z. B. Strasse, Abschnitt (erscheint im Bericht)"
@@ -248,6 +245,21 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                   <span className="nur-drucken">{bez.trim() || '–'}</span>
                 </td></tr>
                 <tr><td>Stadt</td><td>{stadtName}</td></tr>
+                <tr><td>Abschnitt</td><td>{nr}</td></tr>
+                <tr><td>Fahrtrichtungen</td><td>{einbahn ? 'nur Seite A bewertet (Einbahn)' : 'beide Seiten'}{rA ? ` · Seite A Richtung ${rA}` : ''}</td></tr>
+              </tbody></table>
+            </section>
+
+            <section className="bericht-block">
+              <h2>Ergebnis</h2>
+              {heute.note != null && plan.note != null ? <p><b>{bez.trim() ? `${bez.trim().split(' · ')[0]}: ` : ''}heute Note {numDE(heute.note, 1)}, mit der Planung Note {numDE(plan.note, 1)}</b></p>
+                : <p>Heute: {noteText(heute.note)}; mit der Planung: {noteText(plan.note)}</p>}
+            </section>
+            {achsen.length > 0 && <BerichtKarte achsen={achsen} av={av} park={park} nr={nr} flugjahr={flugjahr} onBereit={onBild} />}
+
+            <section className="bericht-block">
+              <h2>Angaben zum Abschnitt</h2>
+              <table className="bericht-zahlen"><tbody>
                 <tr><td>Routentyp</td><td>{section.routentyp
                   ? `${routenLabel?.[section.routentyp] ?? section.routentyp} (${quelleText(section.quelle.routentyp, ROUTENTYP_AMTLICH[section.datenOrt?.stadt??city])})`
                   : `– (geprüft wie ${routenLabel?.Velohauptroute ?? 'Velohauptroute'})`}</td></tr>
@@ -277,7 +289,6 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                         : `mindestens ${numDE(FUSSNETZ[a.fussnetz].min, 2)} m`} (${FUSS_QUELLE[city]})`
                     : 'nicht gewählt (Trottoirs ohne Vorgabe geprüft)'}</td></tr>
                 )}
-                <tr><td>Fahrtrichtungen</td><td>{einbahn ? 'nur Seite A bewertet (Einbahn)' : 'beide Seiten'}{rA ? ` · Seite A Richtung ${rA}` : ''}</td></tr>
               </tbody></table>
             </section>
 
@@ -300,7 +311,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
             <section className="bericht-block">
               <h2>Elemente der Planung</h2>
               <table className="bericht-tabelle">
-                <thead><tr><th>Nr.</th><th>Element</th><th>Breite</th><th>Prüfung</th></tr></thead>
+                <thead><tr><th>Nr.</th><th>Element</th><th>Breite</th><th>Ergebnis</th></tr></thead>
                 <tbody>
                   {a.teile.map((t, i) => {
                     const zusatz = [t.bild || bildVon(t) ? BILD_LABEL[bildVon(t)!] : '', t.markierung && t.markierung !== 'keine' && t.markierung in MARKIERUNG_LABEL
@@ -347,7 +358,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
 
             <E5Abschnitt s={section} druck />
             <section className="bericht-block">
-              <h2>Annahmen und Grenzen</h2>
+              <h2>Annahmen und Hinweise</h2>
               <ul className="klein">
                 <li>Die Masse sind nicht ganz genau. Fahrbahn- und Trottoirbreiten aus der amtlichen Vermessung sind Mediane aus Querschnitten
                   alle 5 m, gerundet auf 0,1 m bzw. 5 cm; sie folgen dem Datenstand der AV und mitteln Einengungen und Verbreiterungen weg. Am

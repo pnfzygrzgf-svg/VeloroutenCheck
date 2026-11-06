@@ -1,6 +1,6 @@
 // ── Quellenverzeichnis (seit 23.10.2026, nach dem Muster von fgsCheck): Vorgaben, Normen und Daten, auf die sich
 // Bewertung und Planung stützen, mit Herausgeber, Ausgabe, Ebene und, wo es eine öffentliche Adresse gibt, dem Link.
-// Angezeigt im Panel («Quellen und Grundlagen», gefiltert auf die gewählte Stadt) und im Bericht der Planung.
+// Angezeigt im Panel («Grundlagen und Quellen», gefiltert auf die gewählte Stadt) und im Bericht der Planung.
 // Eigene Formulierungen; die Verbindlichkeit folgt nur aus der Ebene (Standard einer Stadt, Norm, Normalie, Befragung,
 // Geodaten, Festlegung), nicht aus eigener Auslegung. Nur Adressen, die am 23.10.2026 erreichbar waren (HTTP 200).
 

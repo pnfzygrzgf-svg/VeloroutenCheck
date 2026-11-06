@@ -1,5 +1,5 @@
 import { avQuelle, avQuelleUrl } from './av'
-import { useSyncExternalStore } from 'react'
+import { useSyncExternalStore, type ReactNode } from 'react'
 import { E6_DIENSTE } from './e5/daten/anbieter/gemeinsam/e6'
 import { datenStaende, standAbonnieren, standText, type DatenStand } from './datenstand'
 import type { Section } from './strecke'
@@ -40,7 +40,7 @@ const Tabelle = ({ zeilen }: { zeilen: Zeile[] }) => <table className="bericht-q
    <li key={t.zelle}><a href={t.url} target="_blank" rel="noopener noreferrer">Zelle {t.zelle}</a>: {t.fehler}</li>)}</ul>}</td></tr>)}</tbody>
 </table>
 
-export function Datenstaende({druck=false,section,flugjahr,avKanton,avImBild=false}:{druck?:boolean;section?:Section;flugjahr?:string;avKanton?:string;avImBild?:boolean}) {
+export function Datenstaende({druck=false,section,flugjahr,avKanton,avImBild=false,children}:{druck?:boolean;section?:Section;flugjahr?:string;avKanton?:string;avImBild?:boolean;children?:ReactNode}) {
  const ss=useDatenstaende()
  if(!ss.length)return null
  const themen={...THEMEN,...Object.fromEntries(E6_DIENSTE.map(d=>[d.id,d.art==='beleuchtung'?'Beleuchtung':d.art==='taktil'?'Taktile Markierungen':'Fuss- und Velowegnetz']))}
@@ -58,6 +58,7 @@ export function Datenstaende({druck=false,section,flugjahr,avKanton,avImBild=fal
   drin.sort((a,b)=>a.thema.localeCompare(b.thema,'de-CH')||a.name.localeCompare(b.name,'de-CH'))
   return drin.length?<Tabelle zeilen={drin} />:<p className="klein">keine (alle Angaben von Hand)</p>
  }
- return <details className="vrc-klappe"><summary>Datenquellen und Ladezustand ({ss.length})</summary><ul className="datenstaende">{sortiert.map(s=><li key={s.id}><b>{s.thema}</b> · <a href={s.url} target="_blank" rel="noopener noreferrer">{s.name}</a><div>{standText(s, false)}</div>{!!s.teilfehler?.length && <ul>{s.teilfehler.map(t =>
+ const fehler=ss.filter(s=>s.status==='fehler').length
+ return <details className="vrc-klappe vrc-kachel"><summary>Datenquellen und Ladezustand{fehler>0&&<span className="fehler"> ({fehler} Fehler)</span>}</summary>{children}<ul className="datenstaende">{sortiert.map(s=><li key={s.id}><b>{s.thema}</b> · <a href={s.url} target="_blank" rel="noopener noreferrer">{s.name}</a><div>{standText(s, false)}</div>{!!s.teilfehler?.length && <ul>{s.teilfehler.map(t =>
   <li key={t.zelle}><a href={t.url} target="_blank" rel="noopener noreferrer">Zelle {t.zelle}</a>: {t.fehler}</li>)}</ul>}</li>)}</ul></details>
 }

@@ -14,6 +14,7 @@ import { orteFuer, standardText, type Suchgebiet } from './gebiet'
 import { enrichE5, e5BelegQuelle } from './e5'
 import { ladeE6Kontext } from './e6'
 import { Datenstaende } from './Datenstaende'
+import InfoBlase from './Info'
 import { datenlaufNeu, datenStaende, datenGeneration, datenlaufUebernehmen } from './datenstand'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -270,7 +271,7 @@ function noteColor(n: number): { bg: string; fg: string } {
 // Schulnote als Herleitung. Vorher schaltete «Anzeige: Schulnote | Erfüllungsgrad» oben im Panel zwischen
 // beiden um (Standard Schulnote); der Schalter ist weg, jede Stelle zeigt beides in dieser Reihenfolge.
 function Beurteilung({ note }: { note: number }) {
-  return <>{erfuellungsgrad(note)}<span style={{ fontWeight: 600, fontSize: '0.85em', opacity: 0.85 }}> · Note {numDE(note, 1)}</span></>
+  return <>{erfuellungsgrad(note)}<span style={{ fontWeight: 600, fontSize: 12, opacity: 0.85 }}> · Note {numDE(note, 1)}</span></>
 }
 
 // Herkunfts-Chip am Feld: blau „amtlich" (Geodaten Stadt Bern), grau „OSM";
@@ -284,7 +285,7 @@ function QuelleChip({ q, fehlt }: { q?: Quelle; fehlt?: boolean }) {
 // damit die Eingabefelder über die Spalten hinweg bündig auf gleicher Höhe stehen.
 function FieldLabel({ label, chip }: { label: string; chip?: React.ReactNode }) {
   return (
-    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4,
+    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', lineHeight: 1.4,
                    display: 'block', minHeight: '2.8em', minWidth: 0, overflowWrap: 'anywhere' }}>
       {label}{chip}
     </span>
@@ -322,10 +323,10 @@ function NumberField({ label, unit, value, onChange, chip, kompakt, dezimalen }:
           onBlur={() => setText(anzeige(value))}
           style={{
             width: '100%', minWidth: 0, padding: '8px 10px', borderRadius: 8,
-            border: '1px solid var(--border)', fontSize: 16, textAlign: 'right',
+            border: '1px solid var(--border)', fontSize: 'var(--fs-feld)', textAlign: 'right',
           }}
         />
-        <span style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{unit}</span>
+        <span style={{ fontSize: 14, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{unit}</span>
       </span>
     </label>
   )
@@ -336,14 +337,14 @@ function NumberField({ label, unit, value, onChange, chip, kompakt, dezimalen }:
 function UeblicheMasse({ werte, wert, onWahl, label }: { werte: number[]; wert: number; onWahl: (v: number) => void; label: string }) {
   return (
     <span role="group" aria-label={label} title={`${label}: ein Klick setzt die Breite`}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--text-muted-strong)', flexWrap: 'wrap' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted-strong)', flexWrap: 'wrap' }}>
       übliche Breite
       <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
         {werte.map(v => {
           const an = Math.abs(v - wert) < 0.005
           return (
             <button key={v} type="button" aria-pressed={an} onClick={() => onWahl(v)}
-                    style={{ border: 'none', padding: '3px 7px', fontSize: 12.5, fontWeight: an ? 700 : 500, cursor: 'pointer',
+                    style={{ border: 'none', borderRadius: 0, padding: '3px 7px', fontSize: 12, fontWeight: an ? 700 : 500, cursor: 'pointer',
                              background: an ? 'var(--accent)' : '#fff', color: an ? '#fff' : 'var(--text)' }}>
               {numDE(v, 2)}
             </button>
@@ -356,7 +357,7 @@ function UeblicheMasse({ werte, wert, onWahl, label }: { werte: number[]; wert: 
 }
 
 const selectStyle: React.CSSProperties = {
-  padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 16, background: '#fff',
+  padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 'var(--fs-feld)', background: '#fff',
   minWidth: 0, maxWidth: '100%', boxSizing: 'border-box',
 }
 const fieldStyle: React.CSSProperties = {
@@ -364,7 +365,7 @@ const fieldStyle: React.CSSProperties = {
 }
 // Dezente Gruppen-Überschrift in der Eingabemaske (Grunddaten / ÖV-Haltestelle).
 const groupLabelStyle: React.CSSProperties = {
-  fontSize: 'var(--fs-11)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+  fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
   color: 'var(--text-muted)', marginBottom: 8,
 }
 
@@ -384,7 +385,7 @@ const seiteKastenStyle: React.CSSProperties = {
   marginTop: 12, padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid var(--border-subtle)',
 }
 const seiteTitelStyle: React.CSSProperties = {
-  fontSize: 13, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 8,
+  fontSize: 14, fontWeight: 700, color: 'var(--text-strong)', marginBottom: 8,
 }
 // Kopfzeile eines Seiten-Kastens (Titel links, Knöpfe rechts) und die kleinen Knöpfe darin.
 const kastenKopfStyle: React.CSSProperties = {
@@ -392,7 +393,7 @@ const kastenKopfStyle: React.CSSProperties = {
 }
 const kleinKnopfStyle: React.CSSProperties = {
   border: '1px solid var(--border)', background: '#fff', color: 'var(--text)',
-  borderRadius: 8, padding: '5px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+  borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
 }
 // Werkzeugleiste auf der Karte (seit 22.10.2026 ein Rahmen für alle Messwerkzeuge: Breite einer Seite, Element für
 // Element, Querschnitt): Titel mit ✕ (auch Esc), Inhalt, Quellenzeile.
@@ -412,18 +413,18 @@ function Kartenleiste({ titel, breit, onSchliessen, quelle, ziel, children }: {
 }) {
   const box = (
     <div style={ziel ? { position: 'relative', marginBottom: 12, background: '#fff', borderRadius: 10, border: '1px solid var(--accent)',
-                         padding: '10px 12px', fontSize: 13, color: 'var(--text)', lineHeight: 1.45 }
+                         padding: '10px 12px', fontSize: 14, color: 'var(--text)', lineHeight: 1.45 }
                      : { position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 600,
                   width: `min(${breit ? 500 : 470}px, calc(100% - 110px))`, maxHeight: 'calc(100% - 30px)', overflowY: 'auto',
                   background: '#fff', borderRadius: 10, boxShadow: '0 4px 14px rgba(0,0,0,0.25)', padding: '10px 12px',
-                  fontSize: 12.5, color: 'var(--text)', lineHeight: 1.45 }}>
+                  fontSize: 12, color: 'var(--text)', lineHeight: 1.45 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-strong)', flex: 1 }}>{titel}</span>
+        <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-strong)', flex: 1 }}>{titel}</span>
         <button type="button" onClick={onSchliessen} aria-label="Schliessen (Esc)" title="Schliessen (Esc)"
                 style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 15, color: 'var(--text-muted)', padding: '0 4px', minHeight: 0 }}>✕</button>
       </div>
       {children}
-      <div style={{ marginTop: 6, fontSize: 'var(--fs-11)', color: 'var(--text-muted)' }}>Luftbild © swisstopo · {quelle}</div>
+      <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted)' }}>Luftbild © swisstopo · {quelle}</div>
     </div>
   )
   return ziel ? createPortal(box, ziel) : box
@@ -434,18 +435,7 @@ const segmente = (n: number) => `${n} ${n === 1 ? 'Segment' : 'Segmente'}`
 
 // Erklärung hinter einem ⓘ (seit 22.10.2026): kurzer Text als Tooltip und auf Klick (auch auf Touch) unter dem Feld.
 // Vorher standen die Sätze offen unter den Feldern und verlängerten jede Zeile.
-function Info({ text }: { text: string }) {
-  const [auf, setAuf] = useState(false)
-  return (
-    <>
-      <button type="button" onClick={() => setAuf(v => !v)} aria-expanded={auf} aria-label={auf ? 'Erklärung schliessen' : 'Erklärung'} title={text}
-              style={{ border: 'none', background: 'none', padding: '0 4px', color: 'var(--accent)', cursor: 'pointer', fontSize: 13, lineHeight: 1, minHeight: 0, verticalAlign: 'middle' }}>
-        ⓘ
-      </button>
-      {auf && <span style={{ display: 'block', fontSize: 'var(--fs-115)', fontWeight: 400, color: 'var(--text-muted-strong)', marginTop: 2 }}>{text}</span>}
-    </>
-  )
-}
+function Info({ text }: { text: string }) { return <InfoBlase>{text}</InfoBlase> }
 // Aufklappmenü (index.css .vrc-menu): schliesst nach der Wahl eines Eintrags und bei Klick daneben
 function menuZu(e: React.SyntheticEvent) { const d = (e.currentTarget as HTMLElement).closest('details'); if (d) d.open = false }
 function Menu({ label, klasse, titel, children }: { label: React.ReactNode; klasse?: string; titel?: string; children: React.ReactNode }) {
@@ -473,7 +463,7 @@ function StreetViewLink({ ort, stil }: { ort: Ort; stil?: React.CSSProperties })
              + (ort.peilung != null ? `&heading=${Math.round(ort.peilung)}` : '')}
        target="_blank" rel="noopener noreferrer"
        title={`Google Street View an der Stelle des Markers${ort.peilung != null ? ', Blick in Fahrtrichtung der Seite A' : ''} (öffnet Google Maps)`}
-       style={{ ...kleinKnopfStyle, color: 'var(--text-muted)', fontWeight: 400, fontSize: 13, padding: '4px 10px', textDecoration: 'none', ...stil }}>
+       style={{ ...kleinKnopfStyle, color: 'var(--text-muted)', fontWeight: 400, fontSize: 14, padding: '4px 10px', textDecoration: 'none', ...stil }}>
       Street View ↗
     </a>
   )
@@ -511,7 +501,7 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
       {/* Zweite Stufe: Sicherung der Gegenrichtung → bestimmt die Q7-Führungsform. */}
       {GEGENVERKEHR_FORMEN.includes(ist as IstFuehrungsform) && (
         <label style={fieldStyle}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>Sicherung der Gegenrichtung</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Sicherung der Gegenrichtung</span>
           <select value={ist} onChange={e => onChange({ ist: e.target.value as IstFuehrungsform })}
                   style={selectStyle}>
             <option value="Einbahn Velogegenverkehr ohne Markierung">Ohne Markierung</option>
@@ -557,7 +547,7 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
         <label style={{ ...fieldStyle, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" checked={felder.parkenSicherheitsstreifen}
                  onChange={e => onChange({ parkenSicherheitsstreifen: e.target.checked })} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
             Sicherheitsstreifen gegenüber Parkplätzen (SN 640 060)
           </span>
         </label>
@@ -715,7 +705,7 @@ function Herleitung({ bewertung, felder, routentyp, city, breitenQuelle }: {
 
   return (
     <div style={{ marginTop: 6 }}>
-      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 14 }}>
         <tbody>
           {zeilen.map((z, i) => (
             <tr key={i}>
@@ -756,14 +746,14 @@ function HerleitungNote() {
   const zelle: React.CSSProperties = { border: '1px solid var(--border-subtle)', padding: '4px 8px', textAlign: 'right' }
   const kopf: React.CSSProperties = { ...zelle, textAlign: 'left', background: 'var(--bg)' }
   return (
-    <div id="herleitung-note" style={{ scrollMarginTop: 150, fontSize: 13.5, lineHeight: 1.55, marginBottom: 24 }}>
-      <h2 style={{ fontSize: 16, margin: '8px 0 10px' }}>Wie die Note entsteht</h2>
+    <div id="herleitung-note" style={{ scrollMarginTop: 150, fontSize: 14, lineHeight: 1.55, marginBottom: 24 }}>
+      <h2 style={{ fontSize: 15, margin: '8px 0 10px' }}>Wie die Note entsteht</h2>
       <p style={{ margin: '0 0 8px' }}>
         Jede Fahrtrichtung eines Abschnitts wird für sich beurteilt; der Abschnitt zählt mit der schlechteren, die Strecke
         mit ihrem schlechtesten Abschnitt. Ausgangspunkt ist die Note 6: die Vorgabe der Stadt ist ganz erfüllt. Davon gehen
         Abzüge ab. Das Ergebnis wird auf halbe Noten gerundet, nie unter 1, und in den Erfüllungsgrad übersetzt.
       </p>
-      <h3 style={{ fontSize: 14.5, margin: '14px 0 6px' }}>1. Abzug für die Führungsform</h3>
+      <h3 style={{ fontSize: 14, margin: '14px 0 6px' }}>1. Abzug für die Führungsform</h3>
       <p style={{ margin: '0 0 8px' }}>
         Aus Verkehrsmenge und Tempo ergibt sich, welche Führungsform die Stadt verlangt (Entscheidungstabelle unten). Ist die
         vorhandene Form schwächer, etwa Mischverkehr statt Velostreifen, gibt es einen Abzug. Wie gross er ist, richtet sich
@@ -772,7 +762,7 @@ function HerleitungNote() {
         Berner Bildumfrage überprüft).
       </p>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 13, margin: '4px 0 8px' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 14, margin: '4px 0 8px' }}>
           <thead>
             <tr><th style={kopf}>Führungsform</th><th style={kopf}>bis 30 km/h</th><th style={kopf}>über 30 km/h</th></tr>
           </thead>
@@ -801,7 +791,7 @@ function HerleitungNote() {
         <b> Fussweg, Velo gestattet</b> beginnt bei {numDE(FUSSWEG_BASIS, 0)} (höchstens «genügend»), weil Velo und Fussverkehr
         die Fläche teilen. Bei beiden zählen Verkehrsmenge und Tempo nicht.
       </p>
-      <h3 style={{ fontSize: 14.5, margin: '14px 0 6px' }}>2. Weitere Abzüge</h3>
+      <h3 style={{ fontSize: 14, margin: '14px 0 6px' }}>2. Weitere Abzüge</h3>
       <ul style={{ margin: '0 0 8px', paddingLeft: 20 }}>
         <li><b>Breite:</b> je Meter, um den Velostreifen oder Radweg schmaler sind als die Vorgabe der Stadt, ein Abzug
           (Velostreifen {numDE(BREITE_SATZ.Radstreifen.ruhig, 1)} Noten je Meter, Radweg {numDE(BREITE_SATZ.Radweg.ruhig, 2)}{' '}
@@ -812,9 +802,9 @@ function HerleitungNote() {
           Haltestelle aber keine hat.</li>
         <li><b>Tram in der Fahrbahn:</b> im Mischverkehr höchstens Note {numDE(TRAM_DECKEL, 0)}.</li>
       </ul>
-      <h3 style={{ fontSize: 14.5, margin: '14px 0 6px' }}>3. Erfüllungsgrad</h3>
+      <h3 style={{ fontSize: 14, margin: '14px 0 6px' }}>3. Erfüllungsgrad</h3>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', fontSize: 13, margin: '4px 0 0' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 14, margin: '4px 0 0' }}>
           <thead><tr><th style={kopf}>Note</th><th style={kopf}>Erfüllungsgrad</th></tr></thead>
           <tbody>
             {([['5,5 – 6,0', 6], ['4,5 – 5,0', 5], ['3,5 – 4,0', 4], ['1,0 – 3,0', 2]] as const).map(([band, n]) => (
@@ -845,7 +835,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
       {bewertung == null ? (
         <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10,
                       background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412',
-                      fontSize: 13.5 }}>
+                      fontSize: 14 }}>
           <strong>Eingabe nötig:</strong> {aufzaehlen(fehlt)} angeben — dann wird die Note berechnet.
         </div>
       ) : (
@@ -854,20 +844,20 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
                     display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
         {/* Erfüllungsgrad gross, die Schulnote klein darunter (seit 22.10.2026; vorher je nach Schalter das eine oder das andere) */}
         <div style={{ textAlign: 'center', minWidth: 120 }}>
-          <div style={{ fontSize: 'var(--fs-11)', fontWeight: 700, letterSpacing: '0.08em',
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em',
                         textTransform: 'uppercase', opacity: 0.85 }}>
             Erfüllungsgrad
           </div>
-          <div style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.15 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, lineHeight: 1.15 }}>
             {erfuellungsgrad(bewertung.note)}
           </div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, opacity: 0.9, marginTop: 2 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.9, marginTop: 2 }}>
             Note {numDE(bewertung.note, 1)}
           </div>
         </div>
         {bewertung.haltestellenbereich ? (
           // Haltestellenbereich (nur Bern, seit 20.10.2026): Haltestellentyp gegen die Lösung des Masterplans
-          <div style={{ fontSize: 13.5, opacity: 0.97 }}>
+          <div style={{ fontSize: 14, opacity: 0.97 }}>
             <div><strong>Haltestellenbereich</strong> · Vorgabe: {bewertung.sollHaltestelle ?? '–'}</div>
             <div><strong>Heute:</strong> {bewertung.haltestellentyp}</div>
             <div style={{ marginTop: 4, opacity: 0.9 }}>
@@ -889,7 +879,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
             <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>Führungsform, DTV, Tempo und Parkierung zählen hier nicht.</div>
           </div>
         ) : (
-        <div style={{ fontSize: 13.5, opacity: 0.97, flex: '1 1 240px', minWidth: 0 }}>
+        <div style={{ fontSize: 14, opacity: 0.97, flex: '1 1 240px', minWidth: 0 }}>
           {/* Ohne DTV/Tempo gibt es keine Vorgabe für die Führungsform — dieselbe Quelle wie die Pflichtfelder.
               «Soll/Ist» heisst seit 22.10.2026 «Vorgabe/Heute», der Querschnittstyp (Q1…) steht nicht mehr da. */}
           {brauchtDtvTempo(bewertung.ist) &&
@@ -897,7 +887,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
           <div><strong>Heute:</strong> {formAnzeige(bewertung.ist)}</div>
           {/* Herleitung einklappbar; Vorgabe und Heute bleiben sichtbar */}
           <details className="vrc-klappe auf-farbe" style={{ marginTop: 4 }}>
-            <summary style={{ cursor: 'pointer', userSelect: 'none', fontSize: 12.5, opacity: 0.9 }}>
+            <summary style={{ cursor: 'pointer', userSelect: 'none', fontSize: 12, opacity: 0.9 }}>
               Wie die Beurteilung entsteht{bewertung.hinweis || bewertung.warnung ? ' · ⚠ Hinweis' : ''}
             </summary>
             <Herleitung bewertung={bewertung} felder={felder} routentyp={routentyp} city={city} breitenQuelle={breitenQuelle} />
@@ -911,7 +901,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
           Schlanke Zeile (nur Kürzel + Note); Begründung der Abweichung in einem aufklappbaren
           „Warum?" mit konkreten Werten. Basel-Strassentyp ist geschätzt. */}
       {bewertung && vergleich && vergleich.length > 0 && (
-        <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--text-muted)' }}>
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
           <span style={{ fontWeight: 600 }}>Andere Standards: </span>
           {vergleich.map((v, i) => (
             <span key={v.stadt}>
@@ -1081,7 +1071,7 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
   }
   return (
     <details className="vrc-klappe" open style={{ background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 8,
-                                                  padding: '8px 12px', marginBottom: 10, fontSize: 13 }}>
+                                                  padding: '8px 12px', marginBottom: 10, fontSize: 14 }}>
       <summary style={{ fontWeight: 700, color: 'var(--text-strong)' }}>Vorschlag</summary>
       {zeile('Ohne Randsteinanpassung', ohne, null)}
       {zeile('Mit Randsteinanpassung', mit, taMit, !ta
@@ -1091,7 +1081,7 @@ function VorschlagKasten({ section, a, onChange, city }: { section: Section; a: 
         : 'Die Trottoirs entsprechen genau der Vorgabe des Fussverkehrsnetzes; wie ohne Randsteinanpassung.', trZeile)}
       {/* Erklärung als Fussnote (seit 22.10.2026 nach dem Ergebnis, vorher davor). Die Rangfolge steht seit 27.10.2026 nur hier, als
           Liste mit der Stufe der Vorschläge («Rang 2, Kernfahrbahn» in der Vorschlagszeile verwirrte) */}
-      <div style={{ fontSize: 'var(--fs-115)', color: 'var(--text-muted)', marginTop: 6 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
         Vorgeschlagen wird die erste Massnahme in der Rangfolge, die die Note auf mindestens {ZIEL_TEXT} bringt (vollständig erfüllt);
         reicht keine, die bestmögliche Verbesserung. «Übernehmen» setzt sie als Startpunkt, danach ist alles frei änderbar.
         <details style={{ marginTop: 4 }}>
@@ -1239,7 +1229,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
   const massstab = Math.max(breiteCm(ausgang.teile), breiteCm(a.teile))
   const unveraendert = JSON.stringify(a.teile) === JSON.stringify(ausgang.teile)
   const skizze = schritt1 ? 'heute' : skizzeWahl === 'auto' ? (unveraendert ? 'heute' : 'beide') : skizzeWahl
-  const detailSelect: React.CSSProperties = { ...selectStyle, padding: '4px 6px', fontSize: 13, minWidth: 0 }
+  const detailSelect: React.CSSProperties = { ...selectStyle, padding: '4px 6px', fontSize: 'var(--fs-feld)', minWidth: 0 }
   const aq = mitSeitenraum(a, section), b = bilanz(aq), bt = bilanzText(aq, b)
   const plan = bewerteAufteilung(section, a, city, breiten)
   const planFehlt = [...new Set(plan.seiten.flatMap(se => se.fehlt))]
@@ -1275,7 +1265,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         + 'jeder Querschnitt in beiden. Die Breiten können darum aus einem anderen Bild stammen als dem Kartenhintergrund.'
       : lb ? `Gelesen: ${LUFTBILD_NAME[lb]}.` : null
     return (
-      <div style={{ margin: unten ? '12px 0 4px' : '0 0 10px', padding: '10px 12px', borderRadius: 8, background: '#f0fdfa', border: '1px solid #99f6e4', fontSize: 13 }}>
+      <div style={{ margin: unten ? '12px 0 4px' : '0 0 10px', padding: '10px 12px', borderRadius: 8, background: '#f0fdfa', border: '1px solid #99f6e4', fontSize: 14 }}>
         <div style={{ fontWeight: 700, color: 'var(--text-strong)' }}>{unten ? 'Schritt 1 von 2: alles geprüft?' : 'Schritt 1 von 2: Querschnitt von heute prüfen'}</div>
         {!unten && <div style={{ color: 'var(--text-muted-strong)', marginTop: 2 }}>
           Die Breiten kommen aus der amtlichen Vermessung (Fahrbahn, Trottoirs) und dem Luftbild (Spuren, Velostreifen).
@@ -1285,7 +1275,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         <div style={{ marginTop: 4, fontWeight: 600, color: mp && !mp.passt ? '#92400e' : 'var(--text-strong)' }}>{status}</div>
         {bildHinweis && !unten && <div style={{ marginTop: 2, fontSize: 12, color: 'var(--text-muted)' }}>{bildHinweis}</div>}
         <button type="button" onClick={() => { onHeuteBestaetigt!(); setListe('plan'); setPlanHinweis('') }} disabled={!!av?.markierungLaden}
-                style={{ marginTop: 8, border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13.5, fontWeight: 600,
+                style={{ marginTop: 8, border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 14, fontWeight: 600,
                          background: av?.markierungLaden ? 'var(--text-faint)' : 'var(--accent)', color: '#fff', cursor: av?.markierungLaden ? 'default' : 'pointer' }}>
           Heute stimmt: weiter zur Planung
         </button>
@@ -1298,7 +1288,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
       <div style={{ ...seiteKastenStyle, marginTop: 0 }}>
         {/* Ohne Abschnitt von der Karte fehlen Fahrbahnbreite, Trottoirs, AV und Parkfelder */}
         {!section.candIds?.length && (
-          <div style={{ fontSize: 12.5, color: '#92400e', marginBottom: 8, padding: '8px 12px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
+          <div className="vrc-anleitung" style={{ marginBottom: 8 }}>
             <strong>Zuerst einen Abschnitt auf der Karte wählen:</strong> auf eine Strasse tippen oder oben eine Strasse suchen,
             dann «Segmente in Strecke übernehmen». Ist das Segment zu lang oder zu kurz, lässt es sich vorher mit «✂ Segment teilen»
             an der gewünschten Stelle schneiden. Ohne Abschnitt von der Karte fehlen Fahrbahnbreite, Trottoirs, amtliche Vermessung
@@ -1398,8 +1388,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         </div>
         {schritt1 ? schritt1Kasten(false) : <VorschlagKasten section={section} a={a} onChange={onChange} city={city} />}
         {a.tempo != null && (
-          <div style={{ fontSize: 12.5, marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a',
-                        color: '#92400e', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="vrc-anleitung" style={{ marginBottom: 8, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ flex: 1 }}>Mit der Planung gilt Tempo {a.tempo} statt {Number.isFinite(section.speed) ? section.speed : '–'} km/h
               (aus dem Vorschlag); Note und Prüfung rechnen damit.</span>
             <button type="button" onClick={() => onChange({ ...a, tempo: undefined })} style={kleinKnopfStyle}>Tempo wie heute</button>
@@ -1407,7 +1396,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         )}
         {/* AV auf der Karte: Legende, solange sie zu sehen ist (der Knopf steht in der Werkzeugleiste) */}
         {av?.gezeigt && (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8, fontSize: 12.5 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8, fontSize: 12 }}>
             <span style={{ color: 'var(--text-muted)' }}>AV auf der Karte:</span>
             {[...AV_LEGENDE.map(([art, text]) => [AV_FARBEN[art], text]),
                             ...(av.park ? [[PARK_FARBE, 'Parkfeld'], [PARKVERBOT_FARBE, 'Parkverbotsfeld'], [ZWEIRAD_FARBE, 'Velo-/Motorradfeld']] : [])].map(([farbe, text]) => (
@@ -1421,12 +1410,12 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         {/* Skizze: heute und Planung untereinander, im selben Massstab; Umschalter (seit 22.10.2026), solange die Planung
             unverändert ist nur «Heute» */}
         <div style={{ background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: '6px 10px', marginBottom: 10 }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted-strong)' }}>
             <span>Skizze:</span>
             <span role="group" aria-label="Skizze" style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
               {([['heute', 'Heute'], ['plan', 'Planung'], ['beide', 'Beide']] as const).map(([w, label]) => (
                 <button key={w} type="button" aria-pressed={skizze === w} onClick={() => setSkizzeWahl(w)}
-                        style={{ border: 'none', padding: '4px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                        style={{ border: 'none', borderRadius: 0, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                                  background: skizze === w ? 'var(--accent)' : '#fff', color: skizze === w ? '#fff' : 'var(--text)' }}>
                   {label}
                 </button>
@@ -1452,7 +1441,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                                                         kennwerte={kw(a.tempo ?? section.speed)} />}
             </>)
           })()}
-          <div style={{ fontSize: 'var(--fs-11)', color: 'var(--text-muted)', marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
             Von links nach rechts in Fahrtrichtung der Seite A gesehen (links der Rand der Seite B).{' '}
             {section.querschnittHeute || section.gesamtbreite != null ? (
               <>{section.querschnittHeute ? `«Heute» ist von Hand am Luftbild aufgenommen (${section.querschnittHeute.teile.length} Elemente). ` : ''}
@@ -1472,7 +1461,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         </div>
 
         {planHinweis && (
-          <div role="status" style={{ fontSize: 12.5, marginBottom: 6, padding: '6px 10px', borderRadius: 8, background: '#eff6ff',
+          <div role="status" style={{ fontSize: 12, marginBottom: 6, padding: '6px 10px', borderRadius: 8, background: '#eff6ff',
                                       border: '1px solid #bfdbfe', color: '#1e3a8a', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ flex: 1 }}>{planHinweis.text}</span>
             {planHinweis.rueck && (
@@ -1490,12 +1479,12 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
           const diff = Number.isFinite(fbMass) ? Math.round((fbHeute - fbMass) * 100) / 100 : NaN
           return (
             <div style={{ margin: '4px 0 10px' }}>
-              {!schritt1 && <div role="group" aria-label="Elemente bearbeiten" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+              {!schritt1 && <div role="group" aria-label="Elemente bearbeiten" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, color: 'var(--text-muted-strong)' }}>
                 <span>Elemente bearbeiten:</span>
                 <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                   {([['plan', 'Planung'], ['heute', 'Heute (Ausgangslage)']] as const).map(([w, label]) => (
                     <button key={w} type="button" aria-pressed={liste === w} onClick={() => { setListe(w); setPlanHinweis('') }}
-                            style={{ border: 'none', padding: '4px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                            style={{ border: 'none', borderRadius: 0, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                                      background: liste === w ? 'var(--accent)' : '#fff', color: liste === w ? '#fff' : 'var(--text)' }}>
                       {label}
                     </button>
@@ -1503,7 +1492,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                 </span>
               </div>}
               {heuteListe && (
-                <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 8, fontSize: 12.5, lineHeight: 1.45,
+                <div style={{ marginTop: 6, padding: '6px 10px', borderRadius: 8, fontSize: 12, lineHeight: 1.45,
                               background: '#f8fafc', border: '1px solid var(--border-subtle)', color: 'var(--text-muted-strong)' }}>
                   Die Liste setzt den Querschnitt von heute. Die Note von heute rechnet weiter mit den Angaben im Reiter «Bewerten».
                   {!section.querschnittHeute && spuren >= 2 && ' Die Fahrspuren sind aus der Fahrbahnbreite gleichmässig verteilt (OSM nennt keine Spurbreiten); hier anpassen.'}
@@ -1534,7 +1523,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         })()}
         {/* Haltestelle einfügen: Querschnitt nach dem Masterplan auf einer Seite, danach frei änderbar (nur in der Planung) */}
         {hsVorlagen.length > 0 && !heuteListe && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5, margin: '2px 0 8px',
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 12, margin: '2px 0 8px',
                         color: 'var(--text-muted-strong)' }}
                title="Setzt auf der Seite die Elemente der Haltestelle nach dem Masterplan (Trottoir, Velofläche, Abstand, Wartebereich); Fahrspuren und Tram bleiben">
             Haltestelle einfügen:
@@ -1616,7 +1605,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                   const rest = restFuer(i)
                   return rest != null && (
                     <button type="button" onClick={() => aendere(i, { ...t, breite: rest, angenommen: undefined })}
-                            style={{ ...kleinKnopfStyle, padding: '3px 8px', fontSize: 12.5 }}
+                            style={{ ...kleinKnopfStyle, padding: '3px 8px', fontSize: 12 }}
                             title={`Breite = Fahrbahn ${numDE(fbZiel, 2)} m minus die übrigen Fahrbahnelemente`}>
                       = Rest {numDE(rest, 2)} m
                     </button>
@@ -1638,7 +1627,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                   const an = pfeileVon(t.markierung)
                   return (
                     <span role="group" aria-label={`Pfeil auf Element ${i + 1}`} title={`Pfeil auf dem Element (Skizze): ${MARKIERUNG_LABEL[markierungAus(an)]}`}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted-strong)' }}>
                       Pfeil
                       <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                         {PFEILE.map(pf => {
@@ -1646,7 +1635,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                           return (
                             <button key={pf} type="button" aria-pressed={ein} title={`${PFEIL_NAME[pf]} ${ein ? 'aus' : 'ein'}`}
                                     onClick={() => aendere(i, { ...t, markierung: markierungAus(ein ? an.filter(x => x !== pf) : [...an, pf]) })}
-                                    style={{ border: 'none', padding: '3px 8px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                                    style={{ border: 'none', borderRadius: 0, padding: '3px 8px', fontSize: 14, fontWeight: 700, cursor: 'pointer',
                                              background: ein ? 'var(--accent)' : '#fff', color: ein ? '#fff' : 'var(--text)' }}>
                               {PFEIL_ZEICHEN[pf]}
                             </button>
@@ -1682,7 +1671,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                 )}
                 {t.art === 'Parkierung' && (
                   <label title="Parkierung hinter dem Randstein, auf der Trottoirfläche: ausserhalb der Fahrbahn (Bilanz, Skizze); bewertet weiter als Parkierung"
-                         style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--text)' }}>
+                         style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text)' }}>
                     <input type="checkbox" checked={!!t.trottoirniveau}
                            onChange={e => aendere(i, { ...t, trottoirniveau: e.target.checked || undefined })} />
                     auf Trottoirniveau
@@ -1691,7 +1680,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                 {/* Versetzte Parkierung: abwechselnd Seite A und B */}
                 {(t.art === 'Parkierung' || (t.art === 'Sicherheitsstreifen' && t.versetzt)) && (
                   <label title="Parkierung an anderer Stelle als die Parkierung gegenüber (abwechselnd Seite A und B): zählt nicht zur Breite des Querschnitts und wird nicht gezeichnet; bewertet weiter als Parkierung"
-                         style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--text)' }}>
+                         style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text)' }}>
                     <input type="checkbox" checked={!!t.versetzt}
                            onChange={e => aendere(i, { ...t, versetzt: e.target.checked || undefined })} />
                     versetzt
@@ -1721,7 +1710,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                   <TeilOptionen />
                 </select>
               </div>
-              <span style={{ display: 'block', paddingLeft: 26, marginTop: 2, fontSize: 12.5, fontWeight: 600, color: TEIL_FARBE[p.status] }}>
+              <span style={{ display: 'block', paddingLeft: 26, marginTop: 2, fontSize: 12, fontWeight: 600, color: TEIL_FARBE[p.status] }}>
                 {pruefungText(t, p)}
                 {t.angenommen && (
                   <span style={{ display: 'block', fontWeight: 500, color: '#92400e' }}>
@@ -1753,7 +1742,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         {schritt1 && schritt1Kasten(true)}
 
         {/* Bilanz über den ganzen Querschnitt (bilanz, bilanzText) */}
-        <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, fontSize: 13,
+        <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, fontSize: 14,
                       ...(bt.fehlmass
                         ? { background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b' }
                         : { background: '#fff', border: '1px solid var(--border-subtle)', color: 'var(--text)' }) }}>
@@ -1763,7 +1752,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
 
         {/* Kernfahrbahn: Bedingungen des Masterplans (Q 5) */}
         {kern.length > 0 && (
-          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12,
                         ...(kern.some(k => k.streng)
                           ? { background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b' }
                           : { background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }) }}>
@@ -1775,11 +1764,11 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         )}
 
         {/* Note mit der Aufteilung neben der von heute */}
-        <div style={{ marginTop: 12, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
+        <div style={{ marginTop: 12, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center', fontSize: 14 }}>
           <span>Heute <NoteMarke note={heute.note} /></span>
           <span>Mit dieser Aufteilung <NoteMarke note={plan.note} /></span>
         </div>
-        <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted-strong)' }}>
           {plan.seiten.map(se => (
             <div key={se.seite}>
               {plan.seiten.length > 1 || section.richtung === 'eine' ? seiteName(se.seite) : 'Beide Seiten'}: {formText(se.felder)}
@@ -1791,8 +1780,8 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
             <div style={{ color: '#991b1b' }}>Die Elemente haben im verfügbaren Querschnitt keinen Platz; die Note setzt voraus, dass sie passen.</div>}
         </div>
         {/* Erläuterung: ein Satz sichtbar, der Rest in einer Klappe (aus der fgsCheck-Sitzung
-            weitergeleitet); im Bericht steht alles offen unter «Annahmen und Grenzen» und «Quellen». */}
-        <div style={{ marginTop: 8, fontSize: 'var(--fs-115)', color: 'var(--text-muted)' }}>
+            weitergeleitet); im Bericht steht alles offen unter «Annahmen und Hinweise» und «Quellen». */}
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
           {city === 'bern'
             ? 'Geprüft werden die Breiten nach den Masterplänen Velo- und Fussverkehr der Stadt Bern, dem Lichtraum nach SN 640 201 und einzelnen eigenen Festlegungen; die Note rechnet wie oben.'
             : `Geprüft werden die Breiten nach den ${STANDARD_QUELLE[city]} und dem Lichtraum nach SN 640 201; was dort fehlt, nach dem Berner Masterplan (gekennzeichnet). Die Note rechnet wie oben.`}
@@ -1896,7 +1885,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
   }
   const planNote = section.aufteilung ? bewerteAufteilung(section, section.aufteilung, city, CITIES[city].breiten).note : null
   const NoteChip = ({ note }: { note: number | null }) => note == null
-    ? <span style={{ fontSize: 'var(--fs-11)', fontWeight: 700, color: '#9a3412', background: '#ffedd5', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>Eingabe nötig</span>
+    ? <span style={{ fontSize: 12, fontWeight: 700, color: '#9a3412', background: '#ffedd5', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>Eingabe nötig</span>
     : <span style={{ fontSize: 12, fontWeight: 800, borderRadius: 6, padding: '2px 8px', whiteSpace: 'nowrap',
                      background: noteColor(note).bg, color: noteColor(note).fg }}>
         <Beurteilung note={note} />
@@ -1949,7 +1938,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
         {/* Note bzw. Status immer in der Kopfzeile (seit 22.10.2026, vorher nur eingeklappt); dazu die Note der Planung */}
         <NoteChip note={ergebnis.note} />
         {section.aufteilung && planNote != null && (
-          <span title="Note mit der Planung" style={{ fontSize: 'var(--fs-115)', color: 'var(--text-muted)', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+          <span title="Note mit der Planung" style={{ fontSize: 12, color: 'var(--text-muted)', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
             Planung <NoteChip note={planNote} />
           </span>
         )}
@@ -1957,7 +1946,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{section.label}</span>
         )}
         {isWorst && (
-          <span style={{ fontSize: 'var(--fs-11)', fontWeight: 700, color: '#b91c1c',
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c',
                          background: '#fee2e2', borderRadius: 999, padding: '2px 8px' }}>
             massgebend für die Strecke
           </span>
@@ -1969,7 +1958,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
                   title={hatMarker ? 'Den Querschnitt neu aufteilen und prüfen (Reiter «Planen»)'
                     : 'Von Hand planen: ohne Abschnitt von der Karte fehlen Fahrbahnbreite, Trottoirs und amtliche Vermessung'}
                   style={{ border: '1px solid var(--accent)', background: '#fff', color: 'var(--accent)',
-                           borderRadius: 8, padding: '4px 10px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                           borderRadius: 8, padding: '4px 10px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
             {section.aufteilung ? 'Zur Planung' : hatMarker ? 'Aufteilung planen' : 'Von Hand planen'}
           </button>
         )}
@@ -1977,7 +1966,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
         {canRemove && (
           <button onClick={onRemove}
                   style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
-                           borderRadius: 8, padding: '4px 10px', fontSize: 13, cursor: 'pointer' }}>
+                           borderRadius: 8, padding: '4px 10px', fontSize: 14, cursor: 'pointer' }}>
             Entfernen
           </button>
         )}
@@ -2046,7 +2035,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
                      chip={<QuelleChip q={q.fahrbahnbreite} />} />
         {/* Mittelinsel aus der AV: nur Hinweis, nicht in der Note */}
         {section.mittelstreifen && (
-          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: '#f8fafc', border: '1px solid var(--border)', color: 'var(--text-muted-strong)' }}>
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12, background: '#f8fafc', border: '1px solid var(--border)', color: 'var(--text-muted-strong)' }}>
             Mittelstreifen (AV) auf Seite {section.mittelstreifen.seite.toUpperCase()}: {numDE(section.mittelstreifen.breite, 2)} m breit, {section.mittelstreifen.laenge} m lang.
             Die Fahrbahn reicht bis zum Streifen; {section.mittelstreifen.dahinter < 3
               ? <>dahinter liegt nur ein Streifen von {numDE(section.mittelstreifen.dahinter, 1)} m, vermutlich eine Haltestelleninsel mit Veloumfahrung: ÖV-Angebot und Haltestellentyp wählen und die AV neu laden.</>
@@ -2095,7 +2084,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
           </select>
         </label>
         {section.oevAngebot !== 'keine' && (
-          <span style={{ flex: 1, minWidth: 150, fontSize: 12.5, color: 'var(--text-muted-strong)', paddingBottom: 10 }}>
+          <span style={{ flex: 1, minWidth: 150, fontSize: 12, color: 'var(--text-muted-strong)', paddingBottom: 10 }}>
             Den Haltestellentyp unten je Seite wählen.
           </span>
         )}
@@ -2109,7 +2098,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
         const takt = hatTakt ? Math.round(60 / o.busPerH!) : null
         return (
           <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8,
-                        background: '#faf5ff', border: '1px solid #e9d5ff', color: '#6b21a8', fontSize: 12.5 }}>
+                        background: '#faf5ff', border: '1px solid #e9d5ff', color: '#6b21a8', fontSize: 12 }}>
             {o.oevTram
               ? <>Geoportal: <strong>Tramhaltestelle{name}</strong> im Abschnitt → ÖV-Angebot „Tram" gesetzt. Haltestellentyp bitte wählen.</>
               : hatTakt
@@ -2128,7 +2117,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
           <div style={{ marginTop: 10 }}>
             {vorschlagen && (
               <div style={{ marginBottom: 8, padding: '8px 12px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe',
-                            color: '#1e3a8a', fontSize: 12.5, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                            color: '#1e3a8a', fontSize: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ flex: '1 1 260px' }}>
                   <strong>Vorschlag Haltestellenbereich:</strong> Die Haltestelle{section.oev?.oevHaltName ? ` «${section.oev.oevHaltName}»` : ''} liegt
                   in diesem Abschnitt, und er ist nur {numDE(Math.round(laengeM!), 0)} m lang (höchstens {HALTESTELLENBEREICH_MAX_M} m). Die
@@ -2143,7 +2132,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
                 </button>
               </div>
             )}
-            <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 13, color: 'var(--text)' }}>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 14, color: 'var(--text)' }}>
               <input type="checkbox" checked={!!section.haltestellenbereich}
                      onChange={e => onChange({ haltestellenbereich: e.target.checked || undefined })} style={{ marginTop: 3 }} />
               <span>
@@ -2172,13 +2161,13 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
           Erfassung war nicht zu finden. */}
       <Klappe titel="Seiten (Fahrtrichtungen)" stil={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
       <div>
-        <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>
           Seite A in Fahrtrichtung der Strecke, Seite B die Gegenrichtung
           <Info text={`Seite A ist die Fahrtrichtung entlang der Strecke, Seite B die Gegenrichtung. Die Note des Abschnitts ist die schlechtere der bewerteten Seiten.${hatMarker && section.peilungA != null ? ' Der Pfeil am Karten-Marker zeigt die Fahrtrichtung der Seite A.' : ''}`} />
         </div>
         {/* OSM: Radweg als eigener Weg neben der Strasse (seit 21.10.2026): nur Hinweis, die Führungsform bleibt */}
         {section.parallelWeg && (section.parallelWeg.a != null || (beide && section.parallelWeg.b != null)) && (
-          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: '#f5f3ff', border: '1px solid #ddd6fe', color: '#4c1d95' }}>
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12, background: '#f5f3ff', border: '1px solid #ddd6fe', color: '#4c1d95' }}>
             <strong>OSM:</strong> {section.parallelWeg.a != null && (!beide || section.parallelWeg.b == null || section.parallelWeg.a === section.parallelWeg.b)
               ? `Die Führungsform${beide && section.parallelWeg.b === section.parallelWeg.a ? ' beider Seiten' : ' der Seite A'} stammt aus dem parallelen Weg OSM way ${section.parallelWeg.a}`
               : section.parallelWeg.a != null
@@ -2188,7 +2177,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
           </div>
         )}
         {section.radwegSeparat && !section.parallelWeg && (section.radwegSeparat.a || (beide && section.radwegSeparat.b)) && (
-          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, background: '#f5f3ff', border: '1px solid #ddd6fe', color: '#4c1d95' }}>
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12, background: '#f5f3ff', border: '1px solid #ddd6fe', color: '#4c1d95' }}>
             <strong>OSM:</strong> Auf {section.radwegSeparat.a && beide && section.radwegSeparat.b ? 'beiden Seiten' : `Seite ${section.radwegSeparat.a ? 'A' : 'B'}`} ist
             der Radweg als eigener Weg neben der Strasse erfasst. Die Führungsform setzt der Rechner daraus nicht: Oft liegt der Radweg nur
             an einer Haltestelle neben der Strasse (Veloumfahrung). Bitte am Luftbild prüfen und die Führungsform von Hand wählen.
@@ -2196,7 +2185,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
         )}
         {/* Luftbild-Hinweis: nur Funde, nie «nicht erkannt» (ein fehlender Fund sagt wenig). */}
         {(lbHinweis.a || lbHinweis.b) && (
-          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
+          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12,
                         background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a' }}>
             <div>
               <strong>Luftbild:</strong> Velostreifen erkannt auf {lbSeiten.join(' und ')}. Das ist nur ein
@@ -2205,10 +2194,10 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
             </div>
             <button type="button" onClick={() => onLuftbild(lbHinweis)}
                     style={{ marginTop: 6, border: '1px solid #93c5fd', background: '#fff', color: '#1e3a8a',
-                             borderRadius: 8, padding: '5px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                             borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
               {lbKnopf}
             </button>
-            <div style={{ marginTop: 6, fontSize: 'var(--fs-115)', opacity: 0.8 }}>
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
               {LUFTBILD_ERKENNUNG_BILD[section.datenOrt?.stadt??''] ?? 'SWISSIMAGE © swisstopo'} · Erkennung: Modell remote_velo, ETH Zürich
             </div>
           </div>
@@ -2232,7 +2221,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
               Seite B nicht bewerten
             </button>
           </div>
-          <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted-strong)', marginBottom: 8 }}>
             Gilt für beide Fahrtrichtungen, mit einer gemeinsamen Note.
           </div>
           <SeiteFelder felder={seiteA(section)} quelle={{ ist: q.ist, breite: q.breite, parkenRechts: q.parkenRechts, oevTakt: q.oevTakt }}
@@ -2291,14 +2280,13 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
                        onTypBestaetigt={() => onChange({ hsTypAngenommen: { ...section.hsTypAngenommen, b: false } })} />
         )}
         {seitenModus === 'eine' && (
-          <div style={{ fontSize: 13, color: 'var(--text-muted-strong)' }}>
+          <div style={{ fontSize: 14, color: 'var(--text-muted-strong)' }}>
             Wird nicht bewertet{q.richtung === 'osm' ? ', weil OSM hier eine Einbahn kennt' : ''}. Die Note des
             Abschnitts ist die von Seite A.
           </div>
         )}
         {seitenModus === 'eine' && section.osmVeloGegenverkehr && (
-          <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
-                        background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+          <div className="vrc-anleitung" style={{ marginTop: 8 }}>
             OSM: Einbahn mit Velogegenverkehr. Für die Gegenrichtung «Seite B bewerten» wählen und die
             Form angeben (z. B. «Einbahn mit Velogegenverkehr»).
           </div>
@@ -2313,10 +2301,10 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
         <div key={se.seite}>
           {ergebnis.seiten.length > 1 && (
             <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-                          fontSize: 13, fontWeight: 700, color: 'var(--text-strong)' }}>
+                          fontSize: 14, fontWeight: 700, color: 'var(--text-strong)' }}>
               Ergebnis {se.seite === 'A' ? titelA : titelB}
               {ergebnis.massgebend === se.seite && (
-                <span style={{ fontSize: 'var(--fs-11)', fontWeight: 700, color: '#b91c1c',
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c',
                                background: '#fee2e2', borderRadius: 999, padding: '2px 8px' }}>
                   massgebend für den Abschnitt
                 </span>
@@ -2335,7 +2323,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
       {section.obs && (section.obs.count > 0 || section.obs.usage > 0) && (
         <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10,
                       background: '#f0f9ff', border: '1px solid #bae6fd', color: '#075985',
-                      fontSize: 13 }}>
+                      fontSize: 14 }}>
           {section.obs.count > 0 ? (
             <>
               <strong>OpenBikeSensor{obsStand ? ` (Export ${obsStand})` : ''}:</strong> Median Überholabstand{' '}
@@ -2361,10 +2349,10 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
           <div style={{ fontWeight: 700, marginBottom: 6 }}>
             ⚠ Mischfläche Fuss/Velo nur prüfen, wenn alle Voraussetzungen zutreffen:
           </div>
-          <ul style={{ margin: '0 0 6px', paddingLeft: 20, fontSize: 13.5 }}>
+          <ul style={{ margin: '0 0 6px', paddingLeft: 20, fontSize: 14 }}>
             {FUSSWEG_VORAUSSETZUNGEN.map(v => <li key={v}>{v}</li>)}
           </ul>
-          <div style={{ fontSize: 13 }}>
+          <div style={{ fontSize: 14 }}>
             Trifft eine Bedingung nicht zu, ist diese Führungsform i. d. R. nicht zulässig.
             <strong> Bei Gefälle ist besondere Vorsicht geboten</strong> (hohe Differenzgeschwindigkeit
             Velo ↔ Fuss).
@@ -2375,7 +2363,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
 
       {/* Reiter «Planen»: Aufteilung planen — Städte mit aufteilung: true */}
       {mitReitern && tab === 'planen' && !section.aufteilung && (
-        <div style={{ padding: '12px 14px', borderRadius: 10, background: '#f0fdfa', border: '1px solid #99f6e4', fontSize: 13, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ padding: '12px 14px', borderRadius: 10, background: '#f0fdfa', border: '1px solid #99f6e4', fontSize: 14, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ flex: '1 1 220px' }}>{hatMarker
             ? 'Keine Planung für diesen Abschnitt. Ausgangslage ist der Querschnitt von heute.'
             : 'Zuerst einen Abschnitt auf der Karte wählen (Strasse antippen oder suchen, bei Bedarf «✂ Segment teilen», dann «Segmente in Strecke übernehmen»); sonst bleibt nur die Planung von Hand.'}
@@ -2452,20 +2440,21 @@ function downloadCsv(csv: string) {
   setTimeout(() => { a.remove(); URL.revokeObjectURL(url) }, 1000)
 }
 
-// ── Quellen und Grundlagen (seit 23.10.2026, quellen.ts) ─────────────────────
+// ── Grundlagen und Quellen (seit 23.10.2026, quellen.ts) ─────────────────────
 // Je gewählter Stadt: die allgemeinen Werke und die der Stadt, in zwei Gruppen (Vorgaben und Normen; Daten und Dienste).
 // Je Eintrag: Name als Link (wo es eine öffentliche Adresse gibt), Titel, Herausgeber, Ausgabe, Ebene, Geltung (Stadt
 // oder alle Städte) und wofür die App es braucht.
+const FALL_LADEN_HINWEIS = 'Beim Laden einer Fall-Datei werden die Quellen neu abgerufen. Eigene Eingaben, bestätigte Werte und die Planung bleiben erhalten; bei bestätigten Angaben bleibt auch der damalige Quellenstand dokumentiert.'
 const STADT_NAME: Record<Stadt, string> = { bern: 'Bern', zurich: 'Zürich', basel: 'Basel', luzern: 'Luzern' }
 function QuellenTeil({ city, datenOrte }: { city: CityId; datenOrte: QuellenOrt[] }) {
   const gruppe = (g: QuellenGruppe, titel: string) => {
     const liste = g==='daten'?datenquellenFuer(datenOrte):quellenFuer(city, g)
     return (
       <div style={{ marginTop: 10 }}>
-        <h3 style={{ fontSize: 13.5, margin: '0 0 6px', color: 'var(--text-strong)' }}>{titel}</h3>
+        <h3 style={{ fontSize: 14, margin: '0 0 6px', color: 'var(--text-strong)' }}>{titel}</h3>
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8 }}>
           {liste.map(q => (
-            <li key={q.id} style={{ fontSize: 12.5, lineHeight: 1.45, paddingLeft: 10, borderLeft: '3px solid var(--border)' }}>
+            <li key={q.id} style={{ fontSize: 12, lineHeight: 1.45, paddingLeft: 10, borderLeft: '3px solid var(--border)' }}>
               <div>
                 {q.url
                   ? <a href={q.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontWeight: 700 }}>{q.name} ↗</a>
@@ -2474,7 +2463,7 @@ function QuellenTeil({ city, datenOrte }: { city: CityId; datenOrte: QuellenOrt[
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span>{q.herausgeber}{q.ausgabe ? ` · ${q.ausgabe}` : ''} · {q.ebene}</span>
-                <span style={{ fontSize: 'var(--fs-105)', fontWeight: 700, borderRadius: 999, padding: '1px 7px',
+                <span style={{ fontSize: 12, fontWeight: 700, borderRadius: 999, padding: '1px 7px',
                                background: q.staedte || q.gebiete ? '#dbeafe' : 'var(--border-subtle)', color: q.staedte || q.gebiete ? '#1e40af' : 'var(--text-muted-strong)' }}>
                   {q.gebietLabel ?? (q.staedte ? q.staedte.map(x => STADT_NAME[x]).join(', ') : g === 'daten' ? 'Schweiz / allgemein' : 'alle Städte')}
                 </span>
@@ -2487,11 +2476,11 @@ function QuellenTeil({ city, datenOrte }: { city: CityId; datenOrte: QuellenOrt[
     )
   }
   return (
-    <details id="quellen" className="vrc-klappe" style={{ marginTop: 28 }}>
-      <summary style={{ cursor: 'pointer', fontSize: 16, fontWeight: 700, color: 'var(--text)', userSelect: 'none' }}>
-        Quellen und Grundlagen ({STADT_NAME[city]})
+    <details id="quellen" className="vrc-klappe vrc-kachel">
+      <summary>
+        Grundlagen und Quellen ({STADT_NAME[city]})
       </summary>
-      <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted-strong)' }}>
         Worauf sich Bewertung und Planung für {STADT_NAME[city]} stützen; die Grundlagen folgen dem Bewertungsstandard, die Datendienste dem tatsächlichen Ort.
         Standards einer Stadt gelten für deren eigene Projekte, Normen sind Fachregeln ohne Gesetzeskraft. Wo ein Werk eine
         öffentliche Adresse hat, führt der Name dorthin.
@@ -2506,7 +2495,7 @@ function QuellenTeil({ city, datenOrte }: { city: CityId; datenOrte: QuellenOrt[
 /** Aufklappbare Einstiegshilfe im Panel (Standard der Check-Apps): Schritte und Grenzen */
 function SoFunktionierts() {
   return (
-    <details className="hilfe">
+    <details className="hilfe vrc-klappe vrc-kachel">
       <summary>So funktioniert's</summary>
       <ol>
         <li><b>Stadt wählen:</b> oben auf der Karte. Die Bewertung folgt den Vorgaben der gewählten Stadt (z.&nbsp;B. Masterplan
@@ -2553,7 +2542,7 @@ function SoFunktionierts() {
         <li><b>Ergebnis lesen:</b> vorne steht der Erfüllungsgrad (von «Gar nicht erfüllt» bis «Vollständig erfüllt»), dahinter
           die Note von 1 bis 6, aus der er entsteht. Die Bewertung gilt je Seite, je Abschnitt (die schlechtere Seite) und für die
           ganze Strecke (der schlechteste Abschnitt). «Wie die Beurteilung entsteht» im Ergebnis zeigt jeden Abzug; die Herleitung
-          steht im Referenzteil unten; «Quellen und Grundlagen» darüber nennt je Stadt die Vorgaben, Normen und Daten mit Link.
+          steht im Referenzteil unten; «Grundlagen und Quellen» darüber nennt je Stadt die Vorgaben, Normen und Daten mit Link.
           «Als CSV exportieren» sichert die Bewertung als Datei. Eingaben merkt sich der Browser, bis du «Karte leeren» wählst; «Fall speichern» sichert sie als Datei.</li>
       </ol>
       <p><b>Grenzen</b></p>
@@ -2566,36 +2555,47 @@ function SoFunktionierts() {
   )
 }
 
+/** Kachel der Startseite (wie fgsCheck und SichtweitenCheck): Bild, Titel, kurzer Text, öffnet in einem neuen Tab */
+function Querverweis({ href, bild, titel, text }: { href: string; bild: string; titel: string; text: string }) {
+  return (
+    <a className="start-kachel" href={href} target="_blank" rel="noopener noreferrer">
+      <img src={import.meta.env.BASE_URL + bild} alt="" width={56} height={56} />
+      <span>
+        <span className="start-kachel-titel">{titel}&nbsp;↗</span><br />
+        <span className="start-kachel-text">{text}</span>
+      </span>
+    </a>
+  )
+}
+
 function Landing({ onStart }: { onStart: () => void }) {
   return (
-    <main style={{ maxWidth: 680, margin: '0 auto', padding: '24px 16px 56px',
-                   fontFamily: 'system-ui, -apple-system, sans-serif', color: 'var(--text)' }}>
-      <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="" aria-hidden="true"
-           title="Zur Bewertung und Planung" onClick={onStart}
-           style={{ width: 225, maxWidth: '60%', display: 'block', margin: '8px auto 6px', cursor: 'pointer' }} />
+    <main className="start">
+      <img className="start-logo" src={import.meta.env.BASE_URL + 'logo.svg'} alt="" aria-hidden="true"
+           title="Zur Bewertung und Planung" onClick={onStart} />
       <h1 className="start-titel">VeloroutenCheck</h1>
-      <p className="start-untertitel">Qualität der Veloinfrastruktur <span className="marke">Beta</span></p>
-      <div style={{ textAlign: 'center', marginBottom: 22 }}>
-        <button onClick={onStart}
-                style={{ border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer',
-                         borderRadius: 8, padding: '9px 18px', fontSize: 14, fontWeight: 600 }}>
-          Zur Bewertung und Planung →
-        </button>
+      <p className="start-untertitel">Qualität der Veloinfrastruktur <span className="marke">v{__APP_VERSION__}</span></p>
+      <div className="start-knopf-zeile">
+        <button className="start-knopf" onClick={onStart}>Zur Bewertung und Planung →</button>
       </div>
-      <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 14px' }}>
-        <b>VeloroutenCheck bewertet Velostrecken nach den Vorgaben der jeweiligen Stadt:</b> in Bern
-        nach dem Masterplan Veloinfrastruktur, in Zürich, Basel und Luzern nach den städtischen
-        Velostandards. Die Strecke wählst du auf der Karte. Sie wird in Abschnitte gegliedert, und jeder
-        Abschnitt erhält eine Note für beide Fahrtrichtungen.
+      <p>
+        <b>Funktion:</b> VeloroutenCheck bewertet Velostrecken nach den Vorgaben der jeweiligen Stadt. Die Strecke wählst du auf
+        der Karte. Sie wird in Abschnitte gegliedert, und jeder Abschnitt erhält eine Note für beide Fahrtrichtungen.
       </p>
-      <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 14px' }}>
+      <p>
+        Der Querschnitt einer Strasse lässt sich neu aufteilen, mit Fahrspuren, Velostreifen, Parkierung, Trottoirs und Haltestelle.
+        Jedes Element wird gegen die Vorgaben der Stadt geprüft; wo eine Stadt kein Mass nennt, gilt das Berner, mit Hinweis. Die
+        Note der Planung steht neben der von heute. Eine Skizze zeigt beide Querschnitte; der Bericht lässt sich als PDF drucken.
+      </p>
+      <p>
         <b>Daten:</b> Führungsform, Tempo, Verkehrsmenge und Routentyp kommen aus OpenStreetMap und den
         Geoportalen der Städte. Breiten lassen sich am Luftbild ab der Bordsteinkante messen, in Luzern
         anhand der Strassenflächen der Stadt. In Bern, Zürich und Basel weist eine automatische
         Luftbild-Erkennung (Modell der ETH Zürich) auf Velostreifen hin, die in den Daten fehlen.
       </p>
-      <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
-        <b>Bewertungsgrundlage:</b> Entspricht die vorhandene Führungsform nicht dem vorgesehenen Soll-Zustand, wird
+      <p>
+        <b>Bewertungsgrundlage:</b> Massgebend sind in Bern der Masterplan Veloinfrastruktur, in Zürich, Basel und Luzern die
+        städtischen Velostandards. Entspricht die vorhandene Führungsform nicht dem vorgesehenen Soll-Zustand, wird
         berücksichtigt, wie stark sich dies auf das subjektive Sicherheitsgefühl auswirkt. Grundlage
         dafür sind die Feel-Safe-Werte aus der{' '}
         <a href="https://radwege-check.de/auswertung/"
@@ -2603,111 +2603,51 @@ function Landing({ onStart }: { onStart: () => void }) {
           radwege-check-/FixMyCity-Befragung
         </a>{' '}in Berlin.
       </p>
-      <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
+      <p>
         Eine eigene Bildumfrage mit 5&nbsp;900 Bewertungen zu 51 Berner Szenen hat diese Werte
         überprüft: Die Rangfolge der Führungsformen bestätigt sich, und breitere Velostreifen werden
         als sicherer bewertet.
       </p>
-      <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
-        <b>Neu: Aufteilung planen.</b> Den Querschnitt einer Strasse neu aufteilen, mit Fahrspuren,
-        Velostreifen, Parkierung, Trottoirs und Haltestelle. Jedes Element wird gegen die Vorgaben der Stadt
-        geprüft; wo eine Stadt kein Mass nennt, gilt das Berner, mit Hinweis. Die Note der Planung steht
-        neben der von heute. Eine Skizze zeigt beide Querschnitte; der Bericht lässt sich als PDF drucken.
-      </p>
+      <p><b>Die App ersetzt keine Beurteilung vor Ort.</b></p>
 
-      {/* Ergebnisbericht der Berner Bildumfrage (22.09.2026) */}
-      <a href="https://github.com/pnfzygrzgf-svg/VeloroutenCheck/blob/main/docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Subjektive_Sicherheit_auf_Berner_Velorouten.pdf"
-         target="_blank" rel="noopener noreferrer"
-         style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 22, textDecoration: 'none',
-                  background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 10,
-                  padding: '12px 16px', color: 'var(--text)' }}>
-        <img src={import.meta.env.BASE_URL + 'umfrage.jpg'} alt="" width={56} height={56}
-             style={{ flexShrink: 0, borderRadius: 8 }} />
-        <span>
-          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>Subjektive Sicherheit auf Berner Velorouten</span><br />
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            Ergebnisbericht der Bildumfrage 2026 (PDF).
-          </span>
-        </span>
-      </a>
-
-      {/* Querverweis auf KnotenCheck */}
-      <a href="https://knotencheck.ch/" target="_blank" rel="noopener noreferrer"
-         style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 22, textDecoration: 'none',
-                  background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 10,
-                  padding: '12px 16px', color: 'var(--text)' }}>
-        <img src={import.meta.env.BASE_URL + 'knotencheck.png'} alt="" width={56} height={56}
-             style={{ flexShrink: 0, borderRadius: 8 }} />
-        <span>
-          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>KnotenCheck</span><br />
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            Werkzeug zur Leistungsbeurteilung von Knoten innerorts.
-          </span>
-        </span>
-      </a>
-
-      {/* Querverweis auf fgsCheck */}
-      <a href="https://fgscheck.ch/" target="_blank" rel="noopener noreferrer"
-         style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14, textDecoration: 'none',
-                  background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 10,
-                  padding: '12px 16px', color: 'var(--text)' }}>
-        <img src={import.meta.env.BASE_URL + 'fgscheck.svg'} alt="" width={56} height={56}
-             style={{ flexShrink: 0, borderRadius: 8, background: '#fff' }} />
-        <span>
-          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>fgsCheck</span><br />
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            Sichtprüfung an Fussgängerstreifen.
-          </span>
-        </span>
-      </a>
-
-      {/* Querverweis auf SichtweitenCheck */}
-      <a href="https://sichtweitencheck.ch/" target="_blank" rel="noopener noreferrer"
-         style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14, textDecoration: 'none',
-                  background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 10,
-                  padding: '12px 16px', color: 'var(--text)' }}>
-        <img src={import.meta.env.BASE_URL + 'sichtweitencheck.svg'} alt="" width={56} height={56}
-             style={{ flexShrink: 0, borderRadius: 8, background: '#fff' }} />
-        <span>
-          <span style={{ fontWeight: 700, color: 'var(--text-strong)' }}>SichtweitenCheck</span><br />
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            Sichtprüfung an Knoten und Grundstückzufahrten.
-          </span>
-        </span>
-      </a>
+      {/* Ergebnisbericht der Berner Bildumfrage (22.09.2026), danach die anderen Rechner */}
+      <Querverweis href="https://github.com/pnfzygrzgf-svg/VeloroutenCheck/blob/main/docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Subjektive_Sicherheit_auf_Berner_Velorouten.pdf"
+        bild="umfrage.jpg" titel="Subjektive Sicherheit auf Berner Velorouten" text="Ergebnisbericht der Bildumfrage 2026 (PDF)." />
+      <Querverweis href="https://fgscheck.ch/" bild="fgscheck.svg" titel="fgsCheck"
+        text="Sichtprüfung an Fussgängerstreifen." />
+      <Querverweis href="https://sichtweitencheck.ch/" bild="sichtweitencheck.svg" titel="SichtweitenCheck"
+        text="Sichtprüfung an Knoten und Grundstückzufahrten." />
+      <Querverweis href="https://knotencheck.ch/" bild="knotencheck.png" titel="KnotenCheck"
+        text="Werkzeug zur Leistungsbeurteilung von Knoten innerorts." />
 
       {/* Unterstützen (Ko-fi, 31.10.2026): auf der Startseite als eigene Karte, sichtbarer als in der Fusszeile */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 22, flexWrap: 'wrap',
-                    background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '14px 16px' }}>
-        <div style={{ flex: '1 1 260px' }}>
-          <div style={{ fontWeight: 700, color: 'var(--text-strong)' }}>VeloroutenCheck unterstützen</div>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+      <div className="start-spende">
+        <div className="start-spende-text">
+          <div className="start-spende-titel">VeloroutenCheck unterstützen</div>
+          <div className="start-spende-hinweis">
             Der Rechner ist frei nutzbar und quelloffen. Wer die Weiterentwicklung unterstützen möchte, kann über
             Ko-fi spenden.
           </div>
         </div>
-        <a href="https://ko-fi.com/pnfzygrzgfsvg" target="_blank" rel="noopener noreferrer"
-           style={{ flexShrink: 0, background: '#ea580c', color: '#fff', textDecoration: 'none', borderRadius: 8,
-                    padding: '8px 14px', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap' }}>
+        <a className="start-spende-knopf" href="https://ko-fi.com/pnfzygrzgfsvg" target="_blank" rel="noopener noreferrer">
           Über Ko-fi unterstützen ↗
         </a>
       </div>
 
-      {/* Datenspeicherung (nur auf der Einstiegsseite) — kompakt */}
-      <div style={{ marginTop: 22, padding: '10px 14px', borderRadius: 10,
-                    background: '#f8fafc', border: '1px solid var(--border-subtle)',
-                    fontSize: 'var(--fs-115)', color: 'var(--text-muted)', lineHeight: 1.45, textAlign: 'left' }}>
-        <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Datenspeicherung</div>
-        <div><DatenabrufHinweis /></div>
-        <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>
-          <li>Eingaben merkt sich dieser Browser (lokaler Speicher), damit sie das Neuladen oder Schliessen des Tabs überstehen. «Karte leeren» löscht sie. Auf einem fremden Gerät darum am Ende leeren. An keinen Dienst geht etwas davon.</li>
-          <li>CSV-Export: „Als CSV exportieren" lädt die Bewertung als CSV-Datei auf den
-            lokalen Rechner — kein Upload, kein Cloud-Speicher. Fall-Dateien werden ebenfalls lokal gespeichert und geladen.</li>
-          <li>Bericht / PDF: entsteht über den Druckdialog des Browsers, ebenfalls ohne Upload.</li>
-          <li>Nutzungsstatistik: Seitenaufrufe werden mit GoatCounter gezählt — datenschutzfreundlich: keine
-            Cookies, keine Speicherung der IP-Adresse, keine personenbezogenen Daten. Übermittelt wird nur ein
-            anonymer Seitenaufruf (mit groben Angaben wie Browser und Herkunftsland), nicht deine Eingaben oder
-            Ergebnisse. GitHub Pages loggt zudem serverseitig Zugriffe (IP, User-Agent), wie jeder Webserver.</li>
+      <div className="start-daten">
+        <div className="start-daten-titel">Datenspeicherung</div>
+        <div>Alle Berechnungen laufen im Browser. Eingaben und Ergebnisse werden an keinen Server übermittelt.</div>
+        <ul>
+          <li>Eingaben merkt sich der Browser (lokaler Speicher), damit sie das Neuladen oder Schliessen des Tabs überstehen;
+            «Karte leeren» löscht sie. Auf einem fremden Gerät darum am Ende leeren. Die Fall-Datei, der CSV-Export und der
+            PDF-Bericht werden lokal gespeichert, ohne Upload.</li>
+          <li>Für Karte, Rechnung und Bericht fragt die App den Kartenausschnitt bzw. die Lage des Abschnitts bei swisstopo,
+            geodienste.ch, OpenStreetMap (Overpass) und den Geodatendiensten der Städte ab; gesendet werden Koordinaten und
+            Kennungen der Dienste, keine Eingaben. Den Suchbegriff der Strassensuche erhält swisstopo; der eigene Standort bleibt
+            im Browser. Die Dienste sehen technisch die IP-Adresse. Die Links «Street View ↗» öffnen Google Maps erst auf Klick;
+            dabei gehen die Koordinaten an Google. Die vollständige Liste der Dienste steht in der App unter «Datenschutz».</li>
+          <li>Nutzungsstatistik: Seitenaufrufe werden mit GoatCounter gezählt, ohne Cookies und ohne Speicherung der
+            IP-Adresse. GitHub Pages protokolliert Zugriffe wie jeder Webserver.</li>
         </ul>
       </div>
       <footer className="start-fuss">
@@ -2778,17 +2718,15 @@ export default function App() {
   const [osmMsg, setOsmMsg] = useState('')
   const [osmKind, setOsmKind] = useState<'info' | 'ok' | 'error'>('info')  // Meldungstyp für Styling
   // Statusmeldung mit Typ setzen (info = neutral/Laden, ok = Erfolg, error = Fehler).
-  // Meldung auch als Toast unten im Panel (seit 22.10.2026): wer tief in der Planung arbeitet, sieht die Zeile oben nicht
-  const [toast, setToast] = useState<{ text: string; kind: 'info' | 'ok' | 'error'; key: number } | null>(null)
   const setMsg = (text: string, kind: 'info' | 'ok' | 'error' = 'info') => {
     setOsmMsg(text); setOsmKind(kind)
-    setToast(text ? { text, kind, key: Date.now() } : null)
   }
+  // Das gelbe Feld verschwindet von selbst; Fehler bleiben länger, während des Ladens bleibt es stehen
   useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), toast.kind === 'error' ? 9000 : 5000)
+    if (!osmMsg || osmBusy) return
+    const t = setTimeout(() => setOsmMsg(''), osmKind === 'error' ? 15000 : 8000)
     return () => clearTimeout(t)
-  }, [toast])
+  }, [osmMsg, osmKind, osmBusy])
   const [gebiet, setGebiet] = useState<Suchgebiet>('bern')
   const datenCfg = gebiet === 'schweiz' ? SCHWEIZ : CITIES[gebiet]
   const [city, setCity] = useState<CityId>('bern')               // gewählte Stadt → Datenquellen/Beschriftung
@@ -3101,13 +3039,13 @@ export default function App() {
     merkenVoll.current = !ok
   }
   useEffect(() => { const t = setTimeout(() => merkenJetzt.current(), 800); return () => clearTimeout(t) }, [sections, cands, city, gebiet, street, osmBusy])
-  // Schliessen und Neuladen: den letzten Stand sofort merken; ohne Datei warnt der Browser
+  // Schliessen und Neuladen: den letzten Stand sofort merken; der Browser warnt nur, wenn das Merken nicht geklappt hat
   useEffect(() => {
     const merken = () => merkenJetzt.current()
     const warnen = (e: BeforeUnloadEvent) => {
       merken()
       const s = sectionsRef.current
-      if (hatEingaben(s) && s !== gesichertRef.current) { e.preventDefault(); e.returnValue = '' }
+      if (merkenVoll.current && hatEingaben(s) && s !== gesichertRef.current) { e.preventDefault(); e.returnValue = '' }
     }
     window.addEventListener('beforeunload', warnen); window.addEventListener('pagehide', merken)
     return () => { window.removeEventListener('beforeunload', warnen); window.removeEventListener('pagehide', merken) }
@@ -4081,7 +4019,7 @@ export default function App() {
         nachgeladenRef.current.add(k)
         zaehlen(id, 1)
         laden().then(o => {if(generation===datenGeneration())setEbenen(prev => ebenenMischen(prev, { [id]: o }))})
-          .catch(() => { nachgeladenRef.current.delete(k); setMsg(`Geladene Quellen: ${fehlerName[id]} nicht erreichbar.`, 'info') })
+          .catch(() => { nachgeladenRef.current.delete(k); setMsg(`Kartenebenen: ${fehlerName[id]} nicht erreichbar.`, 'info') })
           .finally(() => zaehlen(id, -1))
       }
       const lokal = cfgFuer(s), datenStadt = s.datenOrt?.stadt
@@ -4103,7 +4041,7 @@ export default function App() {
       ladeWartehallen(mitAchse.flatMap(s => avAchsen(s).flat().map(p => zuWgs(p[0], p[1])))).then(pk => setEbenen(prev => ebenenMischen(prev, { wartehallen: pk.map(p => ({
         id: `wh:${p.lat.toFixed(6)},${p.lon.toFixed(6)}`, punkt: { lat: p.lat, lon: p.lon }, klasse: p.wartehalle ? 'halle' : 'perron',
         text: p.wartehalle ? 'Wartehalle (OpenStreetMap)' : 'Perron ohne Wartehalle (OpenStreetMap)' })) })))
-        .catch(() => { nachgeladenRef.current.delete(`wartehallen|${alle}`); setMsg('Geladene Quellen: Wartehallen nicht erreichbar.', 'info') })
+        .catch(() => { nachgeladenRef.current.delete(`wartehallen|${alle}`); setMsg('Kartenebenen: Wartehallen nicht erreichbar.', 'info') })
         .finally(() => zaehlen('wartehallen', -1))
     }
     // Amtliche Vermessung je Abschnitt (avFuerAbschnitt: dieselben Kacheln und derselbe Zwischenspeicher wie Messen und Planung,
@@ -4227,15 +4165,14 @@ export default function App() {
           <button className="logo-knopf" onClick={() => go('home')} title="Zur Startseite" aria-label="Zur Startseite">
             <img src={import.meta.env.BASE_URL + 'logo.svg'} alt="" width={36} height={36} />
           </button>
-          VeloroutenCheck <span className="marke">Beta</span>
+          VeloroutenCheck <span className="marke">v{__APP_VERSION__}</span>
         </h1>
         <SoFunktionierts />
 
       {/* Hauptfunktionen (seit 22.10.2026): Bewerten | Planen und Bericht / PDF. Ersetzt den Schalter
           «Anzeige: Schulnote | Erfüllungsgrad»; der Erfüllungsgrad steht seither überall vorne, die Note dahinter. */}
-      {cityCfg.aufteilung && (
-        <div className="vrc-haupt">
-          <div className="vrc-haupt-wahl" role="group" aria-label="Hauptfunktion">
+      <div className="vrc-haupt">
+          {cityCfg.aufteilung && <div className="vrc-haupt-wahl" role="group" aria-label="Hauptfunktion">
             <button type="button" aria-pressed={hauptAnsicht === 'bewerten'} onClick={() => hauptAnsichtSetzen('bewerten')}
                     title="Alle Abschnitte mit Eingaben und Beurteilung zeigen">
               Bewerten
@@ -4244,16 +4181,19 @@ export default function App() {
                     title="Den Querschnitt neu aufteilen und prüfen; beginnt beim massgebenden Abschnitt">
               Planen
             </button>
-          </div>
-          <button type="button" className="vrc-haupt-bericht" aria-expanded={mitPlanung.length === 1 ? undefined : berichtWahl}
+          </div>}
+          <button type="button" className="vrc-haupt-bericht" onClick={()=>fallInput.current?.click()} disabled={osmBusy}
+                  title="Fall-Datei öffnen; die Quellen werden dabei neu abgerufen">Fall laden</button>
+          <button type="button" className="vrc-haupt-bericht" onClick={fallSpeichern} disabled={osmBusy}
+                  title="Alle Abschnitte mit Eingaben und Planung als Fall-Datei sichern">Fall speichern</button>
+          {cityCfg.aufteilung && <button type="button" className="vrc-haupt-bericht" aria-expanded={mitPlanung.length === 1 ? undefined : berichtWahl}
                   onClick={() => (mitPlanung.length === 1 ? berichtOeffnen(mitPlanung[0].s.id) : setBerichtWahl(w => !w))}
                   title="Bericht einer Planung als Druckansicht; als PDF über den Druckdialog des Browsers">
             Bericht / PDF
-          </button>
-        </div>
-      )}
+          </button>}
+      </div>
       {berichtWahl && (
-        <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, background: '#f0fdfa', border: '1px solid #99f6e4', fontSize: 13 }}>
+        <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 10, background: '#f0fdfa', border: '1px solid #99f6e4', fontSize: 14 }}>
           {mitPlanung.length === 0 ? (
             <>
               <div>
@@ -4263,7 +4203,7 @@ export default function App() {
               {sections.length > 0 && (
                 <button type="button" onClick={() => hauptAnsichtSetzen('planen')}
                         style={{ marginTop: 8, border: 'none', background: 'var(--accent)', color: '#fff', borderRadius: 8,
-                                 padding: '7px 12px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>
+                                 padding: '7px 12px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                   Planung für Abschnitt {(worstIdx >= 0 ? worstIdx : 0) + 1} beginnen
                 </button>
               )}
@@ -4289,8 +4229,8 @@ export default function App() {
           Planung steht dahinter die Strecke mit der Planung. */}
       {/* zIndex bewusst klein: der Karten-Wrapper isoliert Leaflet (eigener Stacking-Context,
           s. unten) — so muss die Sticky-Leiste native Dropdowns/Popover nicht mehr überbieten. */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 100, marginBottom: 18, background: sc.bg, color: sc.fg,
-                    borderRadius: 10, boxShadow: '0 2px 10px rgba(0,0,0,0.15)' }}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 100, marginBottom: 18 }}>
+      <div style={{ background: sc.bg, color: sc.fg, borderRadius: 10, boxShadow: '0 2px 10px rgba(0,0,0,0.15)' }}>
         {/* Zeile und Knopf über index.css (.vrc-strecke-zeile/-knopf): auf Mobile einzeilig mit kurzen Texten (seit 28.10.2026) */}
         <div className="vrc-strecke-zeile">
           <button className="vrc-strecke-knopf"
@@ -4300,12 +4240,12 @@ export default function App() {
             }}
             title={streckeNote != null ? 'Zum massgebenden Abschnitt springen'
                                        : 'Zum ersten unvollständigen Abschnitt springen'}>
-            <span style={{ fontSize: 'var(--fs-11)', fontWeight: 700, letterSpacing: '0.08em',
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em',
                            textTransform: 'uppercase', opacity: 0.85 }}>Strecke</span>
-            <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1 }}>
+            <span style={{ fontSize: 15, fontWeight: 800, lineHeight: 1 }}>
               {streckeNote == null ? '–' : <Beurteilung note={streckeNote} />}
             </span>
-            <span style={{ fontSize: 13, opacity: 0.95, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <span style={{ fontSize: 14, opacity: 0.95, overflow: 'hidden', textOverflow: 'ellipsis' }}>
               <span className="nur-desktop">{streckeNote != null
                 ? `· massgebend: Abschnitt ${worstIdx + 1}`
                 : `· unvollständig (${offen} von ${ergebnisse.length} offen)`}</span>
@@ -4313,7 +4253,7 @@ export default function App() {
             </span>
           </button>
           {streckePlanNote != null && (
-            <span className="vrc-strecke-plan" style={{ fontSize: 13 }} title="Strecke mit der Planung">
+            <span className="vrc-strecke-plan" style={{ fontSize: 14 }} title="Strecke mit der Planung">
               → <span className="nur-desktop">mit der Planung: </span><strong><Beurteilung note={streckePlanNote} /></strong>
             </span>
           )}
@@ -4321,13 +4261,13 @@ export default function App() {
           {sections.length > 1 && (
             <button type="button" aria-expanded={streckeAuf} onClick={() => setStreckeAuf(a => !a)}
                     style={{ border: 'none', background: 'none', color: 'inherit', cursor: 'pointer', padding: 0,
-                             font: 'inherit', fontSize: 12.5, fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 2 }}>
+                             font: 'inherit', fontSize: 12, fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 2 }}>
               {streckeAuf ? 'Abschnitte ▴' : 'Abschnitte ▾'}
             </button>
           )}
         </div>
         {streckeAuf && sections.length > 1 && (
-          <div style={{ padding: '0 16px 10px', fontSize: 12.5 }}>
+          <div style={{ padding: '0 16px 10px', fontSize: 12 }}>
             <div style={{ opacity: 0.95 }}>Die Strecke ist so gut wie ihr schlechtester Abschnitt. Ein Klick öffnet den Abschnitt.</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
               {ergebnisse.map((e, i) => (
@@ -4343,6 +4283,15 @@ export default function App() {
           </div>
         )}
       </div>
+      {/* Meldung als gelbes Feld wie in fgsCheck und SichtweitenCheck; an der Leiste, damit sie auch tief im Panel sichtbar bleibt */}
+      {osmMsg && (
+        <div className="hinweis vrc-meldung" role={osmKind === 'error' ? 'alert' : 'status'} aria-live="polite">
+          <span aria-hidden>{osmBusy ? '⏳' : osmKind === 'error' ? '⚠' : osmKind === 'ok' ? '✓' : 'ℹ'}</span>
+          <span className="text">{osmMsg}</span>
+          <button type="button" onClick={() => setMsg('')} aria-label="Meldung schliessen">✕</button>
+        </div>
+      )}
+      </div>
 
       {/* Aus OpenStreetMap laden */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end',
@@ -4350,29 +4299,14 @@ export default function App() {
                     marginBottom: 18 }}>
         {/* Stadt und Strassensuche stehen seit 17.10.2026 über der Karte (Kartenkopf, wie fgsCheck) */}
         <div style={{ flexBasis: '100%', fontSize: 12, color: 'var(--text-muted-strong)' }}>
-          <label>Bewertungsstandard: <select value={city} onChange={e => wechsleStadt(e.target.value as CityId)} aria-label="Bewertungsstandard">
+          <label>Bewertungsstandard: <select value={city} onChange={e => wechsleStadt(e.target.value as CityId)} aria-label="Bewertungsstandard"
+                                          style={{ ...selectStyle, padding: '4px 8px' }}>
             {(Object.keys(CITIES) as CityId[]).map(k => <option key={k} value={k}>{CITIES[k].label}</option>)}
           </select></label>{' · '}
           <a href={cityCfg.standardDoc.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
             {cityCfg.standardDoc.titel}
           </a>
         </div>
-        {osmMsg && (() => {
-          // Drei klare Zustände: Laden (info, neutral), Erfolg (ok, grün), Fehler (error, rot).
-          const kind = osmBusy ? 'info' : osmKind
-          const sty = kind === 'error' ? { bg: '#fef2f2', bd: '#fecaca', fg: '#991b1b', icon: '⚠' }
-            : kind === 'ok' ? { bg: '#f0fdf4', bd: '#bbf7d0', fg: '#166534', icon: '✓' }
-            : { bg: 'var(--bg)', bd: 'var(--border-subtle)', fg: 'var(--text-muted-strong)', icon: osmBusy ? '⏳' : 'ℹ' }
-          return (
-            <div role="status" aria-live="polite"
-                 style={{ flexBasis: '100%', fontSize: 13, display: 'flex', gap: 8, alignItems: 'flex-start',
-                          background: sty.bg, border: `1px solid ${sty.bd}`, color: sty.fg,
-                          borderRadius: 8, padding: '8px 12px' }}>
-              <span aria-hidden style={{ flexShrink: 0 }}>{sty.icon}</span>
-              <span>{osmMsg}</span>
-            </div>
-          )
-        })()}
 
         {/* Karte: immer sichtbar. Strecke per Klick auf die Karte aufbauen (Segment hinzufügen),
             Linien an-/abwählen, dann übernehmen. Die Strassensuche oben auf der Karte ist optional. */}
@@ -4420,7 +4354,7 @@ export default function App() {
                     <button key={m} type="button" aria-pressed={messung.modus === m}
                             onClick={() => setMessung({ ...messung, modus: m, punkte: [], ergebnis: undefined,
                               fehler: m !== 'hand' && !messung.laden && messung.kanten.length === 0 ? messung.fehler : undefined })}
-                            style={{ border: 'none', padding: '5px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                            style={{ border: 'none', borderRadius: 0, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                                      background: messung.modus === m ? 'var(--accent)' : '#fff',
                                      color: messung.modus === m ? '#fff' : 'var(--text)' }}>
                       {label}
@@ -4452,7 +4386,7 @@ export default function App() {
                         <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                           {([['plan', 'Planung'], ['heute', 'Heute (Ausgangslage)']] as const).map(([z, label]) => (
                             <button key={z} type="button" aria-pressed={(messung.ziel ?? 'plan') === z} onClick={() => setMessung({ ...messung, ziel: z, teilNr: 0 })}
-                                    style={{ border: 'none', padding: '4px 9px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                                    style={{ border: 'none', borderRadius: 0, padding: '4px 9px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                                              background: (messung.ziel ?? 'plan') === z ? 'var(--accent)' : '#fff', color: (messung.ziel ?? 'plan') === z ? '#fff' : 'var(--text)' }}>
                               {label}
                             </button>
@@ -4464,7 +4398,7 @@ export default function App() {
                         // Breite eines BESTEHENDEN Elements ersetzen (welches). Ein Knopf, der sagt, was mit der Messung geschieht.
                         const wie = messung.wie ?? 'neu'
                         const zeile: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: 6, alignItems: 'center', minWidth: 0 }
-                        const auswahl: React.CSSProperties = { ...selectStyle, width: '100%', minWidth: 0, padding: '6px 8px', fontSize: 14 }
+                        const auswahl: React.CSSProperties = { ...selectStyle, width: '100%', minWidth: 0, padding: '6px 8px', fontSize: 'var(--fs-feld)' }
                         const an = Math.min(messung.an ?? teile.length, teile.length)
                         const stelle = an === 0 ? 'ganz links' : an >= teile.length ? 'ganz rechts' : `hinter ${an} · ${TEIL_LABEL[teile[an - 1].art]}`
                         const nr = Math.min(messung.teilNr ?? 0, Math.max(0, teile.length - 1))
@@ -4480,7 +4414,7 @@ export default function App() {
                             <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                               {([['neu', 'Neues Element einfügen'], ['teil', 'Breite eines Elements ersetzen'], ['fahrbahn', 'Fahrbahnbreite']] as const).map(([w, label]) => (
                                 <button key={w} type="button" aria-pressed={wie === w} onClick={() => setMessung({ ...messung, wie: w })}
-                                        style={{ border: 'none', padding: '4px 9px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                                        style={{ border: 'none', borderRadius: 0, padding: '4px 9px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                                                  background: wie === w ? 'var(--accent)' : '#fff', color: wie === w ? '#fff' : 'var(--text)' }}>
                                   {label}
                                 </button>
@@ -4488,7 +4422,7 @@ export default function App() {
                             </span>
                           </div>
                           {wie === 'fahrbahn' ? (
-                            <div style={{ fontSize: 12.5, color: 'var(--text-muted-strong)' }}>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted-strong)' }}>
                               Am besten mit «Ganze Fläche» in die Fahrbahn klicken. Danach die übrigen Elemente messen; das letzte setzt «= Rest» in der Liste.
                             </div>
                           ) : wie === 'neu' ? (<>
@@ -4520,7 +4454,7 @@ export default function App() {
                             </div>
                           )}
                           <button type="button" onClick={() => messungAlsTeil(wie)} disabled={!geht}
-                                  style={{ border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 600, textAlign: 'left',
+                                  style={{ border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 14, fontWeight: 600, textAlign: 'left',
                                            background: geht ? 'var(--accent)' : 'var(--text-faint)', color: '#fff', cursor: geht ? 'pointer' : 'default' }}>
                             {aktion}
                           </button>
@@ -4528,14 +4462,14 @@ export default function App() {
                       })()}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         <button type="button" onClick={() => setMessung(null)} style={{ ...kleinKnopfStyle, borderColor: 'var(--accent)', color: 'var(--accent)' }}>Fertig</button>
-                        <span style={{ fontSize: 'var(--fs-11)', color: 'var(--text-muted)' }}>Nach jedem Übernehmen lässt sich weiter messen; «Fertig» schliesst das Werkzeug.</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Nach jedem Übernehmen lässt sich weiter messen; «Fertig» schliesst das Werkzeug.</span>
                       </div>
                     </div>
                   )
                 })() : (
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                   <button type="button" onClick={messungUebernehmen} disabled={!messung.ergebnis}
-                          style={{ border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600,
+                          style={{ border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 14, fontWeight: 600,
                                    background: messung.ergebnis ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
                                    cursor: messung.ergebnis ? 'pointer' : 'default' }}>
                     {messung.ergebnis ? `${numDE(aufZentimeter(messung.ergebnis.breite), 2)} m übernehmen` : 'Übernehmen'}
@@ -4591,7 +4525,7 @@ export default function App() {
                   <span style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                     {([['heute', 'Heute (Ausgangslage)'], ['plan', 'Planung'], ['beides', 'Beides']] as const).map(([z, label]) => (
                       <button key={z} type="button" aria-pressed={qsa.ziel === z} onClick={() => setQsa({ ...qsa, ziel: z })}
-                              style={{ border: 'none', padding: '4px 9px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+                              style={{ border: 'none', borderRadius: 0, padding: '4px 9px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                                        background: qsa.ziel === z ? 'var(--accent)' : '#fff', color: qsa.ziel === z ? '#fff' : 'var(--text)' }}>
                         {label}
                       </button>
@@ -4600,7 +4534,7 @@ export default function App() {
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                   <button type="button" disabled={qsa.lagen.length < 2} onClick={() => qsUebernehmen(qsa.ziel)}
-                          style={{ border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600,
+                          style={{ border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 14, fontWeight: 600,
                                    background: qsa.lagen.length >= 2 ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
                                    cursor: qsa.lagen.length >= 2 ? 'pointer' : 'default' }}>
                     Übernehmen
@@ -4620,7 +4554,7 @@ export default function App() {
               <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
                             zIndex: 500, pointerEvents: 'none', maxWidth: 'calc(100% - 120px)',
                             background: 'rgba(15,23,42,0.88)', color: '#fff', borderRadius: 10,
-                            padding: '7px 14px', fontSize: 13, fontWeight: 600, textAlign: 'center',
+                            padding: '7px 14px', fontSize: 14, fontWeight: 600, textAlign: 'center',
                             boxShadow: '0 4px 14px rgba(0,0,0,0.25)' }}>
                 ✂ Linie dort antippen, wo geteilt werden soll · Esc bricht ab
               </div>
@@ -4637,7 +4571,7 @@ export default function App() {
                               pointerEvents: 'none',
                               background: 'rgba(15,23,42,0.88)', color: '#fff', borderRadius: 10,
                               padding: '12px 16px', boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
-                              fontSize: 13, lineHeight: 1.45, textAlign: 'center' }}>
+                              fontSize: 14, lineHeight: 1.45, textAlign: 'center' }}>
                   <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
                     So baust du eine Strecke auf
                   </div>
@@ -4655,7 +4589,7 @@ export default function App() {
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
             <button onClick={ladeAusschnitt} disabled={osmBusy}
                     style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text)',
-                             borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: osmBusy ? 'default' : 'pointer' }}>
+                             borderRadius: 8, padding: '8px 12px', fontSize: 14, cursor: osmBusy ? 'default' : 'pointer' }}>
               Segmente im Kartenausschnitt laden
             </button>
             <button onClick={uebernehmen} disabled={selCount === 0 || osmBusy || auswahlUebernommen}
@@ -4663,7 +4597,7 @@ export default function App() {
                     style={{ border: auswahlUebernommen ? '1px solid var(--accent)' : 'none',
                              background: auswahlUebernommen ? '#fff' : selCount && !osmBusy ? 'var(--accent)' : 'var(--text-faint)',
                              color: auswahlUebernommen ? 'var(--accent)' : '#fff',
-                             borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600,
+                             borderRadius: 8, padding: '8px 14px', fontSize: 14, fontWeight: 600,
                              cursor: selCount && !osmBusy && !auswahlUebernommen ? 'pointer' : 'default' }}>
               {uebernehmenText}
             </button>
@@ -4679,7 +4613,7 @@ export default function App() {
                       style={{ border: teilModus ? '1px solid var(--accent)' : '1px solid var(--border)',
                                background: teilModus ? 'var(--accent)' : '#fff',
                                color: teilModus ? '#fff' : 'var(--text)',
-                               borderRadius: 8, padding: '8px 12px', fontSize: 13,
+                               borderRadius: 8, padding: '8px 12px', fontSize: 14,
                                cursor: osmBusy ? 'default' : 'pointer' }}>
                 {teilModus ? 'Teilen abbrechen' : '✂ Segment teilen'}
               </button>
@@ -4687,14 +4621,14 @@ export default function App() {
             {(cands.length > 0 || hatEingaben(sections)) && (
               <button title="Entfernt die Strecke und alle Eingaben, auch die im Browser gemerkten" onClick={() => { undoMerken('Karte leeren rückgängig'); quellenNeu(); setCands([]); setStops([]); setEbenen({}); setKartenHinweise([]); setSections([defaultSection()]); setStreet(''); setPlanAv(null); gesichertRef.current = null; fallVergessen(); datenlaufUebernehmen(datenGeneration(), () => {}); setMsg(''); setTeilModus(false); setMessung(null) }}
                       style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
-                               borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
+                               borderRadius: 8, padding: '8px 12px', fontSize: 14, cursor: 'pointer' }}>
                 Karte leeren
               </button>
             )}
             {undoLabel && (
               <button onClick={undoAusfuehren}
                       style={{ border: '1px dashed var(--border)', background: '#fff', color: 'var(--accent)',
-                               borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
+                               borderRadius: 8, padding: '8px 12px', fontSize: 14, cursor: 'pointer' }}>
                 ↩ {undoLabel}
               </button>
             )}
@@ -4703,34 +4637,13 @@ export default function App() {
               16.10.2026 immer hier; sie stehen in «So funktioniert's» und im Hinweis auf der leeren
               Karte (doppelt, entfernt). */}
           {teilModus && (
-            <div style={{ fontSize: 12.5, marginTop: 8, padding: '8px 12px', borderRadius: 8, lineHeight: 1.6,
-                          background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+            <div className="vrc-anleitung" style={{ marginTop: 8 }}>
               <strong>Segment teilen:</strong> Auf die Linie tippen, genau an der Stelle, an der das Segment
               geteilt werden soll. Danach ist der Teil-Modus wieder aus; für einen weiteren Schnitt erneut
               «✂ Segment teilen» wählen. Esc oder «Teilen abbrechen» bricht ab, «Teilen rückgängig» nimmt
               einen Schnitt zurück.
             </div>
           )}
-          {/* Legende Führungsform, einklappbar */}
-          <details className="vrc-klappe" style={{ marginTop: 6, fontSize: 12 }}>
-            <summary style={{ cursor: 'pointer', userSelect: 'none', color: 'var(--text-muted-strong)' }}>Legende Führungsform</summary>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
-              {Object.entries(ISTCOLOR).map(([k, col]) => (
-                <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted-strong)' }}>
-                  <span style={{ width: 16, height: 4, background: col, borderRadius: 2 }} />{formAnzeige(k)}
-                </span>
-              ))}
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted-strong)' }}>
-                <span style={{ width: 16, height: 4, borderRadius: 2, background: '#1e293b',
-                               backgroundImage: 'repeating-linear-gradient(90deg, #fff 0 4px, transparent 4px 8px)', backgroundClip: 'content-box',
-                               padding: 1 }} />nicht gewählt
-              </span>
-            </div>
-            <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
-              Übernommene Abschnitte in der Führungsform des Rechners (auch von Hand geändert), sonst wie in OpenStreetMap;
-              ist Seite B anders, liegt sie gestrichelt darüber.
-            </div>
-          </details>
         </div>
       </div>
 
@@ -4760,7 +4673,7 @@ export default function App() {
         const ohne = datenCfg.avKanton ? sections.filter(s => s.candIds?.length && !Number.isFinite(s.fahrbahnbreite)) : []
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '26px 0 12px' }}>
-            <h2 style={{ fontSize: 16, margin: 0 }}>Abschnitte</h2>
+            <h2 style={{ fontSize: 15, margin: 0 }}>Abschnitte</h2>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Klick auf die Kopfzeile oder die Nummer auf der Karte öffnet einen Abschnitt.</span>
             <span style={{ flex: 1 }} />
             {ohne.length > 0 && (
@@ -4783,7 +4696,7 @@ export default function App() {
                 <span>{selCount ? `${segmente(selCount)} auf der Karte gewählt${osmBusy ? ' (lädt noch)' : ''}.` : 'Noch kein Segment gewählt.'}</span>
                 <button type="button" onClick={uebernehmen} disabled={selCount === 0 || osmBusy}
                         style={{ border: 'none', background: selCount && !osmBusy ? 'var(--accent)' : 'var(--text-faint)', color: '#fff',
-                                 borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: selCount && !osmBusy ? 'pointer' : 'default' }}>
+                                 borderRadius: 8, padding: '6px 12px', fontSize: 14, fontWeight: 600, cursor: selCount && !osmBusy ? 'pointer' : 'default' }}>
                   {uebernehmenText}
                 </button>
                 {cands.length > 0 && (
@@ -4842,63 +4755,65 @@ export default function App() {
         </button>
       </div>
 
-      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:12}}>
-        <button type="button" onClick={fallSpeichern} disabled={osmBusy}>Fall speichern</button>
-        <button type="button" onClick={()=>fallInput.current?.click()} disabled={osmBusy}>Fall laden</button>
-        <button type="button" onClick={()=>void quellenAktualisieren()} disabled={osmBusy}>Verwendete Quellen aktualisieren</button>
-        <input ref={fallInput} type="file" accept=".json,application/json" hidden onChange={e=>void fallLaden(e.target.files?.[0])}/>
-      </div>
-      <p className="klein">Beim Laden einer Fall-Datei werden die Quellen neu abgerufen. Eigene Eingaben, bestätigte Werte und die Planung bleiben erhalten; bei bestätigten Angaben bleibt auch der damalige Quellenstand dokumentiert.</p>
+      <input ref={fallInput} type="file" accept=".json,application/json" hidden onChange={e=>void fallLaden(e.target.files?.[0])}/>
       <KartenHinweise hinweise={kartenHinweise} />
-      <Datenstaende />
-      {/* Quellen und Grundlagen je Stadt (seit 23.10.2026, nach dem Muster von fgsCheck; quellen.ts): Vorgaben, Normen,
+      <Datenstaende>
+        <p className="klein">{FALL_LADEN_HINWEIS}</p>
+        <button type="button" className="vrc-haupt-bericht" onClick={()=>void quellenAktualisieren()} disabled={osmBusy}>Verwendete Quellen aktualisieren</button>
+      </Datenstaende>
+      {/* Legende der Führungsformen: Kachel wie in fgsCheck und SichtweitenCheck, an zweiter Stelle der unteren Liste */}
+      <details className="vrc-klappe vrc-kachel">
+        <summary>Legende</summary>
+        <div style={{ fontSize: 12 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
+            {Object.entries(ISTCOLOR).map(([k, col]) => (
+              <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted-strong)' }}>
+                <span style={{ width: 16, height: 4, background: col, borderRadius: 2 }} />{formAnzeige(k)}
+              </span>
+            ))}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted-strong)' }}>
+              <span style={{ width: 16, height: 4, borderRadius: 2, background: '#1e293b',
+                             backgroundImage: 'repeating-linear-gradient(90deg, #fff 0 4px, transparent 4px 8px)', backgroundClip: 'content-box',
+                             padding: 1 }} />nicht gewählt
+            </span>
+          </div>
+          <div style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+            Übernommene Abschnitte in der Führungsform des Rechners (auch von Hand geändert), sonst wie in OpenStreetMap;
+            ist Seite B anders, liegt sie gestrichelt darüber.
+          </div>
+        </div>
+      </details>
+      {/* Grundlagen und Quellen je Stadt (seit 23.10.2026, nach dem Muster von fgsCheck; quellen.ts): Vorgaben, Normen,
           Daten mit Link. Die Berner Entscheidungstabellen (Soll-Führungsform, Soll-Haltestellenlösung) standen bis dahin
           hier für alle Städte; sie sind weg, die Soll-Tabellen stehen in den verlinkten Werken. */}
       <QuellenTeil city={city} datenOrte={sections.some(s=>s.datenOrt)?sections.flatMap(s=>s.datenOrt?[s.datenOrt]:[]):gebiet==='schweiz'?[]:[gebiet]} />
 
       {/* Referenz: Herleitung der Note — eingeklappt, um Scroll zu sparen.
           id «referenz»: die Herleitung im Ergebnis (zurHerleitung) klappt den Teil auf und springt zu «herleitung-note». */}
-      <details id="referenz" className="vrc-klappe" style={{ marginTop: 20 }}>
-        <summary style={{ cursor: 'pointer', fontSize: 16, fontWeight: 700, color: 'var(--text)', userSelect: 'none' }}>
-          Referenz: Herleitung der Note
-        </summary>
+      <details id="referenz" className="vrc-klappe vrc-kachel">
+        <summary>Referenz: Herleitung der Note</summary>
         <div style={{ marginTop: 12 }}>
       <HerleitungNote />
         </div>
       </details>
+      <details className="vrc-klappe vrc-kachel">
+        <summary>Datenschutz</summary>
+        <p className="klein"><DatenabrufHinweis /></p>
+        <p className="klein">Eingaben merkt sich dieser Browser (lokaler Speicher); «Karte leeren» löscht sie. An keinen Dienst geht etwas davon.</p>
+        <p className="klein">Die Links «Street View ↗» öffnen Google Maps erst auf Klick; dabei gehen die Koordinaten an Google. Seitenaufrufe zählt
+          GoatCounter ohne Cookies und ohne Speicherung der IP-Adresse; GitHub Pages protokolliert Zugriffe wie jeder Webserver.</p>
+      </details>
 
       {/* Fusszeile: Lizenz + Quellcode */}
-      <footer style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid var(--border-subtle)',
-                       fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-        VeloroutenCheck v{__APP_VERSION__} · Code unter{' '}
-        <a href="https://opensource.org/license/mit"
-           target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-          MIT
-        </a>, eigene Inhalte unter{' '}
-        <a href="https://creativecommons.org/licenses/by/4.0/deed.de"
-           target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-          CC BY 4.0
-        </a>{' '}
+      <footer className="fuss klein">
+        VeloroutenCheck v{__APP_VERSION__} · Code unter <a href="https://opensource.org/license/mit" target="_blank" rel="noopener noreferrer">MIT</a>, eigene Inhalte unter{' '}
+        <a href="https://creativecommons.org/licenses/by/4.0/deed.de" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>{' '}
         (eingebundene Daten behalten ihre eigenen Lizenzen) ·{' '}
-        <a href="https://github.com/pnfzygrzgf-svg/VeloroutenCheck"
-           target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-          Quellcode auf GitHub
-        </a>{' '}
-        · Vibecoding. Don't trust, verify!{' '}
-        · <a href="https://ko-fi.com/pnfzygrzgfsvg"
-           target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-          Unterstützen ↗
-        </a>
+        <a href="https://github.com/pnfzygrzgf-svg/VeloroutenCheck" target="_blank" rel="noopener noreferrer">Quellcode auf GitHub</a> · Vibecoding. Don't trust, verify!
+        {' '}· <a href="https://ko-fi.com/pnfzygrzgfsvg" target="_blank" rel="noopener noreferrer">Unterstützen ↗</a>
       </footer>
       </div>
       </div>
-      )}
-      {toast && view === 'rechner' && (
-        <div className={`vrc-toast ${toast.kind}`} role="status" aria-live="polite" key={toast.key}>
-          <span aria-hidden>{toast.kind === 'error' ? '⚠' : toast.kind === 'ok' ? '✓' : 'ℹ'}</span>
-          <span className="text">{toast.text}</span>
-          <button type="button" onClick={() => setToast(null)} aria-label="Meldung schliessen">✕</button>
-        </div>
       )}
     </div>
     </AvContext.Provider>

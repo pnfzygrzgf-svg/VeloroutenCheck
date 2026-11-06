@@ -57,7 +57,7 @@ it('Bericht: nur die Quellen des Abschnitts, das Luftbild der Karte und der gena
   const mitBav = abschnitt({ e5: { belege: {}, vorschlaege: [], hinweise: ['1 BAV-Haltestellenpunkt bis 60 m'] } as never })
   expect(renderToStaticMarkup(<Datenstaende druck section={mitBav} />)).toContain('Haltestellenpunkte')
   expect(renderToStaticMarkup(<Datenstaende druck />)).not.toContain('<h3>')
-  expect(renderToStaticMarkup(<Datenstaende />)).toContain('Datenquellen und Ladezustand (5)')
+  expect(renderToStaticMarkup(<Datenstaende />)).toContain('Datenquellen und Ladezustand</summary>')
 })
 it('Namen im Bericht: Umlaute, Stadt gross, Luftbild ohne Ebenenkennung; Datum einheitlich zweistellig', () => {
   const G = 'https://map.bern.ch/arcgis/rest/services/Geoportal'

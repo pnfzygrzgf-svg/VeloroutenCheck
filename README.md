@@ -17,7 +17,7 @@ Seit Oktober 2026 **plant** VeloroutenCheck auch: Der Reiter «Planen» eines Ab
 
 **Ergebnisbericht Bildumfrage Bern 2026** — [docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Ergebnisbericht.md](docs/09_Umfrage_Subjektive_Sicherheit_Bern_2026/Ergebnisbericht.md). 5 900 Bewertungen von 51 Bildern aus 14 Berner Strassenabschnitten: Feel-Safe-Anker, Breiteneffekte und was daraus für die Werte im Rechner folgt.
 
-> **Beta** — Resultate mit Vorsicht verwenden und durch eine Fachperson prüfen lassen.
+> Resultate mit Vorsicht verwenden und durch eine Fachperson prüfen lassen.
 
 Vibecoding. Don't trust, verify!
 
@@ -555,7 +555,7 @@ Abweichungen zum lokalen Rechner: Rang 5 (Haltestelle umbauen, seit 20.10.2026 a
 
 OpenStreetMap liefert die Basis, amtliche Quellen füllen einzelne Felder vor. Liegt ein Wert amtlich und aus OSM vor, gilt der amtliche
 Wert; jede Angabe zeigt ihre Herkunft und lässt sich von Hand ändern. Ausserhalb der vier Stadtprofile gilt der Berner Standard als
-gekennzeichneter Ersatz. Quellen je Stadt nennt die App unter «Quellen und Grundlagen», die Pflicht-Attributionen stehen auf der Karte
+gekennzeichneter Ersatz. Quellen je Stadt nennt die App unter «Grundlagen und Quellen», die Pflicht-Attributionen stehen auf der Karte
 und an den Feldern.
 
 ### Datenherkunft je Stadt

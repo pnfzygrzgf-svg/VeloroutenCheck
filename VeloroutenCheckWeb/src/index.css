@@ -24,10 +24,8 @@
   --border: #cbd5e1;
   --border-subtle: #e2e8f0;
 
-  /* Kleine Schriften (seit 28.10.2026): auf Mobile mindestens 12 px (Schritt 4 der Smartphone-Optimierung) */
-  --fs-105: 10.5px;
-  --fs-11: 11px;
-  --fs-115: 11.5px;
+  /* Eingabefelder: wie die Grundschrift, auf Touch-Geräten und schmal 16 px (sonst zoomt das iPhone beim Antippen ins Feld) */
+  --fs-feld: 14px;
 
   /* Radien (zur künftigen Nutzung) */
   --r-sm: 8px;
@@ -35,9 +33,17 @@
   --r-lg: 12px;
 }
 * { box-sizing: border-box; }
+@media (pointer: coarse), (max-width: 699px) { :root { --fs-feld: 16px; } }
+/* Schriftstufen wie in den anderen Rechnern: Titel 20, Abschnitt 15, normal 14, klein 12; Felder normal, auf Touch 16 */
+.vrc-app-rechner { font-size: 14px; }
 html { -webkit-text-size-adjust: 100%; }        /* keine automatische Schriftvergrösserung auf iOS */
 body { margin: 0; background: var(--bg); }
-input { font: inherit; }
+button, input, select, textarea { font: inherit; }
+/* Grundstil der Knöpfe: gilt, wo kein eigener Stil steht; sonst zeichnet der Browser sie grau */
+button { padding: 5px 10px; border: 1px solid var(--border); border-radius: 8px; background: #ffffff; color: var(--text); cursor: pointer; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input, select, textarea { font-size: var(--fs-feld); }
 
 /* ── Mobile-/Touch-Optimierung (additiv; Desktop bleibt unverändert) ──────────
    Greift nur über Media-Queries; nutzt keine !important, daher überschreiben die
@@ -54,14 +60,41 @@ select { max-width: 100%; }
 .logo-knopf { flex-shrink: 0; padding: 0; border: 0; background: none; border-radius: 6px; line-height: 0; cursor: pointer; }
 .logo-knopf:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .marke { font-size: 12px; font-weight: 600; color: #ffffff; background: var(--accent); border-radius: 6px; padding: 2px 6px; vertical-align: middle; }
-details.hilfe { margin: 0 0 14px; font-size: 13px; line-height: 1.5; color: var(--text); }
+/* Kleine Hinweise im Panel wie in fgsCheck und SichtweitenCheck; im Bericht gilt .bericht-seite .klein */
+.klein { font-size: 12px; color: var(--text-muted); }
+details.hilfe { margin: 0 0 14px; font-size: 12px; line-height: 1.5; color: var(--text); }
 details.hilfe summary { cursor: pointer; font-weight: 600; color: var(--text-strong); }
 details.hilfe ol, details.hilfe ul { margin: 6px 0; padding-left: 20px; }
 details.hilfe li { margin-bottom: 4px; }
 details.hilfe p { margin: 8px 0 2px; }
+.start { max-width: 680px; margin: 0 auto; padding: 24px 16px 56px; font-family: system-ui, -apple-system, sans-serif;
+  font-size: 15px; line-height: 1.6; color: var(--text); }
+.start p { margin: 0 0 14px; }
+.start-logo { width: 200px; max-width: 55%; display: block; margin: 8px auto 4px; cursor: pointer; }
 .start-titel { text-align: center; font-size: 28px; font-weight: 800; margin: 0; color: var(--text-strong); }
-.start-untertitel { text-align: center; color: var(--text-muted); margin: 0 0 14px; }
-.start-fuss { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+.start-untertitel { text-align: center; color: var(--text-muted); margin: 0 0 14px !important; }
+.start-knopf-zeile { text-align: center; margin-bottom: 22px; }
+.start-knopf { border: none; background: var(--accent); color: #ffffff; cursor: pointer; border-radius: 8px; padding: 9px 18px;
+  font-size: 14px; font-weight: 600; }
+.start-knopf:hover { filter: brightness(1.1); }
+.start-kachel { display: flex; align-items: center; gap: 14px; margin-top: 14px; text-decoration: none; background: #ffffff;
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text); }
+.start-kachel:hover { box-shadow: 0 4px 12px #0002; }
+.start-kachel img { flex-shrink: 0; border-radius: 8px; object-fit: cover; }
+.start-kachel-titel { font-weight: 700; color: var(--text-strong); }
+.start-kachel-text { font-size: 14px; color: var(--text-muted); }
+.start-spende { display: flex; align-items: center; gap: 14px; margin-top: 22px; flex-wrap: wrap; text-align: left; background: #fff7ed;
+  border: 1px solid #fed7aa; border-radius: 10px; padding: 14px 16px; }
+.start-spende-text { flex: 1 1 260px; }
+.start-spende-titel { font-weight: 700; color: var(--text-strong); }
+.start-spende-hinweis { font-size: 14px; line-height: 1.5; color: var(--text-muted); }
+.start-spende-knopf { flex-shrink: 0; background: #ea580c; color: #ffffff; text-decoration: none; border-radius: 8px; padding: 8px 14px;
+  font-size: 14px; font-weight: 600; white-space: nowrap; }
+.start-daten { margin-top: 22px; padding: 10px 14px; border-radius: 10px; background: #f8fafc; border: 1px solid var(--border);
+  font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+.start-daten-titel { font-weight: 700; color: var(--text); margin-bottom: 3px; }
+.start-daten ul { margin: 6px 0 0; padding-left: 20px; }
+.start-fuss { margin-top: 18px !important; font-size: 12px; color: var(--text-muted); text-align: center; }
 .start-fuss a { color: var(--accent); }
 
 /* Touch-Geräte: grössere Tippziele (≥ 44 px). Inline setzt keine min-height → greift sauber. */
@@ -107,7 +140,6 @@ details.hilfe p { margin: 8px 0 2px; }
 @media screen and (max-width: 699px) {
   .nur-mobil { display: inline; }
   .nur-desktop { display: none; }
-  :root { --fs-105: 12px; --fs-11: 12px; --fs-115: 12px; }
 }
 
 /* Panel-Innenabstand; unten und seitlich mit dem sicheren Bereich (iPhone-Balken, Notch quer; viewport-fit=cover) */
@@ -116,10 +148,9 @@ details.hilfe p { margin: 8px 0 2px; }
 /* Mobile (Schritt 2): Leaflet-Quellenangabe einzeilig (Tippen klappt sie auf), Hintergrund-Knöpfe darüber; Steuerung nicht
    unter der Notch (quer) */
 @media screen and (max-width: 699px) {
-  .vrc-karte .leaflet-control-attribution { max-width: calc(100vw - 10px); white-space: nowrap; overflow: hidden;
+  .vrc-karte .leaflet-control-attribution { max-width: calc(100vw - 90px); white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; font-size: 10px; cursor: pointer; }
   .vrc-karte .leaflet-control-attribution.offen { white-space: normal; }
-  .vrc-hintergrund { bottom: 22px; }
   .vrc-karte .leaflet-left { margin-left: env(safe-area-inset-left); }
 }
 
@@ -260,8 +291,7 @@ details.hilfe p { margin: 8px 0 2px; }
 
 /* Alle Klappen gleich: eigener Pfeil ▾/▸ vor dem Titel, dahinter «· einklappen» bzw.
    «· aufklappen» in der Akzentfarbe. Gilt für <details class="vrc-klappe"> und den Knopf des Abschnitts
-   (.vrc-klapp-knopf). Auf farbigem Grund (.auf-farbe) in der Textfarbe. «So funktioniert's» (.hilfe) bleibt beim
-   gemeinsamen Standard der Check-Apps. */
+   (.vrc-klapp-knopf). Auf farbigem Grund (.auf-farbe) in der Textfarbe. */
 .vrc-klappe > summary { list-style: none; cursor: pointer; user-select: none; }
 .vrc-klappe > summary::-webkit-details-marker { display: none; }
 .vrc-klappe > summary::before, .vrc-klapp-pfeil { content: '▾'; display: inline-block; width: 1.1em; font-size: 0.95em;
@@ -280,12 +310,10 @@ details.hilfe p { margin: 8px 0 2px; }
 
 /* Kopf des Rechners (seit 22.10.2026): Hauptfunktionen Bewerten | Planen und Bericht / PDF */
 .vrc-haupt { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-.vrc-haupt-wahl { display: inline-flex; border: 1px solid var(--accent); border-radius: 8px; overflow: hidden; }
-.vrc-haupt-wahl button, .vrc-haupt-bericht { border: none; padding: 7px 14px; font: inherit; font-size: 14px; font-weight: 600;
+.vrc-haupt-wahl { display: inline-flex; gap: 6px; }
+.vrc-haupt-wahl button, .vrc-haupt-bericht { border: 1px solid var(--accent); border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 14px; font-weight: 600;
   cursor: pointer; background: #ffffff; color: var(--accent); }
 .vrc-haupt-wahl button[aria-pressed="true"] { background: var(--accent); color: #ffffff; }
-.vrc-haupt-wahl button + button { border-left: 1px solid var(--accent); }
-.vrc-haupt-bericht { border: 1px solid var(--accent); border-radius: 8px; }
 .vrc-haupt-bericht[aria-expanded="true"] { background: #f0fdfa; }
 
 /* Kartenkopf: Stadt und Strassensuche über der Karte (seit 17.10.2026, wie fgsCheck .kartenkopf).
@@ -293,10 +321,10 @@ details.hilfe p { margin: 8px 0 2px; }
 .vrc-kartenkopf { position: absolute; top: 10px; left: 56px; right: 62px; max-width: 460px; margin: 0 auto; z-index: 650;
   display: flex; gap: 6px; align-items: flex-start; pointer-events: none; }
 .vrc-kartenkopf > * { pointer-events: auto; }
-.vrc-kartenkopf select { font: inherit; font-size: 16px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 8px;
+.vrc-kartenkopf select { font: inherit; font-size: var(--fs-feld); padding: 7px 8px; border: 1px solid var(--border); border-radius: 8px;
   background: #ffffff; color: var(--text-strong); box-shadow: 0 1px 4px rgba(0,0,0,.25); flex: none; }
 .vrc-suche { position: relative; flex: 1; min-width: 0; }
-.vrc-suche input { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 7px 28px 7px 10px;
+.vrc-suche input { width: 100%; box-sizing: border-box; font: inherit; font-size: var(--fs-feld); padding: 7px 28px 7px 10px;
   border: 1px solid var(--border); border-radius: 8px; background: #ffffff; color: var(--text-strong);
   box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .vrc-suche input:focus, .vrc-kartenkopf select:focus { outline: 2px solid var(--accent); outline-offset: 0; }
@@ -312,28 +340,22 @@ details.hilfe p { margin: 8px 0 2px; }
 
 /* ── Hintergrund-Wahl auf der Karte (seit 22.10.2026, statt der Leaflet-Ebenenwahl oben rechts): unten links,
    Knopfgruppe Luftbild · Karte · CyclOSM, dazu beim Luftbild das Kästchen «Strassennamen» (Ergänzung, standardmässig aus) ── */
-.vrc-hintergrund { position: absolute; left: 10px; bottom: 10px; z-index: 650; display: inline-flex; border-radius: 8px;
-  overflow: hidden; background: #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,.3); font-size: 12px; }
-.vrc-hintergrund button { border: none; background: #ffffff; color: var(--text); padding: 5px 9px; font: inherit; font-size: 12px;
+.vrc-hintergrund { position: absolute; left: 10px; bottom: 34px; z-index: 950; display: inline-flex; border: 2px solid rgba(0,0,0,.2); border-radius: 6px;
+  overflow: hidden; background: #ffffff; font-size: 12px; }
+.vrc-hintergrund button { border: none; border-radius: 0; background: #ffffff; color: var(--text-strong); padding: 5px 10px; font: inherit; font-size: 12px;
   font-weight: 600; cursor: pointer; min-height: 0; }
-.vrc-hintergrund button + button { border-left: 1px solid var(--border-subtle); }
-@media (pointer: coarse) { .vrc-hintergrund button { padding: 9px 11px; } }
+@media (pointer: coarse) { .vrc-hintergrund button { padding: 9px 12px; } }
 /* Nie breiter als die Karte (bei 375 px: 382 px auf 313 px Karte, die Seite scrollte seitlich): umbrechen */
 .vrc-velomap-wrap { overflow-x: hidden; }
 .vrc-hintergrund { max-width: calc(100% - 20px); flex-wrap: wrap; }
-.vrc-hintergrund .kurz { display: none; }
-@media screen and (max-width: 699px) {
-  .vrc-hintergrund .lang { display: none; }
-  .vrc-hintergrund .kurz { display: inline; }
-}
 
 /* ── Kartenebenen der Vorbelegung (seit 01.11.2026, ebenen.ts): Menü über der Hintergrund-Leiste, Legende, Wert-Beschriftung ── */
 .vrc-hintergrund button.aktiv-rand { color: var(--accent); }
-/* Höhe: unten verankert, darum höchstens bis 10 px unter den oberen Rand (100 % − 48 px − 10 px), sonst ragt die Kopfzeile hinaus
+/* Höhe: unten verankert, darum höchstens bis 10 px unter den oberen Rand (100 % − 72 px − 10 px), sonst ragt die Kopfzeile hinaus
    und das Fenster lässt sich nicht mehr ziehen */
-.vrc-ebenen { position: absolute; left: 10px; bottom: 48px; z-index: 1010;   /* über den Leaflet-Knöpfen (1000), damit die Kopfzeile frei bleibt */
-  width: min(320px, calc(100% - 20px)); max-height: calc(100% - 58px);
-  overflow-y: auto; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.25); padding: 6px; font-size: 12.5px; }
+.vrc-ebenen { position: absolute; left: 10px; bottom: 72px; z-index: 1010;   /* über den Leaflet-Knöpfen (1000), damit die Kopfzeile frei bleibt */
+  width: min(330px, calc(100% - 20px)); max-height: calc(100% - 82px);
+  overflow-y: auto; background: #ffffff; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.25); padding: 6px; font-size: 12px; }
 .vrc-ebenen-kopf { display: flex; justify-content: space-between; align-items: center; font-weight: 700; padding: 2px 6px 6px;
   cursor: move; user-select: none; touch-action: none; }
 .vrc-ebenen-kopf .griff { color: var(--text-muted); margin-right: 4px; }
@@ -341,11 +363,11 @@ details.hilfe p { margin: 8px 0 2px; }
 .vrc-ebene { display: flex; gap: 8px; align-items: flex-start; padding: 6px; border-radius: 6px; cursor: pointer; }
 .vrc-ebene:hover { background: var(--bg); }
 .vrc-ebene input { margin: 2px 0 0; min-height: 0; accent-color: var(--accent); flex-shrink: 0; }
-.vrc-ebene small { display: block; color: var(--text-muted); font-size: var(--fs-11); line-height: 1.3; }
+.vrc-ebene small { display: block; color: var(--text-muted); font-size: 12px; line-height: 1.3; }
 .vrc-ebene small.zahl { display: inline; }
-.vrc-legende { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 4px; font-size: var(--fs-11); color: var(--text-muted-strong); }
+.vrc-legende { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 4px; font-size: 12px; color: var(--text-muted-strong); }
 .vrc-legende i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
-.vrc-ebenen-fuss { margin: 6px 6px 2px; font-size: var(--fs-11); color: var(--text-muted); }
+.vrc-ebenen-fuss { margin: 6px 6px 2px; font-size: 12px; color: var(--text-muted); }
 @media (pointer: coarse) { .vrc-ebene { padding: 9px 6px; } .vrc-ebene input { width: 18px; height: 18px; } }
 .vrc-ebene-wert span { position: absolute; transform: translate(-50%, -50%); background: #ffffff; border: 2px solid; border-radius: 6px;
   padding: 0 4px; font: 700 11px/16px system-ui, sans-serif; color: #111827; white-space: nowrap; }
@@ -357,7 +379,7 @@ details.hilfe p { margin: 8px 0 2px; }
 /* ── Aufklappmenü (Planung: «Messen», «Zurücksetzen»; seit 22.10.2026) ── */
 .vrc-menu { position: relative; display: inline-block; }
 .vrc-menu > summary { list-style: none; cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 4px;
-  border: 1px solid var(--border); background: #ffffff; color: var(--text); border-radius: 8px; padding: 5px 10px; font-size: 12.5px; font-weight: 600; }
+  border: 1px solid var(--border); background: #ffffff; color: var(--text); border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 600; }
 .vrc-menu > summary::-webkit-details-marker { display: none; }
 .vrc-menu > summary::after { content: '▾'; font-size: 11px; color: var(--text-muted); }
 .vrc-menu.akzent > summary { border-color: var(--accent); color: var(--accent); }
@@ -367,31 +389,25 @@ details.hilfe p { margin: 8px 0 2px; }
   border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.18); padding: 4px; display: grid; }
 .vrc-menu.rechts > div { left: auto; right: 0; }
 .vrc-menu > div > button, .vrc-menu > div > a { border: none; background: none; text-align: left; padding: 8px 10px; font: inherit;
-  font-size: 13px; color: var(--text); border-radius: 6px; cursor: pointer; text-decoration: none; display: block; }
+  font-size: 14px; color: var(--text); border-radius: 6px; cursor: pointer; text-decoration: none; display: block; }
 .vrc-menu > div > button:hover, .vrc-menu > div > a:hover { background: var(--bg); }
 .vrc-menu > div > button:disabled { color: var(--text-faint); cursor: default; }
-.vrc-menu > div > button small, .vrc-menu > div > a small { display: block; font-size: 11.5px; color: var(--text-muted); font-weight: 400; }
+.vrc-menu > div > button small, .vrc-menu > div > a small { display: block; font-size: 12px; color: var(--text-muted); font-weight: 400; }
 .vrc-menu > div > hr { border: none; border-top: 1px solid var(--border-subtle); margin: 4px 0; }
 
 /* ── Reiter im Abschnitt: Bewerten · Planen (seit 22.10.2026) ── */
 .vrc-reiter { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin: 0 0 12px; }
-.vrc-reiter button { border: none; background: none; padding: 8px 14px; font: inherit; font-size: 13.5px; font-weight: 600;
+.vrc-reiter button { border: none; border-radius: 0; background: none; padding: 8px 14px; font: inherit; font-size: 14px; font-weight: 600;
   color: var(--text-muted-strong); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .vrc-reiter button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
 
-/* ── Meldung als Toast unten im Panel (seit 22.10.2026): auch sichtbar, wenn man tief in der Planung arbeitet ── */
-.vrc-toast { position: fixed; bottom: calc(14px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 1500; width: min(560px, calc(100% - 24px));
-  border-radius: 10px; padding: 9px 12px; font-size: 13px; line-height: 1.4; box-shadow: 0 4px 16px rgba(0,0,0,.22);
-  display: flex; gap: 10px; align-items: flex-start; }
-.vrc-toast.ok { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
-.vrc-toast.info { background: #ffffff; border: 1px solid var(--border); color: var(--text); }
-.vrc-toast.error { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
-.vrc-toast > .text { flex: 1; }
-.vrc-toast button { border: none; background: none; color: inherit; font: inherit; font-weight: 700; cursor: pointer; padding: 0 2px; min-height: 0; }
-.vrc-toast button.rueck { text-decoration: underline; }
-@media screen and (min-width: 700px) {
-  .vrc-toast { left: auto; transform: none; right: 14px; width: calc(var(--vrc-panel-w) - 28px); }
-}
+/* ── Meldung: gelbes Feld wie in fgsCheck und SichtweitenCheck, an der mitlaufenden Leiste; verschwindet nach 8 s, Fehler nach 15 s, oder mit ✕ ── */
+.hinweis { background: #fef9c3; border: 1px solid #fde047; border-radius: 8px; padding: 8px 10px; margin: 0; }
+.vrc-meldung { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; font-size: 14px; line-height: 1.4; color: var(--text); }
+.vrc-meldung .text { flex: 1; }
+.vrc-meldung button { border: none; background: none; color: inherit; font-weight: 700; cursor: pointer; padding: 0 2px; min-height: 0; }
+/* Anleitung (was als Nächstes zu tun ist): neutral, Gelb bleibt für Meldungen und Warnungen */
+.vrc-anleitung { font-size: 12px; line-height: 1.5; padding: 8px 12px; border-radius: 8px; background: #f1f5f9; border: 1px solid var(--border); color: var(--text); }
 
 /* Erklärung beim Überfahren einer Netzlinie (Routennetz, seit 30.10.2026): umbrechend statt einer langen Zeile */
 .leaflet-tooltip.vrc-netz-tip { white-space: normal; width: max-content; max-width: 280px; font-size: 12px; line-height: 1.35; }
@@ -402,9 +418,46 @@ details.hilfe p { margin: 8px 0 2px; }
   font-style: normal; vertical-align: middle; }
 
 /* Quellenangabe ist eine Linse; nur alternative Werte sind auswählbar. */
-button.vrc-quellenwahl { display:inline-block; font-family:inherit; font-size:var(--fs-105); font-weight:600; line-height:1.4; min-height:0; padding:0 6px; margin:2px 0; border:1px solid var(--border); border-radius:9px; background:#fff; color:var(--accent); max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; vertical-align:middle; }
+button.vrc-quellenwahl { display:inline-block; font-family:inherit; font-size:12px; font-weight:600; line-height:1.4; min-height:0; padding:0 6px; margin:2px 0; border:1px solid var(--border); border-radius:9px; background:#fff; color:var(--accent); max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; vertical-align:middle; }
 button.vrc-quellenwahl[aria-pressed="true"] { background:var(--accent); color:#fff; border-color:var(--accent); }
 
 
 .vrc-feldquellen { display:flex; flex-wrap:wrap; gap:2px 4px; margin-top:2px; width:100%; max-width:100%; min-width:0; }
 .vrc-feldquellen > button.vrc-quellenwahl { min-width:0; max-width:100%; flex:0 1 auto; box-sizing:border-box; }
+
+/* Kacheln unten im Panel wie in fgsCheck und SichtweitenCheck: Titel in der Grösse von h2, ohne «aufklappen» dahinter */
+.vrc-kachel { background: #ffffff; border: 1px solid var(--border-subtle); border-radius: 12px; padding: 10px 12px; margin: 10px 0 0; }
+.vrc-kachel > summary { font-size: 15px; font-weight: 700; color: var(--text-strong); }
+.vrc-kachel > summary::after { content: none !important; }
+.vrc-kachel[open] > summary { margin-bottom: 8px; }
+/* «So funktioniert's»: gleiche Kachel; details.hilfe summary setzt sonst das schwächere Gewicht */
+details.hilfe.vrc-kachel > summary { font-size: 15px; font-weight: 700; }
+
+/* Fusszeile im Panel wie in fgsCheck und SichtweitenCheck */
+.fuss { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border); line-height: 1.6; }
+.fuss a { color: var(--accent); }
+
+
+/* Herkunft eines Werts wie im fgsCheck: neutral, Annahmen gelb, fehlende Eingabe rot */
+.quelle-chip { display: inline-block; font-size: 12px; line-height: 1.4; padding: 0 6px; border-radius: 9px; border: 1px solid var(--border);
+  background: #f8fafc; color: var(--text); white-space: nowrap; vertical-align: middle; }
+.quelle-chip.q-annahme { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+.quelle-chip.q-fehlt { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; font-weight: 700; }
+
+/* Erklärung «i» mit Sprechblase wie im SichtweitenCheck (Info.tsx) */
+button.info-knopf { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;
+  margin: 0 0 0 4px; padding: 0; border: 1px solid #94a3b8; border-radius: 50%; background: #ffffff; color: var(--text-muted);
+  font: italic 700 11px/1 Georgia, 'Times New Roman', serif; vertical-align: 1px; cursor: pointer; flex-shrink: 0; }
+button.info-knopf::after { content: ''; position: absolute; inset: -6px; }          /* grössere Trefferfläche für den Finger */
+button.info-knopf:hover, button.info-knopf[aria-expanded=true] { border-color: var(--accent); color: var(--accent); filter: none; }
+button.info-knopf:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.info-blase { position: fixed; z-index: 1500; overflow-y: auto; padding: 8px 26px 8px 10px; background: #ffffff;
+  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(15,23,42,.18); font-size: 12px; line-height: 1.45;
+  color: var(--text); text-align: left; font-weight: normal; overflow-wrap: anywhere; }
+.info-blase button.info-zu { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px;
+  background: none; color: var(--text-muted); font-size: 17px; line-height: 1; }
+.info-blase button.info-zu:hover { background: #f1f5f9; filter: none; }
+.info-blase button.info-zu:focus-visible { outline: 2px solid var(--accent); }
+.info-text p { margin: 0 0 4px; }
+.info-text p:last-child { margin-bottom: 0; }
+button.info-knopf, .info-blase button.info-zu { min-height: 0; }
