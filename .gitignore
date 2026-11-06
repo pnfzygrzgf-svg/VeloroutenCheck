@@ -18,6 +18,8 @@ __pycache__/
 # (feel-safe-Verifikation: docs/06_Verifikation_Empirie.md wird versioniert;
 #  der .json-Rohdump und die .html-Ansicht von verify_06.py landen hier und bleiben aussen vor.)
 _lokal/
+# Prüf-PDFs nur lokal
+docs/pruefung/
 
 # ── Grosse / Dritt-Rohdaten: lokal halten, NICHT versionieren ────────────────
 # (Bezugsquellen sind im README dokumentiert; die App nutzt nur die gebündelten
