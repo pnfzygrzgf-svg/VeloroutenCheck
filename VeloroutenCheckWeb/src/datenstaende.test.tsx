@@ -91,3 +91,17 @@ it('Flugjahr ersetzt im Bericht den unbekannten Datenstand des Luftbilds; im Pan
   expect(html).not.toContain('Metadaten nicht verfügbar')
   expect(renderToStaticMarkup(<Datenstaende druck section={abschnitt()} />)).toContain('Metadaten nicht verfügbar')
 })
+it('Luftbild des Kartenbilds steht in den Quellen, auch wenn die Karte ein anderes Hintergrundbild zeigte', () => {
+  meldeQuelleStand('tempo1', 'Geoportal Stadt Bern: Signalisierte Hoechstgeschwindigkeit', 'https://map.bern.ch/x', 'tempo', '02.06.2026')
+  const html = renderToStaticMarkup(<Datenstaende druck section={abschnitt()} flugjahr="2024" />)
+  expect(html).toContain('Luftbild SWISSIMAGE')
+  expect(html).toContain('Datenstand 2024 (Flugjahr)')
+})
+it('AV steht in den Quellen ohne erfundenen Abruf, wenn in diesem Lauf nichts abgerufen wurde', () => {
+  meldeQuelleStand('tempo1', 'Geoportal Stadt Bern: Signalisierte Hoechstgeschwindigkeit', 'https://map.bern.ch/x', 'tempo', '02.06.2026')
+  const html = renderToStaticMarkup(<Datenstaende druck section={abschnitt({ trottoirQuelle: 'av' })} avKanton="Bern" />)
+  expect(html).toContain('Amtliche Vermessung, Kanton Bern, geodienste.ch')
+  expect(html).toContain('gespeicherten Abschnitt')
+  expect(renderToStaticMarkup(<Datenstaende druck section={abschnitt()} avKanton="Bern" />)).not.toContain('Amtliche Vermessung')
+  expect(renderToStaticMarkup(<Datenstaende druck section={abschnitt()} avKanton="Luzern" avImBild />)).toContain('Strassenflächen Stadt Luzern')
+})

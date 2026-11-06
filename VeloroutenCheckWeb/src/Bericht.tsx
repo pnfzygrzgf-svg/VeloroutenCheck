@@ -167,16 +167,18 @@ export function notenHerleitung(b: NotenErgebnis | undefined): string {
   if (!b || b.haltestellenbereich) return ''
   if (b.noteFix || b.kapTramNote1) return 'Note nach Sonderregel'
   const minus = (text: string, x: number) => (x > 0 ? [`${text} −${numDE(x, 1)}`] : [])
+  const roh = b.basisnote - b.breitenabzug - b.parkenAbzug - b.haltestelleAbzug - b.hsBreitenabzug
   return [b.erfuellt ? `Vorgabe ${formAnzeige(b.soll)} erfüllt: ${numDE(b.basisnote, 1)}` : `Vorgabe ${formAnzeige(b.soll)}, vorhanden ${formAnzeige(b.ist)}: ${numDE(b.basisnote, 1)}`,
     ...minus('Breite', b.breitenabzug), ...minus('Parkierung rechts', b.parkenAbzug), ...minus('Haltestelle', b.haltestelleAbzug + b.hsBreitenabzug),
-    ...(b.tramDeckel != null ? [`Tram in der Fahrbahn: höchstens ${numDE(b.tramDeckel, 1)}`] : [])].join('; ')
+    ...(b.tramDeckel != null ? [`Tram in der Fahrbahn: höchstens ${numDE(b.tramDeckel, 1)}`] : []),
+    ...(Number.isFinite(b.note) && Math.abs(roh - b.note) > 0.001 ? [`auf halbe Noten gerundet: ${numDE(b.note, 1)}`] : [])].join('; ')
 }
 const formText = (f: Seite) => `${formAnzeige(f.ist) || '–'}${Number.isFinite(f.breite) ? ` ${numDE(f.breite, 2)} m` : ''}` +
   `${f.parkenRechts === 'ja' ? `, neben Parkierung${f.parkenSicherheitsstreifen ? ' mit Sicherheitsstreifen' : ''}` : ''}`
 
 // Inhalt der Seite (ohne Leiste und Portal), auch ohne Browser darstellbar (Test der Seitenzahl).
 // Die Skizzen mit fester Druckbreite DRUCK_PX: A4 hoch mit 12 mm Rand, rund 186 mm.
-export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, routenLabel, rA, rB, achsen, av, park, quellen, bez, setBez, onBild, basis }: {
+export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, routenLabel, rA, rB, achsen, av, park, quellen, avKanton, bez, setBez, onBild, basis }: {
   section: Section & { aufteilung: Aufteilung }
   nr: number                              // Abschnitt-Nummer (1-basiert)
   heute: AbschnittErgebnis
@@ -188,6 +190,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
   achsen: P[][]                           // LV95, in Fahrtrichtung der Seite A
   av: AvFlaeche[]; park: ParkFlaeche[]    // geladen in der Planung, sonst leer
   quellen: string[]                       // Quellenangaben der Daten (Stadt, AV, Parkfelder)
+  avKanton?: string                       // Kanton der AV (av.ts), für die Zeile unter den Quellen
   bez: string; setBez?: (s: string) => void   // Bezeichnung (nur Bericht)
   onBild: (s: 'laedt' | 'ok' | 'fehler') => void
   basis: string                           // Pfad zu logo.svg und den Streetmix-Bildern
@@ -320,7 +323,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
               {kern.length > 0 && <><p><b>Kernfahrbahn:</b></p><ul className="klein">{kern.map(k => <li key={k.text}>{k.streng ? <b>{k.text}</b> : k.text}</li>)}</ul></>}
             </section>
 
-            <section className="bericht-block">
+            <section className="bericht-block druck-block">
               <h2>Bewertung heute und mit der Planung</h2>
               <table className="bericht-tabelle">
                 <thead><tr><th>Seite</th><th>Heute</th><th>Mit der Planung</th></tr></thead>
@@ -364,7 +367,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
 
             <section className="bericht-block">
               <h2>Quellen</h2>
-              <Datenstaende druck section={section} flugjahr={flugjahr} />
+              <Datenstaende druck section={section} flugjahr={flugjahr} avKanton={avKanton} avImBild={av.length > 0} />
               <h3>Werke und Quellenangaben</h3>
               <ul className="klein">
                 <li>Richtwerte und Vorgaben: {STANDARD_QUELLE[city]}{city !== 'bern' ? `; Ersatz: ${RICHTWERT_QUELLE}` : ''}; Trottoirs: {FUSS_QUELLE[city]}; Lichtraum von Lastwagen und Bus: {LICHTRAUM_QUELLE}; Tram 2,80 m
@@ -389,7 +392,7 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
   )
 }
 
-export default function Bericht({ section, nr, heute, city, breiten, stadtName, routenLabel, rA, rB, achsen, av, park, quellen, schliessen }: {
+export default function Bericht({ section, nr, heute, city, breiten, stadtName, routenLabel, rA, rB, achsen, av, park, quellen, avKanton, schliessen }: {
   section: Section & { aufteilung: Aufteilung }
   nr: number                              // Abschnitt-Nummer (1-basiert)
   heute: AbschnittErgebnis
@@ -401,6 +404,7 @@ export default function Bericht({ section, nr, heute, city, breiten, stadtName, 
   achsen: P[][]                           // LV95, in Fahrtrichtung der Seite A
   av: AvFlaeche[]; park: ParkFlaeche[]    // geladen in der Planung, sonst leer
   quellen: string[]                       // Quellenangaben der Daten (Stadt, AV, Parkfelder)
+  avKanton?: string                       // Kanton der AV (av.ts), für die Zeile unter den Quellen
   schliessen: () => void
 }) {
   const [bild, setBild] = useState<'laedt' | 'ok' | 'fehler'>(achsen.length ? 'laedt' : 'fehler')
@@ -432,7 +436,7 @@ export default function Bericht({ section, nr, heute, city, breiten, stadtName, 
         <span className="klein">Im Druckdialog «Als PDF sichern» bzw. «Microsoft Print to PDF» wählen; A4 hoch, Hintergrundgrafiken einschalten.</span>
       </div>
       <BerichtSeite section={section} nr={nr} heute={heute} city={city} breiten={breiten} stadtName={stadtName} routenLabel={routenLabel}
-        rA={rA} rB={rB} achsen={achsen} av={av} park={park} quellen={quellen} bez={bez} setBez={setBez} onBild={setBild}
+        rA={rA} rB={rB} achsen={achsen} av={av} park={park} quellen={quellen} avKanton={avKanton} bez={bez} setBez={setBez} onBild={setBild}
         basis={import.meta.env.BASE_URL} />
     </div>,
     document.body,

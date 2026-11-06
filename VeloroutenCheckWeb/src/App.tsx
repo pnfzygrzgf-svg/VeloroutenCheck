@@ -4751,7 +4751,7 @@ export default function App() {
         return <Bericht section={{ ...s, aufteilung: s.aufteilung }} nr={i + 1} heute={ergebnisse[i]} city={city} breiten={cityCfg.breiten}
                         stadtName={cityCfg.label} rA={rA} rB={rB} achsen={avAchsen(s, true)}
                         routenLabel={Object.fromEntries((cityCfg.routenOptions ?? []).map(o => [o.value, o.label]))}
-                        av={mitAv ? planAv!.flaechen : []} park={mitAv ? planAv!.park : []} quellen={quellen}
+                        av={mitAv ? planAv!.flaechen : []} park={mitAv ? planAv!.park : []} quellen={quellen} avKanton={datenCfg.avKanton ? cfgFuer(s).avKanton ?? 'Schweiz' : undefined}
                         schliessen={berichtSchliessen} />
       })()}
 

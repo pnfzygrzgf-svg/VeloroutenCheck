@@ -43,6 +43,7 @@ describe('Bericht: Herleitung der Note', () => {
   it('Vorgabe, Ausgangswert und die angesetzten Abzüge', () => {
     expect(notenHerleitung(b({}))).toBe('Vorgabe Velostreifen, vorhanden Mischverkehr: 3,0; Parkierung rechts −1,0')
     expect(notenHerleitung(b({ ist: 'Radstreifen', erfuellt: true, basisnote: 6, parkenAbzug: 0 }))).toBe('Vorgabe Velostreifen erfüllt: 6,0')
+    expect(notenHerleitung(b({ basisnote: 3.1, note: 2 }))).toBe('Vorgabe Velostreifen, vorhanden Mischverkehr: 3,1; Parkierung rechts −1,0; auf halbe Noten gerundet: 2,0')
     expect(notenHerleitung(b({ noteFix: true }))).toBe('Note nach Sonderregel')
     expect(notenHerleitung(b({ haltestellenbereich: true }))).toBe('')
   })

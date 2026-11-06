@@ -24,6 +24,10 @@ export const avQuelle = (kanton: string) => (kanton === 'Luzern'
   ? 'Strassenflächen Stadt Luzern, © Geoinformationszentrum Stadt Luzern'
   : kanton === 'Schweiz' ? 'Amtliche Vermessung der zuständigen Kantone, geodienste.ch' : `Amtliche Vermessung, Kanton ${kanton}, geodienste.ch`)
 
+/** Verweis zur Quelle aus avQuelle (Bericht, Quellen) */
+export const avQuelleUrl = (kanton: string) => (kanton === 'Luzern'
+  ? 'https://map.stadtluzern.ch/server/rest/services/OGD/strassenflaeche/MapServer' : 'https://www.geodienste.ch/')
+
 export function avUrl(e: number, n: number, radiusM: number): string {
   const bbox = [e - radiusM, n - radiusM, e + radiusM, n + radiusM].map(v => v.toFixed(1)).join(',')
   return `${WFS}?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=ms:LCSF` +

@@ -1,3 +1,4 @@
+import { avQuelle, avQuelleUrl } from './av'
 import { useSyncExternalStore } from 'react'
 import { E6_DIENSTE } from './e5/daten/anbieter/gemeinsam/e6'
 import { datenStaende, standAbonnieren, standText, type DatenStand } from './datenstand'
@@ -31,15 +32,15 @@ export function beruecksichtigteEbenen(s: Section): Set<string> {
  return aus
 }
 
-type Zeile = DatenStand & { thema: string }
+type Zeile = DatenStand & { thema: string; standHinweis?: string }
 const Tabelle = ({ zeilen }: { zeilen: Zeile[] }) => <table className="bericht-quellen">
  <thead><tr><th>Für</th><th>Quelle</th><th>Stand und Abruf</th></tr></thead>
  <tbody>{zeilen.map(s => <tr key={s.id}><td>{s.thema}</td><td><a href={s.url} target="_blank" rel="noopener noreferrer">{s.name}</a></td>
-  <td>{standText(s, false)}{!!s.teilfehler?.length && <ul>{s.teilfehler.map(t =>
+  <td>{s.standHinweis ?? standText(s, false)}{!!s.teilfehler?.length && <ul>{s.teilfehler.map(t =>
    <li key={t.zelle}><a href={t.url} target="_blank" rel="noopener noreferrer">Zelle {t.zelle}</a>: {t.fehler}</li>)}</ul>}</td></tr>)}</tbody>
 </table>
 
-export function Datenstaende({druck=false,section,flugjahr}:{druck?:boolean;section?:Section;flugjahr?:string}) {
+export function Datenstaende({druck=false,section,flugjahr,avKanton,avImBild=false}:{druck?:boolean;section?:Section;flugjahr?:string;avKanton?:string;avImBild?:boolean}) {
  const ss=useDatenstaende()
  if(!ss.length)return null
  const themen={...THEMEN,...Object.fromEntries(E6_DIENSTE.map(d=>[d.id,d.art==='beleuchtung'?'Beleuchtung':d.art==='taktil'?'Taktile Markierungen':'Fuss- und Velowegnetz']))}
@@ -48,7 +49,13 @@ export function Datenstaende({druck=false,section,flugjahr}:{druck?:boolean;sect
   if(!section)return <Tabelle zeilen={sortiert} />
   // Bericht: nur, was in Bewertung, Planung oder Kartenbild eingeht, wie in den anderen Rechnern; alle Geladenen zeigt die App
   const ebenen=beruecksichtigteEbenen(section)
+  if(avImBild)ebenen.add('av')
   const drin=sortiert.filter(s=>!!s.ebene&&ebenen.has(s.ebene))
+  // Das Kartenbild des Berichts kommt per WMS und erscheint nicht unter den Kacheln, wenn die Karte ein anderes Hintergrundbild zeigte
+  if(flugjahr&&!drin.some(s=>s.ebene==='orthofoto'))drin.push({id:'bericht.swissimage',name:'Luftbild SWISSIMAGE · swisstopo',url:'https://www.swisstopo.admin.ch/de/orthobilder-swissimage-10-cm',ebene:'orthofoto',datenstand:`${flugjahr} (Flugjahr)`,vollstaendigkeit:'unbekannt',abgerufen:new Date().toISOString(),status:'geladen',thema:themen.orthofoto??'Luftbild'})
+  // Die AV kommt aus dem Speicher des Abschnitts oder einem früheren Lauf: dann gibt es keinen Abruf zu melden, die Quelle bleibt zu nennen
+  if(avKanton&&ebenen.has('av')&&!drin.some(s=>s.ebene==='av'))drin.push({id:'bericht.av',name:avQuelle(avKanton),url:avQuelleUrl(avKanton),ebene:'av',datenstand:'unbekannt',vollstaendigkeit:'unbekannt',abgerufen:'',status:'geladen',thema:themen.av,standHinweis:'Datenstand unbekannt: Werte aus dem gespeicherten Abschnitt oder einem früheren Abruf'})
+  drin.sort((a,b)=>a.thema.localeCompare(b.thema,'de-CH')||a.name.localeCompare(b.name,'de-CH'))
   return drin.length?<Tabelle zeilen={drin} />:<p className="klein">keine (alle Angaben von Hand)</p>
  }
  return <details className="vrc-klappe"><summary>Datenquellen und Ladezustand ({ss.length})</summary><ul className="datenstaende">{sortiert.map(s=><li key={s.id}><b>{s.thema}</b> · <a href={s.url} target="_blank" rel="noopener noreferrer">{s.name}</a><div>{standText(s, false)}</div>{!!s.teilfehler?.length && <ul>{s.teilfehler.map(t =>
