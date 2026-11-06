@@ -80,7 +80,8 @@ it('Quellenzuordnung im Bericht: Abschnitt ohne Aufklapp-Pfeil, Tausender wie in
   const druck = renderToStaticMarkup(<E5Abschnitt s={s} druck />)
   expect(druck).not.toContain('<details')
   expect(druck).toContain('<h2>Quellenzuordnung und Hinweise</h2>')
-  expect(druck).toContain(`${(3416).toLocaleString('de-CH')} Fz/Tag`)
+  // Das Apostroph ist je nach ICU ' (im Markup maskiert) oder ’
+  expect(druck.replace(/&#x27;/g, "'")).toContain(`${(3416).toLocaleString('de-CH')} Fz/Tag`)
   expect(druck).toContain('Abruf 06.11.2026, 09:32:07')
   expect(renderToStaticMarkup(<E5Abschnitt s={s} />)).toContain('<details')
 })

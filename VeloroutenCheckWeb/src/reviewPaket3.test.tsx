@@ -45,7 +45,7 @@ describe('Paket 3a: gewählte DTV-Quelle fällt aus',()=>{
   const html=renderToStaticMarkup(<DatenFeldVorschlaege s={s} feld="dtv" aendern={()=>{}}/>)
   expect(html).toContain('ARE · NPVM');expect(html).toContain('nicht verfügbar');expect(html).toContain('disabled=""');expect(html).toContain('aria-pressed="true"');expect(html).toContain('Geoportal Stadt Bern')
   const bericht=renderToStaticMarkup(<E5Abschnitt s={s} druck/>)
-  expect(bericht).toContain('nicht verfügbar');expect(bericht).toContain('zuletzt');expect(bericht).toContain(`${(9000).toLocaleString('de-CH')}`)
+  expect(bericht).toContain('nicht verfügbar');expect(bericht).toContain('zuletzt');expect(bericht.replace(/&#x27;/g, "'")).toContain(`${(9000).toLocaleString('de-CH')}`)
  })
  it('schliesst den Ausfall erst nach ausdrücklicher Wahl der verfügbaren Alternative',()=>{
   const s=abschnitteAktualisieren([gewaehlt()],[c()],'bern')[0];s.offeneQuellen=['dtv']
