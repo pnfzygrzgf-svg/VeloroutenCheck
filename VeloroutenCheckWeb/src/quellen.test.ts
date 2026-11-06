@@ -22,6 +22,6 @@ describe('Quellenverzeichnis (quellen.ts)', () => {
     const q = QUELLEN.find(x => x.id === 'velostandards_zh')!
     expect(quellenZeile(q)).toBe(`Velostandards Stadt Zürich · Stadt Zürich, Tiefbauamt (2024-03-22) · ${q.url}`)
     const n = QUELLEN.find(x => x.id === 'sn640201')!
-    expect(quellenZeile(n)).toBe('SN 640 201: Geometrisches Normalprofil; Grundabmessungen und Lichtraumprofil der Verkehrsteilnehmer · VSS')
+    expect(quellenZeile(n)).toBe('SN 640 201: Geometrisches Normalprofil; Grundabmessungen und Lichtraumprofil der Verkehrsteilnehmer · VSS (2019-03)')
   })
 })

@@ -21,14 +21,16 @@ import { erfuellungsgrad } from './fuehrungsform'
 import { dtvAssumed, type Quelle, type Section, type Seite } from './strecke'
 import type { Routentyp, Stadt } from './fuehrungsform'
 import { numDE } from './csv'
+import { formAnzeige, type NotenErgebnis } from './fuehrungsform'
 import {
   bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, pruefeKernfahrbahn, pruefeTeil, pruefungText, haltUmfeld, startAufteilung, umfeldVon, linksDerMitte,
   BILD_LABEL, FUSSNETZ, FUSS_QUELLE, STANDARD_QUELLE, MARKIERUNG_LABEL, RICHTWERT_QUELLE, LICHTRAUM_QUELLE, teilName, type Aufteilung,
+  auf5cm,
 } from './aufteilung'
 import { SkizzeSvg, breiteCm, kennwerteText } from './Querschnitt'
 import { quellenFuer, quellenZeile } from './quellen'
 import { AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE } from './farben'
-import { ausschnitt, wmsBildUrl } from './kartenbild'
+import { ausschnitt, flugjahrKacheln, ladeFlugjahre, wmsBildUrl } from './kartenbild'
 
 const APP_URL = 'https://veloroutencheck.ch/'
 
@@ -64,8 +66,8 @@ const BILD_ZEITGRENZE_MS = 20000
 const VB = 1000                        // Breite der SVG-Zeichnung in Einheiten
 const DRUCK_PX = 700                   // Breite der Skizzen im Druck [px] (Schriftgrösse der Masse)
 
-function BerichtKarte({ achsen, av, park, nr, onBereit }: {
-  achsen: P[][]; av: AvFlaeche[]; park: ParkFlaeche[]; nr: number; onBereit: (s: 'laedt' | 'ok' | 'fehler') => void
+function BerichtKarte({ achsen, av, park, nr, flugjahr, onBereit }: {
+  achsen: P[][]; av: AvFlaeche[]; park: ParkFlaeche[]; nr: number; flugjahr: string; onBereit: (s: 'laedt' | 'ok' | 'fehler') => void
 }) {
   const box = useMemo(() => ausschnitt(achsen), [achsen])
   const [geladen, setGeladen] = useState<{ url: string; ok: boolean } | null>(null)
@@ -145,7 +147,7 @@ function BerichtKarte({ achsen, av, park, nr, onBereit }: {
           </g>
         </svg>
       </div>
-      <figcaption className="klein">Abschnitt rot; das Dreieck an der Nummer zeigt die Fahrtrichtung der Seite A und damit die Blickrichtung der Querschnitte. Luftbild © swisstopo (SWISSIMAGE)
+      <figcaption className="klein">Abschnitt rot; das Dreieck an der Nummer zeigt die Fahrtrichtung der Seite A und damit die Blickrichtung der Querschnitte. Luftbild © swisstopo (SWISSIMAGE{flugjahr ? `, Flugjahr ${flugjahr}` : ''})
         {av.length > 0 ? '; Bodenbedeckung der amtlichen Vermessung' : ''}{park.length > 0 ? '; Parkfelder blau, Parkverbotsfelder orange' : ''}.</figcaption>
     </figure>
   )
@@ -158,7 +160,18 @@ const strecke = (l: P[]) => l.reduce((m, p, i) => (i ? m + Math.hypot(p[0] - l[i
 // «2,0 (Gar nicht erfüllt)» bzw. nur «Gar nicht erfüllt»; den Schalter gibt es nicht mehr.
 const noteText = (n: number | null) =>
   n == null ? '–' : `${erfuellungsgrad(n)} (Note ${numDE(n, 1)})`
-const formText = (f: Seite) => `${f.ist || '–'}${Number.isFinite(f.breite) ? ` ${numDE(f.breite, 2)} m` : ''}` +
+const OEV_TEXT: Record<string, string> = { keine: 'keine Haltestelle', bus_ab15: 'Bus ab 15 Min', bus_5_15: 'Bus 5 bis 15 Min', bus_unter5: 'Bus unter 5 Min', tram: 'Tram' }
+
+/** Wie die Note entsteht, in einer Zeile (dieselben Bausteine wie die Erklärung in der App, fuehrungsform.NotenErgebnis) */
+export function notenHerleitung(b: NotenErgebnis | undefined): string {
+  if (!b || b.haltestellenbereich) return ''
+  if (b.noteFix || b.kapTramNote1) return 'Note nach Sonderregel'
+  const minus = (text: string, x: number) => (x > 0 ? [`${text} −${numDE(x, 1)}`] : [])
+  return [b.erfuellt ? `Vorgabe ${formAnzeige(b.soll)} erfüllt: ${numDE(b.basisnote, 1)}` : `Vorgabe ${formAnzeige(b.soll)}, vorhanden ${formAnzeige(b.ist)}: ${numDE(b.basisnote, 1)}`,
+    ...minus('Breite', b.breitenabzug), ...minus('Parkierung rechts', b.parkenAbzug), ...minus('Haltestelle', b.haltestelleAbzug + b.hsBreitenabzug),
+    ...(b.tramDeckel != null ? [`Tram in der Fahrbahn: höchstens ${numDE(b.tramDeckel, 1)}`] : [])].join('; ')
+}
+const formText = (f: Seite) => `${formAnzeige(f.ist) || '–'}${Number.isFinite(f.breite) ? ` ${numDE(f.breite, 2)} m` : ''}` +
   `${f.parkenRechts === 'ja' ? `, neben Parkierung${f.parkenSicherheitsstreifen ? ' mit Sicherheitsstreifen' : ''}` : ''}`
 
 // Inhalt der Seite (ohne Leiste und Portal), auch ohne Browser darstellbar (Test der Seitenzahl).
@@ -180,6 +193,14 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
   basis: string                           // Pfad zu logo.svg und den Streetmix-Bildern
 }) {
   const a = section.aufteilung
+  const [flugjahr, setFlugjahr] = useState('')
+  const kacheln = flugjahrKacheln(achsen).join('|')
+  useEffect(() => {
+    const c = new AbortController()
+    void ladeFlugjahre(achsen, c.signal).then(j => { if (!c.signal.aborted) setFlugjahr(j) })
+    return () => c.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kacheln])
   const rt = section.routentyp || 'Velohauptroute'
   const sTempo = a.tempo != null ? { ...section, speed: a.tempo } : section   // Tempo mit der Planung (Vorschlag «Tempo 30»)
   const umfeld = umfeldVon(sTempo, a.teile, a.fussnetz, city)
@@ -202,13 +223,18 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
           Bericht ohne Seitenrand aus (@page margin 0), und der Browser setzt keine eigene Kopf- und Fusszeile
           (Titel, Adresse, Seitenzahl, Datum) dazu. */}
       <table className="bericht-rahmen">
-        <thead><tr><td><div className="bericht-rand-oben" /></td></tr></thead>
+        {/* Fallkennung auf jeder Seite (lose Blätter); der Seitenzähler bleibt im wiederholten Kopf in Firefox auf 0 */}
+        <thead><tr><td><div className="bericht-rand-oben"><span className="bericht-kennung">VeloroutenCheck v{__APP_VERSION__} · {(bez.trim() || `Abschnitt ${nr}`).split(' · ')[0]} · {datum}</span></div></td></tr></thead>
         <tfoot><tr><td><div className="bericht-rand-unten" /></td></tr></tfoot>
         <tbody><tr><td>
             <header>
               <h1><img className="bericht-logo" src={basis + 'logo.svg'} alt="" width={34} height={34} />Aufteilung planen</h1>
               <p className="klein">VeloroutenCheck · Bericht vom {datum}</p><p>{standardText(city,section.datenOrt)}</p>
             </header>
+
+            {/* Seite 1: Ergebnis, Kartenbild, Angaben; der Querschnitt beginnt auf einer neuen Seite (index.css, .bericht-neue-seite) */}
+            {heute.note != null && plan.note != null && <p><b>{bez.trim() ? `${bez.trim().split(' · ')[0]}: ` : ''}heute Note {numDE(heute.note, 1)}, mit der Planung Note {numDE(plan.note, 1)}</b></p>}
+            {achsen.length > 0 && <BerichtKarte achsen={achsen} av={av} park={park} nr={nr} flugjahr={flugjahr} onBereit={onBild} />}
 
             <section className="bericht-block">
               <h2>Abschnitt {nr}</h2>
@@ -228,14 +254,14 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                   {' · '}{Number.isFinite(section.speed)
                     ? `${section.speed} km/h (${quelleText(section.quelle.speed, TEMPO_AMTLICH[section.datenOrt?.stadt??city])})` : 'Tempo –'}
                   {a.tempo != null && ` · mit der Planung Tempo ${a.tempo}`}</td></tr>
-                {a.vorschlag && <tr><td>Ausgangspunkt</td><td>Massnahmenvorschlag: {a.vorschlag}</td></tr>}
-                <tr><td>Fahrbahnbreite</td><td>heute {Number.isFinite(section.fahrbahnbreite) ? `${numDE(section.fahrbahnbreite, 1)} m` : '–'}
+                {a.vorschlag && <tr><td>Ausgangspunkt</td><td>Massnahmenvorschlag: {formAnzeige(a.vorschlag)}</td></tr>}
+                <tr><td>Fahrbahnbreite</td><td>heute {Number.isFinite(section.fahrbahnbreite) ? `${numDE(section.fahrbahnbreite, 2)} m` : '–'}
                   {section.quelle.fahrbahnbreite === 'av' ? ' (amtliche Vermessung)' : ''} · verfügbar in der Planung ohne Randsteinanpassung
                   {' '}{Number.isFinite(a.fahrbahn) ? `${numDE(a.fahrbahn, 2)} m` : '–'}</td></tr>
                 {section.mittelinsel && <tr><td>Mittelinsel (AV)</td><td>{numDE(section.mittelinsel.breite, 2)} m breit,
                   {' '}{section.mittelinsel.laenge} m lang; Fahrbahn an der Insel {numDE(section.mittelinsel.fahrbahn, 1)} m von Bord zu Bord</td></tr>}
-                {section.trottoir && <tr><td>Trottoirs (AV)</td><td>Seite A {Number.isFinite(section.trottoir.a) ? `${numDE(section.trottoir.a, 2)} m` : 'keines'}
-                  {' · '}Seite B {Number.isFinite(section.trottoir.b) ? `${numDE(section.trottoir.b, 2)} m` : 'keines'}</td></tr>}
+                {section.trottoir && <tr><td>Trottoirs (AV)</td><td>Seite A {Number.isFinite(section.trottoir.a) ? `${numDE(auf5cm(section.trottoir.a), 2)} m` : 'keines'}
+                  {' · '}Seite B {Number.isFinite(section.trottoir.b) ? `${numDE(auf5cm(section.trottoir.b), 2)} m` : 'keines'}</td></tr>}
                 {Number.isFinite(b.verfuegbar) && b.ganz && <tr><td>Gesamtbreite</td><td>{numDE(b.verfuegbar, 2)} m (Fahrbahn und Breite
                   ausserhalb der Fahrbahn heute; verfügbar mit Randsteinanpassung)</td></tr>}
                 {city === 'luzern' ? (
@@ -252,9 +278,6 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
               </tbody></table>
             </section>
 
-            {achsen.length > 0 && <BerichtKarte achsen={achsen} av={av} park={park} nr={nr} onBereit={onBild} />}
-
-            {/* Seite 1: Angaben und Kartenbild; ab hier Seite 2 (index.css, .bericht-neue-seite) */}
             <section className="bericht-block bericht-neue-seite">
               <h2>Querschnitt</h2>
               <p className="klein">In Fahrtrichtung der Seite A gesehen: links der Rand der Seite B, rechts der Rand der Seite A.
@@ -305,19 +328,21 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                   {seitenListe.map(s => (
                     <tr key={s}>
                       <td>{seitenListe.length > 1 || einbahn ? seiteName(s) : 'Beide Seiten'}</td>
-                      <td>{sh.get(s) ? <>{sh.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sh.get(s)!.felder.haltestellentyp}` : formText(sh.get(s)!.felder)}<div className="klein">{noteText(sh.get(s)!.bewertung?.note ?? null)}</div></> : '–'}</td>
-                      <td>{sp.get(s) ? <>{sp.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sp.get(s)!.felder.haltestellentyp}` : formText(sp.get(s)!.felder)}<div className="klein">{noteText(sp.get(s)!.bewertung?.note ?? null)}</div></> : '–'}</td>
+                      <td>{sh.get(s) ? <>{sh.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sh.get(s)!.felder.haltestellentyp}` : formText(sh.get(s)!.felder)}<div className="klein">{noteText(sh.get(s)!.bewertung?.note ?? null)}</div><div className="klein">{notenHerleitung(sh.get(s)!.bewertung ?? undefined)}</div></> : '–'}</td>
+                      <td>{sp.get(s) ? <>{sp.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sp.get(s)!.felder.haltestellentyp}` : formText(sp.get(s)!.felder)}<div className="klein">{noteText(sp.get(s)!.bewertung?.note ?? null)}</div><div className="klein">{notenHerleitung(sp.get(s)!.bewertung ?? undefined)}</div></> : '–'}</td>
                     </tr>
                   ))}
                   <tr><td><b>Abschnitt</b></td><td><b>{noteText(heute.note)}</b></td><td><b>{noteText(plan.note)}</b></td></tr>
                 </tbody>
               </table>
+              <p className="klein">Weitere Eingaben der Bewertung: {section.tram ? 'Tram in der Fahrbahn' : 'kein Tram'}; ÖV-Angebot: {OEV_TEXT[section.oevAngebot] ?? section.oevAngebot};
+                Haltestellentyp: {[...new Set(seitenListe.flatMap(s => [sh.get(s), sp.get(s)]).map(x => x?.felder.haltestellentyp).filter(x => x && x !== 'keine'))].join(', ') || 'keiner angesetzt'}.</p>
               <p className="klein">Dieselbe Bewertung wie im Rechner. Führungsform, Breite, Parkierung und Sicherheitsstreifen je Seite sowie das Tram
                 kommen aus den Elementen, vom Rand nach innen gelesen; DTV, Tempo, Routentyp und Haltestelle bleiben wie eingegeben. Die Note des
                 Abschnitts ist die schlechtere Seite.{Number.isFinite(b.rest) && b.rest < -0.005 ? ' Die Elemente haben im verfügbaren Querschnitt keinen Platz; die Note setzt voraus, dass sie passen.' : ''}</p>
             </section>
 
-            <E5Abschnitt s={section} druck /><Datenstaende druck />
+            <E5Abschnitt s={section} druck />
             <section className="bericht-block">
               <h2>Annahmen und Grenzen</h2>
               <ul className="klein">
@@ -332,21 +357,22 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                   geprüft und in der Prüfung als «Ersatz Bern» gekennzeichnet. Die Fahrbahn ohne Mittellinie wird nach den Mindestbreiten
                   der Stadt geprüft.</li>}
                 <li>Jede Fahrspur ist ab 3,00 m gültig; mit Lastwagen oder Bus gilt der Lichtraum als Richtwert.</li>
-                <li>Ein Velostreifen direkt neben einer Trennung mit Pfosten gilt als geschützter Radstreifen; Veloabstellplatz und Parklet
+                <li>Ein Velostreifen direkt neben einer Trennung mit Pfosten gilt als geschützter Velostreifen; Veloabstellplatz und Parklet
                   zählen nicht als Parkierung.</li>
               </ul>
             </section>
 
             <section className="bericht-block">
               <h2>Quellen</h2>
+              <Datenstaende druck section={section} flugjahr={flugjahr} />
+              <h3>Werke und Quellenangaben</h3>
               <ul className="klein">
                 <li>Richtwerte und Vorgaben: {STANDARD_QUELLE[city]}{city !== 'bern' ? `; Ersatz: ${RICHTWERT_QUELLE}` : ''}; Trottoirs: {FUSS_QUELLE[city]}; Lichtraum von Lastwagen und Bus: {LICHTRAUM_QUELLE}; Tram 2,80 m
                   (1,40 m ab Gleisachse, Masterplan); Trennung mit Pfosten 0,70 m: Festlegung VeloroutenCheck.</li>
                 {/* Werke je Stadt mit Adresse (seit 23.10.2026, quellen.ts) */}
-                {quellenFuer(city, 'vorgabe').map(q => <li key={q.id}>{quellenZeile(q)}</li>)}
-                <li>Luftbild: © swisstopo, SWISSIMAGE (wms.geo.admin.ch)</li>
-                {quellen.map(q => <li key={q}>{q}</li>)}
-                <li>Strassennetz: © OpenStreetMap-Mitwirkende, ODbL</li>
+                {quellenFuer(city, 'vorgabe').map(q => <li key={q.id}>{quellenZeile(q)}{q.ebene === 'Befragung' ? ` · ${q.verwendung}` : ''}</li>)}
+                {/* Quellenangaben der Daten in einer Zeile: Stand und Abruf stehen in den Tabellen oben, hier nur die Nennung (Lizenz) */}
+                <li>{[`Luftbild: © swisstopo, SWISSIMAGE${flugjahr ? `, Flugjahr ${flugjahr}` : ''} (wms.geo.admin.ch)`, ...quellen, 'Strassennetz: © OpenStreetMap-Mitwirkende, ODbL'].join('; ')}</li>
                 <li>Illustrationen der Skizze (Personen, Fahrzeuge, Ausstattung, Pfeilmarkierungen): Streetmix (streetmix.net), CC BY-SA 4.0; Boden, Masse und Markierungsstriche: eigene Zeichnung</li>
               </ul>
             </section>

@@ -132,7 +132,7 @@ export const EBENEN: readonly EbeneDef[] = [
     quelle: { alle: 'swissALTI3D (swisstopo), mittlere Steigung je Abschnitt; der Pfeil zeigt bergauf' },
     hinweis: 'je übernommenen Abschnitt' },
   { id: 'luftbild', titel: 'Luftbild-Erkennung', kurz: 'Luftbild', staedte: ['bern', 'zurich', 'basel'],
-    legende: [['luftbild', '#e11d48', 'Radstreifen erkannt (remote_velo, ETH Zürich)']],
+    legende: [['luftbild', '#e11d48', 'Velostreifen erkannt (remote_velo, ETH Zürich)']],
     quelle: { alle: 'remote_velo (ETH Zürich) auf SWISSIMAGE und Orthofoto, Snapshot' } },
   { id: 'obs', titel: 'Überholabstände (OBS)', kurz: 'OBS', staedte: ['bern', 'zurich'], legende: OBS_FARBEN,
     quelle: { alle: 'OpenBikeSensor, Snapshot; Farbe nach dem Median je Segment' } },

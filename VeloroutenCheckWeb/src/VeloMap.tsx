@@ -12,7 +12,7 @@ import { profilObjekteWaehlen, standardProfil } from './hoehenprofil/modell'
 import L from 'leaflet'
 import { netzTexte, type RoutennetzWms } from './routennetz'
 import { ebenenFarbe, ebenenFuer, ebenenQuelle, ebenenSichtbar, ebenenSymbol, legendeFuer, NACHLADEN, spurenText, type EbeneId, type EbenenDaten, type NachladeStand } from './ebenen'
-import type { Stadt } from './fuehrungsform'
+import { formAnzeige, type Stadt } from './fuehrungsform'
 import { UEBERBLICK } from './ueberblick'
 import 'leaflet/dist/leaflet.css'
 import type { ObsStats } from './obs'
@@ -154,7 +154,10 @@ const ORTHO = 'Orthofoto (swisstopo)'
 const NAH_ZOOM = 19
 const NETZ_FANG_PX = 4, NETZ_PAUSE_MS = 250                          // Erklärung der Netzlinien: Fangfenster, Pause vor der Abfrage                                                 // ab hier gewählte Linien dünn (Markierungen sichtbar)
 const BERN26 = 'Orthofoto Stadt Bern 2026'
-const LUFTBILDER = [ORTHO, BERN26]                                  // Hintergründe mit Strassennamen-Kästchen
+const LUFTBILDER = [ORTHO, BERN26]                                  // Hintergründe, zu denen die Strassennamen gehören
+const KARTE_GRAU = 'Landeskarte grau (swisstopo)'
+// Beschriftung in der Ebenenwahl oben rechts (wie fgsCheck); die Texte im Panel nennen dieselben Namen
+const BASIS_NAME: Record<string, string> = { [ORTHO]: 'Luftbild (SWISSIMAGE)', [BERN26]: 'Luftbild Stadt Bern 2026', [KARTE_GRAU]: KARTE_GRAU, CyclOSM: 'CyclOSM' }
 
 /** Schlüssel der zuletzt gesehenen Kartenansicht im Browser (nur Bequemlichkeit, darf fehlen) */
 const ANSICHT_SCHLUESSEL = 'vrc.karteAnsicht'
@@ -170,7 +173,7 @@ function ansichtLesen(stadt: [number, number] | L.LatLngExpression): { c: [numbe
 const BESCHRIFT_ZOOM = 17   // Kartenebenen: Werte als Beschriftung ab dieser Zoomstufe
 
 export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, ebenen = {}, stadt = 'bern', onEbenenAn, nachladen = { moeglich: false, laufend: {} },
-                          attribution = 'Geoinformation Stadt Bern', center = [46.948, 7.447], fitKey = 0,
+                          attribution = 'Geodaten Stadt Bern', center = [46.948, 7.447], fitKey = 0,
                           teilModus = false, orthofoto = false, bern2026 = false, routennetz = null, messung = null, av = null, obsStand, formen, onMeldung, onMarkerClick }: {
   onMarkerClick?: (num: number) => void   // Abschnitts-Marker angeklickt (öffnet den Abschnitt im Panel, seit 22.10.2026)
   cands: Cand[]
@@ -205,9 +208,10 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   const avRef = useRef<L.LayerGroup | null>(null)                   // AV-Flächen (Planung)
   const basisRef = useRef<Record<string, L.TileLayer>>({})          // Hintergründe nach Name
   const aktiveBasis = useRef(ORTHO)                                 // gerade gezeigter Hintergrund
-  const [basis, setBasis] = useState(ORTHO)                         // … für die Knöpfe auf der Karte
   const namenRef = useRef<L.TileLayer | null>(null)                 // Strassennamen (nur über dem Orthofoto)
-  const [namen, setNamen] = useState(false)                       // Strassennamen aus, bis sie gewählt sind
+  const namenWunsch = useRef(false)                                 // Strassennamen aus, bis sie gewählt sind
+  const namenIntern = useRef(false)                                 // die App schaltet sie selbst: keine Wahl der Person
+  const wahlRef = useRef<L.Control.Layers | null>(null)             // Ebenenwahl oben rechts
   // Routennetz zuschalten (seit 30.10.2026): über jedem Hintergrund, unter den Segmentlinien; der Browser merkt sich die Wahl
   const [netzAn, setNetzAn] = useState(() => { try { return localStorage.getItem('vrc.routennetz') === '1' } catch { return false } })
   const netzRef = useRef<L.TileLayer | null>(null)
@@ -267,7 +271,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   ebenenAnCb.current = onEbenenAn
   useEffect(() => { ebenenAnCb.current?.(ebenenAn) }, [ebenenAn])
   // Fenster «Kartenebenen» an der Kopfzeile verschiebbar; die Lage
-  // links oben in px relativ zur Karte, gemerkt; ohne Lage unten links über der Hintergrund-Leiste
+  // links oben in px relativ zur Karte, gemerkt; ohne Lage unten links über dem Knopf
   const [ebenenPos, setEbenenPos] = useState<{ x: number; y: number } | null>(() => {
     try { const v = JSON.parse(localStorage.getItem('vrc.ebenenPos') ?? 'null'); return v && Number.isFinite(v.x) && Number.isFinite(v.y) ? v : null } catch { return null }
   })
@@ -298,13 +302,26 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   }
   const [zoom, setZoom] = useState(13)
   const ebenenRef = useRef<L.LayerGroup | null>(null)
-  // Hintergrund wechseln (Knöpfe unten links auf der Karte, seit 22.10.2026 statt der Leaflet-Ebenenwahl):
-  // die Strassennamen gehen mit dem Orthofoto an und aus, solange sie nicht abgewählt sind.
-  const basisWechseln = (name: string, mitNamen = namen) => {
-    const map = mapRef.current, b = basisRef.current, nm = namenRef.current
-    if (!map || !b[name]) return
-    if (aktiveBasis.current !== name) { b[aktiveBasis.current]?.remove(); b[name].addTo(map); aktiveBasis.current = name; setBasis(name) }
-    if (nm) { if (LUFTBILDER.includes(name) && mitNamen) { if (!map.hasLayer(nm)) nm.addTo(map) } else nm.remove() }
+  // Hintergrund wechseln (Ebenenwahl oben rechts wie im fgsCheck, seit 06.11.2026): die Strassennamen gehen mit dem Luftbild an und
+  // aus, solange sie nicht abgewählt sind. Leaflet meldet auch das Schalten durch die App als «overlayremove»: namenIntern trennt das
+  // von einer Wahl der Person.
+  const namenAbgleich = (name: string) => {
+    const map = mapRef.current, nm = namenRef.current
+    if (!map || !nm) return
+    namenIntern.current = true
+    if (LUFTBILDER.includes(name) && namenWunsch.current) { if (!map.hasLayer(nm)) nm.addTo(map); nm.bringToFront() } else nm.remove()
+    namenIntern.current = false
+  }
+  const basisWechseln = (name: string) => {
+    const map = mapRef.current, b = basisRef.current
+    if (!map || !b[name] || aktiveBasis.current === name) return
+    b[aktiveBasis.current]?.remove(); b[name].addTo(map)   // «baselayerchange» führt den Rest nach
+  }
+  const wahlFuellen = (mitBern: boolean) => {
+    const wahl = wahlRef.current, b = basisRef.current
+    if (!wahl) return
+    for (const l of Object.values(b)) wahl.removeLayer(l)
+    for (const k of [ORTHO, ...(mitBern ? [BERN26] : []), KARTE_GRAU, 'CyclOSM']) wahl.addBaseLayer(b[k], BASIS_NAME[k])
   }
 
   const lineRef = useRef<Map<number, L.Polyline>>(new Map())  // Cand-ID → Linie (für Highlight)
@@ -370,7 +387,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       [ORTHO]: L.tileLayer(
         'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',
         { maxZoom: 21, maxNativeZoom: 20, attribution: '© swisstopo' }),
-      'Landeskarte grau (swisstopo)': L.tileLayer(
+      [KARTE_GRAU]: L.tileLayer(
         'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/{z}/{x}/{y}.jpeg',
         { maxZoom: 21, maxNativeZoom: 19, attribution: '© swisstopo' }),
       // Orthofoto der Stadt Bern, Flug 19.03.2026, 10 cm (SWISSIMAGE zeigt in Bern
@@ -403,6 +420,14 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       minZoom: 17, maxZoom: 21, attribution: '© swisstopo (Strassennamen)',
     })
     basisRef.current = basemaps
+    wahlRef.current = L.control.layers({}, { 'Strassennamen (ab Zoomstufe 17)': namenRef.current }, { collapsed: true }).addTo(map)
+    map.on('baselayerchange', (e: L.LayersControlEvent) => {
+      const name = Object.keys(basemaps).find(k => basemaps[k] === e.layer)
+      if (!name) return
+      aktiveBasis.current = name; namenAbgleich(name)
+    })
+    const namenGewaehlt = (an: boolean) => (e: L.LayersControlEvent) => { if (e.layer === namenRef.current && !namenIntern.current) namenWunsch.current = an }
+    map.on('overlayadd', namenGewaehlt(true)); map.on('overlayremove', namenGewaehlt(false))
     // Quellenangabe: auf Mobile einzeilig gekürzt (index.css), Tippen klappt sie auf (seit 28.10.2026)
     map.attributionControl.getContainer()?.addEventListener('click', ev => (ev.currentTarget as HTMLElement).classList.toggle('offen'))
     // Das Mausrad zoomt die Karte direkt wie in fgsCheck: In beiden Ansichten liegt die Karte fest, nur das Panel scrollt
@@ -536,8 +561,8 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
       hit.bindTooltip(
         `${escapeHtml(c.name)} · ${Math.round(c.len)} m` +
         (c.teil ? ` · Teil ${c.teil.nr}/${c.teil.anzahl}` : '') +
-        ` · ${escapeHtml(istB ? `Seite A ${istA} / Seite B ${istB}` : istA)}${c.selected ? '' : ' (abgewählt)'}` +
-        (bernParts && bernParts.length ? `<br>${escapeHtml(c.datenOrt?.stadt ? ({bern:'Geoinformation Stadt Bern',zurich:'Geodaten Stadt Zürich',basel:'Geodaten Kanton Basel-Stadt',luzern:'Geodaten Stadt Luzern'}[c.datenOrt.stadt]) : c.datenOrt ? 'Örtliche Quellen · '+c.datenOrt.name : attribution)}: ${escapeHtml(bernParts.join(' · '))}` : '') +
+        ` · ${escapeHtml(formAnzeige(istB ? `Seite A ${istA} / Seite B ${istB}` : istA))}${c.selected ? '' : ' (abgewählt)'}` +
+        (bernParts && bernParts.length ? `<br>${escapeHtml(c.datenOrt?.stadt ? ({bern:'Geodaten Stadt Bern',zurich:'Geodaten Stadt Zürich',basel:'Geodaten Kanton Basel-Stadt',luzern:'Geodaten Stadt Luzern'}[c.datenOrt.stadt]) : c.datenOrt ? 'Örtliche Quellen · '+c.datenOrt.name : attribution)}: ${escapeHtml(bernParts.join(' · '))}` : '') +
         (c.speed != null && c.bern?.speed == null ? `<br>OpenStreetMap: Tempo ${c.speed}` : '') +
         (spurenText(c.spuren) ? `<br>${escapeHtml(spurenText(c.spuren)!)}` : '') +
         obsPart,
@@ -642,7 +667,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
 
   // Orthofoto einschalten (Breitenmessung). Es bleibt danach eingeschaltet: Zurück zu CyclOSM
   // (höchstens Stufe 19) hätte die Karte nach einer Messung auf Stufe 20/21 herausgezoomt
-  // (16.10.2026). Den Hintergrund wechselt man unten links auf der Karte.
+  // (16.10.2026). Den Hintergrund wechselt man oben rechts auf der Karte.
   useEffect(() => {
     if (orthofoto && !LUFTBILDER.includes(aktiveBasis.current)) basisWechseln(ORTHO)   // ein Luftbild bleibt stehen
   }, [orthofoto])   // eslint-disable-line react-hooks/exhaustive-deps
@@ -713,6 +738,7 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   // Stadt gewechselt: das Berner Orthofoto deckt nur Bern ab → zurück auf SWISSIMAGE
   useEffect(() => {
     if (!bern2026 && aktiveBasis.current === BERN26) basisWechseln(ORTHO)
+    wahlFuellen(bern2026)
   }, [bern2026])   // eslint-disable-line react-hooks/exhaustive-deps
 
   // AV-Flächen zeichnen (Planung), mit Quellenangabe, solange sie zu sehen sind.
@@ -795,31 +821,17 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
 
   return (
     // Höhe/Rahmen über die Klasse (index.css): im Breitbild-Layout füllt die Karte die linke Spalte.
-    // Die Knöpfe für den Hintergrund liegen als eigenes Element neben dem Leaflet-Container (nicht darin:
+    // Der Knopf «Kartenebenen» liegt als eigenes Element neben dem Leaflet-Container (nicht darin:
     // React und Leaflet sollen sich keine Kindelemente teilen).
     <div className="vrc-velomap-wrap">
       <div ref={elRef} className="vrc-velomap" />
-      <div className="vrc-hintergrund" role="group" aria-label="Kartenhintergrund">
-        {([[ORTHO, 'Luftbild'], ...(bern2026 ? [[BERN26, 'Bern 2026']] : []), ['Landeskarte grau (swisstopo)', 'Karte'], ['CyclOSM', 'CyclOSM']] as [string, string][]).map(([name, label]) => (
-          <button key={name} type="button" aria-pressed={basis === name} onClick={() => basisWechseln(name)} title={name}
-                  className={basis === name ? 'aktiv' : undefined}>
-            {label}
-          </button>
-        ))}
-        {/* Ergänzung zum Luftbild, kein eigener Hintergrund: Kästchen «+ Strassennamen», nur bei den Luftbildern (seit
-            22.10.2026 standardmässig aus) */}
+      <div className="vrc-hintergrund" role="group" aria-label="Kartenebenen">
         {/* «Kartenebenen» (seit 01.11.2026): Routennetz und die Quellen der Vorbelegung, je einzeln einblendbar */}
         <button type="button" aria-expanded={ebenenOffen} onClick={() => setEbenenOffen(o => !o)}
                 className={ebenenOffen || netzAn || ebenenAn.size ? 'aktiv-rand' : undefined}
                 title="Kartenebenen auf der Karte zeigen: Routennetz und die Quellen, aus denen die Felder vorbelegt sind">
           <span className="lang">Kartenebenen</span><span className="kurz">Quellen</span>{(() => { const k = (hk.an ? 1 : 0) + (netzAn && routennetz ? 1 : 0) + (UEBERBLICK[stadt] ?? []).filter(u => ueberAn.has(u.id)).length + astraAn.size + ebenenSichtbar(ebenenFuer(stadt, ebenen), ebenen, nachladen).zeigen.filter(e => ebenenAn.has(e.id)).length; return k ? ` (${k})` : '' })()} ▴
         </button>
-        {LUFTBILDER.includes(basis) && (
-          <label className="namen" title="Strassennamen aus dem amtlichen Strassenverzeichnis über dem Luftbild (swisstopo, ab Zoomstufe 17)">
-            <input type="checkbox" checked={namen} onChange={e => { setNamen(e.target.checked); basisWechseln(basis, e.target.checked) }} />
-            <span className="lang">Strassennamen</span><span className="kurz">Namen</span>
-          </label>
-        )}
       </div>
       {ebenenOffen && (
         <div className="vrc-ebenen" role="group" aria-label="Kartenebenen" ref={ebenenFensterRef}

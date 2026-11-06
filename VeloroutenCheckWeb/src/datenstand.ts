@@ -54,16 +54,24 @@ export function meldeTeilQuelle(id: string, name: string, url: string, ebene: st
 }
 const obj=(x:unknown):x is Record<string,unknown>=>!!x&&typeof x==='object'&&!Array.isArray(x)
 const datum=(x:unknown)=>typeof x==='string'&&/^\d{4}-\d{2}-\d{2}(T|$)/.test(x)&&Number.isFinite(Date.parse(x))?x.slice(0,10).split('-').reverse().join('.'):null
-const tag=(x:unknown)=>typeof x==='number'&&x>0&&Number.isFinite(x)?new Date(x).toLocaleDateString('de-CH'):null
+const TAG_FORM={day:'2-digit',month:'2-digit',year:'numeric'} as const
+/** Datum und Zeit einheitlich mit zweistelligem Tag und Monat, wie das Datum des Berichts */
+export const zeitText=(x:string|number)=>new Date(x).toLocaleString('de-CH',{...TAG_FORM,hour:'2-digit',minute:'2-digit',second:'2-digit'})
+const tag=(x:unknown)=>typeof x==='number'&&x>0&&Number.isFinite(x)?new Date(x).toLocaleDateString('de-CH',TAG_FORM):null
+/** Dienstnamen stehen ohne Umlaute im Pfad; im Bericht in normaler Schreibweise */
+const dienstName=(x:string)=>x.replace(/Hoechst/g,'Höchst').replace(/Flaechen/g,'Flächen').replace(/Parkplaetze/g,'Parkplätze').replace(/oeffentlich/g,'öffentlich').replace(/\bOeV\b/g,'ÖV')
+const STADT_NAME:Record<string,string>={bern:'Bern',zurich:'Zürich',basel:'Basel',luzern:'Luzern'}
+const stadtName=(x:string)=>STADT_NAME[x]??x
 function quelle(url:string):Pick<DatenStand,'id'|'name'|'url'|'ebene'> {
  const u=new URL(url,typeof location==='object'?location.href:'https://veloroutencheck.ch/'),p=u.pathname,q=u.searchParams
  const typ=q.get('TYPENAMES')??q.get('typeNames')??q.get('typeName')??q.get('TYPENAME')??''
- if(/\/1\.0\.0\//.test(p)){const layer=p.split('/1.0.0/')[1].split('/')[0];return{id:layer,name:layer,url,ebene:layer.includes('swissimage')?'orthofoto':layer.includes('relief')?'relief':layer.includes('astra')?'unfaelle':undefined}}
+ if(/\/1\.0\.0\//.test(p)){const layer=p.split('/1.0.0/')[1].split('/')[0];return{id:layer,name:layer.includes('swissimage')?'Luftbild SWISSIMAGE · swisstopo':layer,url,ebene:layer.includes('swissimage')?'orthofoto':layer.includes('relief')?'relief':layer.includes('astra')?'unfaelle':undefined}}
  if(p.endsWith('/WMSServer'))return{id:u.origin+p,name:u.hostname.includes('bern')?'Geoportal Stadt Bern: '+p.split('/Geoportal/')[1]?.split('/')[0]:u.hostname+' · Kartenbild',url,ebene:'kartenbild'}
  if(/interpreter/.test(p))return{id:'osm',name:'OpenStreetMap (Overpass)',url,ebene:'osm'}
  const arc=p.match(/\/(?:MapServer|FeatureServer)(?:\/(\d+))?(?:\/query)?$/)
  if(arc){const base=u.origin+p.replace(/\/query$/,'');const dienst=p.match(/(?:Geoportal|OGD)\/([^/]+)/)?.[1]?.replace(/_/g,' ')??p.split('/').filter(x=>!['query','MapServer','FeatureServer'].includes(x)&&!/^\d+$/.test(x)).pop()??'Dienst'
-  return{id:base,name:`${u.hostname.includes('bern.ch')?'Geoportal Stadt Bern':u.hostname.includes('stadtluzern')?'Stadt Luzern':'Kanton Luzern'}: ${dienst}`,url,ebene:/Signalisierte|geschwindigkeit/i.test(p)?'tempo':/verkehrszaehl|Verkehrsdaten/i.test(p)?'dtv':/strassenachse|hierarchie/i.test(p)?'hierarchie':/lichtsignal/i.test(p)?'lsa':/zone/i.test(p)?'zonen':/Haltestellen/i.test(p)?'haltestellen':/OeV_Linien/i.test(p)?'oev':/park/i.test(p)?'parkfelder':/Velorout|velonetz/i.test(p)?'routennetz':undefined}}
+  return{id:base,name:`${u.hostname.includes('bern.ch')?'Geoportal Stadt Bern':u.hostname.includes('stadtluzern')?'Stadt Luzern':'Kanton Luzern'}: ${dienstName(dienst)}`,url,ebene:/Signalisierte|geschwindigkeit/i.test(p)?'tempo':/Verkehrsdaten_Tram/i.test(p)?'tram':/Richtplan_Fussverkehr/i.test(p)?'fussnetz':/Velostrassen/i.test(p)?'velostrasse':/verkehrszaehl|Verkehrsdaten/i.test(p)?'dtv':/strassenachse|hierarchie/i.test(p)?'hierarchie':/lichtsignal/i.test(p)?'lsa':/zone/i.test(p)?'zonen':/Haltestellen/i.test(p)?'haltestellen':/OeV_Linien/i.test(p)?'oev':/park/i.test(p)?'parkfelder':/Velorout|velonetz/i.test(p)?'routennetz':undefined}}
+ if(p.endsWith('/WFSServer')&&u.hostname.includes('bern.ch')){const dienst=p.match(/Geoportal\/([^/]+)/)?.[1]?.replace(/_/g,' ')??'WFS';return{id:u.origin+p,name:`Geoportal Stadt Bern: ${dienstName(dienst)}`,url,ebene:/park/i.test(p)?'parkfelder':undefined}}
  const ds=p.match(/\/datasets\/([^/]+)/)?.[1]
  if(ds)return{id:`${u.origin}/datasets/${ds}`,name:`Basel-Stadt: Datensatz ${ds}`,url,ebene:ds==='100250'?'tempo':ds==='100430'?'lsa':ds==='100426'?'velostrasse':undefined}
  if(/geodienste\.ch/.test(u.hostname))return{id:'av',name:'Amtliche Vermessung (geodienste.ch)',url,ebene:'av'}
@@ -71,7 +79,7 @@ function quelle(url:string):Pick<DatenStand,'id'|'name'|'url'|'ebene'> {
  const layer=(q.get('layers')??q.get('LAYERS'))?.replace(/^all:/,'')??p.match(/MapServer\/([^/]+)\/legend/)?.[1]
  if(layer)return{id:layer,name:layer==='ch.are.belastung-personenverkehr-strasse'?'ARE: NPVM (modelliert)':layer,url,ebene:layer.includes('belastung')?'npvm':layer.includes('astra')?'unfaelle':undefined}
  const file=p.split('/').pop()??p
- return{id:u.origin+p,name:p.includes('profile')?'Höhenprofile · swisstopo':/oev_takt/.test(file)?'ÖV-Takt · Fahrplan-Snapshot '+file.replace('oev_takt_','').replace('.json',''):/obs_/.test(file)?'Überholabstände · OpenBikeSensor '+file.replace('obs_','').replace('.json',''):/luftbild_/.test(file)?'Velostreifen · Luftbild-Erkennung '+file.replace('luftbild_','').replace('.json',''):/velostreifen_/.test(file)?'Velostreifen · lokale Markierungsauswertung':/\.json$/.test(file)?file:p.includes('SearchServer')?'swisstopo: Strassen-/Adresssuche':u.hostname+' '+file,url,ebene:/oev_takt/.test(file)?'haltestellen':/dtv_/.test(file)?'dtv':/luftbild/.test(file)?'luftbild':/obs_/.test(file)?'obs':/profile/.test(file)?'steigung':undefined}
+ return{id:u.origin+p,name:p.includes('profile')?'Höhenprofile · swisstopo':/oev_takt/.test(file)?'ÖV-Takt · Fahrplandaten '+stadtName(file.replace('oev_takt_','').replace('.json','')):/obs_/.test(file)?'Überholabstände · OpenBikeSensor '+stadtName(file.replace('obs_','').replace('.json','')):/luftbild_/.test(file)?'Velostreifen · Luftbild-Erkennung '+stadtName(file.replace('luftbild_','').replace('.json','')):/velostreifen_/.test(file)?'Velostreifen · lokale Markierungsauswertung':/\.json$/.test(file)?file:p.includes('SearchServer')?'swisstopo: Strassen-/Adresssuche':u.hostname+' '+file,url,ebene:/velostreifen_/.test(file)?'markierung':/oev_takt/.test(file)?'haltestellen':/dtv_/.test(file)?'dtv':/luftbild/.test(file)?'luftbild':/obs_/.test(file)?'obs':/profile/.test(file)?'steigung':undefined}
 }
 async function roh(url:string):Promise<unknown> {const c=new AbortController(),t=setTimeout(()=>c.abort(),9000);try{const r=await fetch(url,{signal:c.signal,cache:'no-store'});if(!r.ok)throw Error(String(r.status));return /services\.csv|\/legend/.test(url)?await r.text():await r.json()}finally{clearTimeout(t)}}
 export async function quelleMetadaten(url:string,daten:unknown):Promise<Partial<DatenStand>> {
@@ -107,10 +115,10 @@ export function meldeAbruf(url:string,res:Response|null,daten?:unknown,fehler?:u
  const q=quelle(url),abgerufen=new Date().toISOString()
  if(q.id==='av'&&obj(daten)&&Array.isArray(daten.features)){const kantone=[...new Set(daten.features.flatMap(f=>obj(f)&&obj(f.properties)&&typeof f.properties.Kanton==='string'?[f.properties.Kanton]:[]))].sort();if(kantone.length)q.id+=':'+kantone.join(',')}
  let stand='unbekannt'
- if(obj(daten)&&obj(daten.osm3s)&&typeof daten.osm3s.timestamp_osm_base==='string')stand=/^\d+$/.test(daten.osm3s.timestamp_osm_base)?`unbekannt (OSM-Replikationsstand ${daten.osm3s.timestamp_osm_base})`:`${daten.osm3s.timestamp_osm_base} (OSM-Datenbankstand)`
+ if(obj(daten)&&obj(daten.osm3s)&&typeof daten.osm3s.timestamp_osm_base==='string')stand=/^\d+$/.test(daten.osm3s.timestamp_osm_base)?'unbekannt':`${daten.osm3s.timestamp_osm_base} (OSM-Datenbankstand)`
  if(obj(daten)){const s=datum(daten.datenstand??daten.stand);if(s)stand=s+' (Dateiangabe)'}
  if(stand==='unbekannt'&&res?.headers?.get('Last-Modified')&&/\.json$/.test(new URL(url, 'https://veloroutencheck.ch').pathname)){
-  const t=Date.parse(res.headers.get('Last-Modified')!);if(Number.isFinite(t))stand=new Date(t).toLocaleDateString('de-CH')+' (Bereitstellung der Datei; fachlicher Stand unbekannt)'
+  const t=Date.parse(res.headers.get('Last-Modified')!);if(Number.isFinite(t))stand=new Date(t).toLocaleDateString('de-CH',TAG_FORM)+' (Bereitstellung der Datei; fachlicher Stand unbekannt)'
  }
  const v:DatenStand={...q,abgerufen,datenstand:stand,vollstaendigkeit:'unbekannt',status:fehler?'fehler':'geladen',...(fehler?{fehler:String(fehler)}:{})}
  eintragen(v)
@@ -119,7 +127,7 @@ export function meldeAbruf(url:string,res:Response|null,daten?:unknown,fehler?:u
  void metadata.get(q.id)!.then(m=>{if(generation!==lauf)return;const jetzt=liste.find(x=>x.id===q.id);if(jetzt?.abgerufen===abgerufen)eintragen({...jetzt,...m})})
 }
 export function standText(s: DatenStand, teilfehlerZeigen = true): string {
- const basis = `Datenstand ${s.datenstand}; Vollständigkeit ${s.vollstaendigkeit}; Abruf ${new Date(s.abgerufen).toLocaleString('de-CH')}`
+ const basis = `Datenstand ${s.datenstand}; Vollständigkeit ${s.vollstaendigkeit}; Abruf ${zeitText(s.abgerufen)}`
  const ausfall = s.fehler ? `; nicht geladen: ${s.fehler}` : ''
  if (s.geladeneZellen === undefined) return basis + ausfall
  const teile = s.teilfehler ?? []

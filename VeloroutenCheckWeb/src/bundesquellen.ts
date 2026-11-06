@@ -32,6 +32,6 @@ export async function bundesquellen(cs:readonly Cand[]):Promise<{ebenen:EbenenDa
   }).catch(e=>{fehler.push('Tramgleise swissTLM3D');meldeQuellenFehler('swisstopo.tram','Tramgleise · swissTLM3D',tramUrl,'tramTlm',e,generation)}),
  ])
  for(const c of cs){const b=(ebenen.bav??[]).filter(h=>h.punkt&&distPointToLineM(h.punkt,c.geom)<60),t=(ebenen.tramTlm??[]).some(t=>t.linien?.some(l=>l.some(p=>distPointToLineM(p,c.geom)<15)))
-  hinweise.set(c.id,[...(b.length?[`${b.length} BAV-Haltestellenpunkte bis 60 m neben dem Abschnitt: Strassenzuordnung, Haltekante und Verkehrsmittel vor Verwendung prüfen.`]:[]),...(t?['Tramgleis aus swissTLM3D in der Nähe: getrennt prüfen, ob es in der Fahrbahn liegt.']:[])])}
+  hinweise.set(c.id,[...(b.length?[`${b.length===1?'1 BAV-Haltestellenpunkt':`${b.length} BAV-Haltestellenpunkte`} bis 60 m neben dem Abschnitt: Strassenzuordnung, Haltekante und Verkehrsmittel vor Verwendung prüfen.`]:[]),...(t?['Tramgleis aus swissTLM3D in der Nähe: getrennt prüfen, ob es in der Fahrbahn liegt.']:[])])}
  return{ebenen,stops,hinweise,fehler}
 }

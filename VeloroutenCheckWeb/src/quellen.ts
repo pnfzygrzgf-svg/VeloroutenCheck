@@ -40,7 +40,7 @@ const NORM_HINWEIS = 'VSS-Norm, kostenpflichtig beim VSS (vss.ch).'
 
 export const QUELLEN: readonly Quelle[] = [
   // ── Vorgaben und Normen ───────────────────────────────────────────────────
-  { id: 'mp_velo_bern', name: 'Masterplan Veloinfrastruktur Stadt Bern', titel: 'Standards (Oktober 2025)', herausgeber: 'Stadt Bern, Verkehrsplanung',
+  { id: 'mp_velo_bern', name: 'Masterplan Veloinfrastruktur Stadt Bern', titel: 'Standards', herausgeber: 'Stadt Bern, Verkehrsplanung',
     ausgabe: '2025-10', ebene: 'Standard der Stadt', gruppe: 'vorgabe',
     url: 'https://www.bern.ch/velohauptstadt/infrastruktur/masterplan-veloinfrastruktur',
     verwendung: 'Soll-Führungsform nach Verkehrsmenge und Tempo, Richtwerte der Querschnitte (Q 1–12), Haltestellen HS 1–5, Kernfahrbahn, ' +
@@ -57,7 +57,7 @@ export const QUELLEN: readonly Quelle[] = [
     ebene: 'Standard der Stadt', gruppe: 'vorgabe', staedte: ['luzern'],
     url: 'https://www.stadtluzern.ch/_docn/2965064/Standards_Veloverkehr.pdf',
     verwendung: 'Soll-Führungsform, Breiten der Velostreifen, Fahrstreifen, Parkfeld und Abstand, Kernfahrbahn, Haltestellen (Perron).' },
-  { id: 'mp_fuss_bern', name: 'Masterplan Fussverkehr Stadt Bern', titel: 'Standards', herausgeber: 'Stadt Bern, Verkehrsplanung',
+  { id: 'mp_fuss_bern', name: 'Masterplan Fussverkehr Stadt Bern', titel: 'Standards', herausgeber: 'Stadt Bern, Verkehrsplanung', ausgabe: '2025-10',
     ebene: 'Standard der Stadt', gruppe: 'vorgabe', staedte: ['bern'],
     url: 'https://www.bern.ch/themen/mobilitat-und-verkehr/fussverkehr',
     verwendung: 'Vorgabe der Trottoirbreite je Fussverkehrsnetz (Basisnetz 2,50 m, übrige 2,00 m, publikumsintensiv 3,00 m) in der Planung.' },
@@ -70,9 +70,9 @@ export const QUELLEN: readonly Quelle[] = [
     url: 'https://www.stadtluzern.ch/_doc/2965040',
     verwendung: 'Trottoirbreite: 2,50 m mit Velostreifen oder unter Tempo 50, sonst 3,00 m (Kanton), mindestens 2,00 m (Stadt).' },
   { id: 'sn640201', name: 'SN 640 201', titel: 'Geometrisches Normalprofil; Grundabmessungen und Lichtraumprofil der Verkehrsteilnehmer',
-    herausgeber: 'VSS', ebene: 'Norm', gruppe: 'vorgabe',
+    herausgeber: 'VSS', ausgabe: '2019-03', ebene: 'Norm', gruppe: 'vorgabe',
     verwendung: `Lichtraum von Lastwagen und Bus für die Breite der Fahrspuren in der Planung. ${NORM_HINWEIS}` },
-  { id: 'sn640060', name: 'SN 640 060', titel: 'Leichter Zweiradverkehr; Grundlagen', herausgeber: 'VSS', ebene: 'Norm', gruppe: 'vorgabe',
+  { id: 'sn640060', name: 'SN 640 060', titel: 'Leichter Zweiradverkehr; Grundlagen', herausgeber: 'VSS', ausgabe: '1994', ebene: 'Norm', gruppe: 'vorgabe',
     verwendung: `Sicherheitsstreifen zwischen Velostreifen und Parkierung (Feld «Sicherheitsstreifen gegenüber Parkplätzen»). ${NORM_HINWEIS}` },
   { id: 'normalie_park', name: 'Normalien Stadt Bern 2.10.22', titel: 'Parkfelder 1/2, Auto', herausgeber: 'Stadt Bern, Tiefbauamt',
     ebene: 'Normalie Stadt Bern', gruppe: 'vorgabe',
@@ -138,7 +138,7 @@ export const QUELLEN: readonly Quelle[] = [
     verwendung: 'Bus-Takt der Abendspitze je Haltestelle (ÖV-Angebot) und Takt der Linien auf der Umweltspur (Snapshot je Stadt).' },
   { id: 'remote_velo', name: 'remote_velo', titel: 'Predicting Bike Infrastructure with Aerial Imagery (ETH Zürich)', herausgeber: 'ETH Zürich',
     ausgabe: '2026', ebene: 'Modell', gruppe: 'daten', staedte: ['bern', 'zurich', 'basel'], url: 'https://doi.org/10.1007/s11116-026-10728-8',
-    verwendung: 'Luftbild-Hinweis «Radstreifen erkannt» je Seite (nicht in der Note); Snapshot der Erkennung je Stadt.' },
+    verwendung: 'Luftbild-Hinweis «Velostreifen erkannt» je Seite (nicht in der Note); Snapshot der Erkennung je Stadt.' },
   { id: 'obs', name: 'OpenBikeSensor', herausgeber: 'OpenBikeSensor-Mitwirkende', ebene: 'Messdaten', gruppe: 'daten', staedte: ['bern', 'zurich'],
     url: 'https://portal.openbikesensor.org/',
     verwendung: 'Gemessene Überholabstände je Abschnitt (Hinweis, nicht in der Note; Snapshot).' },

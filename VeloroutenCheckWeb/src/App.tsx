@@ -7,6 +7,7 @@ import { avBreiteErmitteln, avBreiteUebernehmen, avNachladenUebernehmen } from '
 import { FeldQuellen } from './FeldQuellen'
 import { ladeVelozaehlungen } from './velozaehlung'
 import { fallText, fallLesen, abschnitteAktualisieren, type Fall } from './fallDatei'
+import { fallGemerkt, fallMerken, fallVergessen, hatEingaben } from './fallMerken'
 import { bundesquellen } from './bundesquellen'
 import { E5Abschnitt, DatenFeldVorschlaege } from './E5Abschnitt'
 import { orteFuer, standardText, type Suchgebiet } from './gebiet'
@@ -25,6 +26,7 @@ import {
   type OevAngebot, type Haltestellentyp, type NotenErgebnis, type BreitenSoll,
   type Stadt, type Strassentyp, type VergleichsNote,
 } from './fuehrungsform'
+import { formAnzeige } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, BREIT_MQ, MOBIL_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, ZWEIRAD_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
 import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeSteigung, achseInRichtungA } from './steigung'
@@ -106,7 +108,7 @@ interface CityCfg {
 const CITIES: Record<CityId, CityCfg> = {
   bern: {
     label: 'Bern', osmArea: 'Bern', center: [46.948, 7.447],
-    attribution: 'Geoinformation Stadt Bern',
+    attribution: 'Geodaten Stadt Bern',
     enrichCands: bern.enrichCands, loadOev: bern.loadOev, obsFile: 'obs_bern.json', obsStand: undefined,
     parkierung: 'bern',
     velostreifenFile: 'velostreifen_bern.json',   // lokaler Snapshot; im öffentlichen Build nicht vorhanden
@@ -195,7 +197,7 @@ const SCHWEIZ: CityCfg = {
 const STADT_KURZ: Record<CityId, string> = { bern: 'BE', zurich: 'ZH', basel: 'BS', luzern: 'LU' }
 
 // Quellenangabe der amtlichen Anreicherung für den Herkunfts-Chip (stadtabhängig).
-const AttribContext = createContext('Geoinformation Stadt Bern')
+const AttribContext = createContext('Geodaten Stadt Bern')
 // Quellenangabe der amtlichen Vermessung für den Chip «gemessen» (stadtabhängig, leer ohne Messung).
 const AvContext = createContext('')
 
@@ -502,7 +504,7 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
                   ? GEGENVERKEHR_DEFAULT : e.target.value as IstFuehrungsform })}
                 style={selectStyle}>
           <option value="">— wählen —</option>
-          {IST_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+          {IST_OPTIONS.map(o => <option key={o} value={o}>{formAnzeige(o)}</option>)}
           <option value="__gegenverkehr__">Einbahn mit Velogegenverkehr</option>
         </select>
       </label>
@@ -535,7 +537,7 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
       )}
       {(ist === 'Radstreifen' || ist === 'Einbahn Velogegenverkehr mit Markierung') && (
         <div style={{ flexBasis: '100%', marginTop: -4 }}>
-          <UeblicheMasse werte={VELOSTREIFEN_UEBLICH} wert={felder.breite} label="Übliche Breite des Radstreifens"
+          <UeblicheMasse werte={VELOSTREIFEN_UEBLICH} wert={felder.breite} label="Übliche Breite des Velostreifens"
                          onWahl={v => onChange({ breite: v })} />
         </div>
       )}
@@ -653,8 +655,8 @@ function Herleitung({ bewertung, felder, routentyp, city, breitenQuelle }: {
       zeilen.push({ text: 'Ausgangspunkt: Vorgabe ganz erfüllt', wert: '6,0' })
       formLink = !bewertung.erfuellt
       zeilen.push(bewertung.erfuellt
-        ? { text: `Führungsform: ${bewertung.ist} entspricht der Vorgabe`, wert: abzug(0) }
-        : { text: <>Führungsform: {bewertung.ist} statt {bewertung.soll}, fühlt sich weniger sicher an{' '}
+        ? { text: `Führungsform: ${formAnzeige(bewertung.ist)} entspricht der Vorgabe`, wert: abzug(0) }
+        : { text: <>Führungsform: {formAnzeige(bewertung.ist)} statt {formAnzeige(bewertung.soll)}, fühlt sich weniger sicher an{' '}
             (<button type="button" className="vrc-link-knopf" onClick={zurHerleitung}>wie dieser Abzug entsteht</button>)</>,
             wert: abzug(6 - bewertung.basisnote) })
     }
@@ -663,7 +665,7 @@ function Herleitung({ bewertung, felder, routentyp, city, breitenQuelle }: {
       if (bewertung.warnung) zeilen.push({ text: <>⚠ {bewertung.warnung}</>, warn: true })
       // Breite
       if (bewertung.sollbreite == null) {
-        zeilen.push({ text: `Breite: Für ${ist} gibt es keine Breitenvorgabe` })
+        zeilen.push({ text: `Breite: Für ${formAnzeige(ist)} gibt es keine Breitenvorgabe` })
       } else if (bewertung.breite == null) {
         zeilen.push({ text: `Breite nicht angegeben; Vorgabe ${vorgabeBreite} (Quelle: ${breitenQuelle})${!routentyp ? ' · Routentyp wählen' : ''}`, wert: '–' })
       } else if (bewertung.breiteErfuellt) {
@@ -764,7 +766,7 @@ function HerleitungNote() {
       <h3 style={{ fontSize: 14.5, margin: '14px 0 6px' }}>1. Abzug für die Führungsform</h3>
       <p style={{ margin: '0 0 8px' }}>
         Aus Verkehrsmenge und Tempo ergibt sich, welche Führungsform die Stadt verlangt (Entscheidungstabelle unten). Ist die
-        vorhandene Form schwächer, etwa Mischverkehr statt Radstreifen, gibt es einen Abzug. Wie gross er ist, richtet sich
+        vorhandene Form schwächer, etwa Mischverkehr statt Velostreifen, gibt es einen Abzug. Wie gross er ist, richtet sich
         danach, wie sicher sich Velofahrende auf den beiden Formen fühlen: Der <b>Feel-Safe-Wert</b> ist der Anteil der
         Befragten, die eine Szene dieser Form als sicher beurteilen (Befragung radwege-check / FixMyCity in Berlin, mit einer
         Berner Bildumfrage überprüft).
@@ -776,10 +778,10 @@ function HerleitungNote() {
           </thead>
           <tbody>
             {(['Mischverkehr', 'Radstreifen', 'Radweg'] as const).map(f => (
-              <tr key={f}><td style={{ ...zelle, textAlign: 'left' }}>{f}</td>
+              <tr key={f}><td style={{ ...zelle, textAlign: 'left' }}>{formAnzeige(f)}</td>
                 <td style={zelle}>{pkt(FEELSAFE[f].ruhig)} %</td><td style={zelle}>{pkt(FEELSAFE[f].schnell)} %</td></tr>
             ))}
-            <tr><td style={{ ...zelle, textAlign: 'left' }}>Vorgabe «Radstreifen oder Radweg»</td>
+            <tr><td style={{ ...zelle, textAlign: 'left' }}>Vorgabe «Velostreifen oder Radweg»</td>
               <td style={zelle}>{numDE(mittel('ruhig'), 1)} %</td><td style={zelle}>{numDE(mittel('schnell'), 1)} %</td></tr>
           </tbody>
         </table>
@@ -789,7 +791,7 @@ function HerleitungNote() {
         {numDE(SCORE_PRO_NOTE, 1)}: {numDE(SCORE_PRO_NOTE, 1)} Prozentpunkte kosten eine Note. So ergibt der grösste Unterschied
         (Radweg verlangt, Mischverkehr vorhanden, über 30 km/h: {pkt(FEELSAFE.Radweg.schnell)} − {pkt(FEELSAFE.Mischverkehr.schnell)}{' '}
         = {pkt(FEELSAFE.Radweg.schnell - FEELSAFE.Mischverkehr.schnell)} Punkte) genau fünf Noten Abzug, also Note 1.{' '}
-        <i>Beispiel:</i> Verlangt sind Radstreifen oder Radweg bei Tempo 30 ({numDE(mittel('ruhig'), 1)} %), vorhanden ist
+        <i>Beispiel:</i> Verlangt sind Velostreifen oder Radweg bei Tempo 30 ({numDE(mittel('ruhig'), 1)} %), vorhanden ist
         Mischverkehr ({pkt(FEELSAFE.Mischverkehr.ruhig)} %): {numDE(bspDefizit, 1)} Punkte ÷ {numDE(SCORE_PRO_NOTE, 1)}{' '}
         = Abzug {numDE(bspDefizit / SCORE_PRO_NOTE, 1)}. Erfüllt die vorhandene Form die Vorgabe oder übertrifft sie,
         gibt es keinen Abzug.
@@ -801,8 +803,8 @@ function HerleitungNote() {
       </p>
       <h3 style={{ fontSize: 14.5, margin: '14px 0 6px' }}>2. Weitere Abzüge</h3>
       <ul style={{ margin: '0 0 8px', paddingLeft: 20 }}>
-        <li><b>Breite:</b> je Meter, um den Radstreifen oder Radweg schmaler sind als die Vorgabe der Stadt, ein Abzug
-          (Radstreifen {numDE(BREITE_SATZ.Radstreifen.ruhig, 1)} Noten je Meter, Radweg {numDE(BREITE_SATZ.Radweg.ruhig, 2)}{' '}
+        <li><b>Breite:</b> je Meter, um den Velostreifen oder Radweg schmaler sind als die Vorgabe der Stadt, ein Abzug
+          (Velostreifen {numDE(BREITE_SATZ.Radstreifen.ruhig, 1)} Noten je Meter, Radweg {numDE(BREITE_SATZ.Radweg.ruhig, 2)}{' '}
           bis {numDE(BREITE_SATZ.Radweg.schnell, 2)}). Für Mischverkehr gibt es keine Breitenvorgabe.</li>
         <li><b>Parkierung rechts:</b> {numDE(PARKEN_ABZUG, 1)} Note, weil sich öffnende Autotüren Velofahrende gefährden
           (Dooring); kein Abzug mit Sicherheitsstreifen zur Parkierung.</li>
@@ -891,8 +893,8 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
           {/* Ohne DTV/Tempo gibt es keine Vorgabe für die Führungsform — dieselbe Quelle wie die Pflichtfelder.
               «Soll/Ist» heisst seit 22.10.2026 «Vorgabe/Heute», der Querschnittstyp (Q1…) steht nicht mehr da. */}
           {brauchtDtvTempo(bewertung.ist) &&
-            <div><strong>Vorgabe:</strong> {bewertung.soll}</div>}
-          <div><strong>Heute:</strong> {bewertung.ist}</div>
+            <div><strong>Vorgabe:</strong> {formAnzeige(bewertung.soll)}</div>}
+          <div><strong>Heute:</strong> {formAnzeige(bewertung.ist)}</div>
           {/* Herleitung einklappbar; Vorgabe und Heute bleiben sichtbar */}
           <details className="vrc-klappe auf-farbe" style={{ marginTop: 4 }}>
             <summary style={{ cursor: 'pointer', userSelect: 'none', fontSize: 12.5, opacity: 0.9 }}>
@@ -1249,7 +1251,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         <Beurteilung note={note} />
       </span>
   const seiteName = (s: 'A' | 'B') => (s === 'A' ? `Seite A${rA ? ` (Richtung ${rA})` : ''}` : `Seite B${rB ? ` (Richtung ${rB})` : ''}`)
-  const formText = (f: Seite) => `${f.ist || '—'}${Number.isFinite(f.breite) ? ` ${numDE(f.breite, 2)} m` : ''}` +
+  const formText = (f: Seite) => `${formAnzeige(f.ist) || '—'}${Number.isFinite(f.breite) ? ` ${numDE(f.breite, 2)} m` : ''}` +
     `${f.parkenRechts === 'ja' ? ', neben Parkierung' : ''}`
 
   // Kasten «Schritt 1» (seit 25.10.2026): oben mit Erklärung, unten nach der Liste (nach dem Hinunterscrollen ist alles
@@ -1264,7 +1266,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
         + `${mp.parkOhneLinie ? `; die Parkierung Seite ${mp.parkOhneLinie === 'a' ? 'A' : 'B'} hat keine Randlinie, sie ist mit ${numDE((ft => ft[mp.parkOhneLinie === 'a' ? ft.length - 1 : 0]?.breite ?? NaN)(ausgang.teile.filter(t => istFahrbahnTeil(t) && !t.versetzt)), 2)} m vom Randstück abgezogen` : ''}; bitte prüfen.`
       : !section.markierung.breiten.length ? 'Im Luftbild keine Markierungen erkannt: die Spuren sind gleichmässig verteilt.'
       : mp?.unplausibel ? `Im Luftbild erkannt, aber nicht glaubhaft (${mp.unplausibel}): die Spuren sind gleichmässig verteilt; bitte messen.`
-      : `Im Luftbild ${section.markierung.stuecke.join(', ')} Stücke je Querschnitt erkannt, die Ausgangslage hat ${mp?.erwartet} Fahrbahnelemente: die Spuren sind gleichmässig verteilt (Linie im Schatten, verdeckt oder fehlend, oder Parkierung bzw. Radstreifen im Reiter «Bewerten» anders erfasst).`
+      : `Im Luftbild ${section.markierung.stuecke.join(', ')} Stücke je Querschnitt erkannt, die Ausgangslage hat ${mp?.erwartet} Fahrbahnelemente: die Spuren sind gleichmässig verteilt (Linie im Schatten, verdeckt oder fehlend, oder Parkierung bzw. Velostreifen im Reiter «Bewerten» anders erfasst).`
     // Hinweis aufs gelesene Luftbild: in Bern liest die Suche zwei Bilder, die Querschnitte können aus einem
     // anderen Bild stammen als dem Kartenhintergrund
     const lb = section.markierung?.luftbild
@@ -1321,7 +1323,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
                 : a.fussnetzQuelle === 'geoportal' && city === 'basel'
                   ? `Aus dem Teilrichtplan Fuss- und Wanderwege (${a.fussnetz === 'bs_kanton' ? 'kantonales Netz' : a.fussnetz === 'bs_stadt' ? 'kommunales Netz' : 'nicht im Fusswegnetz'}).`
                 : city === 'zurich'
-                  ? 'Lichte Breite nach dem Leitfaden Fussverkehr; dazu kommen Umfeldzuschläge (z. B. +0,50 m neben Tempo 50 ohne Radstreifen, +1,50 m bei ÖV-Haltestellen).'
+                  ? 'Lichte Breite nach dem Leitfaden Fussverkehr; dazu kommen Umfeldzuschläge (z. B. +0,50 m neben Tempo 50 ohne Velostreifen, +1,50 m bei ÖV-Haltestellen).'
                 : city === 'bern' ? 'Vorgabe der Trottoirbreite nach dem Masterplan Fussverkehr der Stadt Bern, je nach Netz; aus dem Richtplan Fussverkehr vorbelegt, wo er den Abschnitt kennt.'
                 : 'Vorgabe der Trottoirbreite nach dem Fusswegnetz der Stadt.'} />} />
             <select value={a.fussnetz && FUSSNETZ[a.fussnetz]?.stadt === city ? a.fussnetz : ''} style={selectStyle}
@@ -1807,7 +1809,7 @@ function AufteilungPlanen({ section, heute, city, rA, rB, onChange, av, onFahrba
             Trottoirs: {FUSS_QUELLE[city]}; Lichtraum von Lastwagen und Bus nach SN 640 201, Tram 2,80 m
             (1,40 m ab Gleisachse, Masterplan Bern).
             {city !== 'bern' && ' Die Fahrbahn ohne Mittellinie wird nach den Mindestbreiten der Stadt geprüft.'} Jede Fahrspur ist ab 3,00 m gültig. Ein Velostreifen direkt neben einer
-            Trennung mit Pfosten gilt als geschützter Radstreifen; Veloabstellplatz und Parklet zählen nicht als Parkierung.
+            Trennung mit Pfosten gilt als geschützter Velostreifen; Veloabstellplatz und Parklet zählen nicht als Parkierung.
             {av?.gezeigt && ` Karte: ${avQuelle(cfgFuer(section).avKanton ?? 'Schweiz')}${av.park && cfgFuer(section).parkierung ? `; Parkfelder: ${PARK_QUELLE[cfgFuer(section).parkierung!]}` : ''}.`}
             </div>
           </details>
@@ -1884,8 +1886,8 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
     ...(lbHinweis.a ? [`Seite A${rA ? ` (Richtung ${rA})` : ''} auf ${lbProzent(section.luftbild!.a)} der Länge`] : []),
     ...(lbHinweis.b ? [`Seite B${rB ? ` (Richtung ${rB})` : ''} auf ${lbProzent(section.luftbild!.b)} der Länge`] : []),
   ]
-  const lbKnopf = lbHinweis.a && lbHinweis.b ? 'Auf beiden Seiten Radstreifen übernehmen'
-    : lbHinweis.a ? 'Für Seite A Radstreifen übernehmen' : 'Für Seite B Radstreifen übernehmen'
+  const lbKnopf = lbHinweis.a && lbHinweis.b ? 'Auf beiden Seiten Velostreifen übernehmen'
+    : lbHinweis.a ? 'Für Seite A Velostreifen übernehmen' : 'Für Seite B Velostreifen übernehmen'
   // Reiter «Planen»: die Planung anlegen, falls noch keine da ist, und die AV auf der Karte zeigen
   const mitReitern = !!CITIES[city].aufteilung
   const planenOeffnen = () => {
@@ -2197,9 +2199,9 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
           <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 12.5,
                         background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a' }}>
             <div>
-              <strong>Luftbild:</strong> Radstreifen erkannt auf {lbSeiten.join(' und ')}. Das ist nur ein
+              <strong>Luftbild:</strong> Velostreifen erkannt auf {lbSeiten.join(' und ')}. Das ist nur ein
               Hinweis aus einer automatischen Erkennung — bitte am Luftbild prüfen (Kartenhintergrund
-              «{section.datenOrt?.stadt === 'bern' ? 'Bern 2026' : 'Luftbild'}»). Eine Breite liefert das Luftbild nicht.
+              «{section.datenOrt?.stadt === 'bern' ? 'Luftbild Stadt Bern 2026' : 'Luftbild (SWISSIMAGE)'}»). Eine Breite liefert das Luftbild nicht.
             </div>
             <button type="button" onClick={() => onLuftbild(lbHinweis)}
                     style={{ marginTop: 6, border: '1px solid #93c5fd', background: '#fff', color: '#1e3a8a',
@@ -2522,7 +2524,7 @@ function SoFunktionierts() {
           «Street View ↗» in der Kopfzeile öffnet Google Street View an der Stelle des Abschnitts, Blick in Fahrtrichtung der Seite A.
           In Bern lässt sich ein kurzer Abschnitt mit Haltestelle als «Haltestellenbereich» bewerten (die App schlägt es vor): Dann zählt
           allein der Haltestellentyp gegen die Lösung, die der Masterplan verlangt.</li>
-        <li><b>Luftbild-Hinweis (Bern, Zürich, Basel):</b> Zeigt das Luftbild auf einer Seite einen Radstreifen, erscheint ein Hinweis
+        <li><b>Luftbild-Hinweis (Bern, Zürich, Basel):</b> Zeigt das Luftbild auf einer Seite einen Velostreifen, erscheint ein Hinweis
           zum Übernehmen; eine Breite liefert er nicht.</li>
         <li><b>Breite messen:</b> «📏 Am Luftbild messen» je Seite schaltet aufs Orthofoto, weit
           hineinzoomen und im Modus «Ab Bordsteinkante (AV)» auf die Markierung klicken, bis zu der die Breite zählt;
@@ -2552,13 +2554,13 @@ function SoFunktionierts() {
           die Note von 1 bis 6, aus der er entsteht. Die Bewertung gilt je Seite, je Abschnitt (die schlechtere Seite) und für die
           ganze Strecke (der schlechteste Abschnitt). «Wie die Beurteilung entsteht» im Ergebnis zeigt jeden Abzug; die Herleitung
           steht im Referenzteil unten; «Quellen und Grundlagen» darüber nennt je Stadt die Vorgaben, Normen und Daten mit Link.
-          «Als CSV exportieren» sichert die Bewertung als Datei.</li>
+          «Als CSV exportieren» sichert die Bewertung als Datei. Eingaben merkt sich der Browser, bis du «Karte leeren» wählst; «Fall speichern» sichert sie als Datei.</li>
       </ol>
       <p><b>Grenzen</b></p>
       <ul>
         <li>Daten aus OpenStreetMap und den städtischen Geoportalen haben ihren eigenen Stand; fehlende oder falsche Angaben
           müssen von Hand korrigiert werden.</li>
-        <li>Die Bewertung ist eine Einordnung nach den Vorgaben der Stadt, keine Beurteilung vor Ort. Vibecoding. Don't trust, verify!</li>
+        <li>Die Bewertung ist eine Einordnung nach den Vorgaben der Stadt, keine Beurteilung vor Ort.</li>
       </ul>
     </details>
   )
@@ -2590,7 +2592,7 @@ function Landing({ onStart }: { onStart: () => void }) {
         <b>Daten:</b> Führungsform, Tempo, Verkehrsmenge und Routentyp kommen aus OpenStreetMap und den
         Geoportalen der Städte. Breiten lassen sich am Luftbild ab der Bordsteinkante messen, in Luzern
         anhand der Strassenflächen der Stadt. In Bern, Zürich und Basel weist eine automatische
-        Luftbild-Erkennung (Modell der ETH Zürich) auf Radstreifen hin, die in den Daten fehlen.
+        Luftbild-Erkennung (Modell der ETH Zürich) auf Velostreifen hin, die in den Daten fehlen.
       </p>
       <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
         <b>Bewertungsgrundlage:</b> Entspricht die vorhandene Führungsform nicht dem vorgesehenen Soll-Zustand, wird
@@ -2603,7 +2605,7 @@ function Landing({ onStart }: { onStart: () => void }) {
       </p>
       <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
         Eine eigene Bildumfrage mit 5&nbsp;900 Bewertungen zu 51 Berner Szenen hat diese Werte
-        überprüft: Die Rangfolge der Führungsformen bestätigt sich, und breitere Radstreifen werden
+        überprüft: Die Rangfolge der Führungsformen bestätigt sich, und breitere Velostreifen werden
         als sicherer bewertet.
       </p>
       <p style={{ fontSize: 15, lineHeight: 1.6, margin: '0 0 8px' }}>
@@ -2698,7 +2700,7 @@ function Landing({ onStart }: { onStart: () => void }) {
         <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Datenspeicherung</div>
         <div><DatenabrufHinweis /></div>
         <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>
-          <li>Eingaben existieren nur im Arbeitsspeicher des Browsers und gehen beim Schliessen des Tabs verloren.</li>
+          <li>Eingaben merkt sich dieser Browser (lokaler Speicher), damit sie das Neuladen oder Schliessen des Tabs überstehen. «Karte leeren» löscht sie. Auf einem fremden Gerät darum am Ende leeren. An keinen Dienst geht etwas davon.</li>
           <li>CSV-Export: „Als CSV exportieren" lädt die Bewertung als CSV-Datei auf den
             lokalen Rechner — kein Upload, kein Cloud-Speicher. Fall-Dateien werden ebenfalls lokal gespeichert und geladen.</li>
           <li>Bericht / PDF: entsteht über den Druckdialog des Browsers, ebenfalls ohne Upload.</li>
@@ -3052,11 +3054,16 @@ export default function App() {
   }
 
   const fallInput = useRef<HTMLInputElement>(null)
+  // Eingaben im Browser merken (fallMerken.ts). gesichertRef: Stand der Abschnitte, der in einer Datei liegt bzw. aus ihr bzw. dem
+  // Browser kam; weicht er ab, fragt die App vor dem Ersetzen und warnt beim Schliessen
+  const gesichertRef = useRef<Section[] | null>(null)
+  const merkenBereit = useRef(false), merkenPruefung = useRef(false), merkenVoll = useRef(false)
   const fallSpeichern = () => {
+    gesichertRef.current = sections
     const blob=new Blob([fallText({standard:city,gebiet,strasse:street,sections,cands,quellen:datenStaende()})],{type:'application/json'})
     const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`veloroutencheck_${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
   }
-  const quellenAktualisieren = async (fall?: Fall) => {
+  const quellenAktualisieren = async (fall?: Fall, vorsatz = '') => {
     const geometrien=fall?.cands??cands,standard=fall?.standard??city
     const gen=quellenNeu();avCacheRef.current.clear();parkCacheRef.current.clear();nachgeladenRef.current.clear()
     setOsmBusy(true);setMsg('Aktualisiere die verwendeten Quellen. Eigene und bestätigte Angaben bleiben erhalten.')
@@ -3066,12 +3073,48 @@ export default function App() {
       const roh=await aktualisiereKandidaten(geometrien)
       const r=await enrichAll(roh)
       if(gen!==datenGeneration())return
-      setCands(r.cands);setStops(r.stops);setSections(prev=>abschnitteAktualisieren(fall?.sections??prev,r.cands,standard));setFitKey(k=>k+1)
-      setMsg('Quellen neu geladen; eigene und bestätigte Werte sowie die Planung bleiben erhalten.'+fehlerText(r.fehler),r.fehler.length?'info':'ok')
-    }catch(e){if(gen!==datenGeneration())return;setCands(geometrien);setSections(prev=>abschnitteAktualisieren(fall?.sections??prev,[],standard));setMsg('Quellen konnten nicht vollständig aktualisiert werden. Nicht bestätigte automatische Werte bleiben offen: '+String(e),'error')}
+      setCands(r.cands);setStops(r.stops)
+      if(fall){const neu=abschnitteAktualisieren(fall.sections,r.cands,standard);gesichertRef.current=neu;setSections(neu)}else setSections(prev=>abschnitteAktualisieren(prev,r.cands,standard))
+      setFitKey(k=>k+1)
+      setMsg(vorsatz+'Quellen neu geladen; eigene und bestätigte Werte sowie die Planung bleiben erhalten.'+fehlerText(r.fehler),r.fehler.length?'info':'ok')
+    }catch(e){if(gen!==datenGeneration())return;setCands(geometrien)
+      if(fall){const neu=abschnitteAktualisieren(fall.sections,[],standard);gesichertRef.current=neu;setSections(neu)}else setSections(prev=>abschnitteAktualisieren(prev,[],standard))
+      setMsg(vorsatz+'Quellen konnten nicht vollständig aktualisiert werden. Nicht bestätigte automatische Werte bleiben offen: '+String(e),'error')}
     finally{if(gen===datenGeneration())setOsmBusy(false)}
   }
-  const fallLaden = async (file?:File) => {if(!file)return;try{const f=fallLesen(await file.text());await quellenAktualisieren(f)}catch(e){setMsg('Fall nicht geladen: '+String(e),'error')}finally{if(fallInput.current)fallInput.current.value=''}}
+  // Beim Öffnen des Rechners den gemerkten Fall zurückholen; bis dahin nichts merken, sonst überschriebe der leere Anfangszustand ihn
+  useEffect(() => {
+    if (view !== 'rechner' || merkenPruefung.current) return
+    merkenPruefung.current = true
+    const text = fallGemerkt()
+    if (!text) { merkenBereit.current = true; return }
+    let f: Fall
+    try { f = fallLesen(text) } catch { fallVergessen(); merkenBereit.current = true; return }
+    void quellenAktualisieren(f, 'Letzte Eingaben aus diesem Browser wiederhergestellt. ').finally(() => { merkenBereit.current = true })
+  }, [view])   // eslint-disable-line react-hooks/exhaustive-deps
+  const merkenJetzt = useRef(() => {})
+  merkenJetzt.current = () => {
+    if (!merkenBereit.current || osmBusy) return
+    if (!hatEingaben(sections) && !cands.length) { fallVergessen(); return }
+    const ok = fallMerken(fallText({ standard: city, gebiet, strasse: street, sections, cands, quellen: datenStaende() }))
+    if (!ok && !merkenVoll.current) setMsg('Der Fall passt nicht in den Speicher des Browsers: bitte mit «Fall speichern» als Datei sichern.', 'info')
+    merkenVoll.current = !ok
+  }
+  useEffect(() => { const t = setTimeout(() => merkenJetzt.current(), 800); return () => clearTimeout(t) }, [sections, cands, city, gebiet, street, osmBusy])
+  // Schliessen und Neuladen: den letzten Stand sofort merken; ohne Datei warnt der Browser
+  useEffect(() => {
+    const merken = () => merkenJetzt.current()
+    const warnen = (e: BeforeUnloadEvent) => {
+      merken()
+      const s = sectionsRef.current
+      if (hatEingaben(s) && s !== gesichertRef.current) { e.preventDefault(); e.returnValue = '' }
+    }
+    window.addEventListener('beforeunload', warnen); window.addEventListener('pagehide', merken)
+    return () => { window.removeEventListener('beforeunload', warnen); window.removeEventListener('pagehide', merken) }
+  }, [])
+  const fallLaden = async (file?:File) => {if(!file)return;try{
+    if(hatEingaben(sections)&&sections!==gesichertRef.current&&!window.confirm('Den offenen Fall ersetzen? Eingaben, die du nicht als Datei gespeichert hast, gehen verloren.'))return
+    const f=fallLesen(await file.text());await quellenAktualisieren(f)}catch(e){setMsg('Fall nicht geladen: '+String(e),'error')}finally{if(fallInput.current)fallInput.current.value=''}}
 
   // Weg 1: Strasse laden → Kandidaten auf die Karte (alle zunächst gewählt).
   // Anschliessend mit den amtlichen/öffentlichen Daten der gewählten Stadt anreichern
@@ -4641,8 +4684,8 @@ export default function App() {
                 {teilModus ? 'Teilen abbrechen' : '✂ Segment teilen'}
               </button>
             )}
-            {cands.length > 0 && (
-              <button onClick={() => { undoMerken('Karte leeren rückgängig'); quellenNeu(); setCands([]); setStops([]); setEbenen({}); setKartenHinweise([]); datenlaufUebernehmen(datenGeneration(), () => {}); setMsg(''); setTeilModus(false); setMessung(null) }}
+            {(cands.length > 0 || hatEingaben(sections)) && (
+              <button title="Entfernt die Strecke und alle Eingaben, auch die im Browser gemerkten" onClick={() => { undoMerken('Karte leeren rückgängig'); quellenNeu(); setCands([]); setStops([]); setEbenen({}); setKartenHinweise([]); setSections([defaultSection()]); setStreet(''); setPlanAv(null); gesichertRef.current = null; fallVergessen(); datenlaufUebernehmen(datenGeneration(), () => {}); setMsg(''); setTeilModus(false); setMessung(null) }}
                       style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
                                borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
                 Karte leeren
@@ -4674,7 +4717,7 @@ export default function App() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
               {Object.entries(ISTCOLOR).map(([k, col]) => (
                 <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted-strong)' }}>
-                  <span style={{ width: 16, height: 4, background: col, borderRadius: 2 }} />{k}
+                  <span style={{ width: 16, height: 4, background: col, borderRadius: 2 }} />{formAnzeige(k)}
                 </span>
               ))}
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-muted-strong)' }}>
@@ -4841,6 +4884,7 @@ export default function App() {
            target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
           Quellcode auf GitHub
         </a>{' '}
+        · Vibecoding. Don't trust, verify!{' '}
         · <a href="https://ko-fi.com/pnfzygrzgfsvg"
            target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
           Unterstützen ↗

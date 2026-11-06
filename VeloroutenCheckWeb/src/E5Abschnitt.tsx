@@ -3,18 +3,23 @@ import type { Section } from './strecke'
 import { e5BelegQuelle, e5QuellenAusfall, type E5Beleg } from './e5'
 import { numDE } from './csv'
 import { useDatenstaende } from './Datenstaende'
+import { zeitText } from './datenstand'
 
 export function E5Abschnitt({s,druck=false}:{s:Section;aendern?:(p:Partial<Section>)=>void;druck?:boolean}) {
  const staende=useDatenstaende()
- const vorschlagText=(b:E5Beleg)=>`${b.feld==='dtv'?'Motorfahrzeug-DTV':b.feld==='speed'?'Tempo':b.feld==='hierarchie'?'Strassenklassierung':'Verkehrszone'}: ${b.wert}${b.feld==='dtv'?' Fz/Tag':b.feld==='speed'?' km/h':''}`
+ const wertText=(b:E5Beleg)=>b.feld==='dtv'&&Number.isFinite(Number(b.wert))?Math.round(Number(b.wert)).toLocaleString('de-CH'):String(b.wert)
+ const vorschlagText=(b:E5Beleg)=>`${b.feld==='dtv'?'Motorfahrzeug-DTV':b.feld==='speed'?'Tempo':b.feld==='hierarchie'?'Strassenklassierung':'Verkehrszone'}: ${wertText(b)}${b.feld==='dtv'?' Fz/Tag':b.feld==='speed'?' km/h':''}`
  const mitStand=(b:E5Beleg):E5Beleg=>{const q=staende.find(q=>q.url.split('?')[0]===b.url.split('?')[0]);return !b.bestaetigt&&b.datenstand==='unbekannt'&&q&&q.abgerufen===b.abgerufen?{...b,datenstand:q.datenstand}:b}
  const belege=[...Object.values(s.e5?.belege??{}).filter(b=>b && !(s.e5Auswahl??s.e5Bestaetigt)?.[b.feld as 'dtv'|'speed'] && !['manuell','bestaetigt'].includes(s.quelle[b.feld as 'dtv'|'speed']??'') && (b.feld!=='dtv'&&b.feld!=='speed'||s[b.feld]===b.wert)),...Object.values(s.e5Auswahl??s.e5Bestaetigt??{})].filter((x):x is E5Beleg=>!!x)
  return <div className="e5-abschnitt">
   <Velozaehlungen daten={s.velozaehlungen} druck={druck}/>
-  {!!(belege.length||s.e5?.hinweise.length)&&<details open={druck||undefined}><summary>Quellenzuordnung und Hinweise</summary>
-    {belege.map((roh,i)=>{const b=mitStand(roh);return <p key={i}><b>{s.offeneQuellen?.includes(b.feld) ? `${b.feld==='dtv'?'Motorfahrzeug-DTV':'Tempo'}: Quelle nicht verfügbar; zuletzt ${b.wert}${b.feld==='dtv'?' Fz/Tag':' km/h'}` : vorschlagText(b)}</b> · {b.quelle}{b.herkunft==='abgeleitet'?' · abgeleitet':''}{(s.e5Auswahl??s.e5Bestaetigt)?.[b.feld as 'dtv'|'speed']?' · ausgewählte Quelle':''}<br/>Datenstand {b.datenstand}; Abruf {new Date(b.abgerufen).toLocaleString('de-CH')}{b.hinweis?`; ${b.hinweis}`:''}</p>})}
+  {!!(belege.length||s.e5?.hinweise.length)&&(()=>{const inhalt=<>
+    {belege.map((roh,i)=>{const b=mitStand(roh);return <p key={i}><b>{s.offeneQuellen?.includes(b.feld) ? `${b.feld==='dtv'?'Motorfahrzeug-DTV':'Tempo'}: Quelle nicht verfügbar; zuletzt ${wertText(b)}${b.feld==='dtv'?' Fz/Tag':' km/h'}` : vorschlagText(b)}</b> · {b.quelle}{b.herkunft==='abgeleitet'?' · abgeleitet':''}{(s.e5Auswahl??s.e5Bestaetigt)?.[b.feld as 'dtv'|'speed']?' · ausgewählte Quelle':''}<br/>Datenstand {b.datenstand}; Abruf {zeitText(b.abgerufen)}{b.hinweis?`; ${b.hinweis}`:''}</p>})}
     {s.e5?.hinweise.map((t,i)=><p key={'h'+i}>{t}</p>)}
-  </details>}
+  </>
+  // im Bericht ein Abschnitt wie die übrigen, ohne Aufklapp-Pfeil
+  return druck?<section className="bericht-block"><h2>Quellenzuordnung und Hinweise</h2><div className="klein">{inhalt}</div></section>
+   :<details><summary>Quellenzuordnung und Hinweise</summary>{inhalt}</details>})()}
 
  </div>
 }

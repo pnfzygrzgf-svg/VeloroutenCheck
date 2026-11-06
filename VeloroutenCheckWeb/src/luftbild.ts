@@ -83,7 +83,7 @@ export async function luftbildEbene(cands: Cand[], file: string): Promise<Ebenen
   const b = bboxOfLL(cands.flatMap(c => c.geom)), padDeg = 50 / 74000
   return linien.filter(l => bboxOverlap(b, bboxOfLL(l), padDeg)).map(l => ({
     id: `lb:${l[0].lat.toFixed(6)},${l[0].lon.toFixed(6)}`, linien: [l], klasse: 'luftbild',
-    text: 'Radstreifen im Luftbild erkannt (remote_velo, ETH Zürich; nur Hinweis)' }))
+    text: 'Velostreifen im Luftbild erkannt (remote_velo, ETH Zürich; nur Hinweis)' }))
 }
 
 /** Fresh source cycle; reuse within one cycle remains allowed. */

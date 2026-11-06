@@ -37,7 +37,7 @@
 // (FUSSNETZ, Masterplan Fussverkehr) — schmalere werden auf die Vorgabe verbreitert (zulasten der Fahrbahn),
 // breitere dürfen bis auf die Vorgabe schmaler werden. Ohne gewähltes Netz gibt es diese Variante nicht.
 
-import { brauchtBreite, erfuellungsgrad, fuehrungsart, haltestellenFamilie, haltestellenTypen, istRang, sollBreite, type BreitenSoll, type Fuehrungsart,
+import { formAnzeige, brauchtBreite, erfuellungsgrad, fuehrungsart, haltestellenFamilie, haltestellenTypen, istRang, sollBreite, type BreitenSoll, type Fuehrungsart,
   type Haltestellentyp, type IstFuehrungsform, type Routentyp, type Stadt, type Strassentyp } from './fuehrungsform'
 import { bewerteAbschnitt } from './bewertung'
 import { dtvEff, gegenVon, seiteA, seiteB, type Section } from './strecke'
@@ -111,7 +111,7 @@ export function masseFuer(stadt: Stadt, breiten?: Breiten): Masse {
   return {
     park: park.wert, miv: 2 * spur, mivEinbahn: spur, mivKern: kern.min ?? kern.wert, mivRw: MIV_RW_M, mivRwEinbahn: MIV_RW_EINBAHN_M,
     mivTramEinbahn: MIV_TRAM_EINBAHN_M, trennung: trenn.wert, sicherheit: { standard: sich.wert, minimal: sich.min ?? sich.wert },
-    minimal: { rs: min(RS, MINIMAL.rs, 'reduzierte Radstreifen'), kern: MINIMAL.kern, rw: min(RW, MINIMAL.rw, 'reduzierte Radwege') },
+    minimal: { rs: min(RS, MINIMAL.rs, 'reduzierte Velostreifen'), kern: MINIMAL.kern, rw: min(RW, MINIMAL.rw, 'reduzierte Radwege') },
     kernStd: kern.min ?? kern.wert, kernMax: kern.max ?? Infinity, kernPilot: null, kernRsMin: KERN_RS_MIN_M, kernPilotRsMin: KERN_PILOT_RS_MIN_M,
     vsMin: vs ?? 4.5, vsMax: 6.5, ersatz,
   }
@@ -317,7 +317,7 @@ function verbreitern(e: Eingaben): Kand[] {
     if (mitSich) sichSetzen(k)
     k.quer = { form: RS, stufe, kern: false, sichJe: e.m.sicherheit[stufe], ersatz: breite }
     const [vor, nach] = mitSich || besteht ? sichTexte(e, k, e.m.sicherheit[stufe], besteht) : ['', '']
-    out.push({ rang: 1, text: `${vor}Radstreifen verbreitern auf ${m2(breite)} (${zuSchmal.join('/')})${nach}`, k, weg: 0 })
+    out.push({ rang: 1, text: `${vor}Velostreifen verbreitern auf ${m2(breite)} (${zuSchmal.join('/')})${nach}`, k, weg: 0 })
   }
   return out
 }
@@ -370,14 +370,14 @@ function veloVarianten(e: Eingaben, rang: number, form: IstFuehrungsform): Kand[
       if (mitSich) sichSetzen(k)
       k.quer = { form, stufe, kern: false, sichJe: e.m.sicherheit[stufe], ersatz: breite }
       const neuAuf = seiten.some(s => formVon(e, s) === form)
-      const was = form === RS ? (neuAuf ? 'Radstreifen neu aufteilen' : 'Radstreifen markieren')
+      const was = form === RS ? (neuAuf ? 'Velostreifen neu aufteilen' : 'Velostreifen markieren')
         : (neuAuf ? 'Radweg umbauen (Q 2a/2b)' : 'Radweg bauen (Q 2a/2b)')
       const end = Object.fromEntries(seiten.map(s => [s, k.breite[s] ?? breite])) as Record<S, number>
       const mass = seiten.length === 2 && Math.abs(end.A - end.B) > 1e-9 ? `Seite A ${m2(end.A)} und Seite B ${m2(end.B)}`
         : `${seiten.length === 2 ? 'beidseitig' : `Seite ${seiten[0]}`} ${m2(end[seiten[0]])}`
       const minimal = stufe === 'minimal' && seiten.every(s => Math.abs(end[s] - breite) < 1e-9)
       const zusatz = (Object.entries(breiter) as [S, number][]).filter(([s]) => !seiten.includes(s))
-        .map(([s, b]) => `, Radstreifen Seite ${s} verbreitern auf ${m2(b)}`).join('')
+        .map(([s, b]) => `, Velostreifen Seite ${s} verbreitern auf ${m2(b)}`).join('')
       const [vor, nach] = mitSich || besteht ? sichTexte(e, k, e.m.sicherheit[stufe], besteht) : ['', '']
       out.push({ rang, text: `${vor}${was} ${mass}${minimal ? ' (minimal)' : ''}${zusatz}${nach}`, k, weg: 0 })
     }
@@ -392,7 +392,7 @@ function kernVarianten(e: Eingaben): Kand[] {
   const maxRs = soll(e, RS) ?? 1.8
   const ps = parkseiten(e)
   const neuAuf = e.ist === RS || e.geg === RS
-  const was = neuAuf ? 'Radstreifen neu aufteilen' : 'Radstreifen markieren'
+  const was = neuAuf ? 'Velostreifen neu aufteilen' : 'Velostreifen markieren'
   for (const sst of ps ? (e.m.sicherheit.minimal < e.m.sicherheit.standard - 1e-9 ? STUFEN : ['standard'] as Stufe[]) : [null]) {
     const sichJe = sst ? e.m.sicherheit[sst] : 0
     let varianten: [number, number, boolean][]
@@ -521,7 +521,7 @@ export function eingabenVon(s: Section, stadt: Stadt = 'bern', breiten?: Breiten
     if (!brauchtBreite(f.ist)) return null
     const v = sollBreite(f.ist, s.routentyp || 'Velohauptroute', breiten?.[f.ist])
     if (v == null) return null
-    angenommen.push(`Breite Seite ${seite} (${f.ist}) mit der Vorgabe ${m2(v)} angenommen`)
+    angenommen.push(`Breite Seite ${seite} (${formAnzeige(f.ist)}) mit der Vorgabe ${m2(v)} angenommen`)
     annahme[seite] = { form: f.ist, breite: v }
     return null
   }
@@ -594,7 +594,7 @@ function fehltText(e: Eingaben): string {
   }
   if (!best || e.fahrbahn + 1e-9 >= best.b) return ''
   return `Fahrbahn zu schmal: auch ohne Parkierung fehlen ${m2(best.b - e.fahrbahn)} für `
-    + `${best.f === RS ? 'einen Radstreifen' : 'einen Radweg'} (${numDE(e.fahrbahn, 1)} von ${m2(best.b)})`
+    + `${best.f === RS ? 'einen Velostreifen' : 'einen Radweg'} (${numDE(e.fahrbahn, 1)} von ${m2(best.b)})`
 }
 
 // Der Vorschlag für einen Abschnitt; fahrbahn: verfügbares Mass (mit Randsteinanpassung grösser)

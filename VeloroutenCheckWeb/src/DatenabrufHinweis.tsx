@@ -7,7 +7,7 @@ export function DatenabrufHinweis(){
   <br />
   OpenStreetMap: overpass.osm.ch; bei Störung overpass-api.de, overpass.kumi.systems oder overpass.private.coffee.
   Amtliche Vermessung: geodienste.ch; kantonale Publikationsstände: www.geodienste.ch.
-  Bundesdaten, Suche, Höhenprofile und Ebenenmetadaten: api3.geo.admin.ch; Karten: wmts.geo.admin.ch und wms.geo.admin.ch.
+  Bundesdaten, Suche, Höhenprofile, Flugjahr des Luftbilds und Ebenenmetadaten: api3.geo.admin.ch; Karten: wmts.geo.admin.ch und wms.geo.admin.ch.
   Eingeschaltete Höhenkurven senden ab Zoom 18 den Ausschnitt zur Kachelsuche und beziehen begrenzte Raster-Teilabrufe über data.geo.admin.ch.
   <br />
   Örtliche Daten und öffentliche Metadaten: map.bern.ch; Zürich: www.ogd.stadt-zuerich.ch, data.stadt-zuerich.ch und maps.zh.ch;

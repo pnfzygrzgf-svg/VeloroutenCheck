@@ -8,8 +8,9 @@ import type { P } from './lv95'
 
 const RAND_M = 15                      // Rand um die Achse im Kartenbild
 const MIN_M = 60                       // kleinste Kantenlänge des Ausschnitts
-// Seitenverhältnis Höhe/Breite des Kartenbilds: höchstens 0,75, damit Tabelle und Kartenbild immer auf Seite 1 passen
-const HOCH_MIN = 0.45, HOCH_MAX = 0.75
+// Seitenverhältnis Höhe/Breite des Kartenbilds: höchstens 0,6 (rund 112 mm hoch), damit Kartenbild und Angaben auf Seite 1 passen;
+// ein hoher Abschnitt wird dafür seitlich weiter gefasst, nicht abgeschnitten
+const HOCH_MIN = 0.45, HOCH_MAX = 0.6
 export type Box = [number, number, number, number]
 
 export function wmsBildUrl(box: Box, breitePx: number, hoehePx: number): string {
@@ -32,4 +33,30 @@ export function ausschnitt(achsen: P[][]): Box | null {
   if (h / w > HOCH_MAX) [e0, e1] = weiten(e0, e1, h / HOCH_MAX)
   else if (h / w < HOCH_MIN) [n0, n1] = weiten(n0, n1, w * HOCH_MIN)
   return [e0, n0, e1, n1]
+}
+
+// Flugjahr des Luftbilds: Metadaten je 1-km-Kachel (api3.geo.admin.ch, wie fgsCheck daten/luftbild.ts). Ein langer Abschnitt kann über
+// Kacheln verschiedener Jahre laufen, darum die Kacheln entlang der Achse (gleichmässig ausgedünnt), nicht nur die Bildmitte.
+export function flugjahrKacheln(achsen: P[][], max = 4): string[] {
+  const alle = [...new Set(achsen.flat().map(p => `${Math.floor(p[0] / 1000) * 1000},${Math.floor(p[1] / 1000) * 1000}`))]
+  if (alle.length <= max) return alle
+  return Array.from({ length: max }, (_, i) => alle[Math.round(i * (alle.length - 1) / (max - 1))])
+}
+export function flugjahrUrl(kachel: string): string {
+  const [e, n] = kachel.split(',').map(Number), g = `${e + 500},${n + 500},${e + 501},${n + 501}`
+  return `https://api3.geo.admin.ch/rest/services/api/MapServer/identify?geometry=${g}&geometryType=esriGeometryEnvelope` +
+    `&layers=all:ch.swisstopo.images-swissimage-dop10.metadata&mapExtent=${g}&imageDisplay=10,10,96&tolerance=0&sr=2056` +
+    '&returnGeometry=false&lang=de&limit=1'
+}
+/** Flugjahre der Kacheln, aufsteigend («2023, 2024»); leer, wenn keines verfügbar ist (der Bericht bleibt dann ohne Angabe) */
+export async function ladeFlugjahre(achsen: P[][], signal?: AbortSignal): Promise<string> {
+  const jahre = await Promise.all(flugjahrKacheln(achsen).map(async k => {
+    try {
+      const r = await fetch(flugjahrUrl(k), { signal })
+      if (!r.ok) return ''
+      const d = await r.json() as { results?: { attributes?: { datenstand?: unknown } }[] }
+      return String(d.results?.[0]?.attributes?.datenstand ?? '')
+    } catch { return '' }
+  }))
+  return [...new Set(jahre.filter(j => /^\d{4}$/.test(j)))].sort().join(', ')
 }

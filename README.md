@@ -66,32 +66,32 @@ Die stadtspezifischen Soll-Regeln und die zugrunde liegenden Dokumente stehen un
 
 ```
 DTV MIV \ km/h     ≤ 30           31–40         41–50               51–80
-< 2'000            Mischverkehr   Radstreifen   Radstr./Radweg      Radweg
-2'000–5'000        Radstreifen    Radstreifen   Radstr./Radweg      Radweg
-5'000–10'000       Radstreifen oder Radweg (Übergang)               Radweg
+< 2'000            Mischverkehr   Velostreifen  Velostr./Radweg     Radweg
+2'000–5'000        Velostreifen   Velostreifen  Velostr./Radweg     Radweg
+5'000–10'000       Velostreifen oder Radweg (Übergang)               Radweg
 > 10'000           Radweg         Radweg        Radweg              Radweg
 ```
 
 Gelesen wird die Tabelle als **vier ineinander liegende Rechtecke** (Masterplan S. 11): Man landet
 im kleinsten, das den Abschnitt enthält — die **strengere der beiden Achsen** entscheidet. Das Band
-41–50 km/h ist im Schema durchgehend schraffiert («Radstreifen oder Radweg»), unabhängig vom
+41–50 km/h ist im Schema durchgehend schraffiert («Velostreifen oder Radweg»), unabhängig vom
 DTV-Band. Die drei DTV-Grenzen folgen dem Fliesstext, nicht der Pixelkante: 2'000 ist **schon**
-Radstreifen («verkehrsarme Strassen (DTV < 2'000)»), 10'000 ist **noch** Übergang («stark belastete
+Velostreifen («verkehrsarme Strassen (DTV < 2'000)»), 10'000 ist **noch** Übergang («stark belastete
 Strassen (DTV > 10'000)»), und zu 5'000 schweigt der Text — dort gilt die Bandgrenze des Schemas.
 
 *Zürich* (Velostandards, Abb. 1 S. 14) — je Routentyp; Tempo > 50 immer Radweg:
 
 ```
 Velovorzugsroute (→ Velohauptroute)      ≤ 30 km/h                 31–50 km/h
-  DTV < 2'500                            Mischverkehr              Radstr./Radweg
-  DTV 2'500–7'500                        Radstr./Radweg            Radstr./Radweg
-  DTV ≥ 7'500                            Radstr./Radweg            Radweg
+  DTV < 2'500                            Mischverkehr              Velostr./Radweg
+  DTV 2'500–7'500                        Velostr./Radweg           Velostr./Radweg
+  DTV ≥ 7'500                            Velostr./Radweg           Radweg
 Hauptnetz (→ Veloroute)
-  DTV < 5'000                            Mischverkehr              Radstr./Radweg
-  DTV ≥ 5'000                            Radstr./Radweg            Radstr./Radweg
+  DTV < 5'000                            Mischverkehr              Velostr./Radweg
+  DTV ≥ 5'000                            Velostr./Radweg           Velostr./Radweg
 ```
 
-*Luzern* (Anwendungshilfe S. 29, auf die Berner Formen vereinfacht: Markierung = Radstreifen) — Radweg ab DTV ≥ 15'000, bei 41–50 km/h schon ab 10'000 und immer bei > 50 km/h; Mischverkehr nur bei ≤ 30 km/h und DTV < 5'000 bzw. bei 31–40 km/h und DTV < 2'000; dazwischen Radstreifen (`fuehrungsartLuzern`).
+*Luzern* (Anwendungshilfe S. 29, auf die Berner Formen vereinfacht: Markierung = Velostreifen) — Radweg ab DTV ≥ 15'000, bei 41–50 km/h schon ab 10'000 und immer bei > 50 km/h; Mischverkehr nur bei ≤ 30 km/h und DTV < 5'000 bzw. bei 31–40 km/h und DTV < 2'000; dazwischen Velostreifen (`fuehrungsartLuzern`).
 
 *Basel* — siehe [Basel](#basel) (`fuehrungsartBasel`).
 
@@ -144,14 +144,14 @@ Die vier Klassen-Anteile summieren sich je Szene auf 100. *Beispiel:* antworten 
 2. **Prüfen, ob die vorhandene Form ausreicht.** Die Formen bilden eine Rangfolge nach zunehmender Trennung vom Autoverkehr:
 
    ```
-   Mischverkehr  <  Radstreifen  <  «Radstreifen oder Radweg»  <  Radweg
+   Mischverkehr  <  Velostreifen <  «Velostreifen oder Radweg»  <  Radweg
       (keine        (Markierung      (Übergangsbereich)           (baulich
       Trennung)     auf Fahrbahn)                                  getrennt)
    ```
 
    Ist die vorhandene Form mindestens so weit oben wie die empfohlene → **Note 6** (mehr Trennung als nötig schadet nie). Nur wenn sie *schwächer* ist, geht es weiter.
 3. **Tempo-Kontext wählen:** `ruhig` bei V ≤ 30 km/h, sonst `schnell`.
-4. **Zielwert** = feel-safe % der **Soll**-Form im gewählten Tempo-Kontext. (Beim Übergangsfall «Radstreifen oder Radweg» das Mittel aus Radstreifen und Radweg.)
+4. **Zielwert** = feel-safe % der **Soll**-Form im gewählten Tempo-Kontext. (Beim Übergangsfall «Velostreifen oder Radweg» das Mittel aus Velostreifen und Radweg.)
 5. **Defizit** = Zielwert minus feel-safe % der **Ist**-Form (gleicher Tempo-Kontext) = der gemessene Verlust an gefühlter Sicherheit.
 6. **Defizit in eine Note umrechnen:** `Note = 6 − Defizit / 14,2` (auf 1…6 begrenzt, auf 0,5 gerundet). Pro 14,2 fehlende feel-safe-Punkte eine ganze Notenstufe — Herleitung siehe unten.
 
@@ -167,14 +167,14 @@ radwege-check / FixMyCity, **tram-bereinigt**. Gezählt wird jede Bewertung der 
 ```
                        ruhig (V ≤ 30)   schnell (V > 30)
 Mischverkehr                 24               13
-Radstreifen                  65               58
+Velostreifen                 65               58
 Radweg (baulich getrennt)    90               84
 ```
 
 Zuordnung der Ist-Formen zu den Befragungsdaten:
 
 - **Mischverkehr** → keine Radverkehrsanlage; seit dem 12.08.2026 **parkbereinigt** (24 statt 22 «ruhig» — ohne die parkierten Szenen, deren Wirkung der Parkierungs-Abzug separat trägt; «schnell» bleibt 13).
-- **Radstreifen** → die **Referenzkonfiguration**: Sollbreite 2,5 m ohne Parkierung, seit dem 12.08.2026 aus **grauen Szenen mit schmaler gestrichelter Führungslinie** — dem Berner Markierungsbild (keine Einfärbung im Netz, kaum breite Trennlinien) —, linear aus den 2,0/3,5-m-Zellen interpoliert (60,8 + 0,5 × 9,3 ≈ 65 · 52,4 + 0,5 × 10,5 ≈ 58). Bewusst NICHT das Mittel über alle Szenen: Breite und Parkierung werden unten separat abgezogen — ein gepoolter Anker zählte sie doppelt und rechnete eine Ausstattung mit, die es im Bestand nicht gibt. <sub>Fassungs-Kette: gepoolt 77/73 (bis 11.08.2026) → grau 71/66 (Zwischenfassung vom 12.08.2026) → gestrichelt 65/58 (2 Fotos je Zelle — bewusster Preis, lokales Regelwerk 15.7, P10-Kasten).</sub>
+- **Velostreifen** → die **Referenzkonfiguration**: Sollbreite 2,5 m ohne Parkierung, seit dem 12.08.2026 aus **grauen Szenen mit schmaler gestrichelter Führungslinie** — dem Berner Markierungsbild (keine Einfärbung im Netz, kaum breite Trennlinien) —, linear aus den 2,0/3,5-m-Zellen interpoliert (60,8 + 0,5 × 9,3 ≈ 65 · 52,4 + 0,5 × 10,5 ≈ 58). Bewusst NICHT das Mittel über alle Szenen: Breite und Parkierung werden unten separat abgezogen — ein gepoolter Anker zählte sie doppelt und rechnete eine Ausstattung mit, die es im Bestand nicht gibt. <sub>Fassungs-Kette: gepoolt 77/73 (bis 11.08.2026) → grau 71/66 (Zwischenfassung vom 12.08.2026) → gestrichelt 65/58 (2 Fotos je Zelle — bewusster Preis, lokales Regelwerk 15.7, P10-Kasten).</sub>
 - **Radweg** → seit dem 13.08.2026 die **Berner Radweg-Gruppe** im Klassen-Mittel (P11-A, lokales Regelwerk 15.7): Sperrpfosten-getrennte Fahrbahn-Radwege in Grau (G1: ruhig 90,2 → **90**; schnell 89,7) und — nur bei «schnell», dem Messdesign des Seitenraum-Experiments folgend — der **Seitenraum ohne Geschäftsnutzung** (G3: 83,7; gewichtet 83,9 → **84**). Die 18 «rechts vom Parken»-Szenen sind ohne Tempo-Codierung und bleiben aussen vor. Der Anker beschreibt damit den Bern-typischen Radweg-Bestand statt des reinen Poller-Zielwerts; Q2 und Q3 tragen weiterhin denselben Anker. <sub>Bis 13.08.2026: 91/91, gepoolt über Poller und Blumenkästen («Zielwert»-Lesart).</sub> <sub>Bis 10.08.2026 stand hier, in «Berliner Daten» lägen abgesetzte Radwege tiefer und der Abschlag werde für Bern nicht übernommen, weil Berns Seitenraum weniger von Geschäften geprägt sei. Beides war falsch: Die ganze Befragung ist Berlin (auch die Anker 91, 67/63, 22/13), und die Aussage über den Berner Bestand war eine Annahme — tatsächlich kommen beide Bauformen vor.</sub>
 
 #### Warum 14,2 Punkte pro Notenstufe?
@@ -196,14 +196,14 @@ Dieselbe Fehlentscheidung wiegt bei hohem Tempo schwerer:
 
 #### Durchgerechnetes Beispiel
 
-Abschnitt: **DTV 12'000 · 50 km/h · Ist = Radstreifen**
+Abschnitt: **DTV 12'000 · 50 km/h · Ist = Velostreifen**
 
 ```
 Soll      = fuehrungsart(12000, 50)            = Radweg        (DTV > 10'000)
-Ist < Soll (Radstreifen < Radweg)              → Abzug
+Ist < Soll (Velostreifen < Radweg)              → Abzug
 Tempo     = schnell                            (50 > 30)
 Zielscore = feel-safe(Radweg, schnell)         = 84
-Defizit   = 84 − feel-safe(Radstreifen,schnell)= 84 − 58 = 26
+Defizit   = 84 − feel-safe(Velostreifen,schnell)= 84 − 58 = 26
 Note      = 6 − 26 / 14,2 = 6 − 1,83 = 4,17    → 4,0 (vor Breitenabzug, s. unten)
 ```
 
@@ -212,18 +212,18 @@ Note      = 6 − 26 / 14,2 = 6 − 1,83 = 4,17    → 4,0 (vor Breitenabzug, s.
 Bei Tempo > 30 (schnell):
 
 ```
-Soll \ Ist                Mischverkehr   Radstreifen   Radweg
-Radstreifen                   3.0            6.0         6.0
-Radstreifen oder Radweg       2.0            5.0         6.0
+Soll \ Ist                Mischverkehr   Velostreifen  Radweg
+Velostreifen                  3.0            6.0         6.0
+Velostreifen oder Radweg       2.0            5.0         6.0
 Radweg                        1.0            4.0         6.0
 ```
 
 Bei Tempo ≤ 30 (ruhig) fallen dieselben Abweichungen milder aus:
 
 ```
-Soll \ Ist                Mischverkehr   Radstreifen   Radweg
-Radstreifen                   3.0            6.0         6.0
-Radstreifen oder Radweg       2.0            5.0         6.0
+Soll \ Ist                Mischverkehr   Velostreifen  Radweg
+Velostreifen                  3.0            6.0         6.0
+Velostreifen oder Radweg       2.0            5.0         6.0
 Radweg                        1.5            4.0         6.0
 ```
 
@@ -237,8 +237,8 @@ Nach der Führungsform-Note wird die **Breite** der Anlage gegen die **Soll-Rege
 
 ```
 Ist-Form (Querschnittstyp)        Optimal   Minimal
-Radstreifen                  Q1     2.50      1.80
-Radweg strassenbegl. / Gesch. Radstreifen  Q2  2.50   1.80
+Velostreifen                 Q1     2.50      1.80
+Radweg strassenbegl. / Gesch. Velostreifen Q2  2.50   1.80
 Radweg abgesetzt                           Q3  2.50   1.50
 Umweltspur (Bus+Velo)        Q4     4.50      3.75   (DTV/Tempo n.r.; siehe Bus-Takt)
 Einbahn mit Velogegenverkehr Q7     2.00      1.80   (mit Markierung bzw. baulicher Trennung; ohne Markierung keine Breite)
@@ -254,7 +254,7 @@ Sollbreite   = Optimal (Velohauptroute) bzw. Minimal (Veloroute)
 Defizit_m    = max(0, Sollbreite − Ist-Breite)
 Breitenabzug = Defizit_m × Satz der feel-safe-Klasse:
                                               ≤ 30 km/h   > 30 km/h
-                 auf der Fahrbahn                 1,0         1,0     (Radstreifen, Einbahn mit Markierung)
+                 auf der Fahrbahn                 1,0         1,0     (Velostreifen, Einbahn mit Markierung)
                  hinter baulicher Trennung        0,24        0,38    (Radwege, Zweirichtungsradweg, Fuss-/Radwege, Einbahn mit baulicher Trennung)
                  Fahrgassen-Bänder                0,9         0,9     (Velostrasse, Umweltspur)
 Endnote      = runde_0,5( Führungsform-Note − Breitenabzug , begrenzt 1…6 )
@@ -262,7 +262,7 @@ Endnote      = runde_0,5( Führungsform-Note − Breitenabzug , begrenzt 1…6 )
 
 ##### Woher die drei Sätze kommen
 
-**Fahrbahn: 1,0 Notenstufen je Meter — vorläufige Kalibrierung aus zwei Erhebungen** (seit 22.09.2026). Zwei Befragungen haben gemessen, wie viel Feel-Safe-Punkte ein Meter Radstreifenbreite bringt, in unterschiedlichen Breitenbereichen:
+**Fahrbahn: 1,0 Notenstufen je Meter — vorläufige Kalibrierung aus zwei Erhebungen** (seit 22.09.2026). Zwei Befragungen haben gemessen, wie viel Feel-Safe-Punkte ein Meter Velostreifenbreite bringt, in unterschiedlichen Breitenbereichen:
 
 ```
 Berliner Strassencheck   2,0 → 3,5 m:   9,3 Pkt/m (T30) · 10,5 (T50)   ≈ 0,65 / 0,74 Noten/m
@@ -284,10 +284,10 @@ Der Rechner zieht fast ausschliesslich **unterhalb von 2,0 m** ab (1,5 statt 1,8
 
 Tunbar über `BREITE_SATZ`.
 
-**Beispiel** (Fortsetzung: DTV 12'000 / 50 km/h / Ist Radstreifen → Form-Note ungerundet 4,17):
+**Beispiel** (Fortsetzung: DTV 12'000 / 50 km/h / Ist Velostreifen → Form-Note ungerundet 4,17):
 
 ```
-Velohauptroute, Radstreifen, Breite 1,80 m
+Velohauptroute, Velostreifen, Breite 1,80 m
   Sollbreite   = Optimal 2,50 m
   Defizit      = 2,50 − 1,80 = 0,70 m
   Breitenabzug = 0,70 × 1,0 = 0,70
@@ -300,21 +300,21 @@ Das Tempo steckt weiterhin in der Note — über die feel-safe-Anker der Führun
 
 #### Parkierung rechts (Dooring)
 
-Wo das Velo **auf der Fahrbahn neben möglichem Längsparken** fährt, kann angegeben werden, ob rechts längs geparkt wird (Dooring-Lage). Das betrifft die Fahrbahn-Führungsformen **Mischverkehr, Radstreifen, Velostrasse, Umweltspur und Einbahn mit Velogegenverkehr (markiert)** (Konstante `PARKEN_RELEVANT` in [`VeloroutenCheckWeb/src/fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)); bei baulich abgesetzten Radwegen und beim Fussweg greift der Dooring-Mechanismus nicht, dort wird das Feld nicht angezeigt. Auswahl **Ja / Nein / Egal**:
+Wo das Velo **auf der Fahrbahn neben möglichem Längsparken** fährt, kann angegeben werden, ob rechts längs geparkt wird (Dooring-Lage). Das betrifft die Fahrbahn-Führungsformen **Mischverkehr, Velostreifen, Velostrasse, Umweltspur und Einbahn mit Velogegenverkehr (markiert)** (Konstante `PARKEN_RELEVANT` in [`VeloroutenCheckWeb/src/fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)); bei baulich abgesetzten Radwegen und beim Fussweg greift der Dooring-Mechanismus nicht, dort wird das Feld nicht angezeigt. Auswahl **Ja / Nein / Egal**:
 
 - **Ja** → Abzug **1,0 Notenstufe**, pauschal für jede Führungsform und jede Breite. In jedem Fall keine Note 6, sobald Parken rechts vorhanden ist.
 - **Nein / Egal** → kein Abzug.
 
 Bei **Ja** kann zusätzlich angegeben werden, ob ein **Sicherheitsstreifen gegenüber den Parkplätzen** (SN 640 060; im Basler Standard-Papier genannt) vorhanden ist. Ist er vorhanden, entschärft er die Dooring-Gefahr → **kein Abzug**. Da SN 640 060 eine CH-Norm ist, gilt das in allen Stadt-Rechnern.
 
-**Offener Punkt: der Schaden ist gemessen breitenabhängig — die Skala trägt aber nicht.** Bis zum 09.08.2026 rechnete der Abzug `0,6 + 0,9 × (3,5 − Streifenbreite)`. Der Befund dahinter bleibt gültig (Radstreifen, ungeschützt, tram-bereinigt; Vergleich bei **gleicher Breite und gleichem Tempo**, `tools/verify_06.py` §5):
+**Offener Punkt: der Schaden ist gemessen breitenabhängig — die Skala trägt aber nicht.** Bis zum 09.08.2026 rechnete der Abzug `0,6 + 0,9 × (3,5 − Streifenbreite)`. Der Befund dahinter bleibt gültig (Velostreifen, ungeschützt, tram-bereinigt; Vergleich bei **gleicher Breite und gleichem Tempo**, `tools/verify_06.py` §5):
 
 ```
 Parken-Offset bei 3,5 m Streifen:    8,5–9,6 Pkte  ≈ 0,6 Noten   (man kann der Türzone ausweichen)
 Parken-Offset bei 2,0 m Streifen:  28,8–29,6 Pkte  ≈ 2,0 Noten   (man fährt zwangsläufig darin)
 ```
 
-Zurückgenommen wurde die Formel, weil die Befragung **genau diese zwei Streifenbreiten** kennt und der reale Bestand fast vollständig darunter liegt: Der breiteste in Bern erfasste Radstreifen misst **2,50 m**, und **282 von 340** sind schmaler als der *kleinste* Messpunkt — dort war die Formel reine Verlängerung (1,50 m ergäbe −2,40 Noten, mehr als je gemessen). Ein dritter, vorhandener Messpunkt widerspricht ihr zudem: Im **Mischverkehr** kostet die Parkierung nur ≈ 0,15 Noten, weil dort keine Markierung den Platz in die Türzone weist — der Schaden hat sein Maximum bei ≈ 2,0 m und fällt zu beiden Seiten ab. Was fehlt, sind Szenen mit Streifenbreiten **unter 2,0 m**; solange sie fehlen, ist die Pauschale die ehrlichere Zahl.
+Zurückgenommen wurde die Formel, weil die Befragung **genau diese zwei Streifenbreiten** kennt und der reale Bestand fast vollständig darunter liegt: Der breiteste in Bern erfasste Velostreifen misst **2,50 m**, und **282 von 340** sind schmaler als der *kleinste* Messpunkt — dort war die Formel reine Verlängerung (1,50 m ergäbe −2,40 Noten, mehr als je gemessen). Ein dritter, vorhandener Messpunkt widerspricht ihr zudem: Im **Mischverkehr** kostet die Parkierung nur ≈ 0,15 Noten, weil dort keine Markierung den Platz in die Türzone weist — der Schaden hat sein Maximum bei ≈ 2,0 m und fällt zu beiden Seiten ab. Was fehlt, sind Szenen mit Streifenbreiten **unter 2,0 m**; solange sie fehlen, ist die Pauschale die ehrlichere Zahl.
 
 Zum Vergleich: liegt das Velo **rechts vom Parken** (Parken schirmt vom Verkehr ab), steigt der Wert auf ≈ 92 %; diese günstige Lage ist im Datensatz aber nur schwach belegt (6 Szenen) und derzeit nicht als eigene Option umgesetzt. Parameter `PARKEN_ABZUG`, tunbar.
 
@@ -370,7 +370,7 @@ Mischfläche Fuss/Velo, Kompromiss-/Restlösung → höchstens **Note 4 («genü
 
 #### Einbahn mit Velogegenverkehr (Q7)
 
-Dreistufig, je nach Sicherung der Gegenrichtung (`GEGENVERKEHR_FORMEN`): **ohne Markierung** = Rang wie Mischverkehr, keine Breitenvorgabe; **mit Markierung** = Rang wie Radstreifen (Fahrbahn-Satz); **mit baulicher Trennung** = Rang wie Radweg. Regelbreiten Bern 2,00 / 1,80 m, Stadt-Überschreibungen: Zürich 1,80 / 1,80, Basel 2,50 / 1,80, Luzern 2,50 / 2,00. Wird **nicht** automatisch aus OSM erkannt (ein Contraflow-Streifen fällt auf die zugrunde liegende Anlage zurück), sondern im Dropdown von Hand gewählt; Vorgabe «mit Markierung». Auf einer OSM-Einbahn mit `oneway:bicycle=no` weist die Maske darauf hin; die Gegenrichtung lässt sich dann als Seite B erfassen.
+Dreistufig, je nach Sicherung der Gegenrichtung (`GEGENVERKEHR_FORMEN`): **ohne Markierung** = Rang wie Mischverkehr, keine Breitenvorgabe; **mit Markierung** = Rang wie Velostreifen (Fahrbahn-Satz); **mit baulicher Trennung** = Rang wie Radweg. Regelbreiten Bern 2,00 / 1,80 m, Stadt-Überschreibungen: Zürich 1,80 / 1,80, Basel 2,50 / 1,80, Luzern 2,50 / 2,00. Wird **nicht** automatisch aus OSM erkannt (ein Contraflow-Streifen fällt auf die zugrunde liegende Anlage zurück), sondern im Dropdown von Hand gewählt; Vorgabe «mit Markierung». Auf einer OSM-Einbahn mit `oneway:bicycle=no` weist die Maske darauf hin; die Gegenrichtung lässt sich dann als Seite B erfassen.
 
 #### Zweirichtungsradweg (Q10)
 
@@ -418,7 +418,7 @@ HS7  Busbucht                            Mischverkehr         –         –
 
 - **Einsatzbereich:** Abzug **−1,0**, wenn die Soll-Lösung *Separate Velofläche* verlangt, der vorhandene Typ aber aus der **Mischverkehr-Familie** (HS3/HS6/HS7) stammt. Über-Erfüllung und der Übergangsbereich geben keinen Abzug.
 - **Breite der Veloführung an der Haltestelle:** nur bei Typen mit Breitenvorgabe (Bern: HS1/HS2/HS4/HS5) und nur, solange ein ÖV-Angebot gewählt ist. Zu schmal → Abzug
-  `Defizit_m × Fahrbahn-Satz` (markierte Velofläche auf Fahrbahnniveau → Radstreifen-Satz `BREITE_SATZ`, seit dem 22.09.2026 einheitlich **1,0** bei > 30 km/h). Der Masterplan nennt für
+  `Defizit_m × Fahrbahn-Satz` (markierte Velofläche auf Fahrbahnniveau → Velostreifen-Satz `BREITE_SATZ`, seit dem 22.09.2026 einheitlich **1,0** bei > 30 km/h). Der Masterplan nennt für
   HS1/HS4 den Bereich 1,8–2,5 m (Standard 1,80, situativ bis 2,50, minimal 1,60); der Rechner rechnet mit 1,8 als Sollwert
   und 1,6 als Minimum (HS4 bis 20.10.2026 mit 2,5; Minimum 1,60, anzustreben 1,80 bis 2,50 — `HALTESTELLEN` in [`fuehrungsform.ts`](VeloroutenCheckWeb/src/fuehrungsform.ts)).
 
@@ -471,7 +471,7 @@ Empirisch per Least-Squares-Regression gegen einen GeoPackage-Export hergeleitet
 
 | Führungsform | Velohauptroute | Veloroute |
 |---|---|---|
-| Radstreifen · Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 2,20 m |
+| Velostreifen · Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 2,20 m |
 | Zweirichtungsradweg | 4,80 m | 3,50 m |
 | Umweltspur | 4,80 m | 4,50 m |
 | Kombinierter Fuss-/Radweg | 3,50 m | 3,50 m |
@@ -481,7 +481,7 @@ Wo Zürich keine eigene Vorgabe hat (Velostrasse-Band 4,50–6,50 m, Fussweg Vel
 
 #### Basel
 
-**Soll-Führungsform Basel.** Nicht DTV-, sondern **strassentyp**-basiert (× Routentyp; Tab. 3, S. 15). Auf **siedlungsorientierten** (nicht verkehrsorientierten) Tempo-30-Strassen: Vorzugsroute (Velohauptroute) → **Velostrasse** (DWV-Deckel 2'500); Pendler-/Basisroute (Veloroute) → **Mischverkehr** (DWV-Deckel 5'000, empfohlen) **oder Velostrasse** (mögliche Form, **kein** DWV-Deckel). «Einbahn Velogegenverkehr ohne Markierung» gilt auf Pendler-/Basisrouten wie Mischverkehr (zulässig, DWV-Deckel 5'000). Jede andere Ist-Form ist dort **nicht vorgesehen** → Note max. 4. Auf **verkehrsorientierten** Strassen → Vorzugsroute «Radstreifen oder Radweg», Pendler-/Basisroute «Radstreifen» (`fuehrungsartBasel`); eine **Velostrasse gibt es dort nicht** (nicht zulässig → Note max. 4). Der **Strassentyp** ist im Rechner ein eigenes Feld (nur bei Basel sichtbar, amtlich vorbefüllt) und für die Bewertung erforderlich. **DWV-Deckel** (form-abhängig): übersteigt der DTV den Höchstwert (Velostrasse·Vorzugsroute 2'500, Mischverkehr·Pendler-Basis 5'000; Velostrasse·Pendler-Basis kein Deckel), zeigt der Rechner eine **Warnung** zusätzlich zur Erklärung der Note (kein Notenabzug). **Velostrasse-Breite:** Nettobreite der Fahrgasse 4,50/4,30 m, bei **DWV < 1'000** reduziert **4,00 m** zulässig.
+**Soll-Führungsform Basel.** Nicht DTV-, sondern **strassentyp**-basiert (× Routentyp; Tab. 3, S. 15). Auf **siedlungsorientierten** (nicht verkehrsorientierten) Tempo-30-Strassen: Vorzugsroute (Velohauptroute) → **Velostrasse** (DWV-Deckel 2'500); Pendler-/Basisroute (Veloroute) → **Mischverkehr** (DWV-Deckel 5'000, empfohlen) **oder Velostrasse** (mögliche Form, **kein** DWV-Deckel). «Einbahn Velogegenverkehr ohne Markierung» gilt auf Pendler-/Basisrouten wie Mischverkehr (zulässig, DWV-Deckel 5'000). Jede andere Ist-Form ist dort **nicht vorgesehen** → Note max. 4. Auf **verkehrsorientierten** Strassen → Vorzugsroute «Velostreifen oder Radweg», Pendler-/Basisroute «Velostreifen» (`fuehrungsartBasel`); eine **Velostrasse gibt es dort nicht** (nicht zulässig → Note max. 4). Der **Strassentyp** ist im Rechner ein eigenes Feld (nur bei Basel sichtbar, amtlich vorbefüllt) und für die Bewertung erforderlich. **DWV-Deckel** (form-abhängig): übersteigt der DTV den Höchstwert (Velostrasse·Vorzugsroute 2'500, Mischverkehr·Pendler-Basis 5'000; Velostrasse·Pendler-Basis kein Deckel), zeigt der Rechner eine **Warnung** zusätzlich zur Erklärung der Note (kein Notenabzug). **Velostrasse-Breite:** Nettobreite der Fahrgasse 4,50/4,30 m, bei **DWV < 1'000** reduziert **4,00 m** zulässig.
 
 | Basel-Kategorie | → Routentyp |
 |---|---|
@@ -495,7 +495,7 @@ Gemäss Velokonzept Basel-Stadt sind Basis- und Pendlerrouten **nicht** hierarch
 
 | Führungsform | Velohauptroute | Veloroute |
 |---|---|---|
-| Radstreifen | 2,50 m | 1,80 m |
+| Velostreifen | 2,50 m | 1,80 m |
 | Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 2,20 m |
 | Zweirichtungsradweg | 4,00 m | 3,40 m |
 | Umweltspur | 4,50 m | 3,00 m |
@@ -518,7 +518,7 @@ Das OGD-Feld `VELO_ROUTENTYP` (Stadt Luzern) hat drei Werte; sie werden auf die 
 
 | Führungsform | Velohauptroute | Veloroute |
 |---|---|---|
-| Radstreifen · Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 1,80 m |
+| Velostreifen · Radweg strassenbegl./gesch. · Radweg abgesetzt | 2,50 m | 1,80 m |
 | Umweltspur | 4,50 m | 3,75 m |
 | Velostrasse | 4,50 m | 4,50 m |
 | Kombinierter Fuss-/Radweg | 3,50 m | 3,50 m |
@@ -527,17 +527,17 @@ Das OGD-Feld `VELO_ROUTENTYP` (Stadt Luzern) hat drei Werte; sie werden auf die 
 
 ### 8. Festlegungen in der Planung
 
-**Massnahmenvorschlag (seit 17.10.2026 Bern, seit 20.10.2026 alle Städte mit Planung)** ([`vorschlag.ts`](VeloroutenCheckWeb/src/vorschlag.ts)). Der Kasten «Vorschlag» in der Planung nennt die erste Massnahme, die die Note auf mindestens 5,5 bringt («vollständig erfüllt», vorher 4,5 «weitgehend erfüllt» wie im lokalen Zielbild-Rechner, der bei 4,5 bleibt; `ZIEL` in [`vorschlag.ts`](VeloroutenCheckWeb/src/vorschlag.ts), die Tests des Katalogs rechnen weiter mit 4,5). Probe des lokalen Rechners über das Berner Netz (1681 Segmente): Mit 5,5 brauchen 533 statt 782 Segmente keine Massnahme, Markierung 67 statt 191, Kernfahrbahn 30 statt 69, Parkierung aufheben 182 statt 122, Haltestelle umbauen 14 statt 49, Radweg bauen 299 statt 117, Tempo 30 99 statt 49, kein Vorschlag 457 statt 302 (davon 254 «Fahrbahn zu schmal»), 1520 statt 1027 Parkplätze weg. Die Rangfolge und der Katalog sind gleich geblieben; mit 5,5 fallen Parkierung rechts (eine Note Abzug), Minimalbreiten und die festen Deckel (Tram im Mischverkehr 3, Fussweg Velo gestattet 4, Kaphaltestelle am Tram 1) stärker ins Gewicht. Der Abgleich online gegen lokal gilt seither nur noch mit `vorschlagRechnen(…, 4.5)`. **Bestmögliche Verbesserung** (seit 24.10.2026): Erreicht keine Massnahme 5,5, nennt der Kasten statt «kein Vorschlag» die Massnahme mit der höchsten Note über der von heute (ohne Pilot; bei gleicher Note nach Rang, Parkierung, Eingriffen), mit dem Erfüllungsgrad, den sie erreicht, und dem Grund, warum 5,5 nicht geht; sie lässt sich übernehmen (`Vorschlag.teilweise`). Beispiele: Mischverkehr mit Tram, 9 m: Radstreifen beidseitig 1,50 m, 2 → 5 («weitgehend erfüllt»); Mischverkehr 6,5 m mit Parkierung: Parkierung beidseitig aufheben, 1 → 2. Darunter steht, mit Knopf zum Übernehmen und mit Erfüllungsgrad, **«Oder im Pilot»** mit der besten schmalen Kernfahrbahn (Kern unter 4,50 m, nur Bern), wenn sie mehr bringt als die bestmögliche Verbesserung (Mischverkehr 7,5 m auf einer Velohauptroute: Kernfahrbahn mit Radstreifen 1,50 m → 4, im Pilot mit Radstreifen 2,25 m und Kern 3,00 m → 5). Gibt es keine Verbesserung, bleibt es bei «kein Vorschlag». Hebt ohne Pilot keine Massnahme den Erfüllungsgrad, wohl aber eine mit schmalem Kern, wird der **Pilot der Vorschlag**, mit dem Vermerk, was ohne Pilot höchstens ginge; erreicht er das Ziel, gilt es als erreicht (Aargauerstalden mit 7,0 m Fahrbahn: Parkierung aufheben + Kernfahrbahn mit schmalem Kern 3,40 m (Pilot) → 5,0 statt «Parkierung Seite A aufheben» → 2,0). **Alle Varianten** (seit 27.10.2026; `Vorschlag.alle`): Unter jeder Zeile lässt sich «Alle Varianten (n)» aufklappen, je mit Note, Erfüllungsgrad, Stufe und «Übernehmen». Ungefiltert wären es zu viele (geprüft werden je Zeile 5 bis 37 Varianten, am Aargauerstalden verbessern 32 die Note, meist fast gleich), darum: nur Varianten, die den Erfüllungsgrad von heute heben; je Stufe der Rangfolge, Parkierung (bleibt, eine Seite, alle) und Pilot ja/nein die beste; «Tempo 30 + …» und Piloten nur, wenn sie mehr bringen als dieselbe Parkierung ohne sie; nach Note geordnet. Am Aargauerstalden mit 10,0 m bleiben zwei: der Minimalfall mit Parkierung und «Parkierung Seite A aufheben + Radstreifen beidseitig 1,80 m als Kernfahrbahn (Kern 5,50 m)», beide 5,0. Sie ersetzt die Zusatzzeilen «Oder günstiger» (24. bis 27.10.2026: die erste Verbesserung in der gewohnten Rangfolge; zeigte auch Massnahmen wie «Parkierung Seite A aufheben → 2,0 («Gar nicht erfüllt»)») und «Oder mit Parkierungsabbau» (27.10.2026); «Alternative», «Oder im Pilot» und «Nur im Pilot möglich» bleiben. Dabei aufgefallen: Der Haltestellen-Umbau (Rang 5) prüfte bei unbekanntem Trottoir den Platz nicht und nahm in der Planung alles aus der Fahrbahn; seither gilt dann die Annahme, das heutige Trottoir bleibe als Trottoir hinter der Veloumfahrung (2,00 m), und die übrigen 5,00 m müssen neben dem Autoverkehr in der Fahrbahn Platz haben; «Als Planung übernehmen» ersetzt die Elemente, danach ist alles frei änderbar. Der Rechner ist eine Portierung des lokalen Zielbild-Rechners (`Rechner/zielbild/massnahmen.py`, `querschnitt.py`) mit derselben Rangfolge: 1 Markierung (Sicherheitsstreifen, Radstreifen verbreitern oder markieren, Velo vom Fussweg in die Fahrbahn), 2 Kernfahrbahn (Q 5; der schmale Kern nur als Alternative), 3 Parkierung aufheben (zuerst eine Seite, dann beide) mit Rang 1/2, 4 Velostrasse (Q 9), 5 Haltestelle umbauen (Typ «Haltestelle mit Veloumfahrung», mit Platzprüfung), 6 Radweg bauen (Q 2a/2b), 7 Tempo 30, nur wenn nichts anderes reicht. Unter gleichem Rang zählt weniger Parkierung weg, weniger Eingriffe, eine Seite vor beiden, dann die bessere Note. Platz nach den Querschnittsblättern: Fahrspuren 2 × 3,00 m (Radweg 2 × 3,25 m, Einbahn 3,00 m, mit Gleis 3,25 m), Radstreifen Standard 2,50/1,80 m und Minimal 1,80/1,50 m, Parkierung 1,90 m mit Sicherheitsstreifen 0,80 m (minimal 0,50 m), Trennung zum Radweg 0,15 m; eine Parkierung auf Trottoirniveau braucht keine Fahrbahnbreite. Die Kernfahrbahn gilt wie lokal nur mit belegtem DTV (nicht mit «≤ 2000 angenommen»). Je zwei Zeilen: **ohne Randsteinanpassung** (verfügbar ist das Feld «Verfügbare Fahrbahnbreite») und **mit Randsteinanpassung** (`trottoirAnpassung`): die Trottoirs kommen auf die Vorgabe des gewählten Fussverkehrsnetzes. Schmalere werden auf die Vorgabe verbreitert, zulasten der Fahrbahn (Kirchenfeldstrasse); breitere werden nur um den nötigen Teil schmaler, anteilig nach ihrem Überschuss, nie unter die Vorgabe. Die Trottoirs rechnen auf 5 cm gerundet wie der Seitenraum der Bilanz (vorher blieb ein Fehlmass von 0,01 m, Jungfraustrasse). Tempo 30 trägt die Planung als eigenes Feld (`Aufteilung.tempo`, mit Knopf «Tempo wie heute»); Note, Prüfung und Kernfahrbahn rechnen damit. Der Bericht nennt den übernommenen Vorschlag als «Ausgangspunkt». **Randsteinanpassung so weit wie möglich** (seit 24.10.2026, Beispiel Kirchenfeldstrasse 307351482): Erreicht mit den Trottoirs auf der Vorgabe keine Massnahme das Ziel, verbreitert die Zeile «Mit Randsteinanpassung» die Trottoirs nur so weit, dass eine Massnahme es noch erreicht (`vorschlagMitRandstein`: grösste Verbreiterung in 5-cm-Schritten, auf die Seiten im Verhältnis dessen, was ihnen fehlt). Was danach noch fehlt, steht beim Vorschlag («Trottoirs so weit wie möglich: Seite A 1,45 → 1,80 m (Vorgabe 2,50 m um 0,70 m verfehlt)») und im Vermerk; die Planung übernimmt genau diese Trottoirs. Kirchenfeldstrasse: Radweg beidseitig 1,80 m braucht 10,40 m der 11,10 m Fahrbahn, für die Trottoirs bleiben zusammen 0,70 m (vorher kein Vorschlag, weil Radweg und zwei Trottoirs zu 2,50 m 1,45 m mehr brauchen, als der Strassenraum hat). Geht es auch ohne Verbreiterung nicht, bleibt es bei der vollen Anpassung.
+**Massnahmenvorschlag (seit 17.10.2026 Bern, seit 20.10.2026 alle Städte mit Planung)** ([`vorschlag.ts`](VeloroutenCheckWeb/src/vorschlag.ts)). Der Kasten «Vorschlag» in der Planung nennt die erste Massnahme, die die Note auf mindestens 5,5 bringt («vollständig erfüllt», vorher 4,5 «weitgehend erfüllt» wie im lokalen Zielbild-Rechner, der bei 4,5 bleibt; `ZIEL` in [`vorschlag.ts`](VeloroutenCheckWeb/src/vorschlag.ts), die Tests des Katalogs rechnen weiter mit 4,5). Probe des lokalen Rechners über das Berner Netz (1681 Segmente): Mit 5,5 brauchen 533 statt 782 Segmente keine Massnahme, Markierung 67 statt 191, Kernfahrbahn 30 statt 69, Parkierung aufheben 182 statt 122, Haltestelle umbauen 14 statt 49, Radweg bauen 299 statt 117, Tempo 30 99 statt 49, kein Vorschlag 457 statt 302 (davon 254 «Fahrbahn zu schmal»), 1520 statt 1027 Parkplätze weg. Die Rangfolge und der Katalog sind gleich geblieben; mit 5,5 fallen Parkierung rechts (eine Note Abzug), Minimalbreiten und die festen Deckel (Tram im Mischverkehr 3, Fussweg Velo gestattet 4, Kaphaltestelle am Tram 1) stärker ins Gewicht. Der Abgleich online gegen lokal gilt seither nur noch mit `vorschlagRechnen(…, 4.5)`. **Bestmögliche Verbesserung** (seit 24.10.2026): Erreicht keine Massnahme 5,5, nennt der Kasten statt «kein Vorschlag» die Massnahme mit der höchsten Note über der von heute (ohne Pilot; bei gleicher Note nach Rang, Parkierung, Eingriffen), mit dem Erfüllungsgrad, den sie erreicht, und dem Grund, warum 5,5 nicht geht; sie lässt sich übernehmen (`Vorschlag.teilweise`). Beispiele: Mischverkehr mit Tram, 9 m: Velostreifen beidseitig 1,50 m, 2 → 5 («weitgehend erfüllt»); Mischverkehr 6,5 m mit Parkierung: Parkierung beidseitig aufheben, 1 → 2. Darunter steht, mit Knopf zum Übernehmen und mit Erfüllungsgrad, **«Oder im Pilot»** mit der besten schmalen Kernfahrbahn (Kern unter 4,50 m, nur Bern), wenn sie mehr bringt als die bestmögliche Verbesserung (Mischverkehr 7,5 m auf einer Velohauptroute: Kernfahrbahn mit Velostreifen 1,50 m → 4, im Pilot mit Velostreifen 2,25 m und Kern 3,00 m → 5). Gibt es keine Verbesserung, bleibt es bei «kein Vorschlag». Hebt ohne Pilot keine Massnahme den Erfüllungsgrad, wohl aber eine mit schmalem Kern, wird der **Pilot der Vorschlag**, mit dem Vermerk, was ohne Pilot höchstens ginge; erreicht er das Ziel, gilt es als erreicht (Aargauerstalden mit 7,0 m Fahrbahn: Parkierung aufheben + Kernfahrbahn mit schmalem Kern 3,40 m (Pilot) → 5,0 statt «Parkierung Seite A aufheben» → 2,0). **Alle Varianten** (seit 27.10.2026; `Vorschlag.alle`): Unter jeder Zeile lässt sich «Alle Varianten (n)» aufklappen, je mit Note, Erfüllungsgrad, Stufe und «Übernehmen». Ungefiltert wären es zu viele (geprüft werden je Zeile 5 bis 37 Varianten, am Aargauerstalden verbessern 32 die Note, meist fast gleich), darum: nur Varianten, die den Erfüllungsgrad von heute heben; je Stufe der Rangfolge, Parkierung (bleibt, eine Seite, alle) und Pilot ja/nein die beste; «Tempo 30 + …» und Piloten nur, wenn sie mehr bringen als dieselbe Parkierung ohne sie; nach Note geordnet. Am Aargauerstalden mit 10,0 m bleiben zwei: der Minimalfall mit Parkierung und «Parkierung Seite A aufheben + Velostreifen beidseitig 1,80 m als Kernfahrbahn (Kern 5,50 m)», beide 5,0. Sie ersetzt die Zusatzzeilen «Oder günstiger» (24. bis 27.10.2026: die erste Verbesserung in der gewohnten Rangfolge; zeigte auch Massnahmen wie «Parkierung Seite A aufheben → 2,0 («Gar nicht erfüllt»)») und «Oder mit Parkierungsabbau» (27.10.2026); «Alternative», «Oder im Pilot» und «Nur im Pilot möglich» bleiben. Dabei aufgefallen: Der Haltestellen-Umbau (Rang 5) prüfte bei unbekanntem Trottoir den Platz nicht und nahm in der Planung alles aus der Fahrbahn; seither gilt dann die Annahme, das heutige Trottoir bleibe als Trottoir hinter der Veloumfahrung (2,00 m), und die übrigen 5,00 m müssen neben dem Autoverkehr in der Fahrbahn Platz haben; «Als Planung übernehmen» ersetzt die Elemente, danach ist alles frei änderbar. Der Rechner ist eine Portierung des lokalen Zielbild-Rechners (`Rechner/zielbild/massnahmen.py`, `querschnitt.py`) mit derselben Rangfolge: 1 Markierung (Sicherheitsstreifen, Velostreifen verbreitern oder markieren, Velo vom Fussweg in die Fahrbahn), 2 Kernfahrbahn (Q 5; der schmale Kern nur als Alternative), 3 Parkierung aufheben (zuerst eine Seite, dann beide) mit Rang 1/2, 4 Velostrasse (Q 9), 5 Haltestelle umbauen (Typ «Haltestelle mit Veloumfahrung», mit Platzprüfung), 6 Radweg bauen (Q 2a/2b), 7 Tempo 30, nur wenn nichts anderes reicht. Unter gleichem Rang zählt weniger Parkierung weg, weniger Eingriffe, eine Seite vor beiden, dann die bessere Note. Platz nach den Querschnittsblättern: Fahrspuren 2 × 3,00 m (Radweg 2 × 3,25 m, Einbahn 3,00 m, mit Gleis 3,25 m), Velostreifen Standard 2,50/1,80 m und Minimal 1,80/1,50 m, Parkierung 1,90 m mit Sicherheitsstreifen 0,80 m (minimal 0,50 m), Trennung zum Radweg 0,15 m; eine Parkierung auf Trottoirniveau braucht keine Fahrbahnbreite. Die Kernfahrbahn gilt wie lokal nur mit belegtem DTV (nicht mit «≤ 2000 angenommen»). Je zwei Zeilen: **ohne Randsteinanpassung** (verfügbar ist das Feld «Verfügbare Fahrbahnbreite») und **mit Randsteinanpassung** (`trottoirAnpassung`): die Trottoirs kommen auf die Vorgabe des gewählten Fussverkehrsnetzes. Schmalere werden auf die Vorgabe verbreitert, zulasten der Fahrbahn (Kirchenfeldstrasse); breitere werden nur um den nötigen Teil schmaler, anteilig nach ihrem Überschuss, nie unter die Vorgabe. Die Trottoirs rechnen auf 5 cm gerundet wie der Seitenraum der Bilanz (vorher blieb ein Fehlmass von 0,01 m, Jungfraustrasse). Tempo 30 trägt die Planung als eigenes Feld (`Aufteilung.tempo`, mit Knopf «Tempo wie heute»); Note, Prüfung und Kernfahrbahn rechnen damit. Der Bericht nennt den übernommenen Vorschlag als «Ausgangspunkt». **Randsteinanpassung so weit wie möglich** (seit 24.10.2026, Beispiel Kirchenfeldstrasse 307351482): Erreicht mit den Trottoirs auf der Vorgabe keine Massnahme das Ziel, verbreitert die Zeile «Mit Randsteinanpassung» die Trottoirs nur so weit, dass eine Massnahme es noch erreicht (`vorschlagMitRandstein`: grösste Verbreiterung in 5-cm-Schritten, auf die Seiten im Verhältnis dessen, was ihnen fehlt). Was danach noch fehlt, steht beim Vorschlag («Trottoirs so weit wie möglich: Seite A 1,45 → 1,80 m (Vorgabe 2,50 m um 0,70 m verfehlt)») und im Vermerk; die Planung übernimmt genau diese Trottoirs. Kirchenfeldstrasse: Radweg beidseitig 1,80 m braucht 10,40 m der 11,10 m Fahrbahn, für die Trottoirs bleiben zusammen 0,70 m (vorher kein Vorschlag, weil Radweg und zwei Trottoirs zu 2,50 m 1,45 m mehr brauchen, als der Strassenraum hat). Geht es auch ohne Verbreiterung nicht, bleibt es bei der vollen Anpassung.
 
 Abweichungen zum lokalen Rechner: Rang 5 (Haltestelle umbauen, seit 20.10.2026 auch online) prüft zusätzlich den Platz: An der Haltestelle liegt auf der Seite alles ausserhalb der Haltekante, mindestens 3,10 + 0,30 + 1,60 + 2,00 = 7,00 m (Standard 7,90 m), aus Trottoir und Fahrbahn ohne MIV und Gegenseite; fehlt es, kein Umbau, ist es unbekannt, ein Vermerk; «Übernehmen» baut HS 1 in die Planung; die Velostrasse mit der Bedingung «Quartierstrasse» nur in Bern (seit 01.11.2026; Geoportal-Dienst **Strassenhierarchie**, je Segment der Wert, der die Mehrheit abdeckt, in der Kurzform des lokalen Rechners, `hierarchieKurz` in `bern.ts`, `Section.hierarchie`; ohne Angabe keine Bedingung, wie in den übrigen Städten); keine Parkplatzzahl und keine Hinweise zu Steigung, Schwerverkehr und Sicht; die Note rechnet die Online-Bewertung. Fehlt eine Ist-Breite, rechnet der Vorschlag trotzdem: Für die Note gilt wie in der Ausgangslage die Vorgabe, vermerkt als «Ist nicht vollständig erfasst … angenommen»; für Platz und Regeln gilt die Breite als unbekannt wie im lokalen Rechner. Abgleich vom 20.10.2026 mit den Eingaben und Vorschlägen des lokalen Rechners (1 681 Berner Segmente): Wo die Note von heute online gleich ist und die Daten sich gleich abbilden lassen (787 Segmente ohne Haltestelle, Einbahn oder unbekannte Parkseite), stimmen Rang und Text bei 774 überein; die übrigen 13 wählen wegen der anderen Notenrechnung eine andere Breite oder Stufe. Bei 329 Segmenten weicht schon die Note von heute ab (lokal die verfeinerte Note). Übernommene Vorschläge ergeben in der Planung bei 512 von 517 dieselbe Note; die übrigen haben eine Umweltspur oder eine Einbahn mit Velogegenverkehr, die die Planung nicht als eigenes Element kennt, und der Kasten weist darauf hin. Jede Alternative lässt sich wie der Vorschlag übernehmen («Alternative übernehmen»).
 
-**Andere Städte (seit 20.10.2026).** Zürich, Basel und Luzern haben denselben Vorschlag. Die Rangfolge ist eine normative Festlegung und gilt überall; die Städte unterscheiden sich über ihre Note (Soll-Führungsform, Breiten, in Basel der Strassentyp) und über die Masse der Platzprüfung (`masseFuer`): die der Stadt, wo ihre Standards etwas nennen (`vorgabe` und die Breiten der Stadt: Radstreifen, Radweg, Sicherheitsstreifen, Längsparkierung, Fahrstreifen, Trennstreifen, Kernfahrbahn, Velostrasse), sonst die Berner als Ersatz; welche, nennt der Vermerk des Vorschlags. Immer nach Bern: die Restbreite neben Radweg und Tram, der Velostreifen neben der Kernfahrbahn und die Grenzen der Kernfahrbahn (DTV, Tempo). Das reduzierte Mass einer Stadt ist ihr Minimum für beide Routentypen; ist es gleich dem Standard, gibt es keine Stufe «minimal». Die Kernfahrbahn hat die Obergrenze der Stadt (Zürich und Basel keine), den schmalen Kern (Pilot) gibt es nur in Bern. Die Velostrasse ist auch dort möglich, wo die Stadt sie als Soll nennt (Basel). Die Hinweise auf die Berner Querschnittsblätter (Q …) fallen weg. Die Randsteinanpassung braucht ein Fussverkehrsnetz der Stadt (Zürich: Bedeutung des Stadtraums, Basel: Teilrichtplan); Luzern hat keines. Für Bern bleibt alles gleich (Abgleich unverändert); für die anderen Städte gibt es keinen lokalen Rechner zum Abgleich.
+**Andere Städte (seit 20.10.2026).** Zürich, Basel und Luzern haben denselben Vorschlag. Die Rangfolge ist eine normative Festlegung und gilt überall; die Städte unterscheiden sich über ihre Note (Soll-Führungsform, Breiten, in Basel der Strassentyp) und über die Masse der Platzprüfung (`masseFuer`): die der Stadt, wo ihre Standards etwas nennen (`vorgabe` und die Breiten der Stadt: Velostreifen, Radweg, Sicherheitsstreifen, Längsparkierung, Fahrstreifen, Trennstreifen, Kernfahrbahn, Velostrasse), sonst die Berner als Ersatz; welche, nennt der Vermerk des Vorschlags. Immer nach Bern: die Restbreite neben Radweg und Tram, der Velostreifen neben der Kernfahrbahn und die Grenzen der Kernfahrbahn (DTV, Tempo). Das reduzierte Mass einer Stadt ist ihr Minimum für beide Routentypen; ist es gleich dem Standard, gibt es keine Stufe «minimal». Die Kernfahrbahn hat die Obergrenze der Stadt (Zürich und Basel keine), den schmalen Kern (Pilot) gibt es nur in Bern. Die Velostrasse ist auch dort möglich, wo die Stadt sie als Soll nennt (Basel). Die Hinweise auf die Berner Querschnittsblätter (Q …) fallen weg. Die Randsteinanpassung braucht ein Fussverkehrsnetz der Stadt (Zürich: Bedeutung des Stadtraums, Basel: Teilrichtplan); Luzern hat keines. Für Bern bleibt alles gleich (Abgleich unverändert); für die anderen Städte gibt es keinen lokalen Rechner zum Abgleich.
 
 **Haltestelleninsel** (seit 21.10.2026; Beispiel Monbijoustrasse; `haltestelleninsel` in [`breitenmessung.ts`](VeloroutenCheckWeb/src/breitenmessung.ts), `haltestelleninselUebernehmen` in [`aufteilung.ts`](VeloroutenCheckWeb/src/aufteilung.ts)): Hat der Abschnitt eine Haltestelle (ÖV-Angebot, erkannte Haltestelle oder gewählter Typ) und Gegenverkehr, sucht die App beim Laden der AV eine Verkehrsinsel bis 10 m neben der Achse, mindestens 15 m lang, hinter der auf der achsfernen Seite nur ein Streifen Strasse von höchstens 4,50 m bis zum Bord liegt. Sie gilt dann als Wartebereich statt als Mittelinsel: Die Fahrbahn misst nur bis zur Insel, das Trottoir der Seite liegt hinter dem Streifen, die Ausgangslage zeigt Trottoir · Streifen · Haltestelle (Insel) und daneben die Fahrbahn. Ein Streifen unter 3,00 m ist eine Veloumfahrung (Element «Radweg abgesetzt», seine Breite füllt «Breite Veloführung Haltestelle»), sonst eine Fahrspur (Inselhaltestelle). Der Haltestellentyp wird vorbelegt, wo keiner gewählt ist, mit dem Chip «angenommen»: auf der Seite der Insel «Haltestelle mit Veloumfahrung» bzw. «Inselhaltestelle», gegenüber mit Tram «Kaphaltestelle» (bei Bus bleibt die Wahl offen). Steht auf der Insel keine Wartehalle, ist sie nur Ein- und Ausstieg (eigenes Element «Haltestelle: Ein- und Ausstieg», Perron mindestens 2,00 m, Masterplan S. 65 «Wartehalle hinter Veloumfahrung»), und die Fläche hinter der Veloumfahrung ist der Wartebereich statt eines Trottoirs (Beispiel Monbijoustrasse). Wo die Wartehalle steht, liest die App aus OSM (`ladeWartehallen` in [`osm.ts`](VeloroutenCheckWeb/src/osm.ts), `wartehalleLage`): Wartehalle auf der Insel (`amenity=shelter` mit `shelter_type=public_transport` oder Perron mit `shelter=yes`, bis 0,5 m neben der Insel) → die Insel ist der Wartebereich; sonst Wartehalle hinter dem Streifen oder Perron mit `shelter=no` auf der Insel → Ein- und Ausstieg. Fehlt beides in OSM, gilt eine Insel unter 2,50 m als Ein- und Ausstieg (`HS_INSEL_WARTEHALLE_MIN_M`, Annahme; die 3,10 m des Masterplans sind in der Wirklichkeit zu viel). Gegenüber, bei einer Kap- oder Fahrbahnhaltestelle, ist das Trottoir an der Haltestelle der Wartebereich; dasselbe gilt im Haltestellenbereich. Gemessen wird an mehreren Querschnitten über die Länge der Insel (alle 4 m, Mediane), an den Kanten; nach innen läuft der Strahl über eine Schutzinsel hinweg (Schwarzenburgstrasse: ein einzelner Querschnitt durch den Schwerpunkt traf die Schutzinsel des Fussgängerstreifens und ergab 3,6 statt 10,2 m Fahrbahn). Probe Monbijoustrasse: Insel 2,20 m, Veloumfahrung 1,65 m, Fahrbahn 7,90 m, Trottoir 2,90 m; Schwarzenburgstrasse: Insel 3,15 m, Veloumfahrung 1,85 m, Fahrbahn 10,20 m, Trottoir 2,35 m. **Perron als Trottoirfläche** (seit 23.10.2026, Beispiel Helvetiaplatz; `haltestellenperron`): Am Helvetiaplatz führt die AV das Perron nicht als Verkehrsinsel, sondern als Teil einer 285 m langen Trottoirfläche über den ganzen Platz, 6 bis 16 m breit, dahinter die zweite Strasse (Tramtrassee). Gesucht wird deshalb kein Polygon, sondern ein Muster in den Querschnitten alle 5 m: hinter dem Bord Trottoir von höchstens 12 m (`HS_PERRON_MAX_M`), unmittelbar dahinter wieder Strasse, auf mindestens 15 m. Pflicht ist eine Wartehalle oder ein Perron aus OSM in einem dieser Querschnitte, weil breite Trottoirs zwischen zwei Strassen auch an Plätzen ohne Haltestelle liegen. Das Perron steht in der Ausgangslage als «Haltestelle: Wartebereich» ohne Streifen dahinter; die Strasse dahinter gehört nicht zum Abschnitt, die Fahrbahn reicht bis zum Perron. Der Typ wird als «Inselhaltestelle» angenommen. Die Haltestelleninsel und das Perron gelten seither auch auf der **Einbahn** (vorher nur bei Gegenverkehr): dort bekommt nur die Seite A einen Typ, und nur wenn Insel oder Perron auf ihrer Seite liegen. Probe Helvetiaplatz (498934010, Einbahn mit ÖV im Gegenverkehr): Perron Seite B 8,90 m, Fahrbahn 7,4 m, Ausgangslage «Wartebereich 8,90 | Tram 3,70 | Tram 3,70 | Trottoir 2,10»; vorher nur «Tram | Tram | Trottoir». Monbijoustrasse bleibt unverändert (Verkehrsinsel, Veloumfahrung 1,65 m).
 
 **Trennung mit Pfosten.** Die App legt dafür 0,70 m fest.
 
-**Neue Elemente in der Bewertung** (`formJeSeite`): Ein Velostreifen direkt neben einer Trennung mit Pfosten gilt als geschützter Radstreifen. Veloabstellplatz und Parklet zählen nicht als Parkierung, lösen also keinen Abzug für Dooring aus. Eine Velostrasse über die ganze Fahrbahn gilt für beide Seiten. Grünstreifen und Haltestellen liegen wie Trottoirs ausserhalb der Fahrbahn; die Bewertung der Haltestelle bleibt wie im Rechner eingegeben.
+**Neue Elemente in der Bewertung** (`formJeSeite`): Ein Velostreifen direkt neben einer Trennung mit Pfosten gilt als geschützter Velostreifen. Veloabstellplatz und Parklet zählen nicht als Parkierung, lösen also keinen Abzug für Dooring aus. Eine Velostrasse über die ganze Fahrbahn gilt für beide Seiten. Grünstreifen und Haltestellen liegen wie Trottoirs ausserhalb der Fahrbahn; die Bewertung der Haltestelle bleibt wie im Rechner eingegeben.
 
 ### 9. Reproduzierbarkeit
 
@@ -570,7 +570,7 @@ und an den Feldern.
 | Routentyp | Masterplan-Layer (live) | Velonetzplanung-WFS (live) | Teilrichtplan Velo-WFS (live) | Velonetz-ArcGIS (live) |
 | Strassentyp | – | – | amtlich (Dataset 100250, live) | – |
 | Ist = Velostrasse | Velostrassen-Layer (live) | – | Velostadtplan (live) | – |
-| Hinweis Radstreifen je Seite | Luftbild-Snapshot `luftbild_bern.json` (nur Hinweis) | `luftbild_zurich.json` (seit 16.10.2026) | `luftbild_basel.json` (seit 16.10.2026) | – |
+| Hinweis Velostreifen je Seite | Luftbild-Snapshot `luftbild_bern.json` (nur Hinweis) | `luftbild_zurich.json` (seit 16.10.2026) | `luftbild_basel.json` (seit 16.10.2026) | – |
 | Breite am Luftbild messen | Orthofoto + Bordsteinkante der AV (geodienste.ch, live beim Messen) | wie Bern | wie Bern | Ersatz: Strassenflächen der Stadt (ArcGIS, live) |
 | Fahrbahnbreite | AV (geodienste.ch, live auf Knopfdruck) | wie Bern | wie Bern | Ersatz: Strassenflächen der Stadt (ArcGIS, live) |
 | Parkierung je Seite | Parkplätze öffentlich (Geoportal, live) | Parkplätze DAV (WFS, live) | – (keine Geometrie) | öffentliche Parkplätze (ArcGIS, live) |
@@ -586,7 +586,7 @@ und an den Feldern.
 - Städte: Geodaten Stadt Bern; Stadt Zürich (Open Government Data, Parkplätze CC0); Geodaten Kanton Basel-Stadt; © Geoinformationszentrum Stadt Luzern
 - Fahrplan: opentransportdata.swiss
 - Überholabstände: © OpenBikeSensor-Mitwirkende
-- Radstreifen-Hinweis: Modell remote_velo der ETH Zürich auf SWISSIMAGE, in Bern dazu Orthofoto Stadt Bern 2026
+- Velostreifen-Hinweis: Modell remote_velo der ETH Zürich auf SWISSIMAGE, in Bern dazu Orthofoto Stadt Bern 2026
 - Illustrationen der Querschnitt-Skizze: Streetmix, CC BY-SA 4.0
 
 ## Nutzungsstatistik (GoatCounter)

@@ -1096,3 +1096,6 @@ export function haltestellenbereichNote(
     noteFix: kapTramNote1 || inkompatibel,
   }
 }
+
+/** Anzeige einer Führungsform: «Velostreifen»; der Datenwert «Radstreifen» bleibt (Fall-Dateien, CSV, Tabellen) */
+export const formAnzeige = (x: string): string => x.replace(/Radstreifen/g, 'Velostreifen')

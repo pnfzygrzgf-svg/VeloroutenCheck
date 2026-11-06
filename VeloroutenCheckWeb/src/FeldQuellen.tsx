@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { formAnzeige } from './fuehrungsform'
 import { gegenVon, type Section, type Quelle } from './strecke'
 import { useDatenstaende } from './Datenstaende'
 export interface FeldQuelle { id:string; name:string; wert:string|number|boolean; quelle:Quelle; hinweis?:string; datumQuelle?:string }
@@ -26,8 +27,8 @@ export function FeldQuellen({s,feld,aendern,fallback}:{s:Section;feld:string;aen
    const aktiv=wert===o.wert&&(s.feldAuswahl?.[feld]?s.feldAuswahl[feld]===o.id:quelle[k as keyof typeof quelle]===o.quelle)
    const waehlen=()=>aendern(feldQuellenPatch(s,feld,o))
    return <button type="button" className="vrc-quellenwahl" key={o.id} aria-pressed={aktiv} onClick={waehlen}
-     title={`${o.name}: ${o.wert}. ${o.hinweis??''} Datenstand ${stand?.datenstand??'unbekannt'}; ${aktiv?'verwendete Quelle':'Klick wählt diesen Quellenwert; keine Bestätigung der Richtigkeit'}.`}>
-     {o.name} · {typeof o.wert==='boolean'?o.wert?'Ja':'Nein':o.wert}
+     title={`${o.name}: ${typeof o.wert==='string'?formAnzeige(o.wert):o.wert}. ${o.hinweis??''} Datenstand ${stand?.datenstand??'unbekannt'}; ${aktiv?'verwendete Quelle':'Klick wählt diesen Quellenwert; keine Bestätigung der Richtigkeit'}.`}>
+     {o.name} · {typeof o.wert==='boolean'?o.wert?'Ja':'Nein':typeof o.wert==='string'?formAnzeige(o.wert):o.wert}
    </button>
  })}</span>
 }

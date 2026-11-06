@@ -19,7 +19,7 @@ describe('vorschlagRechnen', () => {
     const s = abschnitt({ dtv: 6000, speed: 50, ist: 'Mischverkehr', parkenRechts: 'ja', fahrbahnbreite: 11 })
     const v = vorschlag45(s)
     expect(v.rang).toBe(3)
-    expect(v.text).toMatch(/^Parkierung Seite [AB] aufheben \+ Radstreifen markieren beidseitig 1,80 m als Kernfahrbahn \(Kern 4,70 m\)/)
+    expect(v.text).toMatch(/^Parkierung Seite [AB] aufheben \+ Velostreifen markieren beidseitig 1,80 m als Kernfahrbahn \(Kern 4,70 m\)/)
     expect(v.noteNach).toBeGreaterThanOrEqual(4.5)
     const a = aufteilungAusVorschlag(s, startAufteilung(s), v, null)!
     expect(a.teile.filter(t => t.art === 'Parkierung')).toHaveLength(1)
@@ -43,7 +43,7 @@ describe('vorschlagRechnen', () => {
   it('ohne Ist-Breite trotzdem ein Vorschlag, die Breite als angenommen vermerkt', () => {
     const v = vorschlag45(abschnitt({ dtv: 6000, speed: 50, ist: 'Radstreifen', fahrbahnbreite: 10 }))
     expect(v.blocker).toBe('')
-    expect(v.vermerk).toMatch(/^Ist nicht vollständig erfasst: Breite Seite A \(Radstreifen\) mit der Vorgabe 1,80 m angenommen/)
+    expect(v.vermerk).toMatch(/^Ist nicht vollständig erfasst: Breite Seite A \(Velostreifen\) mit der Vorgabe 1,80 m angenommen/)
     expect(v.erreicht).not.toBeNull()
   })
   it('Alternativen tragen ihre Eingaben zum Übernehmen', () => {
@@ -68,7 +68,7 @@ describe('Randsteinanpassung', () => {
     const ta = trottoirAnpassung(s, a0)!
     const v = vorschlag45(s, fahrbahnMitRandstein(8.5, ta))
     expect(v.rang).toBe(1)
-    expect(v.text).toBe('Radstreifen markieren beidseitig 2,50 m')
+    expect(v.text).toBe('Velostreifen markieren beidseitig 2,50 m')
     const a = aufteilungAusVorschlag(s, a0, v, ta)!
     expect(a.teile.filter(t => t.art === 'Trottoir').map(t => t.breite)).toEqual([3.25, 3.25])
     expect(Math.abs(bilanz({ ...a, seitenraum: 9 }).rest)).toBeLessThan(0.051)
@@ -110,7 +110,7 @@ describe('ohne Lösung', () => {
   it('Fahrbahn zu schmal: fehlende Meter für die knappste Veloanlage', () => {
     const v = vorschlag45(abschnitt({ dtv: 3000, speed: 50, ist: 'Mischverkehr', fahrbahnbreite: 6 }))
     expect(v.erreicht).toBe(false)
-    expect(v.blocker).toBe('Fahrbahn zu schmal: auch ohne Parkierung fehlen 1,50 m für einen Radstreifen (6,0 von 7,50 m)')
+    expect(v.blocker).toBe('Fahrbahn zu schmal: auch ohne Parkierung fehlen 1,50 m für einen Velostreifen (6,0 von 7,50 m)')
   })
 })
 
@@ -213,7 +213,7 @@ describe('Vorschlag in Zürich, Basel und Luzern (seit 20.10.2026): dieselbe Ran
   it('Zürich: Radstreifen nach den Velostandards, Kern ohne Obergrenze, ohne Pilot, Ersatz Bern im Vermerk', async () => {
     const { BREITEN_ZUERICH } = await import('./fuehrungsform')
     const v = vorschlag45(s, 11, 'zurich', BREITEN_ZUERICH)
-    expect(v.text).toBe('Radstreifen markieren beidseitig 2,50 m')
+    expect(v.text).toBe('Velostreifen markieren beidseitig 2,50 m')
     expect(v.alternative).toContain('Kern 6,00 m')
     expect(v.vermerk).toContain('Masse nach Velostandards Stadt Zürich; Ersatz Bern')
     expect(v.vermerk).toContain('Fahrstreifen')
@@ -283,7 +283,7 @@ describe('Ziel 5,5 «vollständig erfüllt» (online seit 24.10.2026)', () => {
     expect(v.text).toMatch(/^Parkierung Seite A bleibt/)
     expect(v.alle?.some(x => x.text === v.text)).toBe(true)
     const pa = v.alle?.find(x => x.weg > 0 && !x.pilot && x.rang === 3)
-    expect(pa?.text).toMatch(/^Parkierung Seite A aufheben \+ Radstreifen markieren beidseitig 1,80 m als Kernfahrbahn/)
+    expect(pa?.text).toMatch(/^Parkierung Seite A aufheben \+ Velostreifen markieren beidseitig 1,80 m als Kernfahrbahn/)
     expect(pa?.noteNach).toBe(v.noteNach)
     expect(v.alle!.map(x => x.text)).toEqual([v.text, pa!.text])           // statt 32 verbessernder Varianten; ohne Tempo 30 und Pilot mit gleicher Note
   })
