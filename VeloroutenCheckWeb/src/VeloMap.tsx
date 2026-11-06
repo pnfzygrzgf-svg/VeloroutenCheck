@@ -172,7 +172,7 @@ function ansichtLesen(stadt: [number, number] | L.LatLngExpression): { c: [numbe
 
 const BESCHRIFT_ZOOM = 17   // Kartenebenen: Werte als Beschriftung ab dieser Zoomstufe
 
-export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, highlightIds, ebenen = {}, stadt = 'bern', onEbenenAn, nachladen = { moeglich: false, laufend: {} },
+export function VeloMap({ fokus, ring, cands, onLineClick, onMapClick, onReady, markers, highlightIds, ebenen = {}, stadt = 'bern', onEbenenAn, nachladen = { moeglich: false, laufend: {} },
                           attribution = 'Geodaten Stadt Bern', center = [46.948, 7.447], fitKey = 0,
                           teilModus = false, orthofoto = false, bern2026 = false, routennetz = null, messung = null, av = null, obsStand, formen, onMeldung, onMarkerClick }: {
   onMarkerClick?: (num: number) => void   // Abschnitts-Marker angeklickt (öffnet den Abschnitt im Panel, seit 22.10.2026)
@@ -190,6 +190,8 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   obsStand?: string                       // Stand des OpenBikeSensor-Exports (Tooltip)
   center?: [number, number]               // Anfangs-Kartenmitte (stadtabhängig)
   fitKey?: number                         // ändert sich → Karte auf die Segmente einpassen (nur «Strasse laden»)
+  fokus?: { lat: number; lon: number } | null   // Link aus einem anderen Rechner: Karte beim Öffnen an diesem Ort
+  ring?: { lat: number; lon: number } | null    // dazu der rote Kreis, solange die App ihn zeigt (gelbes Feld)
   teilModus?: boolean                     // «Segment teilen» aktiv → Fadenkreuz über den Linien
   orthofoto?: boolean                     // true → Hintergrund aufs Orthofoto schalten (Breitenmessung); bleibt danach
   bern2026?: boolean                      // Stadt Bern gewählt → Knopf «Bern 2026» (Orthofoto der Stadt, seit 27.10.2026)
@@ -351,7 +353,6 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   }
   const lastFit = useRef(0)            // zuletzt umgesetzter fitKey
   const zentrumRef = useRef(center)    // Stadtmitte der aktuellen Stadt (Schlüssel der gemerkten Ansicht)
-  const ansichtGemerkt = useRef(false) // Karte startete an der gemerkten Ansicht (Stadtwechsel-Effekt beim ersten Lauf überspringen)
   const suppress = useRef(false)        // Klick auf Linie soll keinen Karten-Klick auslösen
   const clickCb = useRef(onMapClick)    // immer den aktuellen Callback aufrufen
   clickCb.current = onMapClick
@@ -366,9 +367,8 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   useEffect(() => {
     if (!elRef.current || mapRef.current) return
     // Anfangs-Mitte je Stadt; mit gemerkter Ansicht derselben Stadt (29.10.2026, wie fgsCheck) nach einem Neuladen dort weiter
-    const gemerkt = ansichtLesen(center)
+    const gemerkt = fokus ? { c: [fokus.lat, fokus.lon] as [number, number], z: 18 } : ansichtLesen(center)
     const map = L.map(elRef.current).setView(gemerkt?.c ?? center, gemerkt?.z ?? 13)
-    ansichtGemerkt.current = !!gemerkt
     map.on('moveend', () => {
       const c = map.getCenter()
       try { localStorage.setItem(ANSICHT_SCHLUESSEL, JSON.stringify({ stadt: zentrumRef.current, c: [c.lat, c.lng], z: map.getZoom() })) } catch { /* ohne Speicher */ }
@@ -512,12 +512,22 @@ export function VeloMap({ cands, onLineClick, onMapClick, onReady, markers, high
   // geladen sind — beim Laden passt fitBounds ohnehin neu ein).
   useEffect(() => {
     const map = mapRef.current
+    // nur bei einem echten Stadtwechsel: nach dem Öffnen steht die Karte schon richtig (gemerkte Ansicht, Link aus einem anderen Rechner),
+    // und im StrictMode der Entwicklung läuft dieser Effekt zweimal
+    const gleich = JSON.stringify(zentrumRef.current) === JSON.stringify(center)
     zentrumRef.current = center
-    // erster Lauf nach dem Laden mit gemerkter Ansicht: nicht auf die Stadtmitte springen
-    if (ansichtGemerkt.current) { ansichtGemerkt.current = false; return }
+    if (gleich) return
     if (map && cands.length === 0) map.setView(center, 13)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [center])
+
+  // Link aus einem anderen Rechner: roter Kreis an der Stelle, ohne Mausereignisse; ein Klick wählt weiter nur das Segment
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ring) return
+    const kreis = L.circleMarker([ring.lat, ring.lon], { radius: 14, color: '#dc2626', weight: 3, fillOpacity: 0.1, interactive: false }).addTo(map)
+    return () => { kreis.remove() }
+  }, [ring])
 
   // Linien + Nummern-Marker (neu) zeichnen, wenn sich Kandidaten/Auswahl/Marker ändern.
   useEffect(() => {

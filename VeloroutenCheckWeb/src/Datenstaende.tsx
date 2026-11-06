@@ -33,11 +33,24 @@ export function beruecksichtigteEbenen(s: Section): Set<string> {
 }
 
 type Zeile = DatenStand & { thema: string; standHinweis?: string }
+// Anbieter und Lizenz nach dem Namen der Quelle (Spalten wie in fgsCheck und SichtweitenCheck); unbekannt bleibt leer statt geraten
+const ANBIETER: [RegExp, string, string][] = [
+ [/^Geoportal Stadt Bern/, 'Geodaten Stadt Bern', 'Open Data Stadt Bern: freie Nutzung, Quellenangabe Pflicht'],
+ [/^Amtliche Vermessung/, 'Kantone über geodienste.ch', 'frei mit Quellenangabe (Bedingungen je Kanton)'],
+ [/^OpenStreetMap/, 'OpenStreetMap', 'ODbL, © OpenStreetMap-Mitwirkende'],
+ [/swisstopo/, 'swisstopo', 'frei, Quellenangabe «© swisstopo»'],
+ [/^Stadt Zürich/, 'Stadt Zürich', 'Open Government Data, Quellenangabe Pflicht'],
+ [/^Basel-Stadt/, 'Kanton Basel-Stadt', 'Open Government Data, Quellenangabe Pflicht'],
+ [/^Stadt Luzern/, 'Stadt Luzern', 'Open Government Data, Quellenangabe Pflicht'],
+ [/^BAV/, 'Bundesamt für Verkehr', '–'],
+ [/^ARE/, 'Bundesamt für Raumentwicklung', '–'],
+]
+const anbieterLizenz = (name: string): [string, string] => { const a = ANBIETER.find(x => x[0].test(name)); return a ? [a[1], a[2]] : ['–', '–'] }
 const Tabelle = ({ zeilen }: { zeilen: Zeile[] }) => <table className="bericht-quellen">
- <thead><tr><th>Für</th><th>Quelle</th><th>Stand und Abruf</th></tr></thead>
- <tbody>{zeilen.map(s => <tr key={s.id}><td>{s.thema}</td><td><a href={s.url} target="_blank" rel="noopener noreferrer">{s.name}</a></td>
+ <thead><tr><th>Quelle</th><th>Für</th><th>Anbieter</th><th>Stand</th><th>Lizenz</th></tr></thead>
+ <tbody>{zeilen.map(s => { const [anbieter, lizenz] = anbieterLizenz(s.name); return <tr key={s.id}><td><a href={s.url} target="_blank" rel="noopener noreferrer">{s.name}</a></td><td>{s.thema}</td><td>{anbieter}</td>
   <td>{s.standHinweis ?? standText(s, false)}{!!s.teilfehler?.length && <ul>{s.teilfehler.map(t =>
-   <li key={t.zelle}><a href={t.url} target="_blank" rel="noopener noreferrer">Zelle {t.zelle}</a>: {t.fehler}</li>)}</ul>}</td></tr>)}</tbody>
+   <li key={t.zelle}><a href={t.url} target="_blank" rel="noopener noreferrer">Zelle {t.zelle}</a>: {t.fehler}</li>)}</ul>}</td><td>{lizenz}</td></tr> })}</tbody>
 </table>
 
 export function Datenstaende({druck=false,section,flugjahr,avKanton,avImBild=false,children}:{druck?:boolean;section?:Section;flugjahr?:string;avKanton?:string;avImBild?:boolean;children?:ReactNode}) {

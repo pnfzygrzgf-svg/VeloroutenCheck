@@ -15,6 +15,8 @@ import { enrichE5, e5BelegQuelle } from './e5'
 import { ladeE6Kontext } from './e6'
 import { Datenstaende } from './Datenstaende'
 import InfoBlase from './Info'
+import { AndereRechner } from './AndereRechner'
+import { uebergabeText, uebergabeUebernehmen, type Ort as UebergabeOrt } from './verknuepfung'
 import { datenlaufNeu, datenStaende, datenGeneration, datenlaufUebernehmen } from './datenstand'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -193,6 +195,22 @@ const SCHWEIZ: CityCfg = {
   obsFile: undefined, obsStand: undefined, velostreifenFile: undefined, luftbildFile: undefined,
   parkierung: undefined, routennetz: undefined, avKanton: 'Schweiz',
 }
+
+// Link aus einem anderen Rechner (#rechner?…): Angaben lesen, in der Adresse bleibt nur der Anker. Es wird nur die Karte gezeigt,
+// der gemerkte Fall bleibt unberührt
+const UEBERGABE = typeof location === 'undefined' ? null : uebergabeUebernehmen('rechner')
+/** Stadt in der Nähe eines Orts (rund 15 km um die Stadtmitte), sonst die Schweiz */
+function gebietBei(o: UebergabeOrt): Suchgebiet {
+  let best: Suchgebiet = 'schweiz', d = 0.135
+  for (const k of Object.keys(CITIES) as CityId[]) {
+    const [lat, lon] = CITIES[k].center as [number, number]
+    const x = Math.hypot(o.lat - lat, (o.lon - lon) * 0.68)
+    if (x < d) { d = x; best = k }
+  }
+  return best
+}
+const RING_MS = 20000   // so lange bleiben das gelbe Feld und der rote Kreis nach einem Link aus einem anderen Rechner
+const START_GEBIET: Suchgebiet = UEBERGABE?.ort ? gebietBei(UEBERGABE.ort) : 'bern'
 
 // Kurzlabel je Stadt für die kompakte Vergleichszeile (andere Standards) und die Stadtwahl auf Mobile.
 const STADT_KURZ: Record<CityId, string> = { bern: 'BE', zurich: 'ZH', basel: 'BS', luzern: 'LU' }
@@ -1994,7 +2012,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
         <NumberField label="DTV MIV" unit="Fz/Tag" value={section.dtv} step={100}
                      onChange={v => onChange({ dtv: v })}
                      chip={<DatenFeldVorschlaege s={section} feld="dtv" aendern={onChange} fallback={<QuelleChip q={dtvAssumed(section, city) ? 'angenommen' : q.dtv} fehlt={brauchtVerkehr && city !== 'basel' && !Number.isFinite(section.dtv) && !dtvAssumed(section, city)}/>}/> } />
-        <NumberField label="Zul. Höchstgeschwindigkeit" unit="km/h" value={section.speed} step={10}
+        <NumberField label="Tempo" unit="km/h" value={section.speed} step={10}
                      onChange={v => onChange({ speed: v })}
                      chip={<DatenFeldVorschlaege s={section} feld="speed" aendern={onChange} fallback={<QuelleChip q={q.speed} fehlt={brauchtVerkehr && !Number.isFinite(section.speed)}/>}/> } />
         <label style={fieldStyle}>
@@ -2498,58 +2516,26 @@ function SoFunktionierts() {
     <details className="hilfe vrc-klappe vrc-kachel">
       <summary>So funktioniert's</summary>
       <ol>
-        <li><b>Stadt wählen:</b> oben auf der Karte. Die Bewertung folgt den Vorgaben der gewählten Stadt (z.&nbsp;B. Masterplan
-          Veloinfrastruktur Bern); der Link über der Karte führt zur Grundlage.</li>
-        <li><b>Strecke aufbauen:</b> auf die Karte klicken (nächstgelegenes Segment), oben auf der Karte eine Strasse suchen (beim
-          Tippen erscheinen Vorschläge; Vorschlag wählen oder Enter lädt die Strasse) oder «Segmente im Kartenausschnitt laden». Der
-          Knopf unter den Zoom-Knöpfen springt zum eigenen Standort (nur auf der Karte gezeigt, nicht gespeichert). Linien per Klick an- und abwählen (weiss gestrichelt = nicht in der Strecke);
-          «Segment teilen» schneidet ein langes Segment an der angeklickten Stelle.</li>
-        <li><b>Übernehmen:</b> benachbarte Segmente gleicher Führungsform und gleichen Tempos werden zu Abschnitten gruppiert.</li>
-        <li><b>Abschnitte prüfen:</b> die Abschnitte sind eingeklappt; die Kopfzeile zeigt Name, Länge und Note, ein Klick darauf
-          oder auf die Nummer auf der Karte öffnet einen (die anderen klappen zu). Je Abschnitt stehen Führungsform, Tempo und
-          weitere Angaben aus OpenStreetMap und dem Geoportal der Stadt, mit Herkunft am Chip (Geoportal, OSM, Markierung, Luftbild,
-          AV, gemessen, angenommen; der Tooltip am Chip erklärt ihn). «Fahrbahnbreiten aus AV» über der Liste misst sie für alle
-          Abschnitte ohne Breite. Was nicht stimmt, lässt sich von Hand anpassen; die Bewertung rechnet sofort neu.
-          «Street View ↗» in der Kopfzeile öffnet Google Street View an der Stelle des Abschnitts, Blick in Fahrtrichtung der Seite A.
-          In Bern lässt sich ein kurzer Abschnitt mit Haltestelle als «Haltestellenbereich» bewerten (die App schlägt es vor): Dann zählt
-          allein der Haltestellentyp gegen die Lösung, die der Masterplan verlangt.</li>
-        <li><b>Luftbild-Hinweis (Bern, Zürich, Basel):</b> Zeigt das Luftbild auf einer Seite einen Velostreifen, erscheint ein Hinweis
-          zum Übernehmen; eine Breite liefert er nicht.</li>
-        <li><b>Breite messen:</b> «📏 Am Luftbild messen» je Seite schaltet aufs Orthofoto, weit
-          hineinzoomen und im Modus «Ab Bordsteinkante (AV)» auf die Markierung klicken, bis zu der die Breite zählt;
-          gemessen wird rechtwinklig bis zur Bordsteinkante der amtlichen Vermessung (orange). Wo die AV keine
-          Strassenfläche kennt oder die Kante nicht auf dem Bordstein im Foto liegt, im Modus «Zwei Punkte» zuerst die
-          Bordsteinkante und dann die Markierung anklicken. Bei Velostrasse und Wegen misst «Ganze Fläche»: in die Fläche
-          klicken, gemessen wird von Kante zu Kante. «… m übernehmen» trägt den Wert ein, mit Herkunft «gemessen»
-          am Chip.</li>
-        <li><b>Aufteilung planen:</b> oben mit «Planen» (beginnt beim massgebenden Abschnitt), im Reiter «Planen» eines Abschnitts
-          oder mit «Aufteilung planen» in seiner Kopfzeile. Die Planung
-          beginnt mit dem Querschnitt von heute (Fahrbahn und Trottoirs aus der amtlichen Vermessung, in Luzern aus den
-          Strassenflächen der Stadt; Parkierung, Velostreifen).
-          Elemente wählen, mit «＋ dahinter» einfügen, am Griff ⠿ verschieben und in der Breite ändern (Feld, «−»/«+» in 10-cm-Schritten
-          oder «📏» am Luftbild); «✕» entfernt ein Element, der Hinweis darunter nimmt es zurück;
-          eine Mittelinsel und ein Grünstreifen vor dem Trottoir aus der AV, Schräg- oder Senkrechtparkierung mit ihrer Tiefe und die Fahrspuren mit
-          Pfeilen aus OpenStreetMap stehen schon in der Ausgangslage. «Haltestelle einfügen» setzt auf einer Seite den Querschnitt einer
-          Haltestelle nach dem Masterplan (Veloumfahrung, Kap mit Veloüberfahrt, rückwärtiger Radweg, Inselhaltestelle). Trifft die
-          Messung aus der AV nicht, nimmt «📐 Querschnitt am Luftbild» ihn von Hand auf: quer über die Strasse an jeder Grenze klicken,
-          jedes Stück wird ein Element. Die App prüft jedes Element gegen die
-          Vorgaben der Stadt (wo eine Stadt kein Mass nennt, gilt das Berner, mit «Ersatz Bern» ausgewiesen), rechnet die Bilanz über den ganzen Querschnitt und zeigt die Note mit der Planung neben der von heute. Die Karte
-          zeigt dazu die amtliche Vermessung und die Parkfelder (Basel: keine Parkfelder in den offenen Daten). Der Kasten «Vorschlag»
-          schlägt die erste Massnahme vor, die die Note auf 5,5 bringt (vollständig erfüllt), sonst die bestmögliche Verbesserung mit ihrem
-          Erfüllungsgrad, ohne und mit Randsteinanpassung (dann kommen die Trottoirs auf
-          die Vorgabe des Fussverkehrsnetzes); ausser in Bern mit den Massen der Stadt, wo sie keine nennt mit den Berner; «Übernehmen» bzw. «Alternative übernehmen» setzt sie als Startpunkt. «Bericht / PDF» (oben und in der Planung) druckt Karte, Skizzen, Prüfung und Bewertung. Im Breitbild lässt sich der
-          Eingabebereich am Trenner zur Karte breiter ziehen; bei offener Planung ist er schon breiter.</li>
-        <li><b>Ergebnis lesen:</b> vorne steht der Erfüllungsgrad (von «Gar nicht erfüllt» bis «Vollständig erfüllt»), dahinter
-          die Note von 1 bis 6, aus der er entsteht. Die Bewertung gilt je Seite, je Abschnitt (die schlechtere Seite) und für die
-          ganze Strecke (der schlechteste Abschnitt). «Wie die Beurteilung entsteht» im Ergebnis zeigt jeden Abzug; die Herleitung
-          steht im Referenzteil unten; «Grundlagen und Quellen» darüber nennt je Stadt die Vorgaben, Normen und Daten mit Link.
-          «Als CSV exportieren» sichert die Bewertung als Datei. Eingaben merkt sich der Browser, bis du «Karte leeren» wählst; «Fall speichern» sichert sie als Datei.</li>
+        <li><b>Stadt wählen:</b> oben auf der Karte. Sie bestimmt die Vorgaben der Bewertung.</li>
+        <li><b>Strecke aufbauen:</b> auf die Karte klicken, oben eine Strasse suchen oder «Segmente im Kartenausschnitt laden». Linien per
+          Klick an- und abwählen; «Segment teilen» schneidet ein langes Segment.</li>
+        <li><b>Übernehmen:</b> Benachbarte gleiche Segmente werden zu Abschnitten.</li>
+        <li><b>Abschnitte prüfen:</b> Kopfzeile oder Nummer auf der Karte öffnet einen Abschnitt. Die Herkunft der Angaben steht am Chip. Was
+          nicht stimmt, lässt sich von Hand ändern; die Bewertung rechnet sofort neu.</li>
+        <li><b>Breite messen:</b> «📏 Am Luftbild messen» je Seite, auf die Markierung klicken und den Wert übernehmen.</li>
+        <li><b>Aufteilung planen:</b> Mit «Planen» den Querschnitt neu aufteilen. Die App prüft jedes Element gegen die Vorgaben und zeigt die
+          Note neben der von heute; der Kasten «Vorschlag» nennt eine passende Massnahme.</li>
+        <li><b>Ergebnis lesen:</b> Vorne steht der Erfüllungsgrad, dahinter die Note von 1 bis 6. Es zählt die schlechtere Seite, für die Strecke
+          der schlechteste Abschnitt. «Wie die Beurteilung entsteht» zeigt jeden Abzug.</li>
+        <li><b>Sichern:</b> Eingaben merkt sich der Browser, bis du «Karte leeren» wählst. «Fall speichern» sichert sie als Datei, «Bericht / PDF»
+          druckt den Bericht.</li>
       </ol>
+      <p className="klein">Weitere Erklärungen stehen bei den Zeichen «i», in den Tooltips und unter «Grundlagen und Quellen».</p>
       <p><b>Grenzen</b></p>
       <ul>
         <li>Daten aus OpenStreetMap und den städtischen Geoportalen haben ihren eigenen Stand; fehlende oder falsche Angaben
           müssen von Hand korrigiert werden.</li>
-        <li>Die Bewertung ist eine Einordnung nach den Vorgaben der Stadt, keine Beurteilung vor Ort.</li>
+        <li>Die Bewertung ist eine Einordnung nach städtischen Vorgaben, keine Beurteilung vor Ort.</li>
       </ul>
     </details>
   )
@@ -2579,7 +2565,7 @@ function Landing({ onStart }: { onStart: () => void }) {
         <button className="start-knopf" onClick={onStart}>Zur Bewertung und Planung →</button>
       </div>
       <p>
-        <b>Funktion:</b> VeloroutenCheck bewertet Velostrecken nach den Vorgaben der jeweiligen Stadt. Die Strecke wählst du auf
+        <b>Funktion:</b> VeloroutenCheck bewertet Velostrecken nach städtischen Vorgaben. Die Strecke wählst du auf
         der Karte. Sie wird in Abschnitte gegliedert, und jeder Abschnitt erhält eine Note für beide Fahrtrichtungen.
       </p>
       <p>
@@ -2588,14 +2574,14 @@ function Landing({ onStart }: { onStart: () => void }) {
         Note der Planung steht neben der von heute. Eine Skizze zeigt beide Querschnitte; der Bericht lässt sich als PDF drucken.
       </p>
       <p>
-        <b>Daten:</b> Führungsform, Tempo, Verkehrsmenge und Routentyp kommen aus OpenStreetMap und den
-        Geoportalen der Städte. Breiten lassen sich am Luftbild ab der Bordsteinkante messen, in Luzern
-        anhand der Strassenflächen der Stadt. In Bern, Zürich und Basel weist eine automatische
+        <b>Daten:</b> Die App nutzt OpenStreetMap, die Geoportale der Städte und Daten des Bundes, unter anderem zu Führungsform, Tempo,
+        Verkehrsmenge und Routentyp. Welche Quellen genutzt werden, hängt vom Ort ab und steht in der App unter «Datenquellen und
+        Ladezustand». Breiten lassen sich zum Beispiel am Luftbild messen. In Bern, Zürich und Basel weist zudem eine automatische
         Luftbild-Erkennung (Modell der ETH Zürich) auf Velostreifen hin, die in den Daten fehlen.
       </p>
       <p>
-        <b>Bewertungsgrundlage:</b> Massgebend sind in Bern der Masterplan Veloinfrastruktur, in Zürich, Basel und Luzern die
-        städtischen Velostandards. Entspricht die vorhandene Führungsform nicht dem vorgesehenen Soll-Zustand, wird
+        <b>Bewertungsgrundlage:</b> Bewertet und geplant wird in Zürich, Basel und Luzern nach den städtischen Velostandards, überall
+        sonst nach dem Masterplan Veloinfrastruktur der Stadt Bern. Entspricht die vorhandene Führungsform nicht dem vorgesehenen Soll-Zustand, wird
         berücksichtigt, wie stark sich dies auf das subjektive Sicherheitsgefühl auswirkt. Grundlage
         dafür sind die Feel-Safe-Werte aus der{' '}
         <a href="https://radwege-check.de/auswertung/"
@@ -2645,7 +2631,7 @@ function Landing({ onStart }: { onStart: () => void }) {
             geodienste.ch, OpenStreetMap (Overpass) und den Geodatendiensten der Städte ab; gesendet werden Koordinaten und
             Kennungen der Dienste, keine Eingaben. Den Suchbegriff der Strassensuche erhält swisstopo; der eigene Standort bleibt
             im Browser. Die Dienste sehen technisch die IP-Adresse. Die Links «Street View ↗» öffnen Google Maps erst auf Klick;
-            dabei gehen die Koordinaten an Google. Die vollständige Liste der Dienste steht in der App unter «Datenschutz».</li>
+            dabei gehen die Koordinaten an Google. Beim Wechsel zu einem anderen Rechner geht nur die Lage mit. Die vollständige Liste der Dienste steht in der App unter «Datenschutz».</li>
           <li>Nutzungsstatistik: Seitenaufrufe werden mit GoatCounter gezählt, ohne Cookies und ohne Speicherung der
             IP-Adresse. GitHub Pages protokolliert Zugriffe wie jeder Webserver.</li>
         </ul>
@@ -2721,15 +2707,33 @@ export default function App() {
   const setMsg = (text: string, kind: 'info' | 'ok' | 'error' = 'info') => {
     setOsmMsg(text); setOsmKind(kind)
   }
+  // Link aus einem anderen Rechner: Herkunft melden; die Karte nimmt den Ort nur beim ersten Öffnen
+  const fokusRef = useRef(UEBERGABE?.ort ?? null)
+  // gemerkter Fall kommt zurück: Karte und Suchgebiet bleiben am Ort des Links
+  const ortBehalten = useRef(!!UEBERGABE?.ort)
+  // Der rote Kreis gehört zum gelben Feld: weg mit dessen ✕ oder von selbst nach RING_MS (auch wenn eine andere Meldung das Feld ersetzt hat)
+  const herkunftRef = useRef('')
+  const [ringAn, setRingAn] = useState(!!UEBERGABE?.ort)
+  useEffect(() => {
+    const h = uebergabeText(UEBERGABE)
+    if (!h) return
+    herkunftRef.current = UEBERGABE?.ort ? `${h} Der rote Kreis auf der Karte zeigt die Stelle.` : h
+    setMsg(herkunftRef.current, UEBERGABE?.fehler ? 'error' : 'info')
+  }, [])   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!ringAn) return
+    const t = setTimeout(() => setRingAn(false), RING_MS)
+    return () => clearTimeout(t)
+  }, [ringAn])
   // Das gelbe Feld verschwindet von selbst; Fehler bleiben länger, während des Ladens bleibt es stehen
   useEffect(() => {
     if (!osmMsg || osmBusy) return
-    const t = setTimeout(() => setOsmMsg(''), osmKind === 'error' ? 15000 : 8000)
+    const t = setTimeout(() => setOsmMsg(''), osmMsg === herkunftRef.current ? RING_MS : osmKind === 'error' ? 15000 : 8000)
     return () => clearTimeout(t)
   }, [osmMsg, osmKind, osmBusy])
-  const [gebiet, setGebiet] = useState<Suchgebiet>('bern')
+  const [gebiet, setGebiet] = useState<Suchgebiet>(START_GEBIET)
   const datenCfg = gebiet === 'schweiz' ? SCHWEIZ : CITIES[gebiet]
-  const [city, setCity] = useState<CityId>('bern')               // gewählte Stadt → Datenquellen/Beschriftung
+  const [city, setCity] = useState<CityId>(START_GEBIET === 'schweiz' ? 'bern' : START_GEBIET)               // gewählte Stadt → Datenquellen/Beschriftung
   const cityCfg = CITIES[city]
   // OBS-Snapshot der Stadt (bis ~2,7 MB) im Hintergrund vorwärmen, sobald die Stadt feststeht —
   // damit der erste Strassen-Load nicht am Download/Parsen hängt (Cache in obs.ts; enrichObs([]) lädt nur).
@@ -2759,7 +2763,6 @@ export default function App() {
     return ov && ov[feld] != null && cityCfg.breitenQuelle ? cityCfg.breitenQuelle : 'Masterplan Bern'
   }
   const [hoverSec, setHoverSec] = useState<number | null>(null)   // gehoverter Abschnitt (für Karten-Highlight)
-  const [hintDismissed, setHintDismissed] = useState(false)  // Karten-Einstiegshinweis: erst wegklicken, dann auswählen
   // Einstiegsseite ↔ Rechner; Deep-Link über #rechner.
   const [view, setView] = useState<'home' | 'rechner'>(() =>
     typeof location !== 'undefined' && location.hash === '#rechner' ? 'rechner' : 'home')
@@ -3006,29 +3009,33 @@ export default function App() {
     const gen=quellenNeu();avCacheRef.current.clear();parkCacheRef.current.clear();nachgeladenRef.current.clear()
     setOsmBusy(true);setMsg('Aktualisiere die verwendeten Quellen. Eigene und bestätigte Angaben bleiben erhalten.')
     setPlanAv(null);setEbenen({});setKartenHinweise([]);setStops([])
-    if(fall){setCity(fall.standard);setGebiet(fall.gebiet);setStreet(fall.strasse)}
+    if(fall){setCity(fall.standard);if(!ortBehalten.current)setGebiet(fall.gebiet);setStreet(fall.strasse)}
     try {
       const roh=await aktualisiereKandidaten(geometrien)
       const r=await enrichAll(roh)
       if(gen!==datenGeneration())return
       setCands(r.cands);setStops(r.stops)
       if(fall){const neu=abschnitteAktualisieren(fall.sections,r.cands,standard);gesichertRef.current=neu;setSections(neu)}else setSections(prev=>abschnitteAktualisieren(prev,r.cands,standard))
-      setFitKey(k=>k+1)
+      if(ortBehalten.current)ortBehalten.current=false;else setFitKey(k=>k+1)
       setMsg(vorsatz+'Quellen neu geladen; eigene und bestätigte Werte sowie die Planung bleiben erhalten.'+fehlerText(r.fehler),r.fehler.length?'info':'ok')
     }catch(e){if(gen!==datenGeneration())return;setCands(geometrien)
       if(fall){const neu=abschnitteAktualisieren(fall.sections,[],standard);gesichertRef.current=neu;setSections(neu)}else setSections(prev=>abschnitteAktualisieren(prev,[],standard))
       setMsg(vorsatz+'Quellen konnten nicht vollständig aktualisiert werden. Nicht bestätigte automatische Werte bleiben offen: '+String(e),'error')}
     finally{if(gen===datenGeneration())setOsmBusy(false)}
   }
+  useEffect(() => { if (view === 'rechner') fokusRef.current = null }, [view])
   // Beim Öffnen des Rechners den gemerkten Fall zurückholen; bis dahin nichts merken, sonst überschriebe der leere Anfangszustand ihn
   useEffect(() => {
     if (view !== 'rechner' || merkenPruefung.current) return
     merkenPruefung.current = true
     const text = fallGemerkt()
-    if (!text) { merkenBereit.current = true; return }
+    const ohneFall = () => { merkenBereit.current = true; ortBehalten.current = false }
+    if (!text) { ohneFall(); return }
     let f: Fall
-    try { f = fallLesen(text) } catch { fallVergessen(); merkenBereit.current = true; return }
-    void quellenAktualisieren(f, 'Letzte Eingaben aus diesem Browser wiederhergestellt. ').finally(() => { merkenBereit.current = true })
+    try { f = fallLesen(text) } catch { fallVergessen(); ohneFall(); return }
+    // Link aus einem anderen Rechner, nur geladene Segmente ohne Eingaben: nichts, was es zurückzuholen gäbe; die Karte bleibt leer
+    if (UEBERGABE?.ort && !hatEingaben(f.sections)) { ohneFall(); return }
+    void quellenAktualisieren(f, 'Letzte Eingaben aus diesem Browser wiederhergestellt. ').finally(() => { merkenBereit.current = true; ortBehalten.current = false })
   }, [view])   // eslint-disable-line react-hooks/exhaustive-deps
   const merkenJetzt = useRef(() => {})
   merkenJetzt.current = () => {
@@ -4288,7 +4295,7 @@ export default function App() {
         <div className="hinweis vrc-meldung" role={osmKind === 'error' ? 'alert' : 'status'} aria-live="polite">
           <span aria-hidden>{osmBusy ? '⏳' : osmKind === 'error' ? '⚠' : osmKind === 'ok' ? '✓' : 'ℹ'}</span>
           <span className="text">{osmMsg}</span>
-          <button type="button" onClick={() => setMsg('')} aria-label="Meldung schliessen">✕</button>
+          <button type="button" onClick={() => { setMsg(''); setRingAn(false) }} aria-label="Meldung schliessen">✕</button>
         </div>
       )}
       </div>
@@ -4317,7 +4324,7 @@ export default function App() {
               absolut über der linken Spalte (Bezug .vrc-rechner, nicht das scrollende Panel) und
               bleibt so beim Scrollen des Panels stehen. */}
           <div className="vrc-karte">
-            <VeloMap cands={cands} onLineClick={linieGeklickt} onMapClick={klickHinzufuegen}
+            <VeloMap fokus={fokusRef.current} ring={ringAn ? UEBERGABE?.ort ?? null : null} cands={cands} onLineClick={linieGeklickt} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
                      markers={markers} highlightIds={highlightIds} ebenen={ebenenAnzeige} stadt={gebiet}
                      nachladen={{ moeglich: sections.some(s => s.candIds?.length), laufend }}
@@ -4559,32 +4566,6 @@ export default function App() {
                 ✂ Linie dort antippen, wo geteilt werden soll · Esc bricht ab
               </div>
             )}
-            {/* Empty-State als Dismiss-Schicht über der Karte: Die ERSTE Interaktion (Klick/Touch/
-                Zoom) schliesst nur den Hinweis — sie wählt noch kein Segment aus und zoomt nicht.
-                Die Schicht fängt das Ereignis ab (pointerEvents auto); erst danach ist die Karte frei. */}
-            {cands.length === 0 && !osmBusy && !hintDismissed && (
-              <div onPointerDown={() => setHintDismissed(true)}
-                   onWheel={() => setHintDismissed(true)}
-                   style={{ position: 'absolute', inset: 0, zIndex: 500, cursor: 'pointer',
-                            display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
-                <div style={{ marginTop: 62, maxWidth: 360, width: 'calc(100% - 112px)',   // unter dem Kartenkopf, zwischen den Knöpfen (vorher verdeckt)
-                              pointerEvents: 'none',
-                              background: 'rgba(15,23,42,0.88)', color: '#fff', borderRadius: 10,
-                              padding: '12px 16px', boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
-                              fontSize: 14, lineHeight: 1.45, textAlign: 'center' }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-                    So baust du eine Strecke auf
-                  </div>
-                  <div style={{ opacity: 0.9 }}>
-                    Auf eine Strasse tippen = nächstgelegenes Segment hinzufügen · Linie antippen =
-                    ab-/zuwählen · oder oben eine Strasse suchen.
-                  </div>
-                  <div style={{ opacity: 0.7, marginTop: 6, fontSize: 12 }}>
-                    Tippen schliesst diesen Hinweis.
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
             <button onClick={ladeAusschnitt} disabled={osmBusy}
@@ -4634,8 +4615,7 @@ export default function App() {
             )}
           </div>
           {/* Teil-Modus: eigene Anleitung. Die drei Schritte zum Aufbau der Strecke standen bis
-              16.10.2026 immer hier; sie stehen in «So funktioniert's» und im Hinweis auf der leeren
-              Karte (doppelt, entfernt). */}
+              16.10.2026 immer hier; sie stehen in «So funktioniert's». */}
           {teilModus && (
             <div className="vrc-anleitung" style={{ marginTop: 8 }}>
               <strong>Segment teilen:</strong> Auf die Linie tippen, genau an der Stelle, an der das Segment
@@ -4669,6 +4649,8 @@ export default function App() {
       })()}
 
       {/* Abschnitte: Überschrift mit dem Knopf für alle Fahrbahnbreiten (seit 22.10.2026; vorher je Abschnitt) */}
+      {/* über der Abschnittsliste, damit die Links zu den anderen Rechnern gefunden werden */}
+      <AndereRechner abschnitte={markers.map(m => ({ nr: m.num, ort: { lat: m.lat, lon: m.lon } }))} />
       {(() => {
         const ohne = datenCfg.avKanton ? sections.filter(s => s.candIds?.length && !Number.isFinite(s.fahrbahnbreite)) : []
         return (
@@ -4800,6 +4782,8 @@ export default function App() {
         <summary>Datenschutz</summary>
         <p className="klein"><DatenabrufHinweis /></p>
         <p className="klein">Eingaben merkt sich dieser Browser (lokaler Speicher); «Karte leeren» löscht sie. An keinen Dienst geht etwas davon.</p>
+        <p className="klein">Die Links unter «In anderen Rechnern prüfen» öffnen einen anderen Rechner; dabei geht nur die Lage mit, keine Eingaben. Die Angaben
+          stehen hinter dem # der Adresse und gehen nicht an den Webserver.</p>
         <p className="klein">Die Links «Street View ↗» öffnen Google Maps erst auf Klick; dabei gehen die Koordinaten an Google. Seitenaufrufe zählt
           GoatCounter ohne Cookies und ohne Speicherung der IP-Adresse; GitHub Pages protokolliert Zugriffe wie jeder Webserver.</p>
       </details>

@@ -147,8 +147,11 @@ function BerichtKarte({ achsen, av, park, nr, flugjahr, onBereit }: {
           </g>
         </svg>
       </div>
-      <figcaption className="klein">Abschnitt rot; das Dreieck an der Nummer zeigt die Fahrtrichtung der Seite A und damit die Blickrichtung der Querschnitte. Luftbild © swisstopo (SWISSIMAGE{flugjahr ? `, Flugjahr ${flugjahr}` : ''})
-        {av.length > 0 ? '; Bodenbedeckung der amtlichen Vermessung' : ''}{park.length > 0 ? '; Parkfelder blau, Parkverbotsfelder orange' : ''}.</figcaption>
+      {/* nur, was im Bild vorkommt, wie die Legenden der anderen Rechner */}
+      <figcaption className="klein">Abschnitt rot{marker ? '; das Dreieck an der Nummer zeigt die Fahrtrichtung der Seite A und damit die Blickrichtung der Querschnitte' : ''}.
+        {' '}Luftbild © swisstopo (SWISSIMAGE{flugjahr ? `, Flugjahr ${flugjahr}` : ''})
+        {av.some(f => imBild(f.ringe)) ? '; Bodenbedeckung der amtlichen Vermessung' : ''}
+        {park.some(f => !f.verbot && imBild(f.ringe)) ? '; Parkfelder blau' : ''}{park.some(f => f.verbot && imBild(f.ringe)) ? '; Parkverbotsfelder orange' : ''}.</figcaption>
     </figure>
   )
 }
@@ -384,7 +387,8 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                 <li>Richtwerte und Vorgaben: {STANDARD_QUELLE[city]}{city !== 'bern' ? `; Ersatz: ${RICHTWERT_QUELLE}` : ''}; Trottoirs: {FUSS_QUELLE[city]}; Lichtraum von Lastwagen und Bus: {LICHTRAUM_QUELLE}; Tram 2,80 m
                   (1,40 m ab Gleisachse, Masterplan); Trennung mit Pfosten 0,70 m: Festlegung VeloroutenCheck.</li>
                 {/* Werke je Stadt mit Adresse (seit 23.10.2026, quellen.ts) */}
-                {quellenFuer(city, 'vorgabe').map(q => <li key={q.id}>{quellenZeile(q)}{q.ebene === 'Befragung' ? ` · ${q.verwendung}` : ''}</li>)}
+                {quellenFuer(city, 'vorgabe').map(q => <li key={q.id}>{quellenZeile({ ...q, url: undefined })}{q.ebene === 'Befragung' ? ` · ${q.verwendung}` : ''}
+                  {q.url && <> <a href={q.url}>{/\.pdf($|[?#/])/i.test(q.url) ? 'PDF' : 'Seite'}</a></>}</li>)}
                 {/* Quellenangaben der Daten in einer Zeile: Stand und Abruf stehen in den Tabellen oben, hier nur die Nennung (Lizenz) */}
                 <li>{[`Luftbild: © swisstopo, SWISSIMAGE${flugjahr ? `, Flugjahr ${flugjahr}` : ''} (wms.geo.admin.ch)`, ...quellen, 'Strassennetz: © OpenStreetMap-Mitwirkende, ODbL'].join('; ')}</li>
                 <li>Illustrationen der Skizze (Personen, Fahrzeuge, Ausstattung, Pfeilmarkierungen): Streetmix (streetmix.net), CC BY-SA 4.0; Boden, Masse und Markierungsstriche: eigene Zeichnung</li>

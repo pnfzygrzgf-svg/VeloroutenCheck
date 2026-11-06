@@ -11,6 +11,8 @@
     <title>VeloroutenCheck</title>
     <!-- Nutzungsstatistik: GoatCounter (cookielos, keine Personendaten, privates Dashboard).
          Zählt nicht auf localhost → Dev/Preview verfälscht die Statistik nicht. -->
+    <!-- Gezählt wird nur der Pfad, ohne Parameter in der Adresse -->
+    <script>window.goatcounter = { path: function () { return location.pathname } }</script>
     <script data-goatcounter="https://vrc.goatcounter.com/count"
             async src="//gc.zgo.at/count.js"></script>
   </head>
