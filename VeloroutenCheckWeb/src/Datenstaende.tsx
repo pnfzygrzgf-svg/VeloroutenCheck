@@ -4,7 +4,7 @@ import { E6_DIENSTE } from './e5/daten/anbieter/gemeinsam/e6'
 import { datenStaende, standAbonnieren, standText, type DatenStand } from './datenstand'
 import type { Section } from './strecke'
 export const useDatenstaende=()=>useSyncExternalStore(standAbonnieren,datenStaende,datenStaende)
-const THEMEN:Record<string,string>={hoehenkurven:'Höhenkurven',av:'Amtliche Vermessung',gebiet:'Gebietszuordnung',kartenbild:'Kartenbilder',orthofoto:'Luftbild',luftbild:'Markierungserkennung im Luftbild',markierung:'Velostreifen (Markierungsplan)',haltestellen:'ÖV-Haltestellen',bav:'ÖV-Haltestellen BAV',oev:'ÖV-Linien',routennetz:'Routentyp',velostrasse:'Velostrassen',tempo:'Tempo',dtv:'Verkehrsmenge (örtlich)',npvm:'Verkehrsmenge (NPVM, modelliert)',tram:'Tram',tramTlm:'Tramgleise (swissTLM3D)',velozaehlungen:'Velozählungen',lsa:'Lichtsignalanlagen',zonen:'Verkehrszonen',parkfelder:'Parkierung',fussnetz:'Fussverkehrsnetz',steigung:'Höhenprofile',obs:'Überholabstände',relief:'Relief',hierarchie:'Strassenhierarchie',osm:'Strassennetz und OSM-Angaben',unfaelle:'Unfälle'}
+const THEMEN:Record<string,string>={hoehenkurven:'Höhenkurven',av:'Amtliche Vermessung',gebiet:'Gebietszuordnung',kartenbild:'Kartenbilder',orthofoto:'Luftbild',luftbild:'Markierungserkennung im Luftbild',markierung:'Velostreifen (Markierungsplan)',haltestellen:'ÖV-Haltestellen',bav:'ÖV-Haltestellen BAV',oev:'ÖV-Linien',routennetz:'Routentyp',velostrasse:'Velostrassen',tempo:'Tempo',dtv:'Verkehrsmenge (örtlich)',npvm:'Verkehrsmenge (NPVM, modelliert)',tram:'Tram',tramTlm:'Tramgleise (swissTLM3D)',strasseTlm:'Strassenklassen (swissTLM3D)',bauzonen:'Bauzonen',velozaehlungen:'Velozählungen',lsa:'Lichtsignalanlagen',zonen:'Verkehrszonen',parkfelder:'Parkierung',fussnetz:'Fussverkehrsnetz',steigung:'Höhenprofile',obs:'Überholabstände',relief:'Relief',hierarchie:'Strassenhierarchie',osm:'Strassennetz und OSM-Angaben',unfaelle:'Unfälle'}
 
 /** Ebenen (datenstand.ts), deren Daten in Bewertung und Planung dieses Abschnitts eingeflossen sind, nach der Herkunft der Felder
  *  beider Seiten. Ein von Hand geänderter Wert zählt nicht zur Quelle; alles andere ist nur Karte und Hinweis. */
@@ -42,6 +42,7 @@ const ANBIETER: [RegExp, string, string][] = [
  [/^Stadt Zürich/, 'Stadt Zürich', 'Open Government Data, Quellenangabe Pflicht'],
  [/^Basel-Stadt/, 'Kanton Basel-Stadt', 'Open Government Data, Quellenangabe Pflicht'],
  [/^Stadt Luzern/, 'Stadt Luzern', 'Open Government Data, Quellenangabe Pflicht'],
+ [/^Kanton Luzern/, 'Kanton Luzern', 'Freie Nutzung (opendata.swiss)'],
  [/^BAV/, 'Bundesamt für Verkehr', '–'],
  [/^ARE/, 'Bundesamt für Raumentwicklung', '–'],
 ]

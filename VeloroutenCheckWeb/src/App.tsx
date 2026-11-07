@@ -33,9 +33,11 @@ import { formAnzeige } from './fuehrungsform'
 import { VeloMap, ISTCOLOR, BREIT_MQ, MOBIL_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, ZWEIRAD_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
 import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeSteigung, achseInRichtungA } from './steigung'
-import { AV_DECKKRAFT } from './farben'
-import { ebenenMischen, haltestellenObjekte, imUmkreis, obsObjekte, osmTempoObjekte, steigungObjekte, NACHLADEN, type EbeneId, type EbenenDaten, type EbenenObjekt } from './ebenen'
+import { alsKartenDaten, ebenenMischen, haltestellenObjekte, IM_AUSSCHNITT, imUmkreis, obsObjekte, osmTempoObjekte, steigungObjekte, NACHLADEN, type EbeneId, type EbenenDaten, type EbenenObjekt } from './ebenen'
 import { ladeAvFuer, avQuelle } from './av'
+import { avAusschnittLader, type AvBox } from './kartenbaustein/avAusschnitt'
+import { avKartenStil, avKlasse } from './e5/daten/anbieter/gemeinsam/avKarte'
+import { BLOCKMODELLE_RAND_M, blockText, ladeBlockmodelle } from './blockmodelle'
 import Strassensuche from './Strassensuche'
 import { vorschlagRechnen, aufteilungAusVorschlag, trottoirAnpassung, RANG_TEXT, type TrottoirAnpassung, type Vorschlag, ZIEL_TEXT, vorschlagMitRandstein } from './vorschlag'
 import { bordkanten, fangeAnKante, messeAbKante, messeFlaeche, abstand, aufZentimeter, fahrbahnbreite, haltestelleninsel, haltestellenperron, wartehalleLage, zweiradJeSeite, wegAufTrottoir, type Haltestelleninsel, mittelinsel, mittelstreifen, parkierungAufTrottoir, parkierungTiefe, parkierungVersetzt, trottoirbreiten, FANG_M, type Kante } from './breitenmessung'
@@ -2111,17 +2113,17 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
       {/* ÖV-Hinweis: Tram → „Tram"; Bus → Frequenzband aus dem Fahrplan (Abendspitze). Typ manuell. */}
       {section.oev?.oevHalt && (() => {
         const o = section.oev!
-        const name = o.oevHaltName ? ` „${o.oevHaltName}"` : ''
+        const name = o.oevHaltName ? ` „${o.oevHaltName}"` : '', wer = o.oevHaltQuelle ?? 'Geoportal'
         const hatTakt = o.busPerH != null && o.busPerH > 0
         const takt = hatTakt ? Math.round(60 / o.busPerH!) : null
         return (
           <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8,
                         background: '#faf5ff', border: '1px solid #e9d5ff', color: '#6b21a8', fontSize: 12 }}>
             {o.oevTram
-              ? <>Geoportal: <strong>Tramhaltestelle{name}</strong> im Abschnitt → ÖV-Angebot „Tram" gesetzt. Haltestellentyp bitte wählen.</>
+              ? <>{wer}: <strong>Tramhaltestelle{name}</strong> im Abschnitt → ÖV-Angebot „Tram" gesetzt. Haltestellentyp bitte wählen.</>
               : hatTakt
-                ? <>Geoportal + Fahrplan: <strong>Bushaltestelle{name}</strong>, Abendspitze 17–18 h ≈ <strong>{o.busPerH} Fahrten/h</strong> (Takt ~{takt} Min, stärkste Richtung) → ÖV-Angebot gesetzt. Haltestellentyp bitte wählen.</>
-                : <>Geoportal: <strong>Bushaltestelle{name}</strong> im Abschnitt erkannt → ÖV-Angebot/Takt und Haltestellentyp bitte wählen (kein Takt in den Daten).</>}
+                ? <>{wer} + Fahrplan: <strong>Bushaltestelle{name}</strong>, Abendspitze 17–18 h ≈ <strong>{o.busPerH} Fahrten/h</strong> (Takt ~{takt} Min, stärkste Richtung) → ÖV-Angebot gesetzt. Haltestellentyp bitte wählen.</>
+                : <>{wer}: <strong>Bushaltestelle{name}</strong> im Abschnitt erkannt → ÖV-Angebot/Takt und Haltestellentyp bitte wählen (kein Takt in den Daten).</>}
           </div>
         )
       })()}
@@ -3006,7 +3008,7 @@ export default function App() {
   }
   const quellenAktualisieren = async (fall?: Fall, vorsatz = '') => {
     const geometrien=fall?.cands??cands,standard=fall?.standard??city
-    const gen=quellenNeu();avCacheRef.current.clear();parkCacheRef.current.clear();nachgeladenRef.current.clear()
+    const gen=quellenNeu();avCacheRef.current.clear();parkCacheRef.current.clear();nachgeladenRef.current.clear();avAusschnittLeeren()
     setOsmBusy(true);setMsg('Aktualisiere die verwendeten Quellen. Eigene und bestätigte Angaben bleiben erhalten.')
     setPlanAv(null);setEbenen({});setKartenHinweise([]);setStops([])
     if(fall){setCity(fall.standard);if(!ortBehalten.current)setGebiet(fall.gebiet);setStreet(fall.strasse)}
@@ -3069,7 +3071,7 @@ export default function App() {
     const name = (nameArg ?? street).trim()
     if (!name) return
     const gen = quellenNeu()
-    avCacheRef.current.clear();parkCacheRef.current.clear();nachgeladenRef.current.clear()
+    avCacheRef.current.clear();parkCacheRef.current.clear();nachgeladenRef.current.clear();avAusschnittLeeren()
     setOsmBusy(true); setMsg('Lade Segmente aus OpenStreetMap …')
     try {
       const c = await loadStreetCandidates(name.includes(' · ') ? name.split(' · ')[0] : name, name.includes(' · ') ? name.split(' · ').slice(1).join(' · ') : datenCfg.osmArea)
@@ -3223,6 +3225,9 @@ export default function App() {
     return (s.candIds ?? []).map(id => candById.get(id)).filter((c): c is Cand => !!c)
       .map(c => { const l = c.geom.map(p => zuLv95(p.lat, p.lon)); return gegen.has(c.id) ? l.reverse() : l })
   }
+  const avObjekte = (flaechen: AvFlaeche[], kanton: string | undefined): EbenenObjekt[] => flaechen.filter(f => f.ringe[0]?.length).map(f => ({
+    id: `av:${f.art}:${f.ringe[0][0][0].toFixed(1)},${f.ringe[0][0][1].toFixed(1)}`, klasse: avKlasse(f.art), deckkraft: avKartenStil(f.art).deckkraft,
+    ringe: f.ringe.map(r => r.map(p => zuWgs(p[0], p[1]))), text: kanton === 'Luzern' ? `${f.art.replace('_', ', ')} (Stadt Luzern, Ersatz der AV)` : `${f.art.replace('_', ', ')} (Amtliche Vermessung)` }))
   const avFuerAbschnitt = async (s: Section): Promise<{ achsen: P[][]; flaechen: AvFlaeche[] }> => {
     const generation=datenGeneration()
     const achsen = avAchsen(s)
@@ -3250,9 +3255,7 @@ export default function App() {
     if(generation!==datenGeneration())return {achsen,flaechen}
     avCacheRef.current.set(schluessel, flaechen)
     // Kartenebene «Amtliche Vermessung» (ebenen.ts): die gemessenen Flächen der gezeigten Arten sammeln
-    setEbenen(prev => ebenenMischen(prev, { av: flaechen.filter(f => f.art in AV_FARBEN && f.ringe[0]?.length).map(f => ({
-      id: `av:${f.art}:${f.ringe[0][0][0].toFixed(1)},${f.ringe[0][0][1].toFixed(1)}`, klasse: f.art, deckkraft: AV_DECKKRAFT[f.art] ?? 0.25,
-      ringe: f.ringe.map(r => r.map(p => zuWgs(p[0], p[1]))), text: `AV: ${f.art.replace('_', ', ')}` })) }))
+    setEbenen(prev => ebenenMischen(prev, { av: avObjekte(flaechen, cfgFuer(s).avKanton) }))
     return { achsen, flaechen }
   }
   // ziel 'plan': in die verfügbare Fahrbahnbreite der Aufteilung statt ins Feld der Grunddaten.
@@ -3872,16 +3875,19 @@ export default function App() {
   // Undo-Schnappschuss für die zwei Aktionen, die viel Zustand auf einmal ersetzen/verwerfen
   // («Übernehmen» überschreibt alle Abschnitte, «Karte leeren» wirft die geladenen Segmente weg).
   // Ein Slot genügt: der jeweils letzte destruktive Schritt ist rückgängig machbar.
-  const undoRef = useRef<{ sections: Section[]; cands: Cand[]; stops: Stop[] } | null>(null)
+  const undoRef = useRef<{ sections: Section[]; cands: Cand[]; stops: Stop[]; ebenen: EbenenDaten; hinweise: string[] } | null>(null)
   const [undoLabel, setUndoLabel] = useState<string | null>(null)
   const undoMerken = (label: string) => {
-    undoRef.current = { sections, cands, stops }
+    undoRef.current = { sections, cands, stops, ebenen, hinweise: kartenHinweise }
     setUndoLabel(label)
   }
   const undoAusfuehren = () => {
     const u = undoRef.current
     if (!u) return
     setSections(u.sections); setCands(u.cands); setStops(u.stops)
+    // Nur «Karte leeren» leert die Ebenen. Geladen wird für dieselben Abschnitte nicht noch einmal, darum zurücklegen.
+    setEbenen(jetzt => Object.keys(jetzt).length ? jetzt : u.ebenen)
+    setKartenHinweise(jetzt => jetzt.length ? jetzt : u.hinweise)
     undoRef.current = null; setUndoLabel(null)
     setMsg('Letzte Aktion rückgängig gemacht.', 'ok')
   }
@@ -4006,12 +4012,29 @@ export default function App() {
   const [laufend, setLaufend] = useState<Partial<Record<EbeneId, number>>>({})
   const zaehlen = (id: EbeneId, d: 1 | -1) => setLaufend(p => ({ ...p, [id]: Math.max(0, (p[id] ?? 0) + d) }))
   useEffect(() => { nachgeladenRef.current.clear() }, [city])
+  // Amtliche Vermessung im Kartenausschnitt: nur für die Karte, Messen und Breiten bleiben bei avFuerAbschnitt
+  const [avZuGross, setAvZuGross] = useState(false)
+  const [avRunde, setAvRunde] = useState(0)
+  const avKantonRef = useRef(datenCfg.avKanton)
+  avKantonRef.current = datenCfg.avKanton
+  const avFehlerRef = useRef(() => {})
+  avFehlerRef.current = () => setMsg('Kartenebenen: Amtliche Vermessung nicht erreichbar.', 'info')
+  const avAusschnittRef = useRef<ReturnType<typeof avAusschnittLader<EbenenObjekt[]>> | null>(null)
+  avAusschnittRef.current ??= avAusschnittLader({
+    laden: async q => { const kanton = avKantonRef.current ?? 'Schweiz'; return avObjekte(await ladeAvFuer(kanton, q.e, q.n, q.r), kanton) },
+    fertig: objekte => setEbenen(prev => ebenenMischen(prev, { av: objekte })),
+    fehler: () => avFehlerRef.current(),
+    zaehlen: d => zaehlen('av', d),
+    zuGross: setAvZuGross,
+  })
+  const avAusschnittLeeren = () => { avAusschnittRef.current?.leeren(); setAvRunde(r => r + 1) }
+  useEffect(() => { avAusschnittRef.current?.leeren(); setAvRunde(r => r + 1) }, [datenCfg.avKanton])
   useEffect(() => {
     // Seit 01.11.2026 ohne Einschalten: nach dem Übernehmen alle
     const generation=datenGeneration()
     const an = [...NACHLADEN]
     const ring = (r: P[]) => r.map(p => zuWgs(p[0], p[1]))
-    const fehlerName: Record<string, string> = { parkfelder: 'Parkfelder', fussnetz: 'Fussverkehrsnetz', wartehallen: 'Wartehallen' }
+    const fehlerName: Record<string, string> = { parkfelder: 'Parkfelder', fussnetz: 'Fussverkehrsnetz', wartehallen: 'Wartehallen', blockmodelle: 'Gebäude' }
     const steigungOffen: Section[] = []
     for (const s of sections) {
       const achsen = s.candIds?.length ? avAchsen(s) : []
@@ -4034,6 +4057,8 @@ export default function App() {
         id: `pk:${f.ringe[0][0][0].toFixed(1)},${f.ringe[0][0][1].toFixed(1)}`, ringe: f.ringe.map(ring), deckkraft: 0.4,
         klasse: f.verbot ? 'verbot' : f.zweirad ? 'zweirad' : 'auto',
         text: f.verbot ? 'Parkverbotsfeld (zählt als Parkierung)' : f.zweirad ? `${f.zweirad === 'velo' ? 'Velo' : 'Motorrad'}feld` : `Parkfeld${f.anzahl ? ` (${f.anzahl} Plätze)` : ''}` })))
+      if (datenStadt === 'luzern') einmal('blockmodelle', async () => (await ladeBlockmodelle([box[0] - BLOCKMODELLE_RAND_M, box[1] - BLOCKMODELLE_RAND_M, box[2] + BLOCKMODELLE_RAND_M, box[3] + BLOCKMODELLE_RAND_M]))
+        .map(g => ({ id: `gb:${g.id}`, ringe: g.ringe.map(ring), klasse: 'gebaeude', deckkraft: 0.2, text: blockText(g) })))
       if (datenStadt === 'bern' || datenStadt === 'basel') einmal('fussnetz', async () => (await fussnetzLinien(datenStadt, box)).map(x => ({
         id: `fn:${x.klasse}:${x.linie[0][0].toFixed(1)},${x.linie[0][1].toFixed(1)}`, linien: [ring(x.linie)], klasse: x.klasse,
         text: datenStadt === 'bern' ? 'Basisnetz Fussweg (Richtplan Fussverkehr)' : x.klasse === 'basis' ? 'Kantonales Fusswegnetz (Teilrichtplan)' : 'Kommunales Fusswegnetz (Teilrichtplan)' })))
@@ -4089,7 +4114,7 @@ export default function App() {
   const ebenenAnzeige = useMemo((): EbenenDaten => {
     const box = cands.length ? bboxOf(cands) : null
     const out: EbenenDaten = {}
-    for (const [k, liste] of Object.entries(ebenen) as [EbeneId, EbenenObjekt[]][]) out[k] = imUmkreis(liste, box)
+    for (const [k, liste] of Object.entries(ebenen) as [EbeneId, EbenenObjekt[]][]) out[k] = IM_AUSSCHNITT.includes(k) ? liste : imUmkreis(liste, box)
     out.tempo = [...(out.tempo ?? []), ...osmTempoObjekte(cands)]
     out.obs = obsObjekte(cands)
     out.haltestellen = haltestellenObjekte(stops)
@@ -4103,6 +4128,8 @@ export default function App() {
     })
     return out
   }, [ebenen, cands, stops, sections])
+  // Quellen lesen in Grad; zur Karte geht die gemeinsame Form aller Rechner
+  const kartenEbenen = useMemo(() => alsKartenDaten(ebenenAnzeige), [ebenenAnzeige])
   const formen = useMemo(() => {
     const m = new Map<number, { a: string; b?: string }>()
     for (const s of sections) {
@@ -4326,8 +4353,10 @@ export default function App() {
           <div className="vrc-karte">
             <VeloMap fokus={fokusRef.current} ring={ringAn ? UEBERGABE?.ort ?? null : null} cands={cands} onLineClick={linieGeklickt} onMapClick={klickHinzufuegen}
                      onReady={m => { mapRef.current = m }}
-                     markers={markers} highlightIds={highlightIds} ebenen={ebenenAnzeige} stadt={gebiet}
+                     markers={markers} highlightIds={highlightIds} ebenen={kartenEbenen} stadt={gebiet}
                      nachladen={{ moeglich: sections.some(s => s.candIds?.length), laufend }}
+                     onAvAusschnitt={(b: AvBox) => avAusschnittRef.current?.wunsch(b)} avRunde={avRunde} avZuGross={avZuGross}
+                     ebenenKlick={!messung && !teilModus && qsa == null}
                      attribution={datenCfg.attribution} center={datenCfg.center} fitKey={fitKey} obsStand={datenCfg.obsStand}
                      teilModus={teilModus} orthofoto={messAktiv || planAv != null || qsa != null} bern2026={gebiet === 'bern'} routennetz={datenCfg.routennetz ?? null} messung={messAnzeige ?? qsAnzeige} av={planAvWgs} formen={formen}
                      onMeldung={(t, art) => setMsg(t, art)} onMarkerClick={markerKlick} />
@@ -4600,7 +4629,7 @@ export default function App() {
               </button>
             )}
             {(cands.length > 0 || hatEingaben(sections)) && (
-              <button title="Entfernt die Strecke und alle Eingaben, auch die im Browser gemerkten" onClick={() => { undoMerken('Karte leeren rückgängig'); quellenNeu(); setCands([]); setStops([]); setEbenen({}); setKartenHinweise([]); setSections([defaultSection()]); setStreet(''); setPlanAv(null); gesichertRef.current = null; fallVergessen(); datenlaufUebernehmen(datenGeneration(), () => {}); setMsg(''); setTeilModus(false); setMessung(null) }}
+              <button title="Entfernt die Strecke und alle Eingaben, auch die im Browser gemerkten" onClick={() => { undoMerken('Karte leeren rückgängig'); quellenNeu(); avAusschnittLeeren(); setCands([]); setStops([]); setEbenen({}); setKartenHinweise([]); setSections([defaultSection()]); setStreet(''); setPlanAv(null); gesichertRef.current = null; fallVergessen(); datenlaufUebernehmen(datenGeneration(), () => {}); setMsg(''); setTeilModus(false); setMessung(null) }}
                       style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--text-muted)',
                                borderRadius: 8, padding: '8px 12px', fontSize: 14, cursor: 'pointer' }}>
                 Karte leeren

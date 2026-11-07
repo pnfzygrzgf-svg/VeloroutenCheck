@@ -48,7 +48,7 @@ function fetchDtvStations(): Promise<DtvStation[]> {
 }
 
 // ÖV (Haltestelle) aus OSM + Bus-Takt aus dem gebündelten GTFS-Snapshot (oev_takt.py).
-export const loadOev = (cands: Cand[]) => loadOevFromOsm(cands, 'oev_takt_luzern.json')
+export const loadOev = (cands: Cand[]) => loadOevFromOsm(cands, 'oev_takt_luzern.json', 'oev_kanten_luzern.json')
 
 // ── Routentyp aus dem Velonetz (ArcGIS REST, Layer 7) ─────────────────────────
 const VELONETZ_LU = 'https://map.stadtluzern.ch/server/rest/services/OGD/velonetz/MapServer/7/query'

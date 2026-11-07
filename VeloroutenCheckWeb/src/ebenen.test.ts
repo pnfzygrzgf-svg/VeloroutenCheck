@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dtvKlasse, EBENEN, ebenenFarbe, ebenenFuer, ebenenMischen, ebenenSichtbar, haltestellenObjekte, imUmkreis, legendeFuer, obsObjekte, osmTempoObjekte, spurenText, steigungObjekte, tempoKlasse } from './ebenen'
+import { dtvKlasse, EBENEN, ebenenFarbe, ebenenFuer, ebenenMischen, ebenenSichtbar, haltestellenObjekte, imUmkreis, legendeFuer, mitAusschnitt, obsObjekte, osmTempoObjekte, spurenText, steigungObjekte, tempoKlasse } from './ebenen'
 import { dtvEbene } from './cityShared'
 import type { Cand } from './VeloMap'
 
@@ -83,13 +83,42 @@ describe('ebenen', () => {
       ['ohne', 'kein Routentyp (Basisnetz) · Velonetzplanung']])
   })
   it('Menü zeigt nur Quellen mit Daten; nachladbare, solange sie laden oder wenn sie etwas gefunden haben', () => {
-    const defs = ebenenFuer('bern')
+    const defs = ebenenFuer('bern').filter(e => !['av', 'lsa', 'strasseTlm', 'bauzonen'].includes(e.id))   // diese stehen immer da, eigene Tests unten
     const ids = (r: ReturnType<typeof ebenenSichtbar>) => r.zeigen.map(e => e.id)
     const daten = { tempo: [{ id: 't', klasse: 't30', text: '' }] }
     expect(ids(ebenenSichtbar(defs, daten, { moeglich: false, laufend: {} }))).toEqual(['tempo'])
-    expect(ids(ebenenSichtbar(defs, daten, { moeglich: true, laufend: { parkfelder: 1, av: 2 } }))).toEqual(['av', 'parkfelder', 'tempo'])
+    expect(ids(ebenenSichtbar(defs, daten, { moeglich: true, laufend: { parkfelder: 1, fussnetz: 2 } }))).toEqual(['fussnetz', 'parkfelder', 'tempo'])
     const fertig = ebenenSichtbar(defs, daten, { moeglich: true, laufend: {} })
     expect(ids(fertig)).toEqual(['tempo'])
     expect(fertig.ohne.map(e => e.id)).toContain('parkfelder')
+    expect(fertig.spaeter).toEqual([])
+  })
+
+  it('nennt Ebenen ohne übernommenen Abschnitt nicht «ohne Daten», sie sind nur noch nicht abgefragt', () => {
+    const defs = EBENEN.filter(e => ['gelaende', 'parkfelder', 'tempo'].includes(e.id))
+    const leer = ebenenSichtbar(defs, {}, { moeglich: false, laufend: {} })
+    expect(leer.spaeter.map(e => e.id).sort()).toEqual(['gelaende', 'parkfelder'])
+    expect(leer.ohne.map(e => e.id)).toEqual(['tempo'])
+    const mitAbschnitt = ebenenSichtbar(defs, {}, { moeglich: true, laufend: {} })
+    expect(mitAbschnitt.spaeter).toEqual([])
+    expect(mitAbschnitt.ohne.map(e => e.id)).toContain('parkfelder')
+  })
+
+  it('zeigt die amtliche Vermessung immer, sie lädt auch ohne Abschnitt für den Ausschnitt', () => {
+    const av = EBENEN.filter(e => e.id === 'av')
+    for (const moeglich of [false, true]) expect(ebenenSichtbar(av, {}, { moeglich, laufend: {} }).zeigen.map(e => e.id)).toEqual(['av'])
+  })
+})
+
+describe('Ebenen aus dem Kartenausschnitt', () => {
+  const lsa = (id: string, e: number) => ({ id, punkt: [e, 1200000] as [number, number], klasse: 'lsa', text: '' })
+  it('zählt dieselbe Anlage einmal und behält die übrigen', () => {
+    const d = mitAusschnitt({ lsa: [lsa('segment', 2600000), lsa('anderswo', 2600100)], bav: [] }, { lsa: [lsa('ausschnitt', 2600001)] })
+    expect(d.lsa!.map(o => o.id)).toEqual(['anderswo', 'ausschnitt'])
+    expect(d.bav).toEqual([])
+  })
+  it('zeigt die Ebenen der Karte auch ohne Daten und ohne Segmente', () => {
+    const { zeigen } = ebenenSichtbar(ebenenFuer('schweiz'), {}, { moeglich: false, laufend: {} })
+    expect(zeigen.map(e => e.id)).toEqual(expect.arrayContaining(['lsa', 'strasseTlm', 'bauzonen']))
   })
 })

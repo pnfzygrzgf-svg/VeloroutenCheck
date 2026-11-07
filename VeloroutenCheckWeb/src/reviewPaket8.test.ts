@@ -3,18 +3,20 @@ import { datenquellenFuer, QUELLEN } from './quellen'
 import { buildCsv } from './csv'
 import { defaultSection } from './strecke'
 const daten=(orte:unknown[])=>datenquellenFuer(orte as Parameters<typeof datenquellenFuer>[0]).map(q=>q.id)
-it('zeigt St. Galler Kontext und schweizweite Quellen ausserhalb der vier Stadtprofile',()=>{
+it('zeigt schweizweite Quellen ausserhalb der vier Stadtprofile, aber keine Beleuchtung St. Gallen',()=>{
  const ids=daten([{name:'St. Gallen',bfs:3203,kanton:'SG'}])
- for(const id of ['e6.sg.licht','av','bav','npvm','tlm_tram','gemeinden'])expect(ids).toContain(id)
- expect(ids).not.toContain('geo_bern');expect(ids).not.toContain('e6.zh.netz')
- const sg=QUELLEN.find(q=>q.id==='e6.sg.licht')!
- expect(sg.herausgeber).toContain('sgsw');expect(sg.verwendung).toContain('CC BY 4.0');expect(sg.verwendung).toContain('nur Kartenkontext')
+ for(const id of ['av','bav','npvm','tlm_tram','gemeinden'])expect(ids).toContain(id)
+ expect(ids).not.toContain('geo_bern');expect(ids).not.toContain('e6.zh.netz');expect(ids).not.toContain('e6.sg.licht')
+ expect(QUELLEN.some(q=>q.id==='e6.sg.licht')).toBe(false)
+ const zh=QUELLEN.find(q=>q.id==='e6.zh.netz')!
+ expect(zh.herausgeber).toContain('Stadt Zürich');expect(zh.verwendung).toContain('CC0');expect(zh.verwendung).toContain('nur Kartenkontext')
 })
-it('filtert Kontext nach örtlichem Gebiet einschliesslich Ausnahmen und Grenzgemeinden',()=>{
- expect(daten([{name:'Uster',bfs:198,kanton:'ZH'}])).toContain('e6.ktzh.licht')
- expect(daten([{name:'Winterthur',bfs:230,kanton:'ZH'}])).not.toContain('e6.ktzh.licht')
+it('filtert Kontext nach örtlichem Gebiet einschliesslich Grenzgemeinden',()=>{
+ expect(daten([{name:'Uster',bfs:198,kanton:'ZH'}])).not.toContain('e6.zh.netz')
+ expect(daten([{name:'Uster',bfs:198,kanton:'ZH'}]).filter(id=>id.startsWith('e6.'))).toEqual([])
+ expect(daten([{name:'Winterthur',bfs:230,kanton:'ZH'}])).not.toContain('e6.zh.netz')
  const ids=daten([{name:'Grenzabschnitt',gemeinden:[{name:'Zürich',bfs:261,kanton:'ZH',stadt:'zurich'},{name:'Uster',bfs:198,kanton:'ZH'}]}])
- expect(ids).toContain('e6.zh.netz');expect(ids).toContain('e6.ktzh.licht')
+ expect(ids.filter(id=>id.startsWith('e6.'))).toEqual(['e6.zh.netz'])
 })
 it('schreibt tatsächliche amtliche Herkunft statt des gewählten Bewertungsstandards in CSV',()=>{
  const s=defaultSection();s.datenOrt={name:'Zürich',bfs:261,kanton:'ZH',stadt:'zurich'};s.quelle={dtv:'amtlich',speed:'amtlich',routentyp:'amtlich'}

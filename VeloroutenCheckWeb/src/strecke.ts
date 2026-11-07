@@ -353,7 +353,7 @@ export function candToSection(c: Cand, gleich = true): Section {
   // ÖV (Geoportal + Fahrplan): Haltestelle/Modus übernehmen; Tram → ÖV-Angebot „tram",
   // Bus → Frequenzband aus dem Takt (GTFS). Haltestellentyp bleibt manuell.
   if (c.bern && (c.bern.oevHalt || c.bern.oevTram || c.bern.oevBus)) {
-    s.oev = { oevHalt: !!c.bern.oevHalt, oevHaltName: c.bern.oevHaltName,
+    s.oev = { oevHalt: !!c.bern.oevHalt, oevHaltName: c.bern.oevHaltName, ...(c.bern.oevHaltQuelle ? { oevHaltQuelle: c.bern.oevHaltQuelle } : {}),
               oevTram: !!c.bern.oevTram, oevBus: !!c.bern.oevBus, busPerH: c.bern.busPerH,
               ...(c.bern.streckePerH ? { streckePerH: c.bern.streckePerH, streckeHalt: c.bern.streckeHalt } : {}) }
     // Bus-Takt der Umweltspur aus dem Fahrplan (seit 21.10.2026): Takt [Min] = 60 / Fahrten pro Stunde (Abendspitze,
@@ -630,7 +630,7 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
       const busPerH = oevs.reduce<number | undefined>(
         (m, o) => (o.busPerH != null && (m == null || o.busPerH > m) ? o.busPerH : m), undefined)
       rep.sec.oev = {
-        oevHalt: oevs.some(o => o.oevHalt), oevHaltName: withName?.oevHaltName,
+        oevHalt: oevs.some(o => o.oevHalt), oevHaltName: withName?.oevHaltName, ...(withName?.oevHaltQuelle ? { oevHaltQuelle: withName.oevHaltQuelle } : {}),
         oevTram: oevs.some(o => o.oevTram), oevBus: oevs.some(o => o.oevBus), busPerH,
       }
       const auto = oevAngebotAuto(rep.sec.oev)

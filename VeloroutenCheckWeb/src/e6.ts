@@ -1,6 +1,6 @@
 import { kontextGemeinden } from './gebiet'
 import type { Cand } from './VeloMap'
-import type { EbenenDaten, EbenenObjekt, EbeneId } from './ebenen'
+import { E6_KONTEXT, type EbenenDaten, type EbenenObjekt, type EbeneId } from './ebenen'
 import { densify } from './geo'
 import { E6_DIENSTE, e6Fuer, ladeE6, e6Url, type E6Dienst, type E6LadeLauf } from './e5/daten/anbieter/gemeinsam/e6'
 import { lv95, wgs, type P } from './e5/geo'
@@ -13,7 +13,7 @@ const vergleichen = (a: Zelle, b: Zelle) => a.mitte[0] - b.mitte[0] || a.mitte[1
 export function e6ZellenPlanen(cs: readonly Cand[]): Zelle[] {
   const zellen = new Map<string, Zelle>()
   for (const c of cs) {
-    const dienste = e6Fuer(kontextGemeinden(c.datenOrt))
+    const dienste = e6Fuer(kontextGemeinden(c.datenOrt)).filter(d => E6_KONTEXT.includes(d))
     if (!dienste.length) continue
     let vorher: Zelle | undefined
     for (const p of densify(c.geom, 100)) {

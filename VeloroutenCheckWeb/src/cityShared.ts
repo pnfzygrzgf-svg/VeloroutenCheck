@@ -12,6 +12,10 @@ import {
   bboxOfLL, bboxOverlap, padBbox, mehrteilig, type LL, type BboxLL,
 } from './geo'
 import { holeJson } from './netz'
+import { ausschnittBox, bundAbfrage, ladeBundAusschnitt, type BundTreffer } from './kartenbaustein/bund'
+import { zuLv95 } from './lv95'
+import { datenGeneration, meldeQuelleStand } from './datenstand'
+import { wgs } from './e5/geo'
 import { overpassFetch } from './overpass'
 import { dtvStationen, type EbenenDaten, type EbenenObjekt } from './ebenen'
 
@@ -223,6 +227,45 @@ function nearestTaktBus(stop: LL, takt: TaktPoint[]): number | undefined {
   return best
 }
 
+// Haltekanten des BAV (ch.bav.haltestellen-oev): amtliche Lage je Kante, dieselbe Nummer wie im Fahrplan. Der Layer führt auch Kanten ohne Fahrplan
+// und Bahnkanten, darum zählt nur, was in der Tabelle aus dem Fahrplan steht (tools/oev_kanten.py). OSM ergänzt, wo keine solche Kante liegt.
+const BAV_LAYER = 'ch.bav.haltestellen-oev', SLOID = 'ch:1:sloid:'
+type KantenTabelle = Record<string, string>
+const kantenCache = new Map<string, Promise<KantenTabelle>>()
+function loadKanten(file: string): Promise<KantenTabelle> {
+  let c = kantenCache.get(file)
+  if (!c) {
+    c = holeJson<KantenTabelle>(import.meta.env.BASE_URL + file, 15000).catch(e => { kantenCache.delete(file); throw e })
+    kantenCache.set(file, c)
+  }
+  return c
+}
+const abstandM = (a: LL, b: LL) => Math.hypot((a.lat - b.lat) * 111320, (a.lon - b.lon) * 111320 * Math.cos(a.lat * Math.PI / 180))
+
+/** Treffer des Layers -> bediente Haltekanten; Stationspunkte haben keine Bezeichnung und fallen weg */
+export function bedienteKanten(treffer: readonly BundTreffer[], tabelle: KantenTabelle): Stop[] {
+  return treffer.flatMap(f => {
+    const p = f.properties ?? {}, g = f.geometry, sloid = typeof p.nummer_text === 'string' ? p.nummer_text : ''
+    const art = sloid.startsWith(SLOID) ? tabelle[sloid.slice(SLOID.length)] : undefined
+    const lage = (g?.type === 'Point' ? [g.coordinates] : g?.type === 'MultiPoint' && Array.isArray(g.coordinates) ? g.coordinates : [])[0] as number[] | undefined
+    if (!art || !lage || typeof p.haltestelle !== 'string') return []
+    const [lat, lon] = wgs(lage[0], lage[1])
+    const modi: ('tram' | 'bus')[] = [...(art.includes('t') ? ['tram' as const] : []), ...(art.includes('b') ? ['bus' as const] : [])]
+    return [{ lat, lon, name: `${p.haltestelle}${p.bezeichnung_de ? `, Kante ${String(p.bezeichnung_de)}` : ''}`, modi, quelle: 'bav' as const }]
+  })
+}
+
+/** Bediente Kanten vor OSM; ein OSM-Halt bleibt nur, wo bis STOP_DIST_M keine solche Kante liegt */
+export const mitOsmErgaenzt = (kanten: readonly Stop[], osm: readonly Stop[]): Stop[] =>
+  [...kanten, ...osm.filter(s => !kanten.some(k => abstandM(s, k) <= STOP_DIST_M))]
+
+async function ladeBedienteKanten(b: Bbox, file: string): Promise<Stop[]> {
+  const box = ausschnittBox([[b.s, b.w], [b.s, b.e], [b.n, b.e], [b.n, b.w]].map(([lat, lon]) => zuLv95(lat, lon)))
+  const [tabelle, treffer] = await Promise.all([loadKanten(file), ladeBundAusschnitt(BAV_LAYER, box)])
+  meldeQuelleStand('bav.kanten', 'BAV · Haltekanten', bundAbfrage(BAV_LAYER, box), 'haltestellen', 'unbekannt', new Date().toISOString(), datenGeneration())
+  return bedienteKanten(treffer, tabelle)
+}
+
 // Halt eines Verkehrsmittels AUF DER STRASSE (Bus, Trolleybus, Tram)? Nur solche Halte betreffen
 // die Veloführung. Bis zum 29.09.2026 zählte jede `public_transport=stop_position` — auch Bahn-,
 // Seilbahn- und Schiffshalte: ein Abschnitt entlang der Gleise am Bahnhof oder am Seeufer bekam
@@ -234,7 +277,8 @@ export function istStrassenHalt(t: Record<string, string>): boolean {
 }
 
 // taktFile (optional): gebündelter Bus-Takt-Snapshot der Stadt → setzt oevBus/busPerH je Haltestelle.
-export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<{ byId: Map<number, OevInfoOsm>; stops: Stop[]; fehler: string[]; ebenen?: EbenenDaten }> {
+// kantenFile (optional): Tabelle der bedienten Haltekanten; ohne sie oder bei Ausfall gelten die OSM-Halte allein.
+export async function loadOevFromOsm(cands: Cand[], taktFile?: string, kantenFile?: string): Promise<{ byId: Map<number, OevInfoOsm>; stops: Stop[]; fehler: string[]; ebenen?: EbenenDaten }> {
   const fehler: string[] = []
   if (cands.length === 0) return { byId: new Map(), stops: [], fehler }
   const takt = taktFile ? await loadTakt(taktFile) : []
@@ -257,7 +301,7 @@ export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<
   // Haltestellen-Punkte (dedupliziert über Position) für die Karten-Marker; Tram bzw. Bus aus den Tags (seit 01.11.2026),
   // an derselben Stelle zusammengeführt
   const seen = new Map<string, Stop>()
-  const stops: Stop[] = []
+  const osmStops: Stop[] = []
   for (const e of els) {
     if (e.type !== 'node' || e.lat == null || e.lon == null) continue
     const t = e.tags || {}
@@ -271,8 +315,10 @@ export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<
     if (da) { da.modi = [...new Set([...(da.modi ?? []), ...modi])].sort((a, b) => (a === 'tram' ? -1 : b === 'tram' ? 1 : 0)); continue }
     const perH = nearestTaktBus(e as LL, takt)
     const st: Stop = { lat: e.lat, lon: e.lon, name: t.name || 'Haltestelle', ...(perH != null && perH > 0 ? { perH } : {}), ...(modi.length ? { modi } : {}) }
-    seen.set(key, st); stops.push(st)
+    seen.set(key, st); osmStops.push(st)
   }
+  const kanten = kantenFile ? await versuch('Haltekanten (BAV)', ladeBedienteKanten(b, kantenFile), [] as Stop[], fehler) : []
+  const stops = mitOsmErgaenzt(kanten.map(k => { const perH = nearestTaktBus(k, takt); return perH != null && perH > 0 ? { ...k, perH } : k }), osmStops)
 
   const byId = new Map<number, OevInfoOsm>()
   for (const c of cands) {
@@ -291,9 +337,9 @@ export async function loadOevFromOsm(cands: Cand[], taktFile?: string): Promise<
     if (nearStop || oevTram) {
       const busPerH = nearStop ? nearestTaktBus(nearStop, takt) : undefined   // aus dem Takt-Snapshot (falls Datei da)
       byId.set(c.id, {
-        oevHalt: !!nearStop, oevHaltName: nearStop?.name,
+        oevHalt: !!nearStop, oevHaltName: nearStop?.name, oevHaltQuelle: nearStop?.quelle === 'bav' ? 'BAV' : 'OpenStreetMap',
         oevTram, oevBus: busPerH != null, busPerH,
-        oevQuelle: 'osm',
+        oevQuelle: nearStop?.quelle === 'bav' ? 'amtlich' : 'osm',
       })
     }
   }

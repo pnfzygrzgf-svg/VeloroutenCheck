@@ -8,11 +8,19 @@
 // Gebraucht nur als Hinweis an der Umweltspur (Masterplan Q 4, S. 20: bei Steigung über 2 % Umweltspur ab 4,50 m oder separater
 // Velobereich); die Note bleibt unverändert (wie im lokalen Regelwerk).
 // Vorzeichen: positiv = bergauf in Fahrtrichtung der Seite A.
+// In der Stadt Bern kommt das Profil zuerst aus dem DTM 2023 der Stadt (ImageServer auf gisapp.bern.ch, Raster 25 cm, Aufbau wie fgsCheck
+// daten/bernDtm.ts). Fällt der Dienst aus oder deckt er die Linie nicht, gilt swissALTI3D.
 
 import type { P } from './lv95'
 import { holeJson } from './netz'
 
 export const HOEHEN_QUELLE = 'swissALTI3D (swisstopo)'
+export const BERN_DTM_KURZ = 'DTM 2023 Stadt Bern'
+const BERN_DTM_URL = 'https://gisapp.bern.ch/server/rest/services/StadtBern_DTM_Hoehe_25cm_2023/ImageServer/getSamples'
+/** Ausdehnung des Dienstes in LV95 [w, s, e, n] */
+const BERN_DTM_RECHTECK = [2588000, 1196000, 2605000, 1205000] as const
+/** Annahme: Mit weniger Höhen als diesem Anteil der Stützpunkte deckt das DTM die Linie nicht */
+const BERN_DTM_ABDECKUNG = 0.7
 /** Masterplan Q 4: über dieser Steigung [%] Umweltspur ab 4,50 m oder separater Velobereich */
 export const UMWELTSPUR_STEIGUNG_PCT = 2
 /** Stützpunkte je Profil; Ecken der Linie höchstens so viele (gleichmässig ausgedünnt, Anfang und Ende bleiben) */
@@ -27,13 +35,46 @@ const MIN_PUNKTE = 3, MIN_LAENGE_M = 20
 
 export interface ProfilPunkt { dist: number; h: number }
 /** Steigung eines Abschnitts: pct null = unbekannt (Dienst nicht erreichbar, zu kurz), dann mit Hinweis */
-export interface Steigung { pct: number | null; laenge: number; hinweis?: string; profil?: import('./hoehenprofil/modell').HoehenProfil }
+export interface Steigung { pct: number | null; laenge: number; hinweis?: string; profil?: import('./hoehenprofil/modell').HoehenProfil
+  modell?: string   // gesetzt, wenn nicht swissALTI3D gemessen hat; ältere Abschnitte haben keines
+}
+
+const r2 = (x: number) => Math.round(x * 100) / 100
+function profilEcken(linie: P[]): P[] {
+  const schritt = Math.max(1, Math.ceil((linie.length - 1) / (PROFIL_ECKEN_MAX - 1)))
+  return linie.filter((_, k) => k % schritt === 0 || k === linie.length - 1).map(p => [r2(p[0]), r2(p[1])] as P)
+}
 
 export function profilUrl(linie: P[], punkte = PROFIL_PUNKTE): string {
-  const schritt = Math.max(1, Math.ceil((linie.length - 1) / (PROFIL_ECKEN_MAX - 1)))
-  const ecken = linie.filter((_, k) => k % schritt === 0 || k === linie.length - 1)
-  const geom = JSON.stringify({ type: 'LineString', coordinates: ecken.map(p => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) / 100]) })
+  const geom = JSON.stringify({ type: 'LineString', coordinates: profilEcken(linie) })
   return `https://api3.geo.admin.ch/rest/services/profile.json?geom=${encodeURIComponent(geom)}&sr=2056&nb_points=${punkte}`
+}
+
+export const imBernerDtm = (linie: P[]) => linie.every(p => p[0] >= BERN_DTM_RECHTECK[0] && p[0] <= BERN_DTM_RECHTECK[2] && p[1] >= BERN_DTM_RECHTECK[1] && p[1] <= BERN_DTM_RECHTECK[3])
+
+export function bernDtmUrl(linie: P[], punkte = PROFIL_PUNKTE): string {
+  const ecken = profilEcken(linie), laenge = ecken.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - ecken[i][0], p[1] - ecken[i][1]), 0)
+  const q = new URLSearchParams({ f: 'json', geometryType: 'esriGeometryPolyline', geometry: JSON.stringify({ paths: [ecken], spatialReference: { wkid: 2056 } }),
+    sampleDistance: String(Math.max(0.25, r2(laenge / Math.max(1, punkte - 1)))), returnFirstValueOnly: 'true', interpolation: 'RSP_BilinearInterpolation' })
+  return `${BERN_DTM_URL}?${q}`
+}
+
+/** Antwort von getSamples -> Profilpunkte; dist kumuliert entlang der Proben, Proben ohne Höhe fallen weg */
+export function bernDtmLesen(roh: unknown): ProfilPunkt[] {
+  const r = roh as { samples?: unknown; error?: { message?: unknown; code?: unknown } } | null
+  if (r?.error) throw new Error(`Fehler des Dienstes: ${String(r.error.message ?? r.error.code ?? 'unbekannt')}`)
+  if (!Array.isArray(r?.samples)) throw new Error('Antwort ist keine Liste')
+  const out: ProfilPunkt[] = []
+  let d = 0, vorher: P | null = null
+  for (const s of r.samples as { location?: { x?: unknown; y?: unknown }; value?: unknown }[]) {
+    const x = s?.location?.x, y = s?.location?.y
+    if (typeof x !== 'number' || typeof y !== 'number') continue
+    if (vorher) d += Math.hypot(x - vorher[0], y - vorher[1])
+    vorher = [x, y]
+    const h = typeof s.value === 'number' ? s.value : typeof s.value === 'string' ? Number(s.value) : NaN
+    if (Number.isFinite(h)) out.push({ dist: r2(d), h })
+  }
+  return out
 }
 
 /** Antwort von profile.json -> Profilpunkte (Höhe COMB, sonst DTM2 bzw. DTM25; Punkte ohne Höhe fallen weg) */
@@ -86,14 +127,23 @@ export function achseInRichtungA(stuecke: P[][], peilungA?: number): P[] {
   return [...st].sort((a, b) => lage(a) - lage(b)).flat()
 }
 
+const PROFIL_ZWECK = 'Geländehöhen entlang der Strassenachse zur Ermittlung der mittleren Steigung. Keine Prüfung einer Sichtverdeckung.'
+
 /** Steigung entlang der Linie (in Richtung Seite A); Fehler des Dienstes ergeben pct = null mit Hinweis */
 export async function ladeSteigung(linie: P[]): Promise<Steigung> {
   if (linie.length < 2) return { pct: null, laenge: 0, hinweis: 'Keine Achse auf der Karte: Steigung nicht bestimmbar.' }
+  if (imBernerDtm(linie)) try {
+    const url = bernDtmUrl(linie), punkte = bernDtmLesen(await holeJson<unknown>(url, PROFIL_MS))
+    if (punkte.length < PROFIL_PUNKTE * BERN_DTM_ABDECKUNG) throw new Error('DTM deckt die Linie nicht')
+    return { ...steigungAusProfil(punkte), modell: BERN_DTM_KURZ, profil: {
+      id: url, titel: 'Strassenprofil', linie: profilEcken(linie), punkte, zweck: PROFIL_ZWECK, quelle: `Geodaten Stadt Bern; Höhenprofil ${BERN_DTM_KURZ}`, abgerufen: new Date().toISOString(),
+    } }
+  } catch { /* Rückfall auf swissALTI3D */ }
   try {
     const url = profilUrl(linie), punkte = profilLesen(await holeJson<unknown>(url, PROFIL_MS))
     return { ...steigungAusProfil(punkte), profil: {
       id: url, titel: 'Strassenprofil', linie: (JSON.parse(new URL(url).searchParams.get('geom')!) as { coordinates: P[] }).coordinates, punkte,
-      zweck: 'Geländehöhen entlang der Strassenachse zur Ermittlung der mittleren Steigung. Keine Prüfung einer Sichtverdeckung.',
+      zweck: PROFIL_ZWECK,
       quelle: '© swisstopo; Höhenprofil swissALTI3D/Kombinationsmodell', abgerufen: new Date().toISOString(),
     } }
   } catch (e) {
@@ -107,7 +157,7 @@ export function umweltspurSteigungText(st: Steigung | undefined, seite: 'A' | 'B
   if (!st) return `Steigung noch nicht geladen (${regel}).`
   if (st.pct == null) return `${st.hinweis ?? 'Steigung unbekannt.'} (${regel})`
   const betrag = Math.abs(st.pct)
-  const quelle = `${HOEHEN_QUELLE}, Mittel über ${Math.round(st.laenge)} m`
+  const quelle = `${st.modell ?? HOEHEN_QUELLE}, Mittel über ${Math.round(st.laenge)} m`
   const zusatz = st.hinweis ? ` ${st.hinweis}` : ''
   if (betrag <= UMWELTSPUR_STEIGUNG_PCT) return `Steigung ${f1(betrag)} % (${quelle}): nicht über ${UMWELTSPUR_STEIGUNG_PCT} %.${zusatz}`
   // Bergauf ist Seite A bei positiver Steigung; ohne Seite (Teil ohne klare Lage) nur die Richtung nennen

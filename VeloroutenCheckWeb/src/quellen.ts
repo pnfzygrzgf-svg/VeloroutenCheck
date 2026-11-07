@@ -6,7 +6,8 @@
 
 import type { Stadt } from './fuehrungsform'
 import type { DatenOrt } from './gebiet'
-import { E6_DIENSTE } from './e5/daten/anbieter/gemeinsam/e6'
+import { E6_KONTEXT } from './ebenen'
+import { REGIONAL_DIENSTE } from './e5/daten/anbieter/gemeinsam/regionalDienste'
 
 export type QuellenEbene =
   | 'Standard der Stadt'        // Masterplan, Velostandards: verbindlich für die eigenen Projekte der Stadt, sonst Orientierung
@@ -98,7 +99,7 @@ export const QUELLEN: readonly Quelle[] = [
     verwendung: 'Strassennetz, Name, Tempo, Breite, Führungsform, Fahrspuren und Pfeile, Einbahn, parallele Radwege, Wartehallen (Overpass API, live).' },
   { id: 'geo_bern', name: 'Geoportal Stadt Bern', herausgeber: 'Stadt Bern, Geoinformation', ebene: 'Geodaten', gruppe: 'daten', staedte: ['bern'],
     url: 'https://map.bern.ch/',
-    verwendung: 'Verkehrsmenge (DTV), Tempo, Veloroutennetz des Masterplans, Velostrassen, Haltestellen und ÖV-Linien, Tram in der Fahrbahn (Verkehrsdaten Tram), Strassenhierarchie (Bedingung «Quartierstrasse» der Velostrasse), Veloroutennetz auch als zuschaltbare Kartenebene «Routennetz», Parkfelder (Auto für die Parkierung, Velo und Motorrad für den Platzbedarf in der Planung), Richtplan Fussverkehr, Orthofoto 2026 (Kartenhintergrund «Bern 2026» und Markierungserkennung live, Luftbild-Hinweis als Snapshot). ' +
+    verwendung: 'Verkehrsmenge (DTV), Tempo, Höhenprofile für die Steigung (DTM 2023, gisapp.bern.ch, bei Ausfall swissALTI3D), Veloroutennetz des Masterplans, Velostrassen, Haltestellen und ÖV-Linien, Tram in der Fahrbahn (Verkehrsdaten Tram), Strassenhierarchie (Bedingung «Quartierstrasse» der Velostrasse), Veloroutennetz auch als zuschaltbare Kartenebene «Routennetz», Parkfelder (Auto für die Parkierung, Velo und Motorrad für den Platzbedarf in der Planung), Richtplan Fussverkehr, Orthofoto 2026 (Kartenhintergrund «Bern 2026» und Markierungserkennung live, Luftbild-Hinweis als Snapshot). ' +
       'Der DTV ist aus Tages- und Nachtwerten geschätzt (DTV ≈ 16·Nt + 8·Nn), nur eine Grössenordnung, und nur für Strassen über 2 000 Fahrzeuge je Tag ' +
       'sowie die Altstadt geführt; ohne Eintrag gilt «≤ 2 000 angenommen».' },
   { id: 'ogd_zh', name: 'Open Data Stadt Zürich', herausgeber: 'Stadt Zürich', ebene: 'Geodaten', gruppe: 'daten', staedte: ['zurich'],
@@ -117,14 +118,18 @@ export const QUELLEN: readonly Quelle[] = [
     ebene: 'Geodaten', gruppe: 'daten', gebiete: ['ZH','BE','UR','SZ','GL','ZG','FR','SO','BS','BL','SH','AR','AI','SG','GR','AG','TG','TI','GE','VS','FL'].map(kanton=>({kanton})),
     gebietLabel: 'Kantone mit freier AV; Wallis teilweise', url: 'https://www.geodienste.ch/',
     verwendung: 'Bordsteinkanten für die Breitenmessung, Fahrbahn- und Trottoirbreiten, Mittelinseln und Haltestelleninseln, Flächen auf der Karte in der Planung (live).' },
-  ...E6_DIENSTE.map((d):Quelle=>({id:d.id,name:d.name,herausgeber:d.anbieter,ebene:'Geodaten',gruppe:'daten',url:d.url,
+  ...REGIONAL_DIENSTE.filter(d=>d.art==='tempo'&&d.id!=='bs.tempo').map((d):Quelle=>({id:d.id,name:d.name,herausgeber:d.anbieter,ebene:'Geodaten',gruppe:'daten',url:d.url,
+    gebiete:[{kanton:d.kanton,bfs:d.bfs,ausgenommen:d.ausgenommen}],gebietLabel:d.name.match(/\(([^)]+)\)/)?.[1]??d.kanton,
+    verwendung:`${d.lizenz}. ${d.hinweis} Verwendung: bei passender Strasse amtliches Tempo vor OSM, sonst Vorschlag; OSM bleibt am Feld wählbar.`})),
+  ...E6_KONTEXT.map((d):Quelle=>({id:d.id,name:d.name,herausgeber:d.anbieter,ebene:'Geodaten',gruppe:'daten',url:d.url,
     gebiete:[{kanton:d.kanton,bfs:d.bfs,ausgenommen:d.ausgenommen}],
     gebietLabel:d.bfs===261?'Stadt Zürich':d.bfs===3203?'Stadt St. Gallen':'Kanton Zürich, ohne Städte Zürich und Winterthur',
     verwendung:`${d.lizenz}. ${d.hinweis} Verwendung: nur Kartenkontext; keine automatische Übernahme in Eingaben oder Bewertung.`})),
+  {id:'lu_gebaeude',name:'Blockmodelle Gebäude',herausgeber:'Kanton Luzern',ebene:'Geodaten',gruppe:'daten',staedte:['luzern'],url:'https://public.geo.lu.ch/ogd/rest/services/managed/GEBHOHEN_DS_V5_MP/MapServer',verwendung:'Gebäudeumrisse mit relativer Höhe als Kartenebene; keine Wirkung auf die Bewertung.'},
   {id:'gemeinden',name:'Gemeindegrenzen · swissBOUNDARIES3D',herausgeber:'swisstopo',ebene:'Geodaten',gruppe:'daten',
     url:'https://map.geo.admin.ch/?layers=ch.swisstopo.swissboundaries3d-gemeinde-flaeche.fill',
     verwendung:'Örtliche Gemeinde und Kanton entlang der Strasse, einschliesslich berührter Grenzgemeinden. Aktueller Jahresstand, nötigenfalls Vorjahr; Datenanbieter unabhängig vom gewählten Bewertungsstandard.'},
-  { id:'bav',name:'BAV-Haltestellen',herausgeber:'Bundesamt für Verkehr',ebene:'Geodaten',gruppe:'daten',url:'https://map.geo.admin.ch/?layers=ch.bav.haltestellen-oev',verwendung:'Haltestellenpunkte für Bus und Tram als Kartenkontext; keine Haltekanten oder automatische Haltestellenform.' },
+  { id:'bav',name:'BAV-Haltestellen',herausgeber:'Bundesamt für Verkehr',ebene:'Geodaten',gruppe:'daten',url:'https://map.geo.admin.ch/?layers=ch.bav.haltestellen-oev',verwendung:'Haltestellen und Haltekanten als Kartenkontext. In Zürich, Basel und Luzern bestimmen die bedienten Haltekanten (Abgleich mit dem Fahrplan) vor OSM, ob ein Abschnitt eine Haltestelle hat; keine automatische Haltestellenform.' },
   { id:'npvm',name:'ARE · NPVM',herausgeber:'Bundesamt für Raumentwicklung',ebene:'Geodaten',gruppe:'daten',url:'https://map.geo.admin.ch/?layers=ch.are.belastung-personenverkehr-strasse',verwendung:'Motorfahrzeug-DTV als ausdrücklich wählbare Modellalternative zur örtlichen Quelle; Bezugsjahr und Datenstand getrennt.' },
   { id:'tlm_tram',name:'Tramgleise · swissTLM3D',herausgeber:'swisstopo',ebene:'Geodaten',gruppe:'daten',url:'https://map.geo.admin.ch/?layers=ch.swisstopo.swisstlm3d-eisenbahnnetz',verwendung:'Tramgleise als Kartenkontext; ein paralleles Gleis belegt weder Tram in der Fahrbahn noch einen Haltestellenbereich.' },
   { id:'velo_zh',name:'Velozählungen Zürich',herausgeber:'Stadt Zürich, Tiefbauamt',ebene:'Geodaten',gruppe:'daten',staedte:['zurich'],url:'https://data.stadt-zuerich.ch/dataset/ted_taz_verkehrszaehlungen_werte_fussgaenger_velo',verwendung:'Richtungsgetrennte Gerätewerte der vorhandenen Viertelstunden mit Standorten; keine automatische Jahres-DTV-Hochrechnung und keine Notenwirkung.' },

@@ -10,10 +10,12 @@ export function DatenabrufHinweis(){
   Bundesdaten, Suche, Höhenprofile, Flugjahr des Luftbilds und Ebenenmetadaten: api3.geo.admin.ch; Karten: wmts.geo.admin.ch und wms.geo.admin.ch.
   Eingeschaltete Höhenkurven senden ab Zoom 18 den Ausschnitt zur Kachelsuche und beziehen begrenzte Raster-Teilabrufe über data.geo.admin.ch.
   <br />
-  Örtliche Daten und öffentliche Metadaten: map.bern.ch; Zürich: www.ogd.stadt-zuerich.ch, data.stadt-zuerich.ch und maps.zh.ch;
-  Basel-Stadt: data.bs.ch und wfs.geo.bs.ch; Luzern: map.stadtluzern.ch und public.geo.lu.ch; St. Gallen: daten.stadt.sg.ch.
+  Örtliche Daten und öffentliche Metadaten: map.bern.ch, für Höhenprofile in Bern gisapp.bern.ch; Zürich: www.ogd.stadt-zuerich.ch, data.stadt-zuerich.ch und maps.zh.ch;
+  Basel-Stadt: data.bs.ch und wfs.geo.bs.ch; Luzern: map.stadtluzern.ch und public.geo.lu.ch; St. Gallen: daten.stadt.sg.ch; Genf: vector.sitg.ge.ch.
+  Tempo der Kantone ausserhalb der Städte, ein Rechteck um die Segmente: maps.zh.ch, vector.sitg.ge.ch, maps.fr.ch, geo.jura.ch, geo.ur.ch, geo.so.ch und map.geo.sz.ch.
   Diese Metadatenabrufe enthalten Produkt- und Dienstkennungen, keine Eingaben oder Ergebnisse.
-  Unfall-Kartenebenen (ASTRA) und örtliche Beleuchtungsstandorte, VBZ-Rillen sowie das Zürcher Fuss-/Velowegnetz sind nur Kartenkontext;
+  Eingeschaltete Ebenen Strassenklassen, Bauzonen und Lichtsignale senden ab Zoom 17 den Kartenausschnitt, auch ohne übernommene Segmente.
+  Unfall-Kartenebenen (ASTRA), Strassenklassen, Bauzonen, Lichtsignale sowie das Zürcher Fuss-/Velowegnetz sind nur Kartenkontext;
   sie verändern keine Eingaben oder Bewertung. Fahrplan-, Luftbild-Erkennungs- und Überholabstand-Snapshots liegen als Dateien auf dieser Seite;
   dafür erfolgen keine Anfragen an die ursprünglichen Anbieter.
  </>

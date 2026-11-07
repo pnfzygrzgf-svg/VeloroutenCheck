@@ -197,7 +197,7 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
 // `busPerH` = Bus-Abfahrten 17–18 h in der stärksten Einzelrichtung (aus GTFS, siehe
 // tools/oev_takt.py); per BPUIC (= Haltestellen-`Id_opendata`) nachgeschlagen.
 export interface OevInfo {
-  oevHalt: boolean; oevHaltName?: string; oevTram: boolean; oevBus: boolean; busPerH?: number
+  oevHalt: boolean; oevHaltName?: string; oevHaltQuelle?: string; oevTram: boolean; oevBus: boolean; busPerH?: number
   // Bus-Takt AUF der Strecke (Umweltspur; seit 21.10.2026, wie linien_takt.py im lokalen Rechner): Fahrten/h an der
   // nächsten Haltekante einer Buslinie des Segments (bis STRECKE_HALT_M), auch ohne Haltestelle im Abschnitt
   streckePerH?: number; streckeHalt?: string

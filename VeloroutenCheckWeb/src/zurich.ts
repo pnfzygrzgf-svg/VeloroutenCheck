@@ -16,7 +16,7 @@
 //   - ÖV (Tram in der Fahrbahn, Haltestelle im Abschnitt): aus OSM (siehe cityShared.ts);
 //     Bus-Takt aus dem gebündelten GTFS-Snapshot (oev_takt_zurich.json).
 //
-// Lizenz Velonetzplanung / OGD Stadt Zürich: Open Government Data, Quellenangabe Pflicht
+// Lizenz OGD Stadt Zürich: CC0, Stadt Zürich
 // («Stadt Zürich»). Der WFS ist CORS-offen und liefert GeoJSON direkt in WGS84 (kein
 // Reprojizieren nötig) — Live-Abruf im Browser, kein Proxy/Server nötig.
 
@@ -47,7 +47,7 @@ function fetchDtvStations(): Promise<DtvStation[]> {
 }
 
 // ÖV (Tram/Haltestelle) aus OSM + Bus-Takt aus dem gebündelten GTFS-Snapshot (oev_takt.py).
-export const loadOev = (cands: Cand[]) => loadOevFromOsm(cands, 'oev_takt_zurich.json')
+export const loadOev = (cands: Cand[]) => loadOevFromOsm(cands, 'oev_takt_zurich.json', 'oev_kanten_zurich.json')
 
 // ── Routentyp aus der Velonetzplanung (WFS, view_velonetz) ────────────────────
 const VELONETZ_WFS = 'https://www.ogd.stadt-zuerich.ch/wfs/geoportal/Velonetzplanung'

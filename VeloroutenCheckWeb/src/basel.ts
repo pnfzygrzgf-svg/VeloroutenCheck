@@ -50,7 +50,7 @@ function fetchDtvStations(): Promise<DtvStation[]> {
 }
 
 // ÖV (Tram/Haltestelle) aus OSM + Bus-Takt aus dem gebündelten GTFS-Snapshot (oev_takt.py).
-export const loadOev = (cands: Cand[]) => loadOevFromOsm(cands, 'oev_takt_basel.json')
+export const loadOev = (cands: Cand[]) => loadOevFromOsm(cands, 'oev_takt_basel.json', 'oev_kanten_basel.json')
 
 // ── Routentyp aus dem Teilrichtplan Velo (WFS, Bestandsnetz mit Flags) ─────────
 const BS_WFS = 'https://wfs.geo.bs.ch/'

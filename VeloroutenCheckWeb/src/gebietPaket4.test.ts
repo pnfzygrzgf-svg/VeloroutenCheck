@@ -18,7 +18,7 @@ it('neuester verfügbarer Stand statt Kalenderjahr; Grenzsegment erhält Kontext
  vi.mocked(ladeE6).mockRejectedValue(new Error('Testausfall'))
  await ladeE6Kontext([{...c,datenOrt:ort}])
  const ids=vi.mocked(ladeE6).mock.calls.map(([d])=>d.id)
- expect(ids).toContain('e6.zh.licht');expect(ids).toContain('e6.ktzh.licht')
+ expect(ids).toEqual(['e6.zh.netz'])
 })
 it('leere Gebietsantwort ist ein sichtbarer Ausfall statt erfolgreicher Schweiz-Rückfall',async()=>{
  vi.stubGlobal('fetch',vi.fn(async()=>new Response('{"results":[]}')))

@@ -7,7 +7,7 @@ import { meldeQuelleStand, meldeQuellenFehler, datenGeneration } from './datenst
 import { distPointToLineM, type LL } from './geo'
 export const TLM_TRAM='ch.swisstopo.swisstlm3d-eisenbahnnetz'
 const ll=([e,n]:P):LL=>{const [lat,lon]=wgs(e,n);return{lat,lon}}
-/** Nur nationaler Kontext: Ein Haltestellenpunkt ist keine Haltekante, ein Tramgleis kein Beleg für gemeinsamen Strassenraum. */
+/** Nur nationaler Kontext: Ein Haltestellenpunkt sagt nichts über die Lage der Kanten, ein Tramgleis ist kein Beleg für gemeinsamen Strassenraum. */
 export async function bundesquellen(cs:readonly Cand[]):Promise<{ebenen:EbenenDaten;stops:Stop[];hinweise:Map<number,string[]>;fehler:string[]}> {
  const generation=datenGeneration()
  const ebenen:EbenenDaten={},stops:Stop[]=[],hinweise=new Map<number,string[]>(),fehler:string[]=[]
@@ -17,7 +17,8 @@ export async function bundesquellen(cs:readonly Cand[]):Promise<{ebenen:EbenenDa
  const tramUrl=geoAdminUrl(TLM_TRAM,box.join(','),'esriGeometryEnvelope')
  await Promise.all([
   ladeBav(lat,lon,r,undefined,true).then(d=>{
-   ebenen.bav=d.daten.halte.map(h=>({id:h.id,punkt:ll(h.p),klasse:h.art,text:`${h.name}: BAV ${h.nummer}; Haltestellenpunkt, keine Haltekante; Datenstand ${bavDatenstandText(d.daten)} (Ebene); Vollständigkeit unbekannt`}))
+   ebenen.bav=[...d.daten.halte.map(h=>({id:h.id,punkt:ll(h.p),klasse:h.art,text:`${h.name}: BAV ${h.nummer}; Haltestellenpunkt; Datenstand ${bavDatenstandText(d.daten)} (Ebene); Vollständigkeit unbekannt`})),
+    ...(d.daten.kanten??[]).map(k=>({id:k.id,punkt:ll(k.p),klasse:'kante',text:`${k.name}${k.bezeichnung?`, Kante ${k.bezeichnung}`:''}: BAV ${k.sloid}; Datenstand ${bavDatenstandText(d.daten)} (Ebene)`}))]
    for(const h of d.daten.halte){const p=ll(h.p);stops.push({...p,name:h.name,modi:h.art==='bus_tram'?['bus','tram']:[h.art]})}
    meldeQuelleStand('bav.halt','BAV · Haltestellenpunkte',d.daten.url,'bav',bavDatenstandText(d.daten)+' (Ebene)',d.daten.abgerufen,generation)
   }).catch(e=>{fehler.push('BAV-Haltestellen');meldeQuellenFehler('bav.halt','BAV · Haltestellenpunkte','https://api3.geo.admin.ch/rest/services/api/MapServer/ch.bav.haltestellen-oev','bav',e,generation)}),

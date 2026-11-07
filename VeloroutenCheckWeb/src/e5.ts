@@ -1,14 +1,19 @@
 import type { Quelle } from './strecke'
 import type { Cand } from './VeloMap'
 import type { Stadt } from './fuehrungsform'
-import type { EbenenDaten } from './ebenen'
+import { tempoObjekt, type EbenenDaten } from './ebenen'
 import { arcgisGeojson, holeJson } from './netz'
 import { densify, distPointToLineM, type LL } from './geo'
 import { lv95, wgs, add, sub, einheit, imPolygon, type P } from './e5/geo'
 import { ladeZuerich, zhStandText, type ZuerichSnapshot } from './e5/daten/anbieter/gemeinsam/zuerich'
 import { zuerichEntlang, type ZhStrasse } from './e5/daten/anbieter/gemeinsam/zuerichZuordnung'
+import { ladeRegional, type RegionalSnapshot } from './e5/daten/anbieter/gemeinsam/regional'
+import { regionalDienst, regionalFuer } from './e5/daten/anbieter/gemeinsam/regionalDienste'
+import { regionalEntlang, type RegionalTreffer } from './e5/daten/anbieter/gemeinsam/regionalZuordnung'
+import { kontextGemeinden } from './gebiet'
 import { ladeNpvm, npvmStandText, type NpvmSnapshot } from './e5/daten/anbieter/npvm'
 import { npvmZuordnen } from './e5/daten/anbieter/npvmZuordnung'
+import { npvmWerteText } from './kartenbaustein/ebenenAusschnitt'
 import { bestOverlapValue, type GeoJsonFeature } from './cityShared'
 import { meldeQuelleStand, datenStaende, datenGeneration, meldeQuellenFehler, quellenFehlerEntfernen } from './datenstand'
 
@@ -72,6 +77,16 @@ export function npvmFuerCand(c:Cand,snapshots:readonly NpvmSnapshot[]):E5Beleg|n
  if(new Set(ts.map(t=>`${t.b.nr}:${t.b.wert}`)).size!==1)return null
  const t=ts[0];return{...beleg('dtv',t.b.wert,'ARE · NPVM 2023 (modelliert)','are.npvm',t.s.url,'Modellierter DTV beider Richtungen; Zuordnung und Übernahme bestätigen.',ts.map(t=>t.b.linie)),datenstand:`${npvmStandText(t.s)} (Ebene); Bezugsjahr ${t.s.bezugsjahr}`,abgerufen:t.s.abgerufen,modell:true}
 }
+/** Annahme: So viele Proben des Abschnitts müssen zur amtlichen Linie passen; an Strassenenden und Knoten fehlt oft der Bezug */
+const TEMPO_ANTEIL=.7
+/** Tempo der kantonalen Dienste für einen Abschnitt: sicher, wenn genügend Proben denselben sicheren Wert ergeben; sonst nur Vorschlag. Die Zuordnung je Probe ist dieselbe wie in fgsCheck und SichtweitenCheck */
+export function regionalTempoFuer(ps:ReturnType<typeof e5Proben>,tiles:ReadonlyMap<string,RegionalSnapshot>,strassen:readonly ZhStrasse[]):{sicher:RegionalTreffer|null;vorschlag:RegionalTreffer|null} {
+ const xs=ps.map(pr=>{const s=tiles.get(tile(pr.p).key);return s?regionalEntlang(s,[pr],strassen).filter(x=>x.tempo!==null&&regionalDienst(x.quelle)?.art==='tempo'):[]})
+ const sichere=xs.flatMap(x=>x.filter(y=>y.sicher)),alle=xs.flat()
+ const eindeutig=new Set(alle.map(x=>x.tempo)).size===1
+ if(sichere.length>=ps.length*TEMPO_ANTEIL&&eindeutig)return{sicher:sichere[0],vorschlag:null}
+ return{sicher:null,vorschlag:eindeutig?alle[0]:null}
+}
 /** Nur die E5-Dienste der gewählten Stadt und der tatsächlichen Strassensegmente; kein allgemeines Anbieterverzeichnis. */
 export async function enrichE5(cs:Cand[],stadt:Stadt|'schweiz'):Promise<{cands:Cand[];ebenen:EbenenDaten;fehler:string[]}> {
  const generation=datenGeneration()
@@ -80,7 +95,7 @@ export async function enrichE5(cs:Cand[],stadt:Stadt|'schweiz'):Promise<{cands:C
  const vorbereitungen=new Map<string,P>();for(const c of roads)for(const p of e5Proben(c)){const t=tile(p.p);vorbereitungen.set(t.key,t.mitte)}
  const mitte=[...vorbereitungen.values()].slice(0,16)
  if(vorbereitungen.size>16)fehler.push('E5: grosser Ausschnitt, Zusatzquellen auf 16 Teilgebiete begrenzt; übrige Abschnitte offen')
- const zh=new Map<string,ZuerichSnapshot>(),klassen:GeoJsonFeature[]=[],npvm:NpvmSnapshot[]=[]
+ const zh=new Map<string,ZuerichSnapshot>(),regional=new Map<string,RegionalSnapshot>(),klassen:GeoJsonFeature[]=[],npvm:NpvmSnapshot[]=[]
  let zonen:GeoJsonFeature[]=[],lsa:GeoJsonFeature[]=[]
  const versuchen=async<T>(name:string,f:()=>Promise<T>,leer:T)=>{const id='e5.fehler.'+name;try{const r=await f();if(generation===datenGeneration())quellenFehlerEntfernen(id);return r}catch(e){fehler.push(name);const thema=/NPVM/.test(name)?'npvm':/Tempo/.test(name)?'tempo':/zonen/i.test(name)?'zonen':/hierarchie|klassierung/i.test(name)?'hierarchie':'lsa';const url=/ARE/.test(name)?'https://api3.geo.admin.ch/rest/services/api/MapServer/ch.are.belastung-personenverkehr-strasse':/Zürch/.test(name)?'https://data.stadt-zuerich.ch/':/Luzern/.test(name)?'https://map.stadtluzern.ch/':'https://data.bs.ch/explore/dataset/100430/';meldeQuellenFehler(id,name,url,thema,e,generation);return leer}}
  if(stadt==='zurich'){
@@ -106,6 +121,21 @@ export async function enrichE5(cs:Cand[],stadt:Stadt|'schweiz'):Promise<{cands:C
   if(d&&d.total_count<=100&&d.total_count===d.results.length)lsa=d.results.flatMap(x=>{const p=x.geo_point_2d as {lat:number;lon:number}|undefined;return p?[{geometry:{type:'Point',coordinates:[p.lon,p.lat]},properties:{BEZEICHNUNG:String(x.lg_lsaname??''),id:String(x.gml_id)}}]:[]})
   else if(d)fehler.push('Basler Lichtsignalanlagen: Ausschnitt zu gross, unvollständige Antwort verworfen')
  }
+ if(stadt==='schweiz'){
+  // Ausserhalb der vier Städte: Tempodienste des Kantons. Die Städte Zürich und Basel haben eigene Wege, Bern und Luzern keine kantonalen Dienste
+  const orte=[...new Map(cs.flatMap(c=>kontextGemeinden(c.datenOrt)).flatMap(o=>o.bfs&&o.kanton?[[o.bfs,{bfs:o.bfs,kanton:o.kanton,name:o.name}] as const]:[])).values()]
+  const dienste=regionalFuer(orte).filter(d=>d.art==='tempo')
+  if(dienste.length)for(let i=0;i<mitte.length;i+=3)await Promise.all(mitte.slice(i,i+3).map(async m=>{
+   const s:RegionalSnapshot={version:1,mitte:m,radiusM:350,teile:[]}
+   for(const d of dienste){
+    const r=await versuchen(`Tempo ${d.name}`,()=>ladeRegional(d,m,350),null)
+    if(!r)continue
+    s.teile.push(r.daten);meldeQuelleStand(d.id,d.name,r.daten.url,'tempo',r.daten.datenstand,r.daten.abgerufen,generation)
+    ebenen.tempo=[...(ebenen.tempo??[]),...r.daten.objekte.flatMap(o=>o.teile&&o.tempo!=null?[tempoObjekt(`${d.id}:${o.id}`,o.teile.map(l=>l.map(ll)),o.tempo,d.anbieter)]:[])]
+   }
+   regional.set(tile(m).key,s)
+  }))
+ }
  ebenen.hierarchie=klassen.flatMap(f=>{
   const g=f.geometry,wert=String(f.properties.klassierung??f.properties.TYP??'unbekannt')
   const teile=g?.type==='LineString'?[g.coordinates]:g?.type==='MultiLineString'?g.coordinates:[]
@@ -115,7 +145,7 @@ export async function enrichE5(cs:Cand[],stadt:Stadt|'schweiz'):Promise<{cands:C
  const missing=roads,npTiles=new Map<string,P>();for(const c of missing)for(const p of e5Proben(c)){const t=tile(p.p);npTiles.set(t.key,t.mitte)}
  const nps=[...npTiles.values()].slice(0,16)
  for(let i=0;i<nps.length;i+=3)await Promise.all(nps.slice(i,i+3).map(async p=>{const [lat,lon]=wgs(...p),d=await versuchen('ARE NPVM',()=>ladeNpvm(lat,lon,350),null);if(d){npvm.push(d.daten);meldeQuelleStand('are.npvm','ARE: NPVM (modelliert)',d.daten.url,'npvm',`${npvmStandText(d.daten)} (Ebene); Bezugsjahr ${d.daten.bezugsjahr??'unbekannt'}`,d.daten.abgerufen,generation)}}))
- ebenen.npvm=npvm.flatMap(s=>s.linien.map(l=>({id:l.id,linien:l.teile.map(z=>z.map(ll)),klasse:'modell',wert:l.dtv==null?'offen':String(l.dtv),text:`ARE NPVM 2023: ${l.dtv??'offen'} Fz/Tag; modelliert, erst nach Bestätigung; Datenstand ${npvmStandText(s)}`})))
+ ebenen.npvm=npvm.flatMap(s=>s.linien.map(l=>({id:l.id,linien:l.teile.map(z=>z.map(ll)),klasse:'modell',wert:l.dtv==null?'offen':String(l.dtv),text:`ARE ${npvmWerteText(l)}; erst nach Bestätigung; Datenstand ${npvmStandText(s)}`})))
  const strassen:ZhStrasse[]=cs.map(c=>({name:c.name,tags:c.osmTags??{highway:'road'},teile:[c.geom.map(p=>lv95(p.lat,p.lon))]}))
  return{fehler:[...new Set(fehler)],ebenen,cands:cs.map(c=>{
   const e=e5Leer(),bern={...c.bern},ps=e5Proben(c)
@@ -127,6 +157,12 @@ export async function enrichE5(cs:Cand[],stadt:Stadt|'schweiz'):Promise<{cands:C
    else if(xs.some(x=>x&&x.t.grund)){e.hinweise.push(...[...new Set(xs.flatMap(x=>x?[x.t.grund]:[]))]);const v=xs.find(x=>x?.t.vorschlag!=null);if(v&&v.t.vorschlag!=null)e.vorschlaege.push({...beleg('speed',v.t.vorschlag,'Stadt Zürich · zeitabhängiges Tempo','zh.tempo',v.s.tempo?.url??'',v.t.grund,v.t.linien),datenstand:zhStandText(v.s.tempo??{datenstand:null})})}
    const zs=xs.filter(x=>x?.t.zone).map(x=>x!.t.zone!)
    if(zs.length===xs.length&&new Set(zs).size===1)e.belege.verkehrszone=beleg('verkehrszone',zs[0],'Stadt Zürich · Verkehrszonen','zh.zonen',x?.s.zonen?.url??'')
+  }
+  if(stadt==='schweiz'&&!c.ohneFahrbahn&&ps.length>=2&&regional.size){
+   const{sicher,vorschlag}=regionalTempoFuer(ps,regional,strassen),t=sicher??vorschlag
+   const teil=t&&[...regional.values()].flatMap(s=>s.teile).find(x=>x.id===t.quelle)
+   if(t&&teil){const b={...beleg('speed',t.tempo!,`${t.name} · signalisiertes Tempo`,t.quelle,teil.url,t.grund,t.ids),datenstand:t.datenstand,abgerufen:teil.abgerufen}
+    if(sicher){bern.speed=t.tempo!;e.belege.speed=b}else e.vorschlaege.push(b)}
   }
   const klasse=bestOverlapValue(c.geom,klassen,f=>{const name=String(f.properties.lokalisationsname??f.properties.STRASSE??'').trim();return name&&name.toLocaleLowerCase('de-CH')!==c.name.toLocaleLowerCase('de-CH')?null:String(f.properties.klassierung??f.properties.TYP??'')||null},4,.8)
   if(klasse){bern.hierarchie=klasse;e.belege.hierarchie=beleg('hierarchie',klasse,stadt==='zurich'?'Stadt Zürich · Strassenklassierung':'Stadt Luzern · Strassenhierarchie',stadt+'.hierarchie',stadt==='zurich'?'https://www.ogd.stadt-zuerich.ch/wfs/geoportal/Strassenklassierung':E5_LU.hierarchie,'Amtliche Klassierung als Hinweis; keine automatische Umdeutung in eine andere Normklasse.')}
