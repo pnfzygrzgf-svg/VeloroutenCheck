@@ -291,10 +291,10 @@ export function VeloMap({ fokus, ring, cands, onLineClick, onMapClick, onReady, 
     try { const v = JSON.parse(localStorage.getItem('vrc.ebenen') ?? 'null'); if (Array.isArray(v)) return new Set(v as EbeneId[]) } catch { /* ohne Speicher */ }
     return new Set<EbeneId>()
   })
-  const [avArten, setAvArten] = useState(() => { try { return avArtenLesen(localStorage.getItem('vrc.avArten')) } catch { return avArtenLesen(null) } })
+  const [avArten, setAvArten] = useState(() => { try { return avArtenLesen(localStorage.getItem('vrc.avArten2')) } catch { return avArtenLesen(null) } })
   const avArtSetzen = (art: string, an: boolean) => setAvArten(alt => {
     const neu = new Set(alt); if (an) neu.add(art); else neu.delete(art)
-    try { localStorage.setItem('vrc.avArten', JSON.stringify([...neu])) } catch { /* nur für diese Sitzung */ }
+    try { localStorage.setItem('vrc.avArten2', JSON.stringify([...neu])) } catch { /* nur für diese Sitzung */ }
     return neu
   })
   const ebeneSchalten = (id: EbeneId, an: boolean) => setEbenenAn(prev => {
