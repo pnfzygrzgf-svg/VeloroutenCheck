@@ -15,12 +15,17 @@
 //     ausgewertet in docs/06_Empirische_Erkenntnisse_Fuehrungsformwahl.md.
 // ════════════════════════════════════════════════════════════════════════════
 
+import { baselBreite, baselDwvText, baselFormBefund, baselFormenText, baselSoll, baselZuschlaege, BASEL_DTV_ANNAHME, type BaselBreite,
+  type BaselFormBefund, type BaselSoll, type BaselZuschlag, type TempoRegime, type ZrwAusloeser, RADSPUR_TEXT } from './baselStandard'
+
 export type Fuehrungsart =
   | 'Mischverkehr'
   | 'Radstreifen'
   | 'Radstreifen oder Radweg'   // Übergang (Zürich): zwischen Radstreifen und Radweg
   | 'Radweg'
   | 'Velostrasse'               // nur Basel (siedlungsorientierte Strasse): einzige zulässige Form
+  | 'Radspur oder Radweg'       // nur Basel (Tab. 3, verkehrsorientiert, Vorzugsroute; VRC-01, 10.11.2026)
+  | 'Radstreifen oder Radspur'  // nur Basel (Tab. 3, verkehrsorientiert, Pendler-/Basisroute)
 
 // Stadt (bestimmt die Soll-Tabelle und die Haltestellen-Logik). Default: Bern.
 export type Stadt = 'bern' | 'zurich' | 'basel' | 'luzern'
@@ -100,31 +105,35 @@ function fuehrungsartLuzern(dtv: number, v: number): Fuehrungsart {
   return dtv < 10000 ? 'Radstreifen' : 'Radweg'   // 41–50 km/h
 }
 
-// Basel: nicht DTV-, sondern strassentyp-basiert (× Routentyp). Vorzugsroute → Velohauptroute,
-// Pendler-/Basisrouten → Veloroute. «Nicht verkehrsorientiert» = siedlungsorientierte Strasse.
-// (Tempo 30 und 50 ergeben in der Basler Tabelle dieselbe Soll-Form → Tempo hier nicht massgebend.)
-function fuehrungsartBasel(route: Routentyp, strassentyp?: Strassentyp): Fuehrungsart {
-  // Siedlungsorientierte (nicht verkehrsorientierte) Tempo-30-Strasse: Basel sieht pro Routentyp
-  // genau EINE Führungsform vor (Standards FVV BS, Tab. 3, S. 15) — alle anderen nicht vorgesehen
-  // (Notenwirkung in fuehrungsformNote). DWV-Deckel bleibt Hinweis (Vorzugsroute 2'500 / Pendler-Basis 5'000):
-  //   • Vorzugsroute (Velohauptroute) → Velostrasse.
-  //   • Pendler-/Basisrouten (Veloroute) → Mischverkehr (keine Velostrasse).
-  if (strassentyp === 'siedlungsorientiert') {
-    return route === 'Velohauptroute' ? 'Velostrasse' : 'Mischverkehr'
+// Basel: Tab. 3 der Standards Fuss- und Veloverkehrsinfrastruktur (S. 15; baselStandard.ts, Prüfung VRC-01 vom 10.11.2026):
+// Tempo × Strassenfunktion × Netzhierarchie. Vorzugsroute → Velohauptroute, Pendler-/Basisrouten → Veloroute. Die Vorgabe
+// für die Note sind die empfohlenen Formen (E) der Zeile; Ausnahmeformen (A) weist fuehrungsformNote als Hinweis aus.
+// null: nicht bestimmbar (Strassenfunktion fehlt, Tempo bzw. Kombination durch Tab. 3 nicht abgedeckt, Regime offen).
+function fuehrungsartBasel(route: Routentyp, strassentyp: Strassentyp | undefined, v: number, regime?: TempoRegime): Fuehrungsart | null {
+  return baselSollArt(baselSoll(strassentyp, route, v, regime))
+}
+/** Vorgabe der Note aus den empfohlenen Formen einer Basler Zeile */
+export function baselSollArt(bs: BaselSoll): Fuehrungsart | null {
+  if (bs.status !== 'bestimmt') return null
+  const e = [...bs.empfohlen].sort().join('+')
+  switch (e) {
+    case 'Velostrasse': return 'Velostrasse'
+    case 'Mischverkehr': return 'Mischverkehr'
+    case 'Radspur+Radweg': return 'Radspur oder Radweg'
+    case 'Radspur+Radstreifen': return 'Radstreifen oder Radspur'
+    default: return null
   }
-  // verkehrsorientiert (oder unbekannt → konservativ verkehrsorientiert):
-  return route === 'Velohauptroute' ? 'Radstreifen oder Radweg' : 'Radstreifen'
 }
 
 // Dispatcher: wählt die stadtabhängige Soll-Tabelle. Bern bleibt Default (auch für unbekannte Städte).
 export function fuehrungsart(
   dtv: number, v: number,
-  stadt: Stadt = 'bern', route: Routentyp = 'Velohauptroute', strassentyp?: Strassentyp,
-): Fuehrungsart {
+  stadt: Stadt = 'bern', route: Routentyp = 'Velohauptroute', strassentyp?: Strassentyp, regime?: TempoRegime,
+): Fuehrungsart | null {
   switch (stadt) {
     case 'zurich': return fuehrungsartZuerich(dtv, v, route)
     case 'luzern': return fuehrungsartLuzern(dtv, v)
-    case 'basel':  return fuehrungsartBasel(route, strassentyp)
+    case 'basel':  return fuehrungsartBasel(route, strassentyp, v, regime)
     default:       return fuehrungsartBern(dtv, v)
   }
 }
@@ -146,6 +155,7 @@ export function fuehrungsart(
 export type IstFuehrungsform =
   | 'Mischverkehr'
   | 'Radstreifen'
+  | 'Radspur'                                          // nur Basel: überbreiter Radstreifen (Standards BS, Abschnitt 5.1.2, S. 42)
   | 'Radweg strassenbegleitend / Geschützter Radstreifen'
   | 'Radweg abgesetzt'
   | 'Umweltspur'
@@ -172,7 +182,7 @@ export type ParkenRechts = 'ja' | 'nein' | 'egal'
 // Führungsformen, bei denen Parken rechts (Dooring) relevant ist: Velo fährt auf der Fahrbahn
 // neben möglichem Längsparken. Nicht bei baulich abgesetzten Radwegen / Fussweg (anderer Mechanismus).
 export const PARKEN_RELEVANT: IstFuehrungsform[] =
-  ['Mischverkehr', 'Radstreifen', 'Velostrasse', 'Umweltspur', 'Einbahn Velogegenverkehr mit Markierung']
+  ['Mischverkehr', 'Radstreifen', 'Radspur', 'Velostrasse', 'Umweltspur', 'Einbahn Velogegenverkehr mit Markierung']
 
 // ── Haltestellen (ÖV) ─────────────────────────────────────────────────────────
 // Umgang mit ÖV-Haltestellen im Abschnitt. Soll-Lösung aus Masterplan-Diagramm
@@ -262,6 +272,10 @@ export function haltestellenTypen(stadt: Stadt): Haltestellentyp[] {
 }
 
 // Haltestellentypen mit Breitenkriterium je Stadt (für die UI-Sichtbarkeit des Breitenfelds).
+/** Alle bekannten Haltestellentypen aller Städte (Prüfung beim Import, VRC-04) */
+export const alleHaltestellentypen = (): Haltestellentyp[] =>
+  [...new Set((Object.values(HALTESTELLEN) as Partial<Record<Haltestellentyp, HsTyp>>[]).flatMap(x => Object.keys(x) as Haltestellentyp[]))]
+
 export function haltestellenMitBreite(stadt: Stadt): Haltestellentyp[] {
   return haltestellenTypen(stadt).filter(t => HALTESTELLEN[stadt][t]?.breite != null)
 }
@@ -291,10 +305,6 @@ export function haltestellenLoesung(
 // (keine FixMyCity-Daten zu Haltestellen), tunbar.
 export const HALTESTELLE_ABZUG = 1.0
 
-// Basel, siedlungsorientierte Strasse: Formen, die dort wie «Mischverkehr» behandelt werden
-// (Zulässigkeit auf Pendler-/Basisrouten und DWV-Deckel 5'000).
-const BASEL_WIE_MISCHVERKEHR: IstFuehrungsform[] = ['Mischverkehr', 'Einbahn Velogegenverkehr ohne Markierung']
-
 // Separationsstufe (Ordnung) für den "IST erfüllt SOLL?"-Vergleich.
 // Der Übergang 'Radstreifen oder Radweg' liegt zwischen Radstreifen (1) und Radweg (2).
 const SEPARATION: Record<Fuehrungsart, number> = {
@@ -302,6 +312,8 @@ const SEPARATION: Record<Fuehrungsart, number> = {
   'Velostrasse': 0,   // Sonderform des Mischverkehrs (gleiche Separationsstufe)
   'Radstreifen': 1,
   'Radstreifen oder Radweg': 1.5,
+  'Radspur oder Radweg': 1.5,        // Basel: Radspur ist ein Radstreifen (Rang 1), Radweg Rang 2 → wie «Radstreifen oder Radweg»
+  'Radstreifen oder Radspur': 1,
   'Radweg': 2,
 }
 
@@ -331,6 +343,9 @@ interface IstMeta {
 const IST: Record<IstFuehrungsform, IstMeta> = {
   'Mischverkehr':              { q: 'Q6', rank: 0, feelClass: 'Mischverkehr' },
   'Radstreifen':               { q: 'Q1', rank: 1, feelClass: 'Radstreifen', optimal: 2.5, minimal: 1.8 },
+  // Radspur (nur Basel, VRC-01): überbreiter Radstreifen → gleiche Trennstufe und feel-safe-Klasse wie der Radstreifen
+  // (bewusst: Abstufung nach Separation, VRC-02); Breite aus Tab. 4 (baselStandard.ts). Ausserhalb Basels wie Radstreifen.
+  'Radspur':                   { q: 'Q1', rank: 1, feelClass: 'Radstreifen', optimal: 2.5, minimal: 1.8 },
   'Radweg strassenbegleitend / Geschützter Radstreifen': { q: 'Q2', rank: 2, feelClass: 'Radweg', optimal: 2.5, minimal: 1.8 },
   'Radweg abgesetzt':          { q: 'Q3', rank: 2, feelClass: 'Radweg', optimal: 2.5, minimal: 1.5 },
   // Umweltspur (Q4, Bus+Velo): DTV/Tempo nicht massgebend, sondern Bus-Takt (siehe unten).
@@ -390,26 +405,24 @@ export const BREITEN_ZUERICH: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
   'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 1.8, minimal: 1.8 },
 }
 
-// Stadt Basel — Standards Fuss- und Veloverkehrsinfrastruktur Kanton Basel-Stadt (2024), Tab. 4
-// (S. 20): optimal = Standardmass, minimal = reduziertes Standardmass. Fussweg und das
-// Velostrassen-Maximum 6,50 m → Bern.
+// Stadt Basel — Standards Fuss- und Veloverkehrsinfrastruktur Basel-Stadt (27.09.2024), Tab. 4 (S. 16). Seit der Prüfung
+// VRC-01 (10.11.2026) je FORM das Standardmass, unabhängig vom Routentyp (optimal = minimal); das reduzierte Standardmass
+// gilt nur mit begründeter Abweichung (Abschnitt 1.3) und kommt aus baselStandard.ts (baselBreite), ebenso die Sonderfälle
+// (Radstreifen auf Vorzugsroute mindestens 1,80 m, Zweirichtungsradweg 4,00 m, Velostrasse unter 1’000 Fz/d 4,00 m).
+// Zweirichtungsradweg: 4,00 m auf Vorzugsrouten (→ optimal), sonst 3,40 m. Kombinierter Fuss-/Radweg: nicht aus Tab. 4
+// (frequenzabhängig 6,00 / 4,80, Standards BS); Fussweg und Velostrassen-Maximum 6,50 m → Bern.
 export const BREITEN_BASEL: Partial<Record<IstFuehrungsform, BreitenSoll>> = {
-  'Radstreifen':                                         { optimal: 2.5, minimal: 1.8 },
-  'Radweg strassenbegleitend / Geschützter Radstreifen': { optimal: 2.5, minimal: 2.2 },
-  'Radweg abgesetzt':                                    { optimal: 2.5, minimal: 2.2 },
-  // Zweirichtungsradweg (Q10): 4,00 / 3,40 — fehlte bis zum 29.09.2026 (Bern-Fallback 4,50 / 3,20),
-  // s. BREITEN_ZUERICH.
+  'Radstreifen':                                         { optimal: 1.8, minimal: 1.8 },
+  'Radspur':                                             { optimal: 2.5, minimal: 2.5 },
+  'Radweg strassenbegleitend / Geschützter Radstreifen': { optimal: 2.5, minimal: 2.5 },
+  'Radweg abgesetzt':                                    { optimal: 2.5, minimal: 2.5 },
   'Zweirichtungsradweg':                                 { optimal: 4.0, minimal: 3.4 },
-  'Umweltspur':                                          { optimal: 4.5, minimal: 3.0 },
-  // Gemeinsamer Rad-/Fussweg, frequenzabhängig (Standards BS): mittlere–hohe Frequenz
-  // (→ Velohauptroute) 6,00 m, geringe Frequenz (→ Veloroute) 4,80 m.
+  'Umweltspur':                                          { optimal: 4.5, minimal: 4.5 },
   'Kombinierter Fuss-/Radweg':                           { optimal: 6.0, minimal: 4.8 },
-  // Velostrasse (einzige zulässige Form auf siedlungsorientierten Strassen): Nettobreite der
-  // Fahrbahn (ohne Parkierung + Sicherheitsabstand zur Parkierung). optimal 4,50 / minimal 4,30.
-  'Velostrasse':                                         { optimal: 4.5, minimal: 4.3 },
-  // Q7 Einbahn mit Velogegenverkehr — Basel „wie Radstreifen" (2,5 / 1,8).
-  'Einbahn Velogegenverkehr mit Markierung':             { optimal: 2.5, minimal: 1.8 },
-  'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 2.5, minimal: 1.8 },
+  'Velostrasse':                                         { optimal: 4.5, minimal: 4.5 },
+  // Einbahn mit Velogegenverkehr: markiert wie Radstreifen (Tab. 4); baulich getrennt Annahme wie Einrichtungsradweg
+  'Einbahn Velogegenverkehr mit Markierung':             { optimal: 1.8, minimal: 1.8 },
+  'Einbahn Velogegenverkehr mit baulicher Trennung':     { optimal: 2.5, minimal: 2.5 },
 }
 
 // Stadt Luzern — Standards Veloverkehr Stadt Luzern (Q-Blätter, S. 30–57):
@@ -603,7 +616,9 @@ function zielScore(soll: Fuehrungsart, v: number): number {
     case 'Radstreifen':  return FEELSAFE.Radstreifen[k]
     case 'Radweg':       return FEELSAFE.Radweg[k]
     case 'Radstreifen oder Radweg':
+    case 'Radspur oder Radweg':
       return (FEELSAFE.Radstreifen[k] + FEELSAFE.Radweg[k]) / 2
+    case 'Radstreifen oder Radspur': return FEELSAFE.Radstreifen[k]
   }
 }
 
@@ -634,6 +649,9 @@ export function sollBreite(ist: IstFuehrungsform, routentyp: Routentyp, breitenS
   return routentyp === 'Velohauptroute' ? optimal : minimal
 }
 
+/** Gültige Breite (Prüfung VRC-03): endliche Zahl über 0 m. Leer, NaN, Infinity, 0 und negative Werte sind keine Angabe */
+export const gueltigeBreite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x > 0
+
 export function brauchtBreite(ist: IstFuehrungsform): boolean {
   const m = IST[ist]
   return m.optimal != null || m.minimal != null
@@ -663,7 +681,7 @@ export interface NotenErgebnis {
   // Haltestellenbereich (nur Bern, seit 20.10.2026): die Note kommt allein aus der Haltestelle (haltestellenbereichNote);
   // soll/ist/q sind dann ohne Bedeutung
   haltestellenbereich?: boolean
-  soll: Fuehrungsart
+  soll: Fuehrungsart | null   // null nur in Basel: Vorgabe nach Tab. 3 nicht bestimmbar (siehe offen bzw. basel)
   ist: IstFuehrungsform
   q: string             // Querschnittstyp (Q1…Q9)
   note: number          // Endnote 1.0 … 6.0 in 0,5-Schritten (6 = beste)
@@ -678,7 +696,11 @@ export interface NotenErgebnis {
   breitenDefizit: number // Abweichung ausserhalb der Vorgabe in Metern (zu schmal + zu breit, ≥ 0)
   breitenabzug: number   // Notenabzug aus der Breite
   breiteErfuellt: boolean
-  breitenStatus: 'erfuellt' | 'zu schmal' | 'zu breit' | 'keine'
+  breitenStatus: 'erfuellt' | 'zu schmal' | 'zu breit' | 'keine' | 'offen'
+  // Basel (Prüfung VRC-01): Einordnung nach Tab. 3, Breite nach Tab. 4, Prüfliste Tab. 5, DTV-Annahme
+  basel?: BaselNoteInfo
+  // Note nicht bestimmbar (Basel: Kombination durch Tab. 3 nicht abgedeckt bzw. offen); note ist dann NaN
+  offen?: string
   // Parkierung rechts (Dooring) — bei Fahrbahn-Führungsformen, siehe PARKEN_RELEVANT:
   parkenRechts: ParkenRechts
   parkenSicherheitsstreifen: boolean  // Sicherheitsstreifen ggü. Parkplätzen (SN 640 060) vorhanden
@@ -705,6 +727,22 @@ export interface NotenErgebnis {
   warnung?: string       // steht ZUSÄTZLICH zur normalen Erklärung (Note bleibt regulär gerechnet)
 }
 
+/** Basler Zusatzangaben (Prüfung VRC-01): Tempo-Regime, Begründung einer Abweichung vom Standardmass (Abschnitt 1.3),
+ *  4,00-m-Auslöser des Zweirichtungsradwegs, Steigung (nur Prüfliste Tab. 5) */
+export interface BaselExtra { regime?: TempoRegime; abweichung?: string; zrw?: ZrwAusloeser; steigungPct?: number }
+export interface BaselNoteInfo {
+  soll: BaselSoll
+  form: BaselFormBefund
+  breite: BaselBreite | null
+  zuschlaege: BaselZuschlag[]
+  /** DWV-Grenze der Zelle, näherungsweise mit dem DTV geprüft */
+  dwv?: string
+  dtvAnnahme: string
+}
+/** Formen mit eigener, von der Soll-Tabelle unabhängiger Regel (Basel: auch ohne bestimmbare Vorgabe bewertbar) */
+export const baselEigeneRegel = (ist: IstFuehrungsform, v: number): boolean =>
+  ist === 'Umweltspur' || ist === 'Fussweg Velo gestattet' || (ist === 'Velostrasse' && v > 30)
+
 // Hauptbewertung: Führungsform-Note (Soll vs. Ist) plus Breiten-, Parkierungs- und Haltestellen-
 // Abzug zur Endnote zusammenführen.
 //   breite        = Ist-Breite der Anlage [m] (optional)
@@ -723,9 +761,14 @@ export function fuehrungsformNote(
   stadt: Stadt = 'bern',       // bestimmt Soll-Tabelle + Haltestellen-Logik
   strassentyp?: Strassentyp,   // nur Basel: für die strassentyp-basierte Soll-Wahl
   parkenSicherheitsstreifen = false,  // Sicherheitsstreifen ggü. Parkplätzen (SN 640 060) → kein Dooring-Abzug
+  basel: BaselExtra = {},             // nur Basel (VRC-01): Regime, Abweichung, Zweirichtungsradweg, Steigung
 ): NotenErgebnis {
-  const soll = fuehrungsart(dtv, v, stadt, routentyp, strassentyp)
+  const soll = fuehrungsart(dtv, v, stadt, routentyp, strassentyp, basel.regime)
   const meta = IST[ist]
+  // Basel (Prüfung VRC-01): Tab. 3 (Einordnung), Tab. 4 (Breite), Tab. 5 (Prüfliste)
+  const bs = stadt === 'basel' ? baselSoll(strassentyp, routentyp, v, basel.regime) : null
+  const fb = bs ? baselFormBefund(bs, ist) : null
+  const bb = stadt === 'basel' ? baselBreite(ist, routentyp, { abweichung: basel.abweichung, dtv, zrw: basel.zrw, breite }) : null
 
   // ── Breite: Untergrenze je Routentyp (+ optionale Obergrenze, nur Velostrasse-Band). Abzug
   // (linear) = Abweichung ausserhalb des Bereichs × BREITE_SATZ der feel-safe-Klasse UND des
@@ -736,12 +779,8 @@ export function fuehrungsformNote(
   // Breiten-Sollwerte: stadtspezifischer Override je Feld, sonst Berner Wert (IST).
   const optimal = breitenSoll?.optimal ?? meta.optimal
   const minimal = breitenSoll?.minimal ?? meta.minimal
-  let sollbreite = routentyp === 'Velohauptroute' ? optimal : minimal
-  // Basel-Velostrasse: bei geringen Verkehrsmengen (DWV < 1'000) ist eine reduzierte Fahrbahn-
-  // breite von 4,00 m zulässig (Standards FVV BS, S. 15).
-  if (stadt === 'basel' && ist === 'Velostrasse' && dtv < 1000 && sollbreite != null) {
-    sollbreite = Math.min(sollbreite, 4.0)
-  }
+  // Basel: Sollbreite nach Tab. 4 je Form (Standardmass; reduziert nur mit Begründung), nicht nach Routentyp
+  const sollbreite = bb ? bb.soll : routentyp === 'Velohauptroute' ? optimal : minimal
   const maxbreite = breitenSoll?.maximal ?? meta.maximal
   let breitenDefizit = 0
   let breitenStatus: NotenErgebnis['breitenStatus'] = 'keine'
@@ -750,9 +789,16 @@ export function fuehrungsformNote(
     const zuBreit = maxbreite != null ? Math.max(0, breite - maxbreite) : 0
     breitenDefizit = zuSchmal + zuBreit
     breitenStatus = breitenDefizit === 0 ? 'erfuellt' : (zuSchmal > 0 ? 'zu schmal' : 'zu breit')
+    // Basel, Zweirichtungsradweg: ob 4,00 m gelten, ist offen → keine Erfüllung und kein Abzug
+    if (bb?.offen && breitenDefizit === 0) breitenStatus = 'offen'
   }
   const breitenabzug = breitenDefizit * BREITE_SATZ[meta.feelClass][tempoKey(v)]
   const breiteErfuellt = breitenStatus === 'erfuellt' || breitenStatus === 'keine'
+  const baselInfo: BaselNoteInfo | undefined = bs && fb ? {
+    soll: bs, form: fb, breite: bb,
+    zuschlaege: bb ? baselZuschlaege(ist, { steigungPct: basel.steigungPct, parken: parkenRechts, sicherheitsstreifen: parkenSicherheitsstreifen }) : [],
+    ...(fb.dwvMax ? { dwv: baselDwvText(fb, dtv) } : {}), dtvAnnahme: BASEL_DTV_ANNAHME,
+  } : undefined
 
   // ── Parkierung rechts (Dooring) bei fahrbahnnahen Formen (PARKEN_RELEVANT). Ein Sicherheitsstreifen
   // gegenüber den Parkplätzen (SN 640 060) entschärft die Dooring-Gefahr → dann kein Abzug.
@@ -823,20 +869,11 @@ export function fuehrungsformNote(
     hsBreiteStatus = d === 0 ? 'erfuellt' : 'zu schmal'
   }
 
-  // Basel-DWV-Deckel auf siedlungsorientierter Strasse — FORM-abhängig (Tab. 3, S. 15; nur Hinweis,
-  // kein Notenabzug, da Basel oberhalb keine andere Lösung vorgibt):
-  //   • Velostrasse auf Vorzugsroute (Velohauptroute): ≤ 2'500 DWV.
-  //   • Mischverkehr auf Pendler-/Basisrouten (Veloroute): ≤ 5'000 DWV.
-  //   • Velostrasse auf Pendler-/Basisrouten: KEIN DWV-Deckel (Tab. 3 nennt keinen Wert).
-  // «Einbahn Velogegenverkehr ohne Markierung» gilt hier wie Mischverkehr (s. BASEL_WIE_MISCHVERKEHR).
-  let baselDeckel: number | undefined
-  if (stadt === 'basel' && strassentyp === 'siedlungsorientiert') {
-    if (ist === 'Velostrasse' && routentyp === 'Velohauptroute') baselDeckel = 2500
-    else if (BASEL_WIE_MISCHVERKEHR.includes(ist) && routentyp === 'Veloroute') baselDeckel = 5000
-  }
-  const baselDeckelHinweis = (baselDeckel != null && dtv > baselDeckel)
-    ? `DTV ${dtv} über Basler Höchstwert ${baselDeckel} für diese Führungsform — gemäss Basel keine konforme Lösung (Verkehrsreduktion nötig).`
-    : undefined
+  // Basel: DWV-Grenze der Zelle (Tab. 3) und Ausnahmeform als WARNUNG (die Note bleibt regulär gerechnet; kein Abzug)
+  const baselWarnung = fb ? [
+    fb.status === 'ausnahme' ? `Basel: ${fb.text}.` : '',
+    fb.dwvMax && Number.isFinite(dtv) && dtv > fb.dwvMax ? `Basel: ${baselInfo?.dwv}` : '',
+  ].filter(Boolean).join(' ') || undefined : undefined
 
   // ── Endnote: Basisnote minus alle Abzüge (begrenzt 1…maxNote, gerundet 0,5). forceNote überschreibt
   // (Sonderfälle mit fixer Note 1). Rundung erfolgt EINMALIG hier auf die Endnote.
@@ -855,7 +892,7 @@ export function fuehrungsformNote(
     // Der Basler DWV-Hinweis ist eine WARNUNG, kein hinweis: die Note bleibt regulär gerechnet,
     // also muss auch ihre Erklärung stehen bleiben. Als hinweis verdrängte er sie bis zum
     // 29.09.2026 — Mischverkehr mit Parkierung zeigte Note 5, der Abzug −1 war nirgends zu sehen.
-    const warnung = [opts.warnung, baselDeckelHinweis].filter(Boolean).join(' · ') || undefined
+    const warnung = [opts.warnung, baselWarnung].filter(Boolean).join(' · ') || undefined
     return {
       soll, ist, q: meta.q, basisnote, erfuellt, defizit, note,
       routentyp, sollbreite, maxbreite, breite, breitenDefizit, breitenabzug,
@@ -867,35 +904,32 @@ export function fuehrungsformNote(
       noteFix: !kapTramNote1 && opts.forceNote != null,
       hinweis: opts.hinweis,
       warnung,
+      ...(baselInfo ? { basel: baselInfo } : {}),
     }
   }
 
-  // Sonderfall Basel (Tab. 3, S. 15): die zulässigen Führungsformen hängen von Strassentyp × Routentyp ab.
-  //   • siedlungsorientierte (nicht verkehrsorientierte) Tempo-30-Strasse:
-  //       Vorzugsroute (Velohauptroute)      → Velostrasse (≤ 2'500 DWV).
-  //       Pendler-/Basisrouten (Veloroute)   → Mischverkehr (≤ 5'000 DWV) ODER Velostrasse (kein DWV-Deckel).
-  //     Die zulässige Form wird unten regulär bewertet (Velostrasse-Zweig bzw. Mischverkehr-Rang → Note 6);
-  //     jede ANDERE Form ist nicht vorgesehen → Basis 4 (Deckel 4). DWV-Deckel bleibt ein Hinweis.
-  //   • verkehrsorientierte Strasse: eine Velostrasse gibt es dort nicht → nicht zulässig (Basis 4).
-  //   • «Einbahn Velogegenverkehr ohne Markierung» ist Mischverkehr in einer Einbahnstrasse
-  //     (gleicher Rang, gleiche feel-safe-Klasse, keine Breitenvorgabe) und wird auf Pendler-/
-  //     Basisrouten wie Mischverkehr zugelassen. Vorher galt die in
-  //     Basler Quartierstrassen alltägliche Form als «nicht konform» (Deckel 4). Auf Vorzugsrouten
-  //     bleibt sie es — dort ist allein die Velostrasse vorgesehen.
-  if (stadt === 'basel') {
-    if (strassentyp === 'siedlungsorientiert') {
-      const zulaessig: IstFuehrungsform[] = routentyp === 'Velohauptroute'
-        ? ['Velostrasse']
-        : ['Mischverkehr', 'Velostrasse']
-      const erlaubt = zulaessig.includes(ist) ||
-        (routentyp === 'Veloroute' && BASEL_WIE_MISCHVERKEHR.includes(ist))
-      if (!erlaubt) {
-        return finish(4, false, 0, { maxNote: 4,
-          hinweis: `Basel: hier ist nur ${zulaessig.join(' oder ')} vorgesehen — andere Führungsform nicht konform.` })
-      }
-    } else if (ist === 'Velostrasse') {
-      return finish(4, false, 0, { maxNote: 4,
-        hinweis: 'Basel: eine Velostrasse gibt es auf einer verkehrsorientierten Strasse nicht — nicht zulässig.' })
+  // Prüfung VRC-03: eine angegebene, aber ungültige Breite (0, negativ, NaN, Infinity) gibt keine Note — auch bei direktem
+  // Aufruf (die Pflicht der fehlenden Breite prüft bewertung.ts, erforderlicheBreiten)
+  const ungueltig = [
+    breite !== undefined && !gueltigeBreite(breite) && (sollbreite != null || maxbreite != null) ? 'Breite der Führungsform' : '',
+    oevAngebot !== 'keine' && hsBreitenSoll != null && haltestelleBreite !== undefined && !gueltigeBreite(haltestelleBreite) ? 'Breite an der Haltestelle' : '',
+  ].filter(Boolean)
+  if (ungueltig.length) return { ...finish(6, false, 0), note: NaN, noteFix: true, offen: `${ungueltig.join(' und ')}: keine gültige Angabe` }
+
+  // Sonderfall Basel (Tab. 3, S. 15; Prüfung VRC-01 vom 10.11.2026):
+  //   • Vorgabe nicht bestimmbar (Strassenfunktion fehlt, Tempo bzw. Kombination nicht abgedeckt, Regime offen): keine Note,
+  //     ausser für Formen mit eigener Regel (Umweltspur, Fussweg Velo gestattet, Velostrasse über Tempo 30).
+  //   • Form in der Zeile nicht zugeordnet: auf nicht verkehrsorientierten Strassen (und für die Velostrasse auf
+  //     verkehrsorientierten) wie bisher Basis 4 (Deckel 4); sonst regulär nach Separation (keine Aussage über ein Verbot).
+  //   • Ausnahmeform (A): regulär bewertet, Hinweis «nur im Ausnahmefall» (kein zusätzlicher Abzug).
+  if (bs && fb) {
+    if (soll === null && !baselEigeneRegel(ist, v)) {
+      return { ...finish(6, false, 0), note: NaN, noteFix: true, offen: `Basel: ${fb.text}` }
+    }
+    if (fb.status === 'nicht_zugeordnet' && (strassentyp === 'siedlungsorientiert' || ist === 'Velostrasse')) {
+      const vorgesehen = [bs.empfohlen.length ? `empfohlen ${baselFormenText(bs.empfohlen)}` : '',
+        bs.ausnahme.length ? `im Ausnahmefall ${baselFormenText(bs.ausnahme)}` : ''].filter(Boolean).join('; ')
+      return finish(4, false, 0, { maxNote: 4, hinweis: `Basel: ${fb.text}. Vorgesehen sind hier: ${vorgesehen} (${bs.text}).` })
     }
   }
 
@@ -953,6 +987,7 @@ export function fuehrungsformNote(
   }
 
   // Führungsform-Note: IST erreicht/übertrifft die geforderte Separation → Basis 6.
+  if (soll === null) return { ...finish(6, false, 0), note: NaN, noteFix: true, offen: fb?.text ?? 'Vorgabe nicht bestimmbar' }
   if (meta.rank >= SEPARATION[soll]) {
     return finish(6, true, 0)
   }
@@ -977,61 +1012,53 @@ const BREITEN_BY_STADT: Record<Stadt, Partial<Record<IstFuehrungsform, BreitenSo
   luzern: BREITEN_LUZERN,
 }
 
-// Basel kennt keinen DTV-basierten Soll, sondern unterscheidet verkehrs-/siedlungsorientierte
-// Strassen. Liegt (wie bei Berner Daten) kein Strassentyp vor, wird er aus DTV/Tempo GESCHÄTZT:
-// siedlungsorientierte Strassen sind Tempo-30 mit DWV-Deckel; höheres Tempo/DTV → verkehrsorientiert.
-export function baselStrassentypAusVerkehr(dtv: number, v: number): Strassentyp {
-  return (v > 30 || dtv >= 5000) ? 'verkehrsorientiert' : 'siedlungsorientiert'
-}
-
 export interface VergleichArgs {
   dtv: number; v: number; ist: IstFuehrungsform
   breite?: number; routentyp?: Routentyp
   parkenRechts?: ParkenRechts; parkenSicherheitsstreifen?: boolean; oevTakt?: number
   oevAngebot?: OevAngebot; haltestellentyp?: Haltestellentyp
   haltestelleBreite?: number; tram?: boolean
-  strassentyp?: Strassentyp   // amtlicher/manueller Basler Strassentyp; fehlt er, wird geschätzt
+  strassentyp?: Strassentyp   // amtlicher/manueller Basler Strassentyp; fehlt er, bleibt der Basler Vergleich offen
+  basel?: BaselExtra          // Basler Zusatzangaben (Regime, Abweichung, Zweirichtungsradweg, Steigung)
 }
 
 export interface VergleichsNote {
   stadt: Stadt
-  note: number
-  geschaetzt: boolean   // true = Soll-Eingabe (z. B. Basel-Strassentyp) wurde geschätzt
-  soll: Fuehrungsart    // geforderte Führungsform nach den Standards dieser Stadt
+  note: number | null   // null: nach diesen Standards nicht bewertbar (Basel ohne Strassenfunktion bzw. nicht abgedeckt)
+  offen?: string        // Grund, wenn note null ist
+  soll: Fuehrungsart | null  // geforderte Führungsform nach den Standards dieser Stadt
   sollbreite?: number   // massgebliche Soll-Breite [m]; undefined = keine Vorgabe
   gruende: string[]     // Klartext-Gründe (mit Werten), warum die Note von der Referenz abweicht
 }
 
-// Eine Bewertung nach den Standards einer Stadt berechnen. Basel: der Strassentyp wird nur
-// GESCHÄTZT, wenn keiner übergeben wurde — sonst verwarf der Vergleich den amtlichen Wert
-// (Geoportal-Dataset 100250) und die Referenz war NICHT die angezeigte Hauptnote; die
-// „Gründe"-Zeilen begründeten dann Abweichungen zu einer Note, die niemand sieht (07.08.2026).
-function bewerteFuerStadt(a: VergleichArgs, stadt: Stadt): NotenErgebnis {
-  const strassentyp = stadt === 'basel' ? (a.strassentyp ?? baselStrassentypAusVerkehr(a.dtv, a.v)) : undefined
-  return fuehrungsformNote(
+// Eine Bewertung nach den Standards einer Stadt berechnen. Basel: nur mit amtlicher bzw. von Hand gesetzter
+// Strassenfunktion; die frühere Schätzung aus DTV und Tempo ist mit der Prüfung VRC-01 (10.11.2026) bewusst entfallen
+// (die Strassenfunktion wird nie aus dem Tempo bestimmt). null: nach diesen Standards nicht bewertbar.
+function bewerteFuerStadt(a: VergleichArgs, stadt: Stadt): NotenErgebnis | { offen: string } {
+  if (stadt === 'basel' && a.strassentyp == null) return { offen: 'Strassenfunktion fehlt' }
+  const r = fuehrungsformNote(
     a.dtv, a.v, a.ist, a.breite, a.routentyp ?? 'Velohauptroute',
     a.parkenRechts ?? 'egal', a.oevTakt, a.oevAngebot ?? 'keine',
     a.haltestellentyp ?? 'keine', a.haltestelleBreite, a.tram ?? false,
-    BREITEN_BY_STADT[stadt]?.[a.ist], stadt, strassentyp, a.parkenSicherheitsstreifen ?? false,
+    BREITEN_BY_STADT[stadt]?.[a.ist], stadt, stadt === 'basel' ? a.strassentyp : undefined, a.parkenSicherheitsstreifen ?? false,
+    stadt === 'basel' ? a.basel ?? {} : {},
   )
+  return r.offen ? { offen: r.offen.replace(/^Basel: /, '') } : r
 }
 
 const breiteTxt = (b?: number) => b != null ? `${b.toFixed(2).replace('.', ',')} m` : 'keine Vorgabe'
 const notenTxt = (n: number) => n.toFixed(1).replace('.', ',')
 
 // Endnoten nach den Standards aller Städte ausser `ausser`, je mit Begründung der Abweichung
-// gegenüber der Referenz-Stadt (`ausser`). Für Basel wird der Strassentyp geschätzt.
+// gegenüber der Referenz-Stadt (`ausser`). Basel ohne Strassenfunktion bzw. nicht abgedeckt: note null mit Grund.
 export function vergleichsNoten(a: VergleichArgs, ausser: Stadt): VergleichsNote[] {
   const ref = bewerteFuerStadt(a, ausser)
   return STAEDTE.filter(s => s !== ausser).map(stadt => {
     const r = bewerteFuerStadt(a, stadt)
+    if ('offen' in r && !('note' in r)) return { stadt, note: null, offen: r.offen, soll: null, gruende: [`nicht bewertbar: ${r.offen}`] }
     const gruende: string[] = []
-    // Basel: nur wenn der Strassentyp wirklich geschätzt wurde (kein amtlicher/manueller Wert),
-    // als erster Hinweis — auch ohne Notenabweichung.
-    if (stadt === 'basel' && a.strassentyp == null)
-      gruende.push(`Strassentyp geschätzt (${baselStrassentypAusVerkehr(a.dtv, a.v)})`)
     // Abweichungstreiber nur listen, wenn die Note tatsächlich differiert.
-    if (r.note !== ref.note) {
+    if ('note' in ref && r.note !== ref.note) {
       // Das Soll nur nennen, wo es die Note trägt. Umweltspur und Fussweg rechnen ohne DTV/Tempo
       // und damit ohne Soll — dort stand bis zum 29.09.2026 «Soll: Radstreifen statt …» als
       // Grund, obwohl der Unterschied aus der Umweltspur-Decke kam (Bern 5, übrige 4).
@@ -1045,9 +1072,7 @@ export function vergleichsNoten(a: VergleichArgs, ausser: Stadt): VergleichsNote
         gruende.push('andere Haltestellen-Regel')
       if (r.hinweis && r.hinweis !== ref.hinweis) gruende.push(r.hinweis)
     }
-    // geschaetzt nur, wenn wirklich geschätzt wurde (kein amtlicher/manueller Strassentyp).
-    const geschaetzt = stadt === 'basel' && a.strassentyp == null
-    return { stadt, note: r.note, geschaetzt, soll: r.soll, sollbreite: r.sollbreite, gruende }
+    return { stadt, note: r.note, soll: r.soll, sollbreite: r.sollbreite, gruende }
   })
 }
 
@@ -1076,12 +1101,14 @@ export function haltestellenbereichNote(
   const hsBreitenSoll = hsSpec ? (routentyp === 'Velohauptroute' ? hsSpec.optimal : hsSpec.minimal) : undefined
   let hsBreitenabzug = 0
   let hsBreiteStatus: NotenErgebnis['hsBreiteStatus'] = 'keine'
-  if (hsBreitenSoll != null && haltestelleBreite != null && haltestelleBreite > 0) {
+  // Prüfung VRC-03: Typ mit Breitenvorgabe ohne gültige Breite → keine Note (vorher Note 6 ohne Breite bzw. mit 0 m)
+  const offen = hsBreitenSoll != null && !gueltigeBreite(haltestelleBreite) ? 'Breite an der Haltestelle fehlt bzw. ist ungültig' : undefined
+  if (hsBreitenSoll != null && gueltigeBreite(haltestelleBreite)) {
     const d = Math.max(0, hsBreitenSoll - haltestelleBreite)
     hsBreitenabzug = d * BREITE_SATZ['Radstreifen'][tempoKey(Number.isFinite(v) ? v : 50)]
     hsBreiteStatus = d === 0 ? 'erfuellt' : 'zu schmal'
   }
-  const note = kapTramNote1 ? KAP_NOTE : inkompatibel ? HALTESTELLENBEREICH_NICHT_ERFUELLT
+  const note = offen ? NaN : kapTramNote1 ? KAP_NOTE : inkompatibel ? HALTESTELLENBEREICH_NICHT_ERFUELLT
     : roundToHalf(Math.min(6, Math.max(1, 6 - hsBreitenabzug)))
   return {
     haltestellenbereich: true,
@@ -1093,9 +1120,11 @@ export function haltestellenbereichNote(
     oevAngebot, haltestellentyp, sollHaltestelle, kompatibleHaltestellen,
     haltestelleStatus: inkompatibel ? 'inkompatibel' : 'kompatibel', haltestelleAbzug: 0,
     haltestelleBreite, hsBreitenSoll, hsBreitenabzug, hsBreiteStatus,
-    noteFix: kapTramNote1 || inkompatibel,
+    noteFix: kapTramNote1 || inkompatibel || !!offen,
+    ...(offen ? { offen } : {}),
   }
 }
 
 /** Anzeige einer Führungsform: «Velostreifen»; der Datenwert «Radstreifen» bleibt (Fall-Dateien, CSV, Tabellen) */
-export const formAnzeige = (x: string): string => x.replace(/Radstreifen/g, 'Velostreifen')
+export const formAnzeige = (x: string | null): string =>
+  x == null ? '—' : x.replace(/Radstreifen/g, 'Velostreifen').replace(/\bRadspur\b/g, RADSPUR_TEXT)

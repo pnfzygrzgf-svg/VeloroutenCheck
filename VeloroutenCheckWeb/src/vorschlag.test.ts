@@ -223,7 +223,7 @@ describe('Vorschlag in Zürich, Basel und Luzern (seit 20.10.2026): dieselbe Ran
   it('Basel: Velostrasse auf der siedlungsorientierten Velohauptroute, ohne Hinweis auf die Berner Querschnittsblätter', async () => {
     const { BREITEN_BASEL } = await import('./fuehrungsform')
     const b = abschnitt({ dtv: 1500, speed: 30, ist: 'Mischverkehr', fahrbahnbreite: 7.5, routentyp: 'Velohauptroute', parkenRechts: 'ja',
-      strassentyp: 'siedlungsorientiert', gegen: { ...gegenVon(defaultSection()), ist: 'Mischverkehr', parkenRechts: 'ja' } })
+      strassentyp: 'siedlungsorientiert', tempoRegime: 'dauerhaft', gegen: { ...gegenVon(defaultSection()), ist: 'Mischverkehr', parkenRechts: 'ja' } })
     const v = vorschlag45(b, 7.5, 'basel', BREITEN_BASEL)
     expect(v.text).toBe('Parkierung Seite A aufheben + Velostrasse signalisieren')
   })

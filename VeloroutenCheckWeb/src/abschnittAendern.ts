@@ -1,14 +1,14 @@
 import type { Section, QuelleFeld, SeitenQuelle } from './strecke'
 
 const TRACKED: QuelleFeld[] = ['dtv', 'speed', 'ist', 'breite', 'routentyp', 'oevAngebot', 'tram', 'strassentyp', 'richtung',
-  'fahrbahnbreite', 'parkenRechts', 'oevTakt']
+  'fahrbahnbreite', 'parkenRechts', 'oevTakt', 'tempoRegime']
 
 /** Gemeinsamer Zustandswechsel für Formular und Quellenwahl; aus dem App-Aufrufer herausgelöst. */
 export function abschnittAendern(s: Section, patch: Partial<Section>, velostrasseNachfuehren: (s: Section) => Section = s => s): Section {
   const quelle = { ...s.quelle }
   for (const k of TRACKED) if (k in patch) {
     const wert = patch[k]
-    if (typeof wert === 'number' && !Number.isFinite(wert) || wert === '' || k === 'parkenRechts' && wert === 'egal') delete quelle[k]
+    if (wert === undefined || typeof wert === 'number' && !Number.isFinite(wert) || wert === '' || k === 'parkenRechts' && wert === 'egal') delete quelle[k]
     else quelle[k] = patch.quelle?.[k] ?? 'manuell'
   }
   if (patch.gegen) {

@@ -106,7 +106,7 @@ function loadVelostrassen(): Promise<GeoJsonFeature[]> {
 function strassenGeojsonUrl(bbox: Bbox): string {
   const where = `in_bbox(geo_shape, ${bbox.s}, ${bbox.w}, ${bbox.n}, ${bbox.e})`
   return 'https://data.bs.ch/api/explore/v2.1/catalog/datasets/100250/exports/geojson?' +
-    'select=' + encodeURIComponent('strassenkategorie,geschwindigkeit') +
+    'select=' + encodeURIComponent('strassenkategorie,geschwindigkeit,regime') +
     '&where=' + encodeURIComponent(where)
 }
 
@@ -120,6 +120,19 @@ function kategorieToStrassentyp(p: Record<string, string | number | null>): Stra
   if (k === 'verkehrsorientierte Strasse') return 'verkehrsorientiert'
   if (k === 'siedlungsorientierte Strasse') return 'siedlungsorientiert'
   return undefined   // «Wege» / null → manuell
+}
+
+// Regime (Prüfung VRC-01, 10.11.2026): z. B. «Tempo 30-Zone», «Tempo 50 generell - zeitlich auf Tempo 30 begrenzt (Schule)».
+// Tab. 3 der Standards BS: betriebszeitlich begrenztes Tempo 30 → Vorgaben Tempo 50. Abgefragte Werte: Review_2026-11-10/
+// nachweise/VRC-01-basel-100250-abfragen.json.
+export function regimeText(p: Record<string, string | number | null>): string | undefined {
+  return typeof p.regime === 'string' && p.regime.trim() ? p.regime.trim() : undefined
+}
+export function tempoRegimeAus(text: string | undefined): 'dauerhaft' | 'zeitweise' | undefined {
+  if (!text) return undefined
+  if (/zeitlich/i.test(text) && /tempo\s*30/i.test(text)) return 'zeitweise'
+  if (/^tempo\s*30/i.test(text)) return 'dauerhaft'
+  return undefined
 }
 
 // Signalisierte Höchstgeschwindigkeit aus dem Datensatz (amtlich, besser als OSM-maxspeed).
@@ -162,6 +175,8 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
     const routentyp = bestOverlapValue(dense, features, f => flagsToRoutentyp(f.properties))
     const strassentyp = bestOverlapValue(dense, strassen, f => kategorieToStrassentyp(f.properties))
     const speed = bestOverlapValue(dense, strassen, f => geschwindigkeit(f.properties))
+    const regime = bestOverlapValue(dense, strassen, f => regimeText(f.properties))
+    const tempoRegime = tempoRegimeAus(regime)
     const dtv = nearestDtv(dense, stations)
     // Velostrasse setzt die Ist-Führungsform → strenger (VELO_FRACTION), damit eine bloss
     // kreuzende Velostrasse die OSM-Führungsform nicht fälschlich überschreibt.
@@ -174,6 +189,8 @@ export async function enrichCands(cands: Cand[]): Promise<Anreicherung> {
         ...(routentyp ? { routentyp } : {}),
         ...(strassentyp ? { strassentyp } : {}),
         ...(speed != null ? { speed } : {}),
+        ...(regime ? { regimeText: regime } : {}),
+        ...(tempoRegime ? { tempoRegime } : {}),
         ...(velostrasse ? { velostrasse: true } : {}),
         ...(dtv != null ? { dtv } : {}),
       },

@@ -14,6 +14,7 @@ import { kontextGemeinden } from './gebiet'
 import { ladeNpvm, npvmStandText, type NpvmSnapshot } from './e5/daten/anbieter/npvm'
 import { npvmZuordnen } from './e5/daten/anbieter/npvmZuordnung'
 import { npvmWerteText } from './kartenbaustein/ebenenAusschnitt'
+import { BASEL_DTV_ANNAHME } from './baselStandard'
 import { bestOverlapValue, type GeoJsonFeature } from './cityShared'
 import { meldeQuelleStand, datenStaende, datenGeneration, meldeQuellenFehler, quellenFehlerEntfernen } from './datenstand'
 
@@ -75,7 +76,7 @@ export function npvmFuerCand(c:Cand,snapshots:readonly NpvmSnapshot[]):E5Beleg|n
  if(treffer.some(t=>!t)||!treffer.length)return null
  const ts=treffer as {s:NpvmSnapshot;b:NonNullable<ReturnType<typeof npvmZuordnen>['beleg']>}[]
  if(new Set(ts.map(t=>`${t.b.nr}:${t.b.wert}`)).size!==1)return null
- const t=ts[0];return{...beleg('dtv',t.b.wert,'ARE · NPVM 2023 (modelliert)','are.npvm',t.s.url,'Modellierter DTV beider Richtungen; Zuordnung und Übernahme bestätigen.',ts.map(t=>t.b.linie)),datenstand:`${npvmStandText(t.s)} (Ebene); Bezugsjahr ${t.s.bezugsjahr}`,abgerufen:t.s.abgerufen,modell:true}
+ const t=ts[0];return{...beleg('dtv',t.b.wert,'ARE · NPVM 2023 (modelliert)','are.npvm',t.s.url,'DTV, modelliert (ARE/NPVM), beide Richtungen; Zuordnung und Übernahme bestätigen.',ts.map(t=>t.b.linie)),datenstand:`${npvmStandText(t.s)} (Ebene); Bezugsjahr ${t.s.bezugsjahr}`,abgerufen:t.s.abgerufen,modell:true}
 }
 /** Annahme: So viele Proben des Abschnitts müssen zur amtlichen Linie passen; an Strassenenden und Knoten fehlt oft der Bezug */
 const TEMPO_ANTEIL=.7
@@ -176,7 +177,7 @@ export async function enrichE5(cs:Cand[],stadt:Stadt|'schweiz'):Promise<{cands:C
   for(const feld of ['dtv','speed'] as const) {
    const wert=bern[feld];if(!Number.isFinite(wert)||e.belege[feld])continue
    const q=datenStaende().filter(q=>q.ebene===(feld==='dtv'?'dtv':'tempo')).find(q=>stadt==='bern'?q.url.includes('bern.ch')&&(feld==='speed'||q.url.includes('Flaechendeckende')):stadt==='zurich'?q.url.includes('maps.zh.ch'):stadt==='basel'?q.url.includes(feld==='dtv'?'dtv_basel':'100250'):stadt==='luzern'?q.url.includes('stadtluzern.ch'):false)
-   e.belege[feld]={...beleg(feld,wert!,feld==='dtv'?ortName:{bern:'Geoportal Stadt Bern',zurich:'Stadt Zürich',basel:'Basel-Stadt',luzern:'Stadt Luzern',schweiz:'örtliche Tempodaten'}[stadt],q?.id??stadt+'.'+feld,q?.url??'',feld==='dtv'&&stadt==='bern'?'Schätzung aus den Stundenwerten von Tag und Nacht.':''),datenstand:q?.datenstand??'unbekannt',abgerufen:q?.abgerufen??new Date().toISOString(),...(feld==='dtv'&&bern.dtvQuelle==='abgeleitet'?{herkunft:'abgeleitet' as const,hinweis:'Zählstellenwert räumlich der Strasse zugeordnet; kein unmittelbar auf diesem Abschnitt erhobener Wert.'}:{})}
+   e.belege[feld]={...beleg(feld,wert!,feld==='dtv'?ortName:{bern:'Geoportal Stadt Bern',zurich:'Stadt Zürich',basel:'Basel-Stadt',luzern:'Stadt Luzern',schweiz:'örtliche Tempodaten'}[stadt],q?.id??stadt+'.'+feld,q?.url??'',feld==='dtv'&&stadt==='bern'?'Schätzung aus den Stundenwerten von Tag und Nacht.':feld==='dtv'&&stadt==='basel'?BASEL_DTV_ANNAHME:''),datenstand:q?.datenstand??'unbekannt',abgerufen:q?.abgerufen??new Date().toISOString(),...(feld==='dtv'&&bern.dtvQuelle==='abgeleitet'?{herkunft:'abgeleitet' as const,hinweis:'Zählstellenwert räumlich der Strasse zugeordnet; kein unmittelbar auf diesem Abschnitt erhobener Wert.'+(stadt==='basel'?' '+BASEL_DTV_ANNAHME:'')}:{})}
   }
   if(Number.isFinite(c.speed))e.vorschlaege.push(beleg('speed',c.speed!,'OpenStreetMap (OSM)','osm','https://overpass.osm.ch/api/interpreter','OSM maxspeed; Signalisation prüfen.'))
   const n=npvmFuerCand(c,npvm);if(n)e.vorschlaege.push(n)

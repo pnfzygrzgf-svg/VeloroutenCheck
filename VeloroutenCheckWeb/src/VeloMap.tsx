@@ -79,6 +79,8 @@ export interface Cand {
     dtvGeprueft?: boolean                 // nur Bern: Verkehrsdaten-Layer hat für DIESES Segment geantwortet (Grundlage der ≤-2000-Annahme)
     routentyp?: 'Velohauptroute' | 'Veloroute'   // Veloroutennetz Masterplan
     strassentyp?: 'verkehrsorientiert' | 'siedlungsorientiert'  // nur Basel (Strassen-/Wege-Datensatz)
+    regimeText?: string                   // nur Basel: Feld «regime» desselben Datensatzes (VRC-01)
+    tempoRegime?: 'dauerhaft' | 'zeitweise'  // nur Basel: daraus abgeleitet (Tempo 30 dauerhaft bzw. zeitlich begrenzt)
     velostrasse?: boolean                 // Treffer im Velostrassen-Layer
     hierarchie?: string                   // Strassenhierarchie der Stadt Bern (Kurzform wie im lokalen Rechner), seit 01.11.2026
     // Treffer im lokalen Markierungs-Snapshot (Velostreifen, siehe velostreifen.ts); rechts/links

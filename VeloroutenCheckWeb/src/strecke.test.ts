@@ -117,7 +117,9 @@ describe('sollVon', () => {
   it('Basel: ohne Strassentyp unbestimmt, mit Strassentyp auch ohne DTV bestimmt', () => {
     const s = { ...defaultSection(), speed: 30, ist: 'Mischverkehr' as const, routentyp: 'Veloroute' as const }
     expect(sollVon(s, 'basel')).toBeUndefined()
-    expect(sollVon({ ...s, strassentyp: 'siedlungsorientiert' }, 'basel')).toBe('Mischverkehr')
+    // VRC-01: Tempo 30 auf nicht verkehrsorientierter Strasse braucht das Regime (zeitweise wäre durch Tab. 3 nicht abgedeckt)
+    expect(sollVon({ ...s, strassentyp: 'siedlungsorientiert' }, 'basel')).toBeUndefined()
+    expect(sollVon({ ...s, strassentyp: 'siedlungsorientiert', tempoRegime: 'dauerhaft' }, 'basel')).toBe('Mischverkehr')
   })
   it('Zürich: ohne Routentyp unbestimmt (das Soll hängt dort an ihm)', () => {
     const s = { ...defaultSection(), speed: 30, dtv: 3000, ist: 'Mischverkehr' as const }

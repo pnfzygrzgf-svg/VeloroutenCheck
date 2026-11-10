@@ -354,6 +354,9 @@ export interface Umfeld {
   seite?: 'A' | 'B'     // Seite des geprüften Teils (links der Mitte = B), für die Bergauf-Richtung
   // Haltestelle neben dem Teil (haltUmfeld, seit 20.10.2026): Typ der Seite und ob das Teil hinter (vom Rand her) bzw. vor ihr liegt
   halt?: { typ: Haltestellentyp; hinter: boolean }
+  // Basel (VRC-01): die Seite ist heute eine Radspur (überbreiter Radstreifen); ihr Velostreifen in der Planung gilt dann als
+  // Radspur (Tab. 4: 2,50 m statt 1,80 m). Die App deutet keinen Velostreifen selbst um.
+  radspur?: { A?: boolean; B?: boolean }
 }
 // Liegt das Teil i an einer Haltestelle (direkt oder über den «Abstand zur Haltestelle»)? Dann gilt der Haltestellentyp der
 // Seite (aus der Planung, sonst von heute). hinter: das Teil liegt auf der Randseite der Haltestelle (Trottoir, Veloumfahrung).
@@ -383,7 +386,8 @@ export function haltUmfeld(teile: Teil[], i: number, s: Section, a?: Aufteilung)
 export const umfeldVon = (s: Section, teile: Teil[], fussnetz?: FussNetz, stadt: Stadt = 'bern'): Umfeld =>
   ({ kmh: s.speed, einbahn: s.richtung === 'eine', radweg: teile.some(t => t.art === 'Radweg'), fussnetz, stadt,
      dtv: s.dtv, routentyp: s.routentyp || 'Velohauptroute', velo: teile.some(t => t.art === 'Velostreifen' || t.art === 'Radweg'),
-     ...(takt(s) != null ? { oevTakt: takt(s) } : {}), ...(s.steigung ? { steigung: s.steigung } : {}) })
+     ...(takt(s) != null ? { oevTakt: takt(s) } : {}), ...(s.steigung ? { steigung: s.steigung } : {}),
+     ...(seiteA(s).ist === 'Radspur' || seiteB(s).ist === 'Radspur' ? { radspur: { A: seiteA(s).ist === 'Radspur', B: seiteB(s).ist === 'Radspur' } } : {}) })
 const takt = (s: Section): number | undefined => {
   const ts = [seiteA(s).oevTakt, seiteB(s).oevTakt].filter(Number.isFinite)
   return ts.length ? Math.min(...ts) : undefined
@@ -408,7 +412,7 @@ export function pruefeTeil(t: Teil, routentyp: Routentyp, breiten?: Partial<Reco
     }
   }
   if (t.art === 'Velostreifen' || t.art === 'Radweg' || istWeg(t)) {
-    const ist: IstFuehrungsform = t.art === 'Velostreifen' ? 'Radstreifen' : t.art === 'Radweg' ? 'Radweg strassenbegleitend / Geschützter Radstreifen' : WEG_FORM[t.art]!
+    const ist: IstFuehrungsform = t.art === 'Velostreifen' ? (umfeld.radspur?.[umfeld.seite ?? 'A'] ? 'Radspur' : 'Radstreifen') : t.art === 'Radweg' ? 'Radweg strassenbegleitend / Geschützter Radstreifen' : WEG_FORM[t.art]!
     const soll = sollBreite(ist, routentyp, breiten?.[ist])
     if (!Number.isFinite(t.breite)) return { soll, status: 'leer', quelle: breitenQuelle }
     return { soll, status: soll != null && t.breite < soll - 1e-9 ? 'zu schmal' : 'ok', quelle: breitenQuelle }
@@ -532,7 +536,7 @@ export function pruefeKernfahrbahn(s: Section, teile: Teil[], stadt: Stadt = 'be
   const b: KernBefund[] = []
   if (s.richtung === 'eine') b.push({ text: 'Auf der Einbahn gibt es keine Kernfahrbahn: Sie teilt die Mitte zwischen zwei Richtungen.', streng: true })
   const fa = formJeSeite(teile, 'A'), fb = formJeSeite(teile, 'B')
-  if (fa?.ist !== 'Radstreifen' || (s.richtung === 'beide' && fb?.ist !== 'Radstreifen'))
+  if (fa?.ist !== 'Radstreifen' || (s.richtung === 'beide' && fb?.ist !== 'Radstreifen'))   // formJeSeite liefert für Velostreifen immer «Radstreifen»
     b.push({ text: 'Eine Kernfahrbahn braucht auf beiden Seiten einen Velostreifen.', streng: true })
   if (teile.some(t => t.art === 'Tram'))
     b.push({ text: 'Mit Tramgleis prüfen: Im Kern bleibt zwischen Schiene und Velostreifen wenig Platz.', streng: false })
@@ -605,7 +609,8 @@ export function formJeSeite(teile: Teil[], seite: 'A' | 'B'): SeitenForm | null 
 // Sicherheitsstreifen je Seite aus den Teilen, Tram aus den Teilen; alles Übrige wie heute.
 export function abschnittMitAufteilung(s: Section, a: Aufteilung): Section {
   const fa = formJeSeite(a.teile, 'A'), fb = formJeSeite(a.teile, 'B')
-  const setze = (f: Seite, x: SeitenForm | null): Seite => (x ? { ...f, ist: x.ist, breite: x.breite, parkenRechts: x.parkenRechts, parkenSicherheitsstreifen: x.sicherheitsstreifen } : f)
+  // Basel (VRC-01): ein Velostreifen auf einer Seite, die heute eine Radspur ist, bleibt eine Radspur
+  const setze = (f: Seite, x: SeitenForm | null): Seite => (x ? { ...f, ist: x.ist === 'Radstreifen' && f.ist === 'Radspur' ? 'Radspur' : x.ist, breite: x.breite, parkenRechts: x.parkenRechts, parkenSicherheitsstreifen: x.sicherheitsstreifen } : f)
   // Seite mit Haltestelle aus der Planung (seit 20.10.2026): Der Querschnitt zeigt die Haltestelle; Führungsform und
   // Parkierung der Strecke bleiben die von heute, nur der Haltestellentyp ändert
   const mitHalt = (f: Seite, x: SeitenForm | null, typ?: Haltestellentyp): Seite =>
@@ -824,6 +829,7 @@ function startAufteilungRoh(s: Section, stadt: Stadt, breiten?: Partial<Record<I
     const velo = (art: 'Velostreifen' | 'Radweg', ist: IstFuehrungsform): Teil => (Number.isFinite(f.breite) ? { art, breite: f.breite }
       : { art, breite: sollBreite(ist, s.routentyp || 'Velohauptroute', breiten?.[ist]) ?? NaN, angenommen: true })
     if (f.ist === 'Radstreifen' || f.ist === 'Einbahn Velogegenverkehr mit Markierung') t.push(velo('Velostreifen', 'Radstreifen'))
+    if (f.ist === 'Radspur') t.push(velo('Velostreifen', 'Radspur'))   // Basel: Radspur als (überbreiter) Velostreifen
     // Umweltspur (Q 4): Bus und Velo gemeinsam am Rand der Seite (seit 21.10.2026)
     if (f.ist === 'Umweltspur') t.push(Number.isFinite(f.breite) ? { art: 'Umweltspur', breite: f.breite }
       : { art: 'Umweltspur', breite: sollBreite('Umweltspur', s.routentyp || 'Velohauptroute', breiten?.Umweltspur) ?? NaN, angenommen: true })

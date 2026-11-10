@@ -16,6 +16,7 @@ import { peilung, type LL } from './geo'
 import { PARK_SCHWELLE } from './parkierung'
 import type { Mittelinsel, ParkTiefe, Zweiradfeld } from './breitenmessung'
 import type { Steigung } from './steigung'
+import type { TempoRegime, ZrwAusloeser } from './baselStandard'
 
 // ── Abschnitt: Eingabezustand ────────────────────────────────────────────────
 // Herkunft eines Feldwerts: amtlich (Geodaten Stadt Bern) > OSM > manuell.
@@ -40,7 +41,7 @@ export function dtvEff(s: Section, city: Stadt): number {
   return Number.isFinite(s.dtv) ? s.dtv : (dtvAssumed(s, city) ? DTV_ANGENOMMEN : NaN)
 }
 // Felder, deren Herkunft verfolgt wird (datenartige Eingaben).
-export type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram' | 'strassentyp' | 'richtung'
+export type QuelleFeld = 'dtv' | 'speed' | 'ist' | 'breite' | 'routentyp' | 'oevAngebot' | 'tram' | 'strassentyp' | 'richtung' | 'tempoRegime'
   | 'fahrbahnbreite' | 'parkenRechts' | 'oevTakt'
 
 // ── Seiten: die beiden Fahrtrichtungen eines Abschnitts (seit 14.10.2026) ──────
@@ -59,6 +60,9 @@ export interface Seite {
   haltestellentyp: Haltestellentyp
   haltestelleBreite: number    // NaN = leer
   ohneHaltestelle: boolean     // der Abschnitt hat eine Haltestelle, aber nicht auf dieser Seite
+  // nur Basel (Prüfung VRC-01): Abweichung vom Standardmass nach Abschnitt 1.3 der Standards BS. Fehlt = keine Abweichung
+  // (es gilt das Standardmass); vorhanden = angekreuzt, das reduzierte Standardmass gilt erst mit nichtleerer Begründung
+  abweichung?: string
 }
 export type SeitenQuelle = Partial<Record<'ist' | 'breite' | 'parkenRechts' | 'oevTakt', Quelle>>
 export interface GegenSeite extends Seite { quelle: SeitenQuelle }
@@ -81,6 +85,12 @@ export interface Section extends Seite {
   speed: number                // NaN = leer
   routentyp: Routentyp | ''    // '' = noch nicht gewählt
   strassentyp: Strassentyp | ''  // '' = noch nicht gewählt (nur Basel relevant)
+  // nur Basel (Prüfung VRC-01): Regime eines signalisierten Tempo 30 (fehlt = unbekannt; alte Falldateien bleiben unbekannt)
+  // und der amtliche Regime-Text (data.bs.ch 100250, Feld «regime»)
+  tempoRegime?: TempoRegime
+  regimeText?: string
+  // nur Basel: 4,00-m-Auslöser des Zweirichtungsradwegs (Tab. 4): je ja / nein / fehlt = unbekannt
+  zrw?: ZrwAusloeser
   hierarchie?: string          // Strassenhierarchie der Stadt Bern (Geoportal, seit 01.11.2026): Bedingung «Quartierstrasse» der Velostrasse (Q 9)
   oevAngebot: OevAngebot
   tram: boolean                // Tram (Schienen) in der Fahrbahn — entkoppelt von der Haltestelle
@@ -161,7 +171,7 @@ function waehle(x: Seite): Seite {
   return {
     ist: x.ist, breite: x.breite, parkenRechts: x.parkenRechts, parkenSicherheitsstreifen: x.parkenSicherheitsstreifen,
     oevTakt: x.oevTakt, haltestellentyp: x.haltestellentyp, haltestelleBreite: x.haltestelleBreite,
-    ohneHaltestelle: x.ohneHaltestelle,
+    ohneHaltestelle: x.ohneHaltestelle, ...(x.abweichung !== undefined ? { abweichung: x.abweichung } : {}),
   }
 }
 export const seiteA = (s: Section): Seite => waehle(s)
@@ -184,7 +194,7 @@ export function seitenGleich(a: Seite, b: Seite): boolean {
   return a.ist === b.ist && gleicheZahl(a.breite, b.breite) && a.parkenRechts === b.parkenRechts &&
     a.parkenSicherheitsstreifen === b.parkenSicherheitsstreifen && gleicheZahl(a.oevTakt, b.oevTakt) &&
     a.haltestellentyp === b.haltestellentyp && gleicheZahl(a.haltestelleBreite, b.haltestelleBreite) &&
-    a.ohneHaltestelle === b.ohneHaltestelle
+    a.ohneHaltestelle === b.ohneHaltestelle && (a.abweichung ?? null) === (b.abweichung ?? null)
 }
 
 // Die Seiten, die bewertet werden: A immer; B nur, wenn beide Seiten erfasst werden UND die
@@ -348,6 +358,9 @@ export function candToSection(c: Cand, gleich = true): Section {
   if (c.bern?.routentyp) { s.routentyp = c.bern.routentyp; s.quelle.routentyp = c.bern.routentypQuelle === 'abgeleitet' ? 'abgeleitet' : 'amtlich' }
   // Strassentyp: nur amtlich (Basel, Dataset 100250)
   if (c.bern?.strassentyp) { s.strassentyp = c.bern.strassentyp; s.quelle.strassentyp = 'amtlich' }
+  // Tempo-Regime (Basel, Dataset 100250, Feld «regime»): amtlich; ohne Angabe bleibt es unbekannt
+  if (c.bern?.regimeText) s.regimeText = c.bern.regimeText
+  if (c.bern?.tempoRegime) { s.tempoRegime = c.bern.tempoRegime; s.quelle.tempoRegime = 'amtlich' }
   // Strassenhierarchie: nur amtlich (Bern, Geoportal Strassenhierarchie)
   if (c.bern?.hierarchie) s.hierarchie = c.bern.hierarchie
   // ÖV (Geoportal + Fahrplan): Haltestelle/Modus übernehmen; Tram → ÖV-Angebot „tram",
@@ -474,11 +487,11 @@ export function sollVon(sec: Section, city: Stadt): Fuehrungsart | undefined {
   if (routeWirkt && sec.routentyp === '') return undefined
   if (city === 'basel') {
     if (sec.strassentyp === '') return undefined
-    return fuehrungsart(NaN, sec.speed, city, sec.routentyp || 'Velohauptroute', sec.strassentyp)
+    return fuehrungsart(NaN, sec.speed, city, sec.routentyp || 'Velohauptroute', sec.strassentyp, sec.tempoRegime) ?? undefined
   }
   const dtv = dtvEff(sec, city)
   if (!Number.isFinite(dtv)) return undefined
-  return fuehrungsart(dtv, sec.speed, city, sec.routentyp || 'Velohauptroute')
+  return fuehrungsart(dtv, sec.speed, city, sec.routentyp || 'Velohauptroute') ?? undefined
 }
 
 const MIN_LEN = 25   // Stummel: kürzere Segmente bilden keinen eigenen Abschnitt
@@ -556,6 +569,10 @@ export function mergeSegs(ordered: Seg[], city: Stadt = 'bern'): Section[] {
     if (rep.sec.strassentyp === '') {
       const s = spender.find(x => x.sec.strassentyp !== '')
       if (s) { rep.sec.strassentyp = s.sec.strassentyp; rep.sec.quelle.strassentyp = s.sec.quelle.strassentyp }
+    }
+    if (rep.sec.tempoRegime === undefined) {
+      const s = spender.find(x => x.sec.tempoRegime !== undefined && x.sec.speed === rep.sec.speed)
+      if (s) { rep.sec.tempoRegime = s.sec.tempoRegime; rep.sec.quelle.tempoRegime = s.sec.quelle.tempoRegime; if (s.sec.regimeText) rep.sec.regimeText = s.sec.regimeText }
     }
     if (!rep.sec.hierarchie) {
       const s = spender.find(x => x.sec.hierarchie)

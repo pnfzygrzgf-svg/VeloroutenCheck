@@ -22,7 +22,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { createPortal } from 'react-dom'
 import {
   haltestellenTypen, haltestellenMitBreite, PARKEN_RELEVANT,
-  brauchtBreite, brauchtDtvTempo, erfuellungsgrad, FEELSAFE, SCORE_PRO_NOTE, BREITE_SATZ, PARKEN_ABZUG, HALTESTELLE_ABZUG, TRAM_DECKEL,
+  brauchtBreite, brauchtDtvTempo, erfuellungsgrad, gueltigeBreite, FEELSAFE, SCORE_PRO_NOTE, BREITE_SATZ, PARKEN_ABZUG, HALTESTELLE_ABZUG, TRAM_DECKEL,
   FUSSWEG_BASIS, HALTESTELLENBEREICH_MAX_M, HALTESTELLENBEREICH_NICHT_ERFUELLT, BREITEN_ZUERICH, BREITEN_BASEL, BREITEN_LUZERN,
   GEGENVERKEHR_FORMEN, GEGENVERKEHR_DEFAULT,
   type IstFuehrungsform, type Routentyp, type ParkenRechts,
@@ -30,6 +30,7 @@ import {
   type Stadt, type Strassentyp, type VergleichsNote,
 } from './fuehrungsform'
 import { formAnzeige } from './fuehrungsform'
+import { BASEL_DTV_ANNAHME, BASEL_QUELLE, BASEL_TAB4_FUNDSTELLE, BASEL_TAB5_FUNDSTELLE, type TempoRegime } from './baselStandard'
 import { VeloMap, ISTCOLOR, BREIT_MQ, MOBIL_MQ, AV_FARBEN, PARK_FARBE, PARKVERBOT_FARBE, ZWEIRAD_FARBE, type Cand, type SectionMarker, type Stop, type MessAnzeige } from './VeloMap'
 import { zuLv95, zuWgs, type P } from './lv95'
 import { ladeSteigung, achseInRichtungA } from './steigung'
@@ -223,7 +224,7 @@ const AttribContext = createContext('Geodaten Stadt Bern')
 const AvContext = createContext('')
 
 const IST_OPTIONS: IstFuehrungsform[] = [
-  'Mischverkehr', 'Radstreifen', 'Radweg strassenbegleitend / Geschützter Radstreifen', 'Radweg abgesetzt',
+  'Mischverkehr', 'Radstreifen', 'Radspur', 'Radweg strassenbegleitend / Geschützter Radstreifen', 'Radweg abgesetzt',
   'Zweirichtungsradweg', 'Umweltspur', 'Velostrasse', 'Kombinierter Fuss-/Radweg', 'Fussweg Velo gestattet',
 ]
 const ROUTE_OPTIONS: Routentyp[] = ['Velohauptroute', 'Veloroute']
@@ -514,7 +515,9 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
                   ? GEGENVERKEHR_DEFAULT : e.target.value as IstFuehrungsform })}
                 style={selectStyle}>
           <option value="">— wählen —</option>
-          {IST_OPTIONS.map(o => <option key={o} value={o}>{formAnzeige(o)}</option>)}
+          {/* Radspur (überbreiter Velostreifen) nur nach den Basler Standards (VRC-01); eine gespeicherte bleibt wählbar */}
+          {IST_OPTIONS.filter(o => o !== 'Radspur' || city === 'basel' || ist === 'Radspur')
+            .map(o => <option key={o} value={o}>{formAnzeige(o)}</option>)}
           <option value="__gegenverkehr__">Einbahn mit Velogegenverkehr</option>
         </select>
       </label>
@@ -534,7 +537,7 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
       {ist !== '' && brauchtBreite(ist) && (
         <NumberField label="Breite der Führungsform" unit="m" value={felder.breite} step={0.1}
                      onChange={v => onChange({ breite: v })}
-                     chip={quellen?.breite??<QuelleChip q={quelle.breite} fehlt={!Number.isFinite(felder.breite)} />} />
+                     chip={quellen?.breite??<QuelleChip q={quelle.breite} fehlt={!gueltigeBreite(felder.breite)} />} />
       )}
       {/* Breite am Luftbild messen: ab Bordsteinkante bis zur Markierung (App.tsx, Messung). */}
       {ist !== '' && brauchtBreite(ist) && onMessen && (
@@ -545,7 +548,29 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
           </button>
         </div>
       )}
-      {(ist === 'Radstreifen' || ist === 'Einbahn Velogegenverkehr mit Markierung') && (
+      {/* Basel (VRC-01): Abweichung vom Standardmass nach Abschnitt 1.3 — reduziertes Standardmass nur mit Begründung */}
+      {city === 'basel' && ist !== '' && brauchtBreite(ist) && (
+        <div style={{ flexBasis: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
+            <input type="checkbox" checked={felder.abweichung !== undefined}
+                   onChange={e => onChange({ abweichung: e.target.checked ? '' : undefined })} />
+            Abweichung vom Standardmass (reduziertes Standardmass, Abschnitt 1.3 der Basler Standards)
+          </label>
+          {felder.abweichung !== undefined && (
+            <textarea value={felder.abweichung} rows={2} maxLength={600}
+                      placeholder="Begründung (ohne Begründung gilt weiterhin das Standardmass)"
+                      onChange={e => onChange({ abweichung: e.target.value })}
+                      style={{ ...selectStyle, width: '100%', resize: 'vertical', fontFamily: 'inherit' }} />
+          )}
+        </div>
+      )}
+      {city === 'basel' && ist === 'Radstreifen' && Number.isFinite(felder.breite) && felder.breite >= 2.2 && (
+        <div style={{ flexBasis: '100%', fontSize: 12, color: 'var(--text-muted-strong)' }}>
+          Mit {numDE(felder.breite, 2)} m möglicherweise eine Radspur (überbreiter Velostreifen, gelbe Linie, Abschnitt 5.1.2 der
+          Basler Standards): Führungsform prüfen. Die App deutet einen Velostreifen nicht selbst um.
+        </div>
+      )}
+      {(ist === 'Radstreifen' || ist === 'Radspur' || ist === 'Einbahn Velogegenverkehr mit Markierung') && (
         <div style={{ flexBasis: '100%', marginTop: -4 }}>
           <UeblicheMasse werte={VELOSTREIFEN_UEBLICH} wert={felder.breite} label="Übliche Breite des Velostreifens"
                          onWahl={v => onChange({ breite: v })} />
@@ -597,7 +622,8 @@ function SeiteFelder({ felder, quelle, onChange, city, oevAngebot, onMessen, typ
       {/* Breite der Veloführung an der Haltestelle — nur bei Typen mit Breitenkriterium (stadtabhängig) */}
       {oevAngebot !== 'keine' && !felder.ohneHaltestelle && haltestellenMitBreite(city).includes(felder.haltestellentyp) && (
         <NumberField label="Breite Veloführung Haltestelle" unit="m" value={felder.haltestelleBreite}
-                     step={0.1} onChange={v => onChange({ haltestelleBreite: v })} />
+                     step={0.1} onChange={v => onChange({ haltestelleBreite: v })}
+                     chip={<QuelleChip q={undefined} fehlt={!gueltigeBreite(felder.haltestelleBreite)} />} />
       )}
     </div>
   )
@@ -631,7 +657,9 @@ function Herleitung({ bewertung, felder, routentyp, city, breitenQuelle }: {
   breitenQuelle: string
 }) {
   const { ist } = felder
-  const bezugLabel = routentyp === 'Veloroute' ? 'Minimal' : 'Optimal'
+  const bb = bewertung.basel?.breite
+  const bezugLabel = bb ? (bb.reduziertAngewendet ? 'reduziertes Standardmass' : 'Standardmass') : routentyp === 'Veloroute' ? 'Minimal' : 'Optimal'
+  if (bb) breitenQuelle = `${BASEL_QUELLE}, ${BASEL_TAB4_FUNDSTELLE}`
   const abzug = (x: number) => `− ${numDE(x, 1)}`
   const zeilen: { text: React.ReactNode; wert?: string; warn?: boolean }[] = []
   let formLink = false
@@ -678,6 +706,8 @@ function Herleitung({ bewertung, felder, routentyp, city, breitenQuelle }: {
         zeilen.push({ text: `Breite: Für ${formAnzeige(ist)} gibt es keine Breitenvorgabe` })
       } else if (bewertung.breite == null) {
         zeilen.push({ text: `Breite nicht angegeben; Vorgabe ${vorgabeBreite} (Quelle: ${breitenQuelle})${!routentyp ? ' · Routentyp wählen' : ''}`, wert: '–' })
+      } else if (bewertung.breitenStatus === 'offen') {
+        zeilen.push({ text: `Breite ${numDE(bewertung.breite, 2)} m: Prüfung offen. ${bb?.offen ?? ''}; dann gälte das Standardmass 4,00 m (Quelle: ${breitenQuelle})`, wert: '–' })
       } else if (bewertung.breiteErfuellt) {
         zeilen.push({ text: `Breite ${numDE(bewertung.breite, 2)} m erfüllt die Vorgabe ${vorgabeBreite} (Quelle: ${breitenQuelle})`, wert: abzug(0) })
       } else {
@@ -686,6 +716,19 @@ function Herleitung({ bewertung, felder, routentyp, city, breitenQuelle }: {
       }
       if (city === 'basel' && ist === 'Velostrasse' && bewertung.sollbreite != null)
         zeilen.push({ text: 'Die Breite ist die Nettobreite der Fahrbahn (ohne Parkierung und Sicherheitsabstand zur Parkierung).' })
+      // Basel (VRC-01): Einordnung nach Tab. 3, Breitenvorgabe nach Tab. 4, Abweichung nach Abschnitt 1.3, Prüfliste Tab. 5
+      const bs = bewertung.basel
+      if (bs) {
+        zeilen.push({ text: `Basel, ${bs.soll.text}: ${bs.form.text}` })
+        if (bs.dwv) zeilen.push({ text: <>{bs.dwv} {bs.dtvAnnahme}</> })
+        if (bb) {
+          for (const t of bb.texte) zeilen.push({ text: t })
+          if (bb.reduziertAngewendet) zeilen.push({ text: `Abweichung vom Standardmass (Abschnitt 1.3): ${felder.abweichung?.trim()}. Massgebend ist das reduzierte Standardmass ${numDE(bb.soll, 2)} m, nicht das Standardmass ${numDE(bb.standard, 2)} m.` })
+          else if (felder.abweichung !== undefined && !felder.abweichung.trim()) zeilen.push({ text: 'Abweichung angekreuzt, aber ohne Begründung: es gilt das Standardmass.', warn: true })
+          zeilen.push({ text: <>Breite ohne Umfeldzuschläge und ohne Sicherheitsabstand zur Parkierung geprüft ({BASEL_TAB5_FUNDSTELLE}; die App addiert nichts):
+            <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>{bs.zuschlaege.map(z => <li key={z.titel}>{z.titel}: {z.text}</li>)}</ul></> })
+        }
+      }
       if (city === 'bern' && ist === 'Velostrasse')
         zeilen.push({ text: <>Einsatzbereich: Nebenstrasse mit übergeordneter Velobedeutung, viel Veloverkehr, wenig MIV und ohne ÖV.
           {bewertung.sollbreite != null && <> Die Breitenvorgabe ist die Nettobreite der Fahrbahn (ohne Parkierung).</>}</> })
@@ -839,9 +882,10 @@ function HerleitungNote() {
 }
 
 // ── Ergebnis einer Seite: Note mit Erklärung — oder Hinweis, solange Pflichtfelder fehlen ──
-function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, breitenQuelle }: {
+function ErgebnisBox({ bewertung, vergleich, felder, fehlt, offen, routentyp, city, breitenQuelle }: {
   bewertung: NotenErgebnis | null
   fehlt: string[]                       // fehlende Pflichtfelder (bewertung.ts, fehlendeEingaben)
+  offen?: string                        // Basel: Vorgabe nach Tab. 3 nicht bestimmbar (VRC-01)
   vergleich: VergleichsNote[] | null    // Endnoten nach den Standards der anderen Städte (null = unvollständig)
   felder: Seite
   routentyp: Routentyp | ''
@@ -856,7 +900,8 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
         <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10,
                       background: '#fff7ed', border: '1px solid #fed7aa', color: '#9a3412',
                       fontSize: 14 }}>
-          <strong>Eingabe nötig:</strong> {aufzaehlen(fehlt)} angeben — dann wird die Note berechnet.
+          {fehlt.length > 0 && <div><strong>Eingabe nötig:</strong> {aufzaehlen(fehlt)} angeben — dann wird die Note berechnet.</div>}
+          {offen && <div style={{ marginTop: fehlt.length ? 6 : 0 }}><strong>Keine Note nach den Basler Standards:</strong> {offen}.</div>}
         </div>
       ) : (
       <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10,
@@ -902,8 +947,10 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
         <div style={{ fontSize: 14, opacity: 0.97, flex: '1 1 240px', minWidth: 0 }}>
           {/* Ohne DTV/Tempo gibt es keine Vorgabe für die Führungsform — dieselbe Quelle wie die Pflichtfelder.
               «Soll/Ist» heisst seit 22.10.2026 «Vorgabe/Heute», der Querschnittstyp (Q1…) steht nicht mehr da. */}
-          {brauchtDtvTempo(bewertung.ist) &&
-            <div><strong>Vorgabe:</strong> {formAnzeige(bewertung.soll)}</div>}
+          {brauchtDtvTempo(bewertung.ist) && bewertung.soll &&
+            <div><strong>Vorgabe:</strong> {formAnzeige(bewertung.soll)}{bewertung.basel ? ' (empfohlen, Tab. 3)' : ''}</div>}
+          {bewertung.basel && (bewertung.basel.form.status === 'ausnahme' || bewertung.basel.form.status === 'nicht_zugeordnet' || bewertung.basel.form.status === 'nicht_in_tabelle') &&
+            <div style={{ fontSize: 13 }}>{bewertung.basel.form.text}</div>}
           <div><strong>Heute:</strong> {formAnzeige(bewertung.ist)}</div>
           {/* Herleitung einklappbar; Vorgabe und Heute bleiben sichtbar */}
           <details className="vrc-klappe auf-farbe" style={{ marginTop: 4 }}>
@@ -926,7 +973,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
           {vergleich.map((v, i) => (
             <span key={v.stadt}>
               {i > 0 && ' · '}
-              {STADT_KURZ[v.stadt]} {numDE(v.note, 1)}
+              {STADT_KURZ[v.stadt]} {v.note == null ? 'offen' : numDE(v.note, 1)}
             </span>
           ))}
           {vergleich.some(v => v.gruende.length > 0) && (
@@ -935,7 +982,7 @@ function ErgebnisBox({ bewertung, vergleich, felder, fehlt, routentyp, city, bre
               <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
                 {vergleich.filter(v => v.gruende.length > 0).map(v => (
                   <li key={v.stadt} style={{ marginTop: 2 }}>
-                    {STADT_KURZ[v.stadt]} {numDE(v.note, 1)} — {v.gruende.join('; ')}
+                    {STADT_KURZ[v.stadt]} {v.note == null ? 'offen' : numDE(v.note, 1)} — {v.gruende.join('; ')}
                   </li>
                 ))}
               </ul>
@@ -2039,6 +2086,39 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
             </select>
           </label>
         )}
+        {/* Tempo-Regime — nur Basel (VRC-01): betriebszeitlich begrenztes Tempo 30 gilt wie Tempo 50 (Tab. 3) */}
+        {city === 'basel' && (
+          <label style={fieldStyle}>
+            <FieldLabel label="Tempo-Regime" chip={<QuelleChip q={q.tempoRegime} />} />
+            <select value={section.tempoRegime ?? ''} title={section.regimeText ? `Amtlich (data.bs.ch 100250): ${section.regimeText}` : undefined}
+                    onChange={e => onChange({ tempoRegime: (e.target.value || undefined) as TempoRegime | undefined })}
+                    style={selectStyle}>
+              <option value="">unbekannt</option>
+              <option value="dauerhaft">dauerhaft</option>
+              <option value="zeitweise">zeitweise (betriebszeitlich begrenzt)</option>
+            </select>
+            {section.regimeText && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Amtlich: {section.regimeText}</span>}
+          </label>
+        )}
+        {/* Zweirichtungsradweg — nur Basel (Tab. 4): 4,00 m auch bei Landsicherung bzw. langlebigem Neubau */}
+        {city === 'basel' && (section.ist === 'Zweirichtungsradweg' || (section.richtung === 'beide' && section.gegen?.ist === 'Zweirichtungsradweg')) && (
+          ([['landsicherung', 'Längerfristige Landsicherung (Entwicklungsgebiet, Arealentwicklung)'],
+            ['neubau', 'Neubau mit längerfristigem Erneuerungszyklus (Brücke, Unterführung)']] as const).map(([k, label]) => (
+            <label key={k} style={fieldStyle}>
+              <FieldLabel label={label} />
+              <select value={section.zrw?.[k] === undefined ? '' : section.zrw[k] ? 'ja' : 'nein'}
+                      onChange={e => onChange({ zrw: { ...section.zrw, [k]: e.target.value === '' ? undefined : e.target.value === 'ja' } })}
+                      style={selectStyle}>
+                <option value="">unbekannt</option>
+                <option value="ja">ja (4,00 m)</option>
+                <option value="nein">nein</option>
+              </select>
+            </label>
+          ))
+        )}
+        {city === 'basel' && Number.isFinite(section.dtv) && (q.dtv === 'amtlich' || q.dtv === 'abgeleitet') && (
+          <div style={{ flexBasis: '100%', fontSize: 12, color: 'var(--text-muted-strong)' }}>{BASEL_DTV_ANNAHME}</div>
+        )}
         {/* Tram in der Fahrbahn — entkoppelt von der Haltestelle; wirkt nur bei Mischverkehr. */}
         <label style={fieldStyle}>
           <FieldLabel label="Tram in der Fahrbahn" chip={<FeldQuellen s={section} feld="tram" aendern={onChange} fallback={<QuelleChip q={q.tram}/>}/>} />
@@ -2331,7 +2411,7 @@ function SectionCard({ index, section, ergebnis, isWorst, zu, onKlappen, onChang
               )}
             </div>
           )}
-          <ErgebnisBox bewertung={se.bewertung} vergleich={se.vergleich} felder={se.felder} fehlt={se.fehlt}
+          <ErgebnisBox bewertung={se.bewertung} vergleich={se.vergleich} felder={se.felder} fehlt={se.fehlt} offen={se.offen}
                        routentyp={section.routentyp} city={city}
                        breitenQuelle={breitenQuelle(se.felder.ist)} />
         </div>

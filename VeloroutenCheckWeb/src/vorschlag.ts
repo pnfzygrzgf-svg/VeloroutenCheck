@@ -37,17 +37,21 @@
 // (FUSSNETZ, Masterplan Fussverkehr) — schmalere werden auf die Vorgabe verbreitert (zulasten der Fahrbahn),
 // breitere dürfen bis auf die Vorgabe schmaler werden. Ohne gewähltes Netz gibt es diese Variante nicht.
 
-import { formAnzeige, brauchtBreite, erfuellungsgrad, fuehrungsart, haltestellenFamilie, haltestellenTypen, istRang, sollBreite, type BreitenSoll, type Fuehrungsart,
+import { formAnzeige, brauchtBreite, erfuellungsgrad, fuehrungsart, haltestellenFamilie, haltestellenTypen, haltestellenVeloBreite, istRang, sollBreite, type BreitenSoll, type Fuehrungsart,
   type Haltestellentyp, type IstFuehrungsform, type Routentyp, type Stadt, type Strassentyp } from './fuehrungsform'
 import { bewerteAbschnitt } from './bewertung'
 import { dtvEff, gegenVon, seiteA, seiteB, type Section } from './strecke'
 import { FUSSNETZ, KERN_DTV_MAX, KERN_KMH_MAX, STANDARD_QUELLE, WEG_TEIL, auf5cm, einbahnParkLinks, gruenAusAv, vorgabe, type Aufteilung, type Teil } from './aufteilung'
 import { numDE } from './csv'
 import type { ParkTiefe } from './breitenmessung'
+import type { TempoRegime } from './baselStandard'
 
 export const ZIEL = 5.5
 export const ZIEL_TEXT = numDE(ZIEL, 1)
 const RS: IstFuehrungsform = 'Radstreifen'
+// Basel (VRC-01): Radspur = überbreiter Radstreifen; im Vorschlag wie ein Velostreifen, mit dem Standardmass der Radspur
+const RADSPUR: IstFuehrungsform = 'Radspur'
+const rsArtig = (f: IstFuehrungsform | null | undefined) => f === RS || f === RADSPUR
 const RW: IstFuehrungsform = 'Radweg strassenbegleitend / Geschützter Radstreifen'
 const MISCH: IstFuehrungsform = 'Mischverkehr'
 const VELOSTRASSE: IstFuehrungsform = 'Velostrasse'
@@ -57,7 +61,7 @@ const KOMBI: IstFuehrungsform = 'Kombinierter Fuss-/Radweg'
 const ZWEIRICHTUNG: IstFuehrungsform = 'Zweirichtungsradweg'
 const RW_ABGESETZT: IstFuehrungsform = 'Radweg abgesetzt'
 const FUSS_NEBEN_M = 2.0      // Fussweg neben dem getrennten Radweg (Standardbreite des Trottoirs)
-const SOLL_MIT_RS: Fuehrungsart[] = ['Radstreifen', 'Radstreifen oder Radweg']
+const SOLL_MIT_RS: Fuehrungsart[] = ['Radstreifen', 'Radstreifen oder Radweg', 'Radstreifen oder Radspur']
 
 // Masse (querschnitt.py; Masterplan Veloinfrastruktur, Querschnittsblätter Q 1, Q 2a/2b, Q 5)
 const PARK_M = 1.9
@@ -145,6 +149,7 @@ export interface Eingaben {
   fussNeben?: Partial<Record<S, number>>                         // eigener Fussweg neben dem Radweg (Wege trennen)
   platzOffen?: boolean                                           // Weg verbreitert: Platz daneben nicht geprüft
   stadt: Stadt; breiten?: Breiten; strassentyp?: Strassentyp; m: Masse   // Stadt, ihre Breiten und Masse (seit 20.10.2026)
+  regime?: TempoRegime                                           // Basel: Regime eines Tempo 30 (VRC-01)
   hierarchie?: string                                            // Strassenhierarchie (nur Bern), Bedingung der Velostrasse
 }
 type Kand = { rang: number; text: string; k: Eingaben; weg: 0 | 1 | 2 }   // weg: 0 nichts, 1 eine Reihe, 2 alle
@@ -166,10 +171,12 @@ const versetztZaehlt = (e: Eingaben, s: S) => !(e.parkVersetzt === s && e.park[s
 const parkFbBreite = (e: Eingaben) => (e.park.A && e.parkFb.A && versetztZaehlt(e, 'A') ? e.parkTiefe.A : 0)
   + (e.park.B && e.parkFb.B && versetztZaehlt(e, 'B') ? e.parkTiefe.B : 0)
 const sollVon = (e: Eingaben): Fuehrungsart | null =>
-  (e.dtv != null && e.kmh != null ? fuehrungsart(e.dtv, e.kmh, e.stadt, e.route, e.strassentyp) : null)
+  (e.kmh != null && (e.dtv != null || e.stadt === 'basel') ? fuehrungsart(e.dtv ?? NaN, e.kmh, e.stadt, e.route, e.strassentyp, e.regime) : null)
 const soll = (e: Eingaben, f: IstFuehrungsform) => sollBreite(f, e.route, e.breiten?.[f])
 
 function velobreite(e: Eingaben, form: IstFuehrungsform, stufe: Stufe, kern = false): number {
+  // Radspur: nur das Standardmass (eine Reduktion braucht in Basel eine Begründung von Hand, Abschnitt 1.3)
+  if (form === RADSPUR) return soll(e, RADSPUR) ?? 2.5
   if (stufe === 'standard') return soll(e, form) ?? e.m.minimal.rs[e.route]
   return (kern ? e.m.minimal.kern : form === RW ? e.m.minimal.rw : e.m.minimal.rs)[e.route]
 }
@@ -270,7 +277,7 @@ function hsPlatz(e: Eingaben, s: S, trottoirAnnahme = false): number | null {
   if (tr == null || e.fahrbahn == null) return null
   const o: S = s === 'A' ? 'B' : 'A'
   const fo = e.einbahn ? null : formVon(e, o)
-  const veloO = fo === RS || fo === RW ? (e.breite[o] ?? velobreite(e, fo, 'minimal')) + (fo === RW ? e.m.trennung : 0) : 0
+  const veloO = rsArtig(fo) || fo === RW ? (e.breite[o] ?? velobreite(e, fo!, 'minimal')) + (fo === RW ? e.m.trennung : 0) : 0
   const parkO = e.park[o] && e.parkFb[o] && versetztZaehlt(e, o) ? e.parkTiefe[o] + (e.sich[o] ? e.m.sicherheit.minimal : 0) : 0
   return r2(tr + Math.max(0, e.fahrbahn - miv(MISCH, e, false) - veloO - parkO))
 }
@@ -287,7 +294,7 @@ function haltestelleUmbauen(e: Eingaben, s: S): Eingaben | null {
 // ── Varianten ──
 function sicherheitsstreifen(e: Eingaben): Kand[] {
   if (!parkseiten(e) || !sichFehlt(e)) return []
-  const rs = seitenVon(e).filter(s => formVon(e, s) === RS)
+  const rs = seitenVon(e).filter(s => rsArtig(formVon(e, s)))
   if (!rs.length || !parkAnliegend(e, rs)) return []
   const ersatz = velobreite(e, RS, 'minimal')
   const summe = rs.reduce((x, s) => x + (e.breite[s] ?? ersatz), 0)
@@ -301,29 +308,33 @@ function sicherheitsstreifen(e: Eingaben): Kand[] {
   return out
 }
 function verbreitern(e: Eingaben): Kand[] {
-  const seiten = seitenVon(e).filter(s => formVon(e, s) === RS)
+  return [...verbreiternForm(e, RS), ...verbreiternForm(e, RADSPUR)]
+}
+function verbreiternForm(e: Eingaben, form: IstFuehrungsform): Kand[] {
+  const seiten = seitenVon(e).filter(s => formVon(e, s) === form)
   if (!seiten.length) return []
+  const name = form === RADSPUR ? 'Radspur' : 'Velostreifen'
   const out: Kand[] = []
-  for (const stufe of stufenFuer(e, RS)) {
-    const breite = velobreite(e, RS, stufe)
+  for (const stufe of stufenFuer(e, form)) {
+    const breite = velobreite(e, form, stufe)
     const zuSchmal = seiten.filter(s => e.breite[s] == null || e.breite[s]! + 1e-9 < breite)
     if (!zuSchmal.length) continue
     let k = e
-    for (const s of zuSchmal) k = formSetzen(k, s, RS, breite)
+    for (const s of zuSchmal) k = formSetzen(k, s, form, breite)
     const summe = seiten.reduce((x, s) => x + (k.breite[s] ?? 0), 0)
     const anl = parkAnliegend(k, zuSchmal)
-    if (!passt(k, RS, stufe, false, summe, anl)) continue
+    if (!passt(k, form, stufe, false, summe, anl)) continue
     const mitSich = anl && sichFehlt(k), besteht = anl && !sichFehlt(k)
     if (mitSich) sichSetzen(k)
-    k.quer = { form: RS, stufe, kern: false, sichJe: e.m.sicherheit[stufe], ersatz: breite }
+    k.quer = { form, stufe, kern: false, sichJe: e.m.sicherheit[stufe], ersatz: breite }
     const [vor, nach] = mitSich || besteht ? sichTexte(e, k, e.m.sicherheit[stufe], besteht) : ['', '']
-    out.push({ rang: 1, text: `${vor}Velostreifen verbreitern auf ${m2(breite)} (${zuSchmal.join('/')})${nach}`, k, weg: 0 })
+    out.push({ rang: 1, text: `${vor}${name} verbreitern auf ${m2(breite)} (${zuSchmal.join('/')})${nach}`, k, weg: 0 })
   }
   return out
 }
 // Reserve auf die Radstreifen: zuerst den schmaleren bis zum breiteren, dann gleichmässig, je bis zum Standard
-function reserveAufRadstreifen(k: Eingaben, reserve: number, std: number): { k: Eingaben; plus: number; breiter: Partial<Record<S, number>> } {
-  const seiten = seitenVon(k).filter(s => formVon(k, s) === RS)
+function reserveAufRadstreifen(k: Eingaben, reserve: number, std: number, form: IstFuehrungsform = RS): { k: Eingaben; plus: number; breiter: Partial<Record<S, number>> } {
+  const seiten = seitenVon(k).filter(s => formVon(k, s) === form)
   if (!seiten.length || reserve < 0.05 - 1e-9 || seiten.some(s => k.breite[s] == null)) return { k, plus: 0, breiter: {} }
   const w = Object.fromEntries(seiten.map(s => [s, k.breite[s]!])) as Record<S, number>
   const neu = { ...w }
@@ -337,7 +348,7 @@ function reserveAufRadstreifen(k: Eingaben, reserve: number, std: number): { k: 
   for (const s of seiten) { const ziel = abrunden(Math.min(neu[s] + je, std)); if (ziel > neu[s] + 1e-9) neu[s] = r2(ziel) }
   const breiter: Partial<Record<S, number>> = {}
   let out = k
-  for (const s of seiten) if (neu[s] > w[s] + 1e-9) { breiter[s] = neu[s]; out = formSetzen(out, s, RS, neu[s]) }
+  for (const s of seiten) if (neu[s] > w[s] + 1e-9) { breiter[s] = neu[s]; out = formSetzen(out, s, form, neu[s]) }
   return { k: out, plus: r2(seiten.reduce((x, s) => x + neu[s] - w[s], 0)), breiter }
 }
 function veloVarianten(e: Eingaben, rang: number, form: IstFuehrungsform): Kand[] {
@@ -355,14 +366,14 @@ function veloVarianten(e: Eingaben, rang: number, form: IstFuehrungsform): Kand[
       let summe = 0
       for (const s of alle) {
         const f = formVon(k, s), b = k.breite[s]
-        summe += f === RS || f === RW ? (b ?? breite) : f === MISCH ? 0 : (b ?? 0)
+        summe += rsArtig(f) || f === RW ? (b ?? breite) : f === MISCH ? 0 : (b ?? 0)
       }
       const anl = parkAnliegend(k, seiten)
       if (!passt(k, form, stufe, false, summe, anl)) continue
       let breiter: Partial<Record<S, number>> = {}
-      if (form === RS && k.fahrbahn != null && !k.ohnePlatz) {
+      if (rsArtig(form) && k.fahrbahn != null && !k.ohnePlatz) {
         const b0 = bedarf(form, k, stufe, false, !anl)
-        const r = reserveAufRadstreifen(k, k.fahrbahn - (b0.summe - b0.velo + summe), soll(k, RS) ?? breite)
+        const r = reserveAufRadstreifen(k, k.fahrbahn - (b0.summe - b0.velo + summe), soll(k, form) ?? breite, form)
         k = r.k; breiter = r.breiter
       }
       const mitSich = anl && sichFehlt(k), besteht = anl && !sichFehlt(k)
@@ -370,7 +381,8 @@ function veloVarianten(e: Eingaben, rang: number, form: IstFuehrungsform): Kand[
       if (mitSich) sichSetzen(k)
       k.quer = { form, stufe, kern: false, sichJe: e.m.sicherheit[stufe], ersatz: breite }
       const neuAuf = seiten.some(s => formVon(e, s) === form)
-      const was = form === RS ? (neuAuf ? 'Velostreifen neu aufteilen' : 'Velostreifen markieren')
+      const was = form === RADSPUR ? (neuAuf ? 'Radspur neu aufteilen' : 'Radspur markieren (überbreiter Velostreifen)')
+        : form === RS ? (neuAuf ? 'Velostreifen neu aufteilen' : 'Velostreifen markieren')
         : (neuAuf ? 'Radweg umbauen (Q 2a/2b)' : 'Radweg bauen (Q 2a/2b)')
       const end = Object.fromEntries(seiten.map(s => [s, k.breite[s] ?? breite])) as Record<S, number>
       const mass = seiten.length === 2 && Math.abs(end.A - end.B) > 1e-9 ? `Seite A ${m2(end.A)} und Seite B ${m2(end.B)}`
@@ -391,7 +403,7 @@ function kernVarianten(e: Eingaben): Kand[] {
   if (!e.ist || !ersetzbar.includes(e.ist) || !ersetzbar.includes(e.geg ?? e.ist)) return out
   const maxRs = soll(e, RS) ?? 1.8
   const ps = parkseiten(e)
-  const neuAuf = e.ist === RS || e.geg === RS
+  const neuAuf = rsArtig(e.ist) || rsArtig(e.geg)
   const was = neuAuf ? 'Velostreifen neu aufteilen' : 'Velostreifen markieren'
   for (const sst of ps ? (e.m.sicherheit.minimal < e.m.sicherheit.standard - 1e-9 ? STUFEN : ['standard'] as Stufe[]) : [null]) {
     const sichJe = sst ? e.m.sicherheit[sst] : 0
@@ -465,6 +477,8 @@ function rang12(e: Eingaben): Kand[] {
   if (f) out.push({ rang: 1, text: 'Velo in die Fahrbahn (Mischverkehr statt Fussweg)', k: f, weg: 0 })
   out.push(...sicherheitsstreifen(e), ...verbreitern(e), ...kernVarianten(e))
   if (SOLL_MIT_RS.includes(sollVon(e) as Fuehrungsart) || gegenSchiene(e)) out.push(...veloVarianten(e, 1, RS))
+  // Basel, Vorzugsroute auf verkehrsorientierter Strasse (Tab. 3): empfohlen sind Radspur oder Radweg
+  if (sollVon(e) === 'Radspur oder Radweg') out.push(...veloVarianten(e, 1, RADSPUR))
   return out
 }
 function parkOptionen(e: Eingaben, schlechtere: (e: Eingaben) => S): [string, Eingaben, 1 | 2][] {
@@ -552,7 +566,7 @@ export function eingabenVon(s: Section, stadt: Stadt = 'bern', breiten?: Breiten
     uTakt: [a, b].some(f => Number.isFinite(f.oevTakt)),
     angenommen, annahme,
     ohneFahrbahn: !!s.ohneFahrbahn,
-    stadt, ...(breiten ? { breiten } : {}), ...(s.strassentyp ? { strassentyp: s.strassentyp } : {}), ...(s.hierarchie ? { hierarchie: s.hierarchie } : {}), m,
+    stadt, ...(breiten ? { breiten } : {}), ...(s.strassentyp ? { strassentyp: s.strassentyp } : {}), ...(s.tempoRegime ? { regime: s.tempoRegime } : {}), ...(s.hierarchie ? { hierarchie: s.hierarchie } : {}), m,
   }
 }
 
@@ -572,6 +586,17 @@ export function abschnittAus(base: Section, e: Eingaben): Section {
   if (e.einbahn) delete s.gegen
   else s.gegen = { ...gegenVon(sb), ist: e.geg ?? '', breite: breiteFuerNote(e, 'B'), parkenRechts: e.park.B ? 'ja' : 'nein',
     parkenSicherheitsstreifen: e.park.B && e.sich.B, haltestellentyp: e.hsTyp.B }
+  // Umgebaute Haltestelle (Rang 5): gebaut nach der Vorgabebreite der Velofläche (VRC-03 verlangt eine gültige Breite)
+  for (const seite of e.hsUmbau ?? []) {
+    const hb = haltestellenVeloBreite(e.stadt, e.hsTyp[seite], e.route)
+    if (!hb) continue
+    if (seite === 'A') s.haltestelleBreite = hb.soll
+    else if (s.gegen) s.gegen.haltestelleBreite = hb.soll
+  }
+  // Basel (VRC-01): eine Abweichung gilt nur für die Form, für die sie begründet ist; ein vorgeschlagenes Tempo 30 ist dauerhaft
+  if (s.ist !== base.ist) delete s.abweichung
+  if (s.gegen && s.gegen.ist !== (base.gegen ?? base).ist) delete s.gegen.abweichung
+  if (e.kmh === 30 && base.speed !== 30) { s.tempoRegime = 'dauerhaft'; s.quelle.tempoRegime = 'manuell' }
   return s
 }
 
@@ -584,7 +609,8 @@ function noten(base: Section, e: Eingaben): { n: number | null; a: number | null
 // Fehlende Meter für die knappste Veloanlage, die das Soll verlangt, ohne jede Parkierung
 function fehltText(e: Eingaben): string {
   if (e.fahrbahn == null) return ''
-  const formen: IstFuehrungsform[] = SOLL_MIT_RS.includes(sollVon(e) as Fuehrungsart) || gegenSchiene(e) ? [RS] : []
+  const formen: IstFuehrungsform[] = SOLL_MIT_RS.includes(sollVon(e) as Fuehrungsart) || gegenSchiene(e) ? [RS]
+    : sollVon(e) === 'Radspur oder Radweg' ? [RADSPUR] : []
   if (sollVon(e) === 'Radweg' || !formen.length) formen.push(RW)
   const ohne = kopie(e); ohne.park = { A: false, B: false }
   let best: { b: number; f: IstFuehrungsform } | null = null
@@ -594,7 +620,7 @@ function fehltText(e: Eingaben): string {
   }
   if (!best || e.fahrbahn + 1e-9 >= best.b) return ''
   return `Fahrbahn zu schmal: auch ohne Parkierung fehlen ${m2(best.b - e.fahrbahn)} für `
-    + `${best.f === RS ? 'einen Velostreifen' : 'einen Radweg'} (${numDE(e.fahrbahn, 1)} von ${m2(best.b)})`
+    + `${best.f === RS ? 'einen Velostreifen' : best.f === RADSPUR ? 'eine Radspur' : 'einen Radweg'} (${numDE(e.fahrbahn, 1)} von ${m2(best.b)})`
 }
 
 // Der Vorschlag für einen Abschnitt; fahrbahn: verfügbares Mass (mit Randsteinanpassung grösser)
@@ -656,7 +682,7 @@ function vorschlagStadt(base: Section, fahrbahn: number | null | undefined, stad
   const rang6 = (x: Eingaben): Kand[] => {
     // Wege-Regeln nur für Wege ohne Fahrbahn; an Strassen gilt der Katalog des lokalen Rechners
     if (x.ohneFahrbahn) return wegVarianten(x).filter(c => c.rang === 6)
-    if (![x.ist, x.geg].some(f => f === MISCH || f === RS || f === FUSSWEG || f === UMWELTSPUR)) return []
+    if (![x.ist, x.geg].some(f => f === MISCH || rsArtig(f) || f === FUSSWEG || f === UMWELTSPUR)) return []
     return [...veloVarianten(x, 6, RW), ...mitPark(6, x, k => veloVarianten(k, 6, RW))]
   }
   const rang7 = (x: Eingaben): Kand[] => {
@@ -865,8 +891,8 @@ export function aufteilungAusVorschlag(base: Section, a0: Aufteilung, v: Vorschl
     }
     const f = s === 'B' && k.einbahn ? null : formVon(k, s)
     const an = k.annahme?.[s]
-    const b = k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? q?.ersatz ?? velobreite(k, RS, 'minimal')
-    if (f === RS) t.push({ art: 'Velostreifen', breite: b })
+    const b = k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? q?.ersatz ?? velobreite(k, f === RADSPUR ? RADSPUR : RS, 'minimal')
+    if (rsArtig(f)) t.push({ art: 'Velostreifen', breite: b })   // Radspur: Velostreifen in der Planung (aufteilung.ts, Umfeld.radspur)
     if (f === RW) { t.push({ art: 'Radweg', breite: b }); t.push({ art: 'Trennstreifen', breite: k.m.trennung }) }
     // Umweltspur bleibt (seit 21.10.2026 eigenes Teil); ihre Breite von heute, sonst die Vorgabe
     if (f === UMWELTSPUR) t.push({ art: 'Umweltspur', breite: k.breite[s] ?? (an && an.form === f ? an.breite : undefined) ?? soll(k, UMWELTSPUR) ?? 4.5 })

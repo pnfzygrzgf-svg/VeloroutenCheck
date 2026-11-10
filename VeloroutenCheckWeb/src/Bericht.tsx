@@ -22,6 +22,7 @@ import { dtvAssumed, type Quelle, type Section, type Seite } from './strecke'
 import type { Routentyp, Stadt } from './fuehrungsform'
 import { numDE } from './csv'
 import { formAnzeige, type NotenErgebnis } from './fuehrungsform'
+import { BASEL_DTV_ANNAHME } from './baselStandard'
 import {
   bilanz, bilanzText, bewerteAufteilung, mitSeitenraum, bildVon, pruefeKernfahrbahn, pruefeTeil, pruefungText, haltUmfeld, startAufteilung, umfeldVon, linksDerMitte,
   BILD_LABEL, FUSSNETZ, FUSS_QUELLE, STANDARD_QUELLE, MARKIERUNG_LABEL, RICHTWERT_QUELLE, LICHTRAUM_QUELLE, teilName, type Aufteilung,
@@ -166,15 +167,22 @@ const noteText = (n: number | null) =>
 const OEV_TEXT: Record<string, string> = { keine: 'keine Haltestelle', bus_ab15: 'Bus ab 15 Min', bus_5_15: 'Bus 5 bis 15 Min', bus_unter5: 'Bus unter 5 Min', tram: 'Tram' }
 
 /** Wie die Note entsteht, in einer Zeile (dieselben Bausteine wie die Erklärung in der App, fuehrungsform.NotenErgebnis) */
-export function notenHerleitung(b: NotenErgebnis | undefined): string {
+export function notenHerleitung(b: NotenErgebnis | undefined, abweichung?: string): string {
   if (!b || b.haltestellenbereich) return ''
-  if (b.noteFix || b.kapTramNote1) return 'Note nach Sonderregel'
+  // Basel (VRC-01): Einordnung nach Tab. 3, Breitenvorgabe nach Tab. 4 (Standardmass bzw. begründet reduziert), Tab. 5 offen
+  const bs = b.basel, bb = bs?.breite
+  const basel = bs ? [`Basel: ${bs.form.text}`,
+    ...(bb ? [`Breitenvorgabe ${bb.reduziertAngewendet ? `reduziertes Standardmass ${numDE(bb.soll, 2)} m (Abweichung nach Abschnitt 1.3: ${abweichung?.trim() ?? ''})` : `Standardmass ${numDE(bb.soll, 2)} m`}`,
+      'ohne Umfeldzuschläge und Sicherheitsabstand geprüft (Tab. 5)'] : []),
+    ...(bs.dwv ? [bs.dwv] : [])] : []
+  if (b.offen) return b.offen
+  if (b.noteFix || b.kapTramNote1) return ['Note nach Sonderregel', ...basel].join('; ')
   const minus = (text: string, x: number) => (x > 0 ? [`${text} −${numDE(x, 1)}`] : [])
   const roh = b.basisnote - b.breitenabzug - b.parkenAbzug - b.haltestelleAbzug - b.hsBreitenabzug
   return [b.erfuellt ? `Vorgabe ${formAnzeige(b.soll)} erfüllt: ${numDE(b.basisnote, 1)}` : `Vorgabe ${formAnzeige(b.soll)}, vorhanden ${formAnzeige(b.ist)}: ${numDE(b.basisnote, 1)}`,
     ...minus('Breite', b.breitenabzug), ...minus('Parkierung rechts', b.parkenAbzug), ...minus('Haltestelle', b.haltestelleAbzug + b.hsBreitenabzug),
     ...(b.tramDeckel != null ? [`Tram in der Fahrbahn: höchstens ${numDE(b.tramDeckel, 1)}`] : []),
-    ...(Number.isFinite(b.note) && Math.abs(roh - b.note) > 0.001 ? [`auf halbe Noten gerundet: ${numDE(b.note, 1)}`] : [])].join('; ')
+    ...(Number.isFinite(b.note) && Math.abs(roh - b.note) > 0.001 ? [`auf halbe Noten gerundet: ${numDE(b.note, 1)}`] : []), ...basel].join('; ')
 }
 const formText = (f: Seite) => `${formAnzeige(f.ist) || '–'}${Number.isFinite(f.breite) ? ` ${numDE(f.breite, 2)} m` : ''}` +
   `${f.parkenRechts === 'ja' ? `, neben Parkierung${f.parkenSicherheitsstreifen ? ' mit Sicherheitsstreifen' : ''}` : ''}`
@@ -272,6 +280,11 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                   {' · '}{Number.isFinite(section.speed)
                     ? `${section.speed} km/h (${quelleText(section.quelle.speed, TEMPO_AMTLICH[section.datenOrt?.stadt??city])})` : 'Tempo –'}
                   {a.tempo != null && ` · mit der Planung Tempo ${a.tempo}`}</td></tr>
+                {city === 'basel' && <tr><td>Basler Standards</td><td>{section.strassentyp
+                    ? `${section.strassentyp === 'verkehrsorientiert' ? 'verkehrsorientierte' : 'nicht verkehrsorientierte'} Strasse (${quelleText(section.quelle.strassentyp, 'data.bs.ch 100250')})` : 'Strassenfunktion –'}
+                  {' · '}Tempo-Regime {section.tempoRegime ?? 'unbekannt'}{section.tempoRegime ? ` (${quelleText(section.quelle.tempoRegime, 'data.bs.ch 100250')}${section.regimeText ? `: ${section.regimeText}` : ''})` : section.regimeText ? ` (amtlich: ${section.regimeText})` : ''}
+                  {Number.isFinite(section.dtv) && (section.quelle.dtv === 'amtlich' || section.quelle.dtv === 'abgeleitet') ? ` · ${BASEL_DTV_ANNAHME}` : ''}
+                  {section.zrw && (section.zrw.landsicherung !== undefined || section.zrw.neubau !== undefined) ? ` · Zweirichtungsradweg: Landsicherung ${section.zrw.landsicherung === undefined ? 'unbekannt' : section.zrw.landsicherung ? 'ja' : 'nein'}, Neubau mit langem Erneuerungszyklus ${section.zrw.neubau === undefined ? 'unbekannt' : section.zrw.neubau ? 'ja' : 'nein'}` : ''}</td></tr>}
                 {a.vorschlag && <tr><td>Ausgangspunkt</td><td>Massnahmenvorschlag: {formAnzeige(a.vorschlag)}</td></tr>}
                 <tr><td>Fahrbahnbreite</td><td>heute {Number.isFinite(section.fahrbahnbreite) ? `${numDE(section.fahrbahnbreite, 2)} m` : '–'}
                   {section.quelle.fahrbahnbreite === 'av' ? ' (amtliche Vermessung)' : ''} · verfügbar in der Planung ohne Randsteinanpassung
@@ -345,8 +358,8 @@ export function BerichtSeite({ section, nr, heute, city, breiten, stadtName, rou
                   {seitenListe.map(s => (
                     <tr key={s}>
                       <td>{seitenListe.length > 1 || einbahn ? seiteName(s) : 'Beide Seiten'}</td>
-                      <td>{sh.get(s) ? <>{sh.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sh.get(s)!.felder.haltestellentyp}` : formText(sh.get(s)!.felder)}<div className="klein">{noteText(sh.get(s)!.bewertung?.note ?? null)}</div><div className="klein">{notenHerleitung(sh.get(s)!.bewertung ?? undefined)}</div></> : '–'}</td>
-                      <td>{sp.get(s) ? <>{sp.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sp.get(s)!.felder.haltestellentyp}` : formText(sp.get(s)!.felder)}<div className="klein">{noteText(sp.get(s)!.bewertung?.note ?? null)}</div><div className="klein">{notenHerleitung(sp.get(s)!.bewertung ?? undefined)}</div></> : '–'}</td>
+                      <td>{sh.get(s) ? <>{sh.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sh.get(s)!.felder.haltestellentyp}` : formText(sh.get(s)!.felder)}<div className="klein">{noteText(sh.get(s)!.bewertung?.note ?? null)}</div><div className="klein">{notenHerleitung(sh.get(s)!.bewertung ?? undefined, sh.get(s)!.felder.abweichung)}</div>{sh.get(s)!.offen && <div className="klein">Keine Note nach den Basler Standards: {sh.get(s)!.offen}</div>}</> : '–'}</td>
+                      <td>{sp.get(s) ? <>{sp.get(s)!.bewertung?.haltestellenbereich ? `Haltestellenbereich: ${sp.get(s)!.felder.haltestellentyp}` : formText(sp.get(s)!.felder)}<div className="klein">{noteText(sp.get(s)!.bewertung?.note ?? null)}</div><div className="klein">{notenHerleitung(sp.get(s)!.bewertung ?? undefined, sp.get(s)!.felder.abweichung)}</div>{sp.get(s)!.offen && <div className="klein">Keine Note nach den Basler Standards: {sp.get(s)!.offen}</div>}</> : '–'}</td>
                     </tr>
                   ))}
                   <tr><td><b>Abschnitt</b></td><td><b>{noteText(heute.note)}</b></td><td><b>{noteText(plan.note)}</b></td></tr>

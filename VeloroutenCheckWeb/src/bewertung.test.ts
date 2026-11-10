@@ -60,7 +60,7 @@ describe('Hinweis «Eingabe nötig» — nur was wirklich fehlt', () => {
   })
   it('Radstreifen ohne Breite → nur Breite', () => {
     const s = basis({ breite: NaN })
-    expect(fehlendeEingaben(s, seiteA(s), 'bern')).toEqual(['Breite'])
+    expect(fehlendeEingaben(s, seiteA(s), 'bern')).toEqual(['Breite der Führungsform'])   // VRC-03: das Mass benannt
   })
   it('leere Maske → Führungsform, DTV und Tempo', () => {
     const s = defaultSection()

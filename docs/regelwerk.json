@@ -74,6 +74,7 @@
    "formen": [
     "Mischverkehr",
     "Radstreifen",
+    "Radspur",
     "Velostrasse",
     "Umweltspur",
     "Einbahn Velogegenverkehr mit Markierung"
@@ -130,7 +131,7 @@
     "breiteBeiParkierung": 7.0,
     "routentyp": "Velovorzugsroute",
     "maxDtv": 2500,
-    "hinweis": "Nettobreite 4,50 m (Vorzugsroute) / 4,30 m (Pendler-Basis); bei Parkierung 7,00 m; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel 2'500 nur Vorzugsroute (Hinweis).",
+    "hinweis": "Nettobreite 4,50 m (Standardmass), reduziert 4,30 m nur mit begründeter Abweichung (Abschnitt 1.3); unter 1'000 Fz/d 4,00 m. DWV-Grenze 2'500 nur Vorzugsroute (Hinweis).",
     "einsatzbereich": "Nicht verkehrsorientierte (siedlungsorientierte) Tempo-30-Strasse (Tab. 3, S. 15): auf Vorzugsrouten einzige vorgesehene Form (≤ 2'500 DWV); auf Pendler-/Basisrouten mögliche Form zusätzlich zum Mischverkehr (kein DWV-Deckel). Auf verkehrsorientierten Strassen nicht vorgesehen."
    },
    "Zürich": {
@@ -215,13 +216,13 @@
    },
    "Basel": {
     "breiteOptimal": 4.5,
-    "breiteMinimal": 3.0,
+    "breiteMinimal": 4.5,
     "taktNote1": null,
     "taktOk": null,
     "taktModell": "Keine Takt-Abhängigkeit (qualitativ).",
     "breiteHerkunft": "stadt",
     "taktHerkunft": null,
-    "hinweis": "Standardmass 4,50 m (Vorzugsroute); reduziertes Standardmass 3,00 m (Pendler-/Basisrouten). Kein Takt-Schwellwert: Eignung qualitativ (Busspur-Breite, Anzahl Buslinien, Taktdichte, Velofrequenz) → Note rein breitengetrieben.",
+    "hinweis": "Busspur mit Velozulassung: Standardmass 4,50 m (mindestens 4,50 m für das Überholen durch Busse); reduziertes Standardmass 3,00 m nur mit begründeter Abweichung. Kein Takt-Schwellwert.",
     "decke": 4
    }
   }
@@ -881,79 +882,131 @@
    },
    "sollTabelle": {
     "typ": "nachStrassentyp",
-    "quelle": "DTV_KMH_Fuehrungsform.csv (Basel). Strasseneinteilung: data.bs.ch/explore/assets/100250. DWV als DTV verwenden.",
-    "hinweis": "Kein DTV-Bänder-System, sondern Strassentyp × Tempo × Netzhierarchie (Tab. 3, S. 15). Auf nicht verkehrsorientierten (siedlungsorientierten) Tempo-30-Strassen: Vorzugsroute → Velostrasse (DWV ≤ 2'500); Pendler-/Basisrouten → Mischverkehr (DWV ≤ 5'000) ODER Velostrasse (kein DWV-Deckel). Auf verkehrsorientierten Strassen gibt es keine Velostrasse; empfohlen sind dort Vorzugsroute → Radstreifen oder Radweg, Pendler-/Basisrouten → Radstreifen (die «Radspur» der Tabelle wird der Einfachheit halber als breiter Radstreifen behandelt, keine eigene Form). «Einbahn Velogegenverkehr ohne Markierung» gilt auf Pendler-/Basisrouten wie Mischverkehr (zulässig, DWV-Deckel 5'000; seit 29.09.2026). Jede nicht vorgesehene Form → Note max. 4. DWV-Deckel bleibt Hinweis ohne Notenabzug. Velostrasse: bei DWV < 1'000 reduzierte Breite 4,00 m zulässig.",
+    "quelle": "Standards Fuss- und Veloverkehrsinfrastruktur Basel-Stadt (27.09.2024), Tab. 3, gedruckte S. 15 (im Code: baselStandard.ts). Strassenfunktion und Regime: data.bs.ch 100250. Basler Zählwerte gelten im Rechner als DTV (Festlegung 10.11.2026); die DWV-Grenzen werden näherungsweise damit geprüft.",
+    "hinweis": "Seit der Prüfung VRC-01 (10.11.2026): Tab. 3 vollständig, Tempo × Strassenfunktion × Netzhierarchie. E = empfohlen (Vorgabe der Note), A = nur im Ausnahmefall (Hinweis, kein Abzug), leere Zelle = keine Zuordnung (kein Verbot; auf nicht verkehrsorientierten Strassen und für die Velostrasse wie bisher Note max. 4). Tempo 40 und betriebszeitlich begrenztes Tempo 30 → Vorgaben Tempo 50. Nicht verkehrsorientiert mit Tempo 40/50, Tempo 20 und 60: durch Tab. 3 nicht abgedeckt → keine Note (ausser Formen mit eigener Regel: Umweltspur, Fussweg Velo gestattet, Velostrasse über Tempo 30). Tempo 30 mit unbekanntem Regime: offen, wo das Ergebnis vom Regime abhängt. Die Strassenfunktion wird nie aus dem Tempo bestimmt; ohne sie bleibt der Basler Vergleich offen. Radspur = überbreiter Radstreifen (Abschnitt 5.1.2, S. 42), eigene Form, gleiche Trennstufe wie der Radstreifen (VRC-02).",
     "Vorzugsroute": [
      {
       "strassentyp": "nicht verkehrsorientierte Strasse",
-      "vMin": 0,
-      "vMax": 30,
       "form": "Velostrasse",
-      "hinweis": "einzige vorgesehene Form; Hinweis ab DWV 2500; bei DWV < 1000 Breite 4,00 m möglich"
-     },
-     {
-      "strassentyp": "verkehrsorientierte Strasse",
+      "empfohlen": [
+       "Velostrasse (bis 2'500 DWV)"
+      ],
+      "ausnahme": [],
       "vMin": 0,
       "vMax": 30,
-      "form": "Radstreifen oder Radweg"
+      "hinweis": "empfohlen: Velostrasse (bis 2'500 DWV); Tempo 30 dauerhaft"
      },
      {
       "strassentyp": "verkehrsorientierte Strasse",
+      "form": "Radspur oder Radweg",
+      "empfohlen": [
+       "Radspur",
+       "Radweg"
+      ],
+      "ausnahme": [
+       "Radstreifen",
+       "Busspur mit Velozulassung"
+      ],
+      "vMin": 0,
+      "vMax": 30,
+      "hinweis": "empfohlen: Radspur, Radweg; Ausnahmefall: Radstreifen, Busspur mit Velozulassung; Tempo 30 dauerhaft"
+     },
+     {
+      "strassentyp": "verkehrsorientierte Strasse",
+      "form": "Radspur oder Radweg",
+      "empfohlen": [
+       "Radspur",
+       "Radweg"
+      ],
+      "ausnahme": [
+       "Radstreifen",
+       "Busspur mit Velozulassung"
+      ],
       "vMin": 31,
       "vMax": 50,
-      "form": "Radstreifen oder Radweg"
+      "hinweis": "empfohlen: Radspur, Radweg; Ausnahmefall: Radstreifen, Busspur mit Velozulassung; auch Tempo 40 und betriebszeitlich begrenztes Tempo 30"
      }
     ],
     "Pendler-/Basisrouten": [
      {
       "strassentyp": "nicht verkehrsorientierte Strasse",
-      "vMin": 0,
-      "vMax": 30,
       "form": "Mischverkehr",
-      "hinweis": "empfohlen ≤ DWV 5000; zusätzlich Velostrasse als mögliche Form (ohne DWV-Deckel)"
-     },
-     {
-      "strassentyp": "verkehrsorientierte Strasse",
+      "empfohlen": [
+       "Mischverkehr (bis 5'000 DWV)"
+      ],
+      "ausnahme": [
+       "Velostrasse"
+      ],
       "vMin": 0,
       "vMax": 30,
-      "form": "Radstreifen"
+      "hinweis": "empfohlen: Mischverkehr (bis 5'000 DWV); Ausnahmefall: Velostrasse; Tempo 30 dauerhaft"
      },
      {
       "strassentyp": "verkehrsorientierte Strasse",
+      "form": "Radstreifen oder Radspur",
+      "empfohlen": [
+       "Radstreifen",
+       "Radspur"
+      ],
+      "ausnahme": [
+       "Mischverkehr (bis 5'000 DWV)",
+       "Radweg",
+       "Busspur mit Velozulassung"
+      ],
+      "vMin": 0,
+      "vMax": 30,
+      "hinweis": "empfohlen: Radstreifen, Radspur; Ausnahmefall: Mischverkehr (bis 5'000 DWV), Radweg, Busspur mit Velozulassung; Tempo 30 dauerhaft"
+     },
+     {
+      "strassentyp": "verkehrsorientierte Strasse",
+      "form": "Radstreifen oder Radspur",
+      "empfohlen": [
+       "Radstreifen",
+       "Radspur"
+      ],
+      "ausnahme": [
+       "Radweg",
+       "Busspur mit Velozulassung"
+      ],
       "vMin": 31,
       "vMax": 50,
-      "form": "Radstreifen"
+      "hinweis": "empfohlen: Radstreifen, Radspur; Ausnahmefall: Radweg, Busspur mit Velozulassung; auch Tempo 40 und betriebszeitlich begrenztes Tempo 30"
      }
     ]
    },
    "breiten": {
-    "quelle": "Fueherungsform_Breiten_Staedte.csv (Basel); Standards FVV Basel-Stadt (2024) Tab. 4 S. 20",
-    "hinweis": "optimal = Vorzugsroute (Standardmass), minimal = Pendler-/Basisrouten (reduziert), minimum = Minimalmass. Wo leer → Bern-Fallback (im Code).",
+    "quelle": "Standards Fuss- und Veloverkehrsinfrastruktur Basel-Stadt (27.09.2024), Tab. 4, gedruckte S. 16 (im Code: baselStandard.ts, BREITEN_BASEL)",
+    "hinweis": "Seit VRC-01 (10.11.2026): optimal/minimal = Standardmass je Form (unabhängig vom Routentyp; Ausnahme Zweirichtungsradweg 4,00 m auf Vorzugsrouten); Minimum = reduziertes Standardmass, nur mit begründeter Abweichung nach Abschnitt 1.3 (S. 6). Radstreifen auf Vorzugsrouten mindestens 1,80 m auch reduziert. Zweirichtungsradweg 4,00 m auch bei längerfristiger Landsicherung bzw. Neubau mit langem Erneuerungszyklus. Einbahn mit Velogegenverkehr: markiert wie Radstreifen, baulich getrennt Annahme wie Einrichtungsradweg. Ohne Umfeldzuschläge und Sicherheitsabstand (Tab. 5: nur Prüfliste, keine Addition).",
     "werte": {
      "Q1 Radstreifen": {
-      "optimal": 2.5,
+      "optimal": 1.8,
       "minimal": 1.8,
       "minimum": 1.6
      },
+     "Q1 Radspur (überbreiter Radstreifen)": {
+      "optimal": 2.5,
+      "minimal": 2.5,
+      "minimum": 2.2
+     },
      "Q2a Radweg strassenbegl. A": {
       "optimal": 2.5,
-      "minimal": 2.2,
-      "minimum": null
+      "minimal": 2.5,
+      "minimum": 2.2
      },
      "Q2b Radweg strassenbegl. B": {
       "optimal": 2.5,
-      "minimal": 2.2,
-      "minimum": null
+      "minimal": 2.5,
+      "minimum": 2.2
      },
      "Q3 Radweg abgesetzt": {
       "optimal": 2.5,
-      "minimal": 2.2,
-      "minimum": null
+      "minimal": 2.5,
+      "minimum": 2.2
      },
      "Q4 Umweltspur (Bus+Velo)": {
       "optimal": 4.5,
-      "minimal": 3.0,
-      "minimum": null
+      "minimal": 4.5,
+      "minimum": 3.0
      },
      "Q5 Kernfahrbahn": {
       "optimal": 1.8,
@@ -962,9 +1015,9 @@
      },
      "Q9 Velostrasse": {
       "optimal": 4.5,
-      "minimal": 4.3,
-      "minimum": null,
-      "hinweis": "Nur auf nicht verkehrsorientierten (siedlungsorientierten) Strassen: Vorzugsroute einzige Form, Pendler-/Basis mögliche Form (neben Mischverkehr). Nettobreite der Fahrbahn (ohne Parkierung + Sicherheitsabstand): optimal 4,50 / minimal 4,30; bei DWV < 1'000 reduziert 4,00 m. DWV-Deckel (Vorzugsroute 2'500) bleibt Hinweis."
+      "minimal": 4.5,
+      "hinweis": "Nettofahrbahnbreite (ohne Parkierung); unter 1'000 Fz/d genügen 4,00 m.",
+      "minimum": 4.3
      },
      "Q10 Zweirichtungsradweg": {
       "optimal": 4.0,
